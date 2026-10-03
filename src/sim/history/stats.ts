@@ -196,9 +196,14 @@ export interface OverseasStats {
   voyFounded: number
   voyLost: number
   voyNothing: number
-  /** Of launched voyages: share from a port, median sender population. */
+  /** Of launched voyages: share from a port, median sender population, share by sender size (< 300, 300-3k, >= 3k), share sent from off the cradle (onward voyages, island hopping). */
   voyPortShare: number
   voySenderPop: number
+  voySize: number[]
+  voyOffCradle: number
+  /** Founded voyages: sea cost per era (median, 90th percentile, max) and share landing on another landmass than the sender's. */
+  voyCost: string
+  voyOtherLand: number
   /** Population share per landmass at SEA_YEARS for the largest landmasses (label = habitable cells; c marks the cradle). */
   lmShares: string
   /** At the end: traders (>= 400) off the cradle, and the share of them joined by open routes (through any chain) to a cradle settlement; seaborne colonies that ever traded directly with their mother settlement / eligible pairs (both reached 400 by the end). */
@@ -296,22 +301,40 @@ export function overseasStats(world: World, h: History, terrain: Terrain, diag?:
   }
   const median = (xs: number[]) => { if (xs.length === 0) return 0; const a = [...xs].sort((x, y) => x - y); return a[Math.floor(a.length / 2)] }
   const v = diag?.voyages
-  let voyLaunched = -1, voyFounded = -1, voyLost = -1, voyNothing = -1, voyPortShare = 0, voySenderPop = 0
+  let voyLaunched = -1, voyFounded = -1, voyLost = -1, voyNothing = -1, voyPortShare = 0, voySenderPop = 0, voyOffCradle = 0, voyOtherLand = 0
+  const voySize = [0, 0, 0]
+  let voyCost = ''
   if (v) {
     voyLaunched = 0; voyFounded = 0; voyLost = 0; voyNothing = 0
-    let port = 0
+    let port = 0, off = 0, other = 0
     const pops: number[] = []
+    const costs: number[][] = [[], [], [], []]
     for (let k = 0; k < v.outcome.length; k++) {
       const o = v.outcome[k]
       if (o === 0) { voyNothing++; continue }
       voyLaunched++
-      if (o === 1) voyFounded++
-      else voyLost++
+      const fromLm = terrain.landmass[h.settlements[v.from[k]].cell]
+      if (o === 1) {
+        voyFounded++
+        costs[Math.min(3, Math.floor(v.year[k] / 500))].push(v.cost[k])
+        if (v.toLandmass[k] !== fromLm) other++
+      } else voyLost++
       if (v.port[k]) port++
-      pops.push(v.senderPop[k])
+      if (fromLm !== cradle) off++
+      const p = v.senderPop[k]
+      voySize[p < 300 ? 0 : p < 3000 ? 1 : 2]++
+      pops.push(p)
     }
     voyPortShare = voyLaunched > 0 ? port / voyLaunched : 0
     voySenderPop = median(pops)
+    voyOffCradle = voyLaunched > 0 ? off / voyLaunched : 0
+    voyOtherLand = voyFounded > 0 ? other / voyFounded : 0
+    for (let i = 0; i < 3; i++) voySize[i] = voyLaunched > 0 ? voySize[i] / voyLaunched : 0
+    voyCost = costs.map((c) => {
+      if (c.length === 0) return '-'
+      const a = [...c].sort((x, y) => x - y)
+      return `${a[Math.floor(a.length / 2)].toFixed(0)}/${a[Math.floor(0.9 * (a.length - 1))].toFixed(0)}/${a[a.length - 1].toFixed(0)}`
+    }).join(' ')
   }
   // Trade reach: route components at the end.
   const tr = h.trade
@@ -356,7 +379,7 @@ export function overseasStats(world: World, h: History, terrain: Terrain, diag?:
     firstContinent, firstLandmass, foundings, seaFoundings,
     eraCount: eras.map((e) => e.length), eraMedian: eras.map(median), eraMax: eras.map((e) => (e.length > 0 ? Math.max(...e) : 0)),
     seaFromPort, seaSenderPop: median(senderPops), seaAbandoned: seaFoundings > 0 ? seaAband / seaFoundings : 0,
-    voyLaunched, voyFounded, voyLost, voyNothing, voyPortShare, voySenderPop, lmShares,
+    voyLaunched, voyFounded, voyLost, voyNothing, voyPortShare, voySenderPop, voySize, voyOffCradle, voyCost, voyOtherLand, lmShares,
     offTraders, offLinked: offTraders > 0 ? offLinked / offTraders : 0, motherRoutes, motherPairs,
   }
 }
@@ -374,7 +397,8 @@ export function formatOverseasStats(rows: HistoryStats[]): string {
     )
     L.push(
       `      sea foundings ${o.seaFoundings} of ${o.foundings} (${o.foundings > 0 ? pc(o.seaFoundings / o.foundings) : 0}%), per era count ${o.eraCount.join('/')} median sea cells ${o.eraMedian.join('/')} max ${o.eraMax.join('/')}; from a port ${o.seaFromPort}, median sender pop ${o.seaSenderPop.toFixed(0)}, later abandoned ${pc(o.seaAbandoned)}%` +
-        (o.voyLaunched >= 0 ? `; voyages launched ${o.voyLaunched} founded ${o.voyFounded} lost ${o.voyLost} (no landfall found ${o.voyNothing}), from ports ${pc(o.voyPortShare)}%, median sender pop ${o.voySenderPop.toFixed(0)}` : ''),
+        (o.voyLaunched >= 0 ? `; voyages launched ${o.voyLaunched} founded ${o.voyFounded} lost ${o.voyLost} (no landfall found ${o.voyNothing}), from ports ${pc(o.voyPortShare)}%, median sender pop ${o.voySenderPop.toFixed(0)}, ` +
+          `senders <300/<3k/3k+ ${o.voySize.map(pc).join('/')}%, sent from off the cradle ${pc(o.voyOffCradle)}%, colonies on another landmass ${pc(o.voyOtherLand)}%, sea cost of colonising voyages per era median/p90/max ${o.voyCost}` : ''),
     )
     L.push(`      pop share % by landmass (habitable cells) at ${yrs}: ${o.lmShares}; traders off the cradle ${o.offTraders}, ${pc(o.offLinked)}% linked to the cradle by routes; colony-mother routes ${o.motherRoutes} of ${o.motherPairs} eligible`)
   }
@@ -399,7 +423,8 @@ export function formatOverseasStats(rows: HistoryStats[]): string {
       `median sea cells per era (median over seeds) ${[0, 1, 2, 3].map((e) => med(rows.filter((r) => r.sea.eraCount[e] > 0).map((r) => r.sea.eraMedian[e]))).join('/')}, max ${[0, 1, 2, 3].map((e) => Math.max(0, ...rows.map((r) => r.sea.eraMax[e]))).join('/')}; ` +
       `from ports ${pc(tot((o) => o.seaFromPort) / Math.max(1, tot((o) => o.seaFoundings)))}%, later abandoned ${pc(med(rows.map((r) => r.sea.seaAbandoned)))}% (median)` +
       `; off-cradle traders linked to the cradle (median) ${pc(med(rows.filter((r) => r.sea.offTraders > 0).map((r) => r.sea.offLinked)))}%, colony-mother routes ${tot((o) => o.motherRoutes)} of ${tot((o) => o.motherPairs)} eligible pairs` +
-      (rows[0]?.sea.voyLaunched >= 0 ? `; voyages per seed launched ${med(rows.map((r) => r.sea.voyLaunched))} founded ${med(rows.map((r) => r.sea.voyFounded))} lost ${med(rows.map((r) => r.sea.voyLost))} no landfall ${med(rows.map((r) => r.sea.voyNothing))}, from ports ${pc(med(rows.map((r) => r.sea.voyPortShare)))}%` : ''),
+      (rows[0]?.sea.voyLaunched >= 0 ? `; voyages per seed launched ${med(rows.map((r) => r.sea.voyLaunched))} founded ${med(rows.map((r) => r.sea.voyFounded))} lost ${med(rows.map((r) => r.sea.voyLost))} (${pc(tot((o) => o.voyLost) / Math.max(1, tot((o) => o.voyLaunched)))}% of launched) no landfall ${med(rows.map((r) => r.sea.voyNothing))}, ` +
+        `from ports ${pc(med(rows.map((r) => r.sea.voyPortShare)))}%, senders <300/<3k/3k+ ${[0, 1, 2].map((i) => pc(med(rows.map((r) => r.sea.voySize[i])))).join('/')}% (medians), from off the cradle ${pc(med(rows.map((r) => r.sea.voyOffCradle)))}%, colonies on another landmass ${pc(med(rows.map((r) => r.sea.voyOtherLand)))}%` : ''),
   )
   return L.join('\n')
 }

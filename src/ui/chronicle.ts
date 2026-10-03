@@ -5,8 +5,10 @@
 // (binary searches into the index), so scrubbing backwards is exact.
 
 import { EventType } from '../contract.ts'
-import { describeEvent, describeFamineBurst, describeFoundings, describeMigrations, describeTradeBurst, eventKind } from './format.ts'
+import { describeEvent, describeFamineBurst, describeFoundings, describeMigrations, describeNaming, describeTradeBurst, eventKind } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, type HistoryIndex } from './historyIndex.ts'
+import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
+import { addShortcut } from './shortcuts.ts'
 
 const ROWS = 40
 
@@ -25,6 +27,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   const head = document.createElement('button')
   head.type = 'button'
   head.className = 'chr-head'
+  head.title = 'Show or hide the chronicle (C)'
   const title = document.createElement('span')
   title.className = 'chr-title'
   title.textContent = 'Chronicle'
@@ -36,6 +39,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   head.append(title, count, caret)
   const list = document.createElement('ol')
   list.className = 'chr-list'
+  list.id = 'chronicle-list'
+  head.setAttribute('aria-controls', list.id)
   const empty = document.createElement('div')
   empty.className = 'chr-empty'
   empty.textContent = 'Nothing has happened yet.'
@@ -53,6 +58,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     text.className = 'ev-text'
     li.append(year, text)
     li.hidden = true
+    li.tabIndex = 0
+    li.setAttribute('role', 'button')
     list.appendChild(li)
     rows.push({ li, year, text, entry: -1, shown: 0, target: -1 })
   }
@@ -62,30 +69,35 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   let shownMembers = -1
   let lastYear = 0
 
-  try {
-    collapsed = localStorage.getItem('worldseed.chronicle.collapsed') === '1'
-  } catch {
-    // storage unavailable: default expanded
-  }
+  collapsed = loadFlag('worldseed.chronicle.collapsed', false)
   root.classList.toggle('collapsed', collapsed)
+  head.setAttribute('aria-expanded', String(!collapsed))
 
-  head.addEventListener('click', () => {
+  const toggle = () => {
     collapsed = !collapsed
     root.classList.toggle('collapsed', collapsed)
-    try {
-      localStorage.setItem('worldseed.chronicle.collapsed', collapsed ? '1' : '0')
-    } catch {
-      // ignore
-    }
-    head.blur()
+    head.setAttribute('aria-expanded', String(!collapsed))
+    saveFlag('worldseed.chronicle.collapsed', collapsed)
     shownMembers = -1
     api.update(lastYear)
-  })
-  list.addEventListener('click', (e) => {
+  }
+  head.addEventListener('click', toggle)
+  addShortcut({ keys: ['c', 'C'], label: 'C', description: 'Show or hide the chronicle', group: 'Panels', run: () => toggle() })
+  // the right column's width (the map panel follows it)
+  if (container.parentElement) {
+    attachWidthHandle(root, { side: 'left', target: container.parentElement, cssVar: '--right-w', key: 'worldseed.rightWidth', min: 240, max: 460, initial: 292, label: 'Resize the right panels' })
+  }
+  const activate = (e: Event) => {
     const li = (e.target as HTMLElement).closest('li')
     if (!li || !index) return
     const row = rows.find((r) => r.li === li)
     if (row && row.entry >= 0 && row.target >= 0) callbacks.onSelect(row.target)
+  }
+  list.addEventListener('click', activate)
+  list.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    activate(e)
   })
 
   /** Writes entry k, with its first m members, into row r. */
@@ -93,6 +105,20 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     const h = ix.history
     const lo = ix.notableOffsets[k]
     const kind = ix.notableKind[k]
+    if (kind === EntryKind.Named) {
+      // named geography: members are -(feature id + 1), all named in one year by one settlement
+      const ids: number[] = []
+      for (let q = lo; q < lo + m; q++) ids.push(-ix.notableMembers[q] - 1)
+      const f = h.features[ids[0]]
+      const line = describeNaming(h, ids)
+      r.target = f.namedBy
+      r.li.hidden = false
+      r.li.className = 'ev-named notable'
+      r.year.textContent = String(f.namedYear)
+      r.text.textContent = line
+      r.li.title = `Year ${f.namedYear}: ${line}`
+      return
+    }
     let ev = ix.notableMembers[lo]
     let text: string
     let yearText: string

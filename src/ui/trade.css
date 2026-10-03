@@ -61,7 +61,7 @@
 }
 .insp-trade-more {
   margin-top: 1px;
-  color: #6f7d96;
+  color: var(--text-faint, #8a97ae);
 }
 
 /* chronicle and inspector event markers */
@@ -77,21 +77,16 @@
   box-shadow: inset 0 0 0 1px #c9a46a;
 }
 
-/* goods legend under the Trade toggle */
+/* goods legend in the Movement group, while Trade is on */
 .goods-legend {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 1px 8px;
-  margin: -1px 0 2px 20px;
+  margin: 5px 0 0;
+  padding: 5px 0 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
   font-size: 11px;
-  color: #a7b2c5;
-}
-.goods-legend.off {
-  /* keep its width so the panel does not jump when Trade is toggled */
-  visibility: hidden;
-  height: 0;
-  margin: 0;
-  overflow: hidden;
+  color: var(--text-dim, #a7b2c5);
 }
 .goods-legend span {
   white-space: nowrap;

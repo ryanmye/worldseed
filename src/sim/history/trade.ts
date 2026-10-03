@@ -47,7 +47,7 @@
 // lookup, no randomness.
 
 import { EventType, GOOD_COUNT } from '../../contract.ts'
-import { MinHeap } from '../util.ts'
+import { Heap } from './heap.ts'
 import { GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
 import { prosperity } from './migration.ts'
 import { reachOf } from './population.ts'
@@ -67,7 +67,7 @@ export interface TradeState {
   prev: Int32Array
   stamp: Int32Array
   run: number
-  heap: MinHeap
+  heap: Heap
   visited: Int32Array
   /** Link graph edges between settlements whose regions touch; boundary cells per edge. */
   edgeA: number[]
@@ -132,7 +132,7 @@ export interface TradeState {
   gPrev: Int32Array
   gStamp: Int32Array
   gRun: number
-  gHeap: MinHeap
+  gHeap: Heap
 
   // Roads.
   roadCells: Int32Array
@@ -156,7 +156,7 @@ export function createTrade(cellCount: number): TradeState {
     prev: new Int32Array(cellCount),
     stamp: new Int32Array(cellCount),
     run: 0,
-    heap: new MinHeap(1024),
+    heap: new Heap(1024),
     visited: new Int32Array(cellCount),
     edgeA: [], edgeB: [], edgeCost: [], edgeCellA: [], edgeCellB: [],
     adjCount: 0,
@@ -194,7 +194,7 @@ export function createTrade(cellCount: number): TradeState {
     gPrev: new Int32Array(S),
     gStamp: new Int32Array(S),
     gRun: 0,
-    gHeap: new MinHeap(256),
+    gHeap: new Heap(256),
     roadCells: new Int32Array(cellCount),
     roadCount: 0,
     isRoad: new Uint8Array(cellCount),

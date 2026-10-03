@@ -6,14 +6,14 @@
 // uploading land rows) happens only when a snapshot index changes.
 
 import * as THREE from 'three'
-import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
+import { CITY_POPULATION, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, type GlobeMesh } from '../render/globe.ts'
 import { ViewMode } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
 import type { CameraFly } from '../render/cameraFly.ts'
 import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
 import { buildStructureLayer, type StructureLayer } from '../render/structures.ts'
-import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
+import { createDioramaLayer, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
 import { buildHistoryIndex, landSnapshotAt, logScaled, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
@@ -21,6 +21,10 @@ import { createTimeline, YEARS_PER_SECOND } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
 import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
+import { addShortcut } from './shortcuts.ts'
+import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
+import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
+import { describePlaces } from './format.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -63,6 +67,10 @@ export interface HistoryView {
   setTradeVisible(show: boolean): void
   /** Roads and bridges. */
   setRoadsVisible(show: boolean): void
+  /** Map labels: named geography and settlement names. */
+  setLabelsVisible(show: boolean): void
+  /** The named features (by the current year) a cell lies in or on, e.g. "Kephia river, Hingara continent"; '' for none. */
+  placesAt(cell: number): string
   tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number): void
   /** The timeline is playing (the picture changes every frame). */
   isPlaying(): boolean
@@ -89,6 +97,14 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let tradeVisible = true
   let roads: RoadLayer | null = null
   let roadsVisible = true
+  let labels: LabelLayer | null = null
+  let labelsVisible = true
+  let year = 0
+  /** Detected features and the History feature of each (by kind and anchor), found lazily for readouts. */
+  let geo: { map: FeatureMap; feature: (GeoFeature | null)[] } | null = null
+  /** Features around the selected settlement, by naming year, and how many are shown. */
+  let selPlaces: GeoFeature[] = []
+  let selPlacesShown = -1
   let shownL0 = -1
   let shownL1 = -1
   const landPos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
@@ -117,6 +133,16 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   })
   const chronicle = createChronicle(deps.right, {
     onSelect: (id) => api.select(id, true),
+  })
+  addShortcut({
+    keys: ['Escape'],
+    label: 'Esc',
+    description: 'Close a popup, else deselect',
+    group: 'Panels',
+    run: () => {
+      if (selected < 0) return false
+      api.select(-1, false)
+    },
   })
 
   function clearLayer() {
@@ -150,6 +176,30 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       roads.dispose()
       roads = null
     }
+    if (labels) {
+      labels.dispose()
+      labels = null
+    }
+    geo = null
+  }
+
+  /** Features of the history on (and, with `beside`, beside) a cell, named or not yet, via the detected regions. */
+  function featuresNear(cell: number, beside: boolean): GeoFeature[] {
+    if (!world || !index || cell < 0 || cell >= world.grid.cellCount) return []
+    const fs = (index.history as Partial<History>).features
+    if (!Array.isArray(fs) || !fs.length) return []
+    if (!geo) {
+      const map = detectFeatures(world)
+      const byKey = new Map<string, GeoFeature>()
+      for (const f of fs) byKey.set(f.kind + ':' + f.anchorCell, f)
+      geo = { map, feature: map.features.map((d) => byKey.get(d.kind + ':' + d.anchorCell) ?? null) }
+    }
+    const out: GeoFeature[] = []
+    for (const d of featuresAt(geo.map, world, cell, [], beside)) {
+      const f = geo.feature[d]
+      if (f) out.push(f)
+    }
+    return out
   }
 
   function applyMarkerStyle() {
@@ -250,12 +300,20 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         history: h,
         land: index.land ? { interval: index.land.interval, count: index.land.count, landUse: index.land.landUse } : null,
         structures: structures ? structures.placements : null,
+        reservoirs: structures ? structures.reservoirs : null,
       })
       dioramas.setVisible(buildingsVisible)
       deps.planetGroup.add(dioramas.object)
       const td = index.trade
       if (td) {
-        trade = buildTradeLayer(world, { routes: td.routes, interval: td.interval, snapshots: td.count, volume: td.volume })
+        const rd = index.roads
+        trade = buildTradeLayer(world, {
+          routes: td.routes,
+          interval: td.interval,
+          snapshots: td.count,
+          volume: td.volume,
+          road: rd ? { road: rd.road, interval: rd.interval, snapshots: rd.count } : null,
+        })
         trade.object.visible = tradeVisible
         deps.planetGroup.add(trade.object)
         if (index.roads) {
@@ -271,6 +329,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (!index.land) globe?.setLandRows(null, null, 0, 0)
       shownL0 = shownL1 = -1
       applyMarkerStyle()
+      const settlementLayer = layer
+      labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, world, h, { population: (id) => settlementLayer.displayedPopulation(id) })
+      labels.setVisible(labelsVisible)
       deps.getGlobe()?.setCapacity(h.capacity)
       chronicle.setIndex(index)
       timeline.setRange(h.years, h.snapshotInterval)
@@ -300,6 +361,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       journeys?.setHighlight(selected >= 0 ? index.foundingJourney[selected] : -1)
       trade?.setSelected(selected)
       deps.setUrlParam('select', selected >= 0 ? String(selected) : null)
+      labels?.setSelected(selected)
+      selPlaces = selected >= 0 ? featuresNear(index.history.settlements[selected].cell, true).sort((a, b) => a.namedYear - b.namedYear) : []
+      selPlacesShown = -1
       if (selected < 0) {
         inspector.hide()
         return
@@ -320,6 +384,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       hovered = id
       requestRender()
       layer?.setHovered(id)
+      labels?.setHovered(id)
       deps.canvas.style.cursor = id >= 0 ? 'pointer' : ''
     },
     setViewMode(mode: ViewMode) {
@@ -358,8 +423,16 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       requestRender()
       if (roads) roads.object.visible = show
     },
+    setLabelsVisible(show: boolean) {
+      labelsVisible = show
+      requestRender()
+      labels?.setVisible(show)
+    },
+    placesAt(cell: number) {
+      return describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+    },
     tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number) {
-      const year = timeline.tick(dt)
+      year = timeline.tick(dt)
       if (!index || !layer) return
       const h = index.history
       snapshotAt(h, year, pos)
@@ -405,8 +478,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         dioramas.setTime(year, pulseYears * 0.6)
         dioramas.update(deps.camera)
         // up close the flat markers and icons step back for the models
-        const near = dioramas.active ? DIORAMA_NEAR : 0
-        const far = dioramas.active ? DIORAMA_FAR : 0
+        const near = dioramas.active ? DIORAMA_YIELD_NEAR : 0
+        const far = dioramas.active ? DIORAMA_YIELD_FAR : 0
         layer.setYield(near, far)
         structures?.setYield(near, far)
         journeys?.setYield(near, far)
@@ -414,7 +487,19 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         roads?.setYield(near, far)
       }
       chronicle.update(year)
-      if (selected >= 0) inspector.update(year, pos.s0, layer.displayedPopulation(selected))
+      if (labels && labelsVisible) {
+        labels.setYear(year, timeline.playing)
+        labels.update(deps.camera, deps.planetGroup, drawSize.x / pixelRatio, drawSize.y / pixelRatio)
+      }
+      if (selected >= 0) {
+        inspector.update(year, pos.s0, layer.displayedPopulation(selected))
+        let n = 0
+        while (n < selPlaces.length && selPlaces[n].namedYear <= year) n++
+        if (n !== selPlacesShown) {
+          selPlacesShown = n
+          inspector.setPlaces(describePlaces(selPlaces.slice(0, n)))
+        }
+      }
     },
     isPlaying() {
       return timeline.playing

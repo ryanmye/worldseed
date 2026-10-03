@@ -13,12 +13,24 @@ texture colours baked into vertex colours, no textures).
 
 Models used:
 
-- KayKit: `building_home_A`, `building_home_B`, `building_church`, `building_market`,
-  `building_tavern`, `building_well`, `building_blacksmith`, `building_windmill`,
-  `building_watermill`, `building_castle`, `building_tower_A`, `building_barracks`,
-  `building_lumbermill` (blue variants, with a team-colour mask derived from the red ones),
-  `trees_A_small`.
+- KayKit: `building_church`, `building_market`, `building_tavern`, `building_well`,
+  `building_blacksmith`, `building_windmill`, `building_watermill`, `building_castle`,
+  `building_tower_A`, `building_barracks`, `building_lumbermill` (blue variants, with a
+  team-colour mask derived from the red ones), as landmarks of temperate and mountain
+  settlements only. `building_home_A`, `building_home_B` and `trees_A_small` are still in
+  the file but no longer drawn.
 - Kenney Pirate Kit: `ship-small`, `ship-medium`, `structure-platform-dock`.
 - Kenney Fantasy Town Kit: `cart`.
 
-The haystacks, the dam and the soft contact shadows are generated in code (`models.ts`).
+Generated in code (`shapes.ts`, no external assets): the bulk houses of every building
+style (temperate, cold, mountain, desert, savanna, rainforest), the landmarks of the
+non-temperate styles (domed hall, minaret, kasbah, round halls, stockades, stepped
+temples, longhouses, stave towers), town walls and towers, market stalls, a small well,
+town bridges, groves (broadleaf, conifer, palm, jungle, acacia, cactus, rocks), haystacks,
+the dam and the soft contact shadows.
+
+The settlement plans (`town.ts`) follow the ideas of ward-based medieval town generators,
+notably Oleg Dolya's (watabou) Medieval Fantasy City Generator / TownGeneratorOS
+(https://github.com/watabou/TownGeneratorOS): Voronoi patches on a spiral, inner-patch
+relaxation, wards by location rating, recursive lot bisection. The code is an independent
+implementation, not a port.

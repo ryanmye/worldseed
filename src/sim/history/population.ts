@@ -74,6 +74,14 @@ export function foodSystem(s: HistoryState): void {
       claim[catchCell[k]] += f * catchW[k] * st
     }
   }
+  // Inverse claims, once per cell (the same quotient each claimant would compute).
+  const invClaim = s.invClaim
+  const landCells = T.landCells
+  for (let t = 0; t < landCells.length; t++) {
+    const j = landCells[t]
+    const cl = claim[j]
+    invClaim[j] = cl > 0 ? 1 / cl : 0
+  }
   // Expected food per settlement. Along the way, record which fields feed its
   // people this year: nearest catchment cells first, each up to the
   // settlement's share of the cell, until the food covers the population.
@@ -115,7 +123,7 @@ export function foodSystem(s: HistoryState): void {
         if (f < 1) w *= f
       }
       const j = catchCell[k]
-      const ic = 1 / claim[j]
+      const ic = invClaim[j]
       const cf = fish > 0 ? (1 + fish) * capFish[j] : capFish[j]
       const cj = capacity[j] - capFish[j] + cf
       const ww = w * w * ic

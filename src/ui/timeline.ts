@@ -3,6 +3,7 @@
 // derived from that year, so scrubbing in either direction is exact.
 
 import { formatPopulation, formatInt } from './format.ts'
+import { addShortcut } from './shortcuts.ts'
 
 /** Simulated years per real second at 1x. */
 export const YEARS_PER_SECOND = 20
@@ -26,8 +27,10 @@ export interface Timeline {
   play(): void
   pause(): void
   toggle(): void
-  /** Move one snapshot forward (+1) or back (-1) and pause. */
+  /** Move `dir` snapshots forward (> 0) or back (< 0) and pause. */
   step(dir: number): void
+  /** Playback speed multiplier (one of SPEEDS). */
+  setSpeed(speed: number): void
   /** Advance the clock by dt seconds; returns the current year. */
   tick(dt: number): number
   /** Live stats; towns and cities are counted by population tier; `routes` is the number of open trade routes. */
@@ -48,6 +51,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   playBtn.type = 'button'
   playBtn.className = 'btn tl-play'
   playBtn.title = 'Play / pause (Space)'
+  playBtn.setAttribute('aria-label', 'Play')
   playBtn.innerHTML = PLAY_ICON
 
   const yearBox = document.createElement('div')
@@ -81,11 +85,11 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     b.type = 'button'
     b.className = 'btn tl-speed-btn'
     b.textContent = s === 0.25 ? '¼×' : `${s}×`
-    b.title = `${s * YEARS_PER_SECOND} years per second`
+    b.title = `${s * YEARS_PER_SECOND} years per second (${SPEEDS.indexOf(s) + 1})`
+    b.setAttribute('aria-label', `Speed ${s === 0.25 ? 'one quarter' : s}×, ${s * YEARS_PER_SECOND} years per second`)
     b.addEventListener('click', () => {
       speed = s
       syncSpeed()
-      b.blur()
     })
     speedButtons.push(b)
     speedBox.appendChild(b)
@@ -100,6 +104,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   slider.max = '2000'
   slider.step = '1'
   slider.value = '0'
+  slider.setAttribute('aria-label', 'Year')
 
   const ticks = document.createElement('div')
   ticks.className = 'tl-ticks'
@@ -120,12 +125,16 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   let shownTiers = ''
 
   function syncSpeed() {
-    speedButtons.forEach((b, i) => b.classList.toggle('active', SPEEDS[i] === speed))
+    speedButtons.forEach((b, i) => {
+      b.classList.toggle('active', SPEEDS[i] === speed)
+      b.setAttribute('aria-pressed', String(SPEEDS[i] === speed))
+    })
   }
   syncSpeed()
 
   function syncPlay() {
     playBtn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON
+    playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play')
     root.classList.toggle('playing', playing)
   }
 
@@ -134,6 +143,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     if (y === shownYear) return
     shownYear = y
     yearValue.textContent = String(y)
+    slider.setAttribute('aria-valuetext', `Year ${y}`)
     if (!scrubbing) slider.value = String(y)
     slider.style.setProperty('--fill', years > 0 ? `${(100 * y) / years}%` : '0%')
   }
@@ -217,9 +227,14 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       if (!enabled) return
       playing = false
       syncPlay()
-      const s = dir > 0 ? Math.floor(year / interval + 1e-6) + 1 : Math.ceil(year / interval - 1e-6) - 1
+      const s = dir > 0 ? Math.floor(year / interval + 1e-6) + dir : Math.ceil(year / interval - 1e-6) + dir
       setYear(s * interval)
       settle()
+    },
+    setSpeed(s: number) {
+      if (!(SPEEDS as readonly number[]).includes(s)) return
+      speed = s
+      syncSpeed()
     },
     tick(dt: number) {
       if (playing && !scrubbing && enabled) {
@@ -254,10 +269,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     },
   }
 
-  playBtn.addEventListener('click', () => {
-    api.toggle()
-    playBtn.blur()
-  })
+  playBtn.addEventListener('click', () => api.toggle())
   slider.addEventListener('pointerdown', () => {
     scrubbing = true
   })
@@ -274,17 +286,30 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     if (!scrubbing) settle() // keyboard on the focused slider
   })
 
-  window.addEventListener('keydown', (e) => {
-    const t = e.target as HTMLElement | null
-    if (t && t.tagName === 'INPUT' && (t as HTMLInputElement).type === 'text') return
-    if (e.metaKey || e.ctrlKey || e.altKey) return
-    if (e.code === 'Space' || e.key === ' ') {
-      e.preventDefault()
-      api.toggle()
-    } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      e.preventDefault()
-      api.step(e.key === 'ArrowRight' ? 1 : -1)
-    }
+  addShortcut({ keys: [' '], label: 'Space', description: 'Play / pause', group: 'Timeline', run: () => api.toggle() })
+  addShortcut({ keys: ['ArrowLeft', 'ArrowRight'], shift: false, label: '← / →', description: 'Step one snapshot back / forward', group: 'Timeline', run: (e) => api.step(e.key === 'ArrowRight' ? 1 : -1) })
+  addShortcut({ keys: ['ArrowLeft', 'ArrowRight'], shift: true, label: 'Shift+← / Shift+→', description: 'Step ten snapshots', group: 'Timeline', run: (e) => api.step(e.key === 'ArrowRight' ? 10 : -10) })
+  addShortcut({
+    keys: ['Home', 'End'],
+    label: 'Home / End',
+    description: 'First / last year',
+    group: 'Timeline',
+    run: (e) => {
+      if (!enabled) return false
+      if (playing) {
+        playing = false
+        syncPlay()
+      }
+      setYear(e.key === 'Home' ? 0 : years)
+      settle()
+    },
+  })
+  addShortcut({
+    keys: ['1', '2', '3', '4'],
+    label: '1 – 4',
+    description: `Speed ${SPEEDS.map((v) => (v === 0.25 ? '¼' : String(v)) + '×').join(', ')}`,
+    group: 'Timeline',
+    run: (e) => api.setSpeed(SPEEDS[Number(e.key) - 1]),
   })
 
   return api

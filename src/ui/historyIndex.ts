@@ -2,7 +2,7 @@
 // year is a cheap function of that year (binary searches and array reads), with no
 // state accumulated during playback. That is what makes scrubbing backwards exact.
 
-import { CITY_POPULATION, EventType, JourneyKind, TOWN_POPULATION, type History, type Journeys, type Settlement, type Structure, type TradeRoutes } from '../contract.ts'
+import { CITY_POPULATION, EventType, FeatureKind, JourneyKind, TOWN_POPULATION, type GeoFeature, type History, type Journeys, type Settlement, type Structure, type TradeRoutes } from '../contract.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -18,6 +18,8 @@ export const EntryKind = {
   TradeOpenings: 4,
   /** Trade routes closed in one decade. */
   TradeClosings: 5,
+  /** Major features named by one settlement in one year; members are -(feature id + 1). */
+  Named: 6,
 } as const
 export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind]
 
@@ -299,6 +301,39 @@ function otherIsSettlement(type: number): boolean {
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed
 }
 
+/** Whether naming a feature is worth a chronicle line: continents and oceans, the larger seas, rivers, ranges and so on. */
+export function isMajorFeature(f: GeoFeature, cellCount: number): boolean {
+  const area = cellCount / 23042 // thresholds are tuned at the default resolution
+  switch (f.kind) {
+    case FeatureKind.Continent:
+    case FeatureKind.Ocean:
+      return true
+    case FeatureKind.Sea: return f.size >= 90 * area
+    case FeatureKind.Island: return f.size >= 25 * area
+    case FeatureKind.Lake: return f.size >= 10 * area
+    case FeatureKind.River: return f.size >= 14 * Math.sqrt(area)
+    case FeatureKind.MountainRange: return f.size >= 50 * area
+    case FeatureKind.Desert: return f.size >= 60 * area
+    default: return f.size >= 150 * area
+  }
+}
+
+/** Chronicle entries for named geography: the major features each settlement names, grouped per settlement and year, in year order. */
+function namingEntries(h: History): { year: number; members: number[] }[] {
+  const fs = (h as Partial<History>).features
+  if (!Array.isArray(fs)) return []
+  const out: { year: number; members: number[]; by: number }[] = []
+  const N = h.capacity?.length ?? 23042
+  for (const f of fs) {
+    if (!isMajorFeature(f, N)) continue
+    const last = out[out.length - 1]
+    if (last && last.year === f.namedYear && last.by === f.namedBy) last.members.push(-f.id - 1)
+    else out.push({ year: f.namedYear, members: [-f.id - 1], by: f.namedBy })
+  }
+  out.sort((a, b) => a.year - b.year)
+  return out
+}
+
 /** Trade openings (or closings) in one decade from this many up are one chronicle entry. */
 const TRADE_BURST = 3
 
@@ -367,8 +402,12 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
       entries.push({ kind, members: [i] })
     } else entries[at].members.push(i)
   }
+  // named geography goes in after the events of its year (its namer's founding comes first)
+  const namings = namingEntries(h)
+  let nextNaming = 0
   for (const i of order) {
     const e = h.events[i]
+    while (nextNaming < namings.length && namings[nextNaming].year < e.year) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
     if (!isShownType(e.type)) continue
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
@@ -378,13 +417,15 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (e.type === EventType.TradeClosed && (closingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(closingEntry, bucketOf(e.year), EntryKind.TradeClosings, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
+  while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
+  const memberYear = (m: number) => (m >= 0 ? h.events[m].year : h.features[-m - 1].namedYear)
   const notableKind = Uint8Array.from(entries, (en) => en.kind)
-  const notableYear = Float64Array.from(entries, (en) => h.events[en.members[0]].year)
+  const notableYear = Float64Array.from(entries, (en) => memberYear(en.members[0]))
   const notableOffsets = new Uint32Array(entries.length + 1)
   for (let k = 0; k < entries.length; k++) notableOffsets[k + 1] = notableOffsets[k] + entries[k].members.length
   const notableMembers = new Int32Array(notableOffsets[entries.length])
   entries.forEach((en, k) => notableMembers.set(en.members, notableOffsets[k]))
-  const notableMemberYear = Float64Array.from(notableMembers, (i) => h.events[i].year)
+  const notableMemberYear = Float64Array.from(notableMembers, memberYear)
   const memberYearsSorted = Float64Array.from(notableMemberYear).sort()
 
   // per-settlement event lists

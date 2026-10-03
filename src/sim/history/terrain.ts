@@ -5,7 +5,8 @@ import { Biome, RIVER_FLOW_THRESHOLD } from '../../contract.ts'
 import type { World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { createSimplex3, fbm } from '../noise.ts'
-import { MinHeap, smoothstep } from '../util.ts'
+import { smoothstep } from '../util.ts'
+import { Heap } from './heap.ts'
 import { CAPACITY, CATCHMENT, DEGRADATION, GOODS, MOVE_COST } from './params.ts'
 
 export interface Terrain {
@@ -189,7 +190,7 @@ export function buildTerrain(world: World): Terrain {
   let ds: number[] = []
   const stamp = new Int32Array(N).fill(-1)
   const dist = new Float64Array(N)
-  const heap = new MinHeap(256)
+  const heap = new Heap(256)
   const potential = new Float64Array(N)
   const maxD = K.maxHops + 1e-9
   for (let s = 0; s < N; s++) {

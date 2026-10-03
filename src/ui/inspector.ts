@@ -1,12 +1,17 @@
 // Settlement inspector panel. `show` builds the static parts once per selection
 // (name, origin, cell facts, sparkline); `update` only touches text, a bar width
 // and the sparkline cursor, and only when the displayed values actually change.
+// Recent events: trade openings and closings, and migrant groups coming and going, are
+// gathered per decade ("Opened 4 trade routes", 1850s) so they do not crowd out what
+// shaped the place (founding, growth, building, famine, ruin); at most a few such lines
+// are shown. The panel collapses to its header and its column can be resized.
 
-import { EventType, StructureType, type World } from '../contract.ts'
+import { EventType, StructureType, type History, type HistoryEvent, type World } from '../contract.ts'
 import { BIOME_NAMES } from '../render/palette.ts'
 import { describeEventFor, eventKind, formatInt, settlementName } from './format.ts'
 import { countUpTo, isAlive, landSnapshotAt, Tier, TIER_NAMES, tierOf, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createTradeSection } from './tradePanel.ts'
+import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -19,12 +24,18 @@ export interface Inspector {
   readonly selected: number
   /** Refresh dynamic fields for the current year; `population` is the interpolated value. */
   update(year: number, s0: number, population: number): void
+  /** The named features the settlement lies on or beside ("Kephia river, Hingara continent"), or '' for none. */
+  setPlaces(text: string): void
 }
 
-const RECENT_EVENTS = 6
+/** Event lines shown, and how many of them may be gathered trade or migration lines. */
+const RECENT_EVENTS = 8
+const CHURN_LINES = 3
+/** Years per gathered line. */
+const CHURN_BUCKET = 10
 /** Children listed by name; the rest are counted. */
 const CHILD_LINKS = 8
-const SPARK_W = 236
+const SPARK_W = 240
 const SPARK_H = 46
 
 /** A 0..255 land value of `cell`, interpolated between two land snapshots, as a percentage. */
@@ -39,9 +50,12 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   root.innerHTML = `
     <div class="insp-head">
       <div class="insp-name"><span class="insp-name-text"></span><span class="insp-tier hidden"></span></div>
-      <button type="button" class="insp-close" title="Close">×</button>
+      <button type="button" class="insp-collapse" title="Collapse" aria-label="Collapse the inspector" aria-expanded="true"><span class="caret" aria-hidden="true">▾</span></button>
+      <button type="button" class="insp-close" title="Close (Esc)" aria-label="Close the inspector">×</button>
     </div>
+    <div class="insp-body">
     <div class="insp-origin"></div>
+    <div class="insp-places hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
     <div class="readout-row">Food <span class="insp-food-val"></span></div>
@@ -64,6 +78,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     </div>
     <div class="insp-events-title">Recent events</div>
     <ol class="insp-events"></ol>
+    </div>
   `
   container.appendChild(root)
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T
@@ -74,6 +89,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const degEl = q<HTMLSpanElement>('.insp-deg')
   const structuresEl = q<HTMLDivElement>('.insp-structures')
   const originEl = q<HTMLDivElement>('.insp-origin')
+  const placesEl = q<HTMLDivElement>('.insp-places')
   const statusEl = q<HTMLDivElement>('.insp-status')
   const popEl = q<HTMLSpanElement>('.insp-pop')
   const foodValEl = q<HTMLSpanElement>('.insp-food-val')
@@ -89,6 +105,22 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const childrenEl = q<HTMLDivElement>('.insp-children')
   const migrantsEl = q<HTMLDivElement>('.insp-migrants')
   q<HTMLButtonElement>('.insp-close').addEventListener('click', () => callbacks.onClose())
+  const collapseBtn = q<HTMLButtonElement>('.insp-collapse')
+  let collapsed = loadFlag('worldseed.inspector.collapsed', false)
+  const syncCollapsed = () => {
+    root.classList.toggle('collapsed', collapsed)
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed))
+    collapseBtn.title = collapsed ? 'Expand' : 'Collapse'
+  }
+  syncCollapsed()
+  collapseBtn.addEventListener('click', () => {
+    collapsed = !collapsed
+    saveFlag('worldseed.inspector.collapsed', collapsed)
+    syncCollapsed()
+  })
+  if (container.parentElement) {
+    attachWidthHandle(root, { side: 'right', target: container.parentElement, cssVar: '--left-w', key: 'worldseed.leftWidth', min: 250, max: 460, initial: 292, label: 'Resize the inspector' })
+  }
 
   // links to other settlements carry data-sid
   root.addEventListener('click', (e) => {
@@ -155,6 +187,89 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     ctx.stroke()
   }
 
+  /** One event line: a single event, or a decade of trade or migration events of one kind. */
+  interface Line {
+    churn: 'trade' | 'out' | 'in' | null
+    decade: number
+    members: HistoryEvent[]
+  }
+
+  /** The lines for events [lo, lo + n) of the selection, newest first: notable events all kept, at most CHURN_LINES gathered ones. */
+  function pickEventLines(h: History, list: Int32Array, lo: number, n: number, sel: number): Line[] {
+    const lines: Line[] = []
+    const groupAt = new Map<string, number>()
+    let churn = 0
+    for (let k = lo + n - 1; k >= lo && lines.length < RECENT_EVENTS; k--) {
+      const e = h.events[list[k]]
+      const cls = e.type === EventType.TradeOpened || e.type === EventType.TradeClosed ? 'trade' : e.type === EventType.Migration ? (e.settlement === sel ? 'out' : 'in') : null
+      if (!cls) {
+        lines.push({ churn: null, decade: 0, members: [e] })
+        continue
+      }
+      const decade = Math.floor(e.year / CHURN_BUCKET)
+      const key = cls + decade
+      const at = groupAt.get(key)
+      if (at !== undefined) {
+        if (at >= 0) lines[at].members.push(e)
+        continue
+      }
+      if (churn >= CHURN_LINES) {
+        groupAt.set(key, -1) // over the budget: dropped
+        continue
+      }
+      churn++
+      groupAt.set(key, lines.length)
+      lines.push({ churn: cls, decade, members: [e] })
+    }
+    return lines
+  }
+
+  function renderLine(h: History, line: Line): HTMLLIElement {
+    const li = document.createElement('li')
+    const yr = document.createElement('span')
+    yr.className = 'ev-year'
+    const span = document.createElement('span')
+    span.className = 'ev-text'
+    const m = line.members
+    if (line.churn === null || m.length === 1) {
+      const e = m[0]
+      li.className = `ev-${eventKind(e)}`
+      yr.textContent = String(e.year)
+      const text = describeEventFor(h, e, selected)
+      const other = e.settlement === selected ? e.other : e.settlement
+      if (other >= 0 && other !== selected && other < h.settlements.length) {
+        // make the other settlement's name a link
+        const name = settlementName(h, other)
+        const at = text.indexOf(name)
+        if (at >= 0) span.append(text.slice(0, at), link(other), text.slice(at + name.length))
+        else span.textContent = text
+      } else span.textContent = text
+    } else {
+      yr.textContent = `${line.decade * CHURN_BUCKET}s`
+      const partners = new Set<number>()
+      for (const e of m) partners.add(e.settlement === selected ? e.other : e.settlement)
+      if (line.churn === 'trade') {
+        let opened = 0, closed = 0
+        for (const e of m) {
+          if (e.type === EventType.TradeOpened) opened++
+          else closed++
+        }
+        const routes = (k: number) => `${k} trade ${k === 1 ? 'route' : 'routes'}`
+        span.textContent = opened && closed ? `Opened ${opened} and closed ${routes(closed)}` : opened ? `Opened ${routes(opened)}` : `Closed ${routes(closed)}`
+        li.className = opened ? 'ev-trade' : 'ev-tradeEnd'
+      } else {
+        let people = 0
+        for (const e of m) people += e.value
+        span.textContent = `${line.churn === 'out' ? 'Sent' : 'Took in'} ${formatInt(people)} migrants in ${m.length} groups`
+        li.className = 'ev-migration'
+      }
+      const names = [...partners].filter((p) => p >= 0).slice(0, 8).map((p) => settlementName(h, p))
+      li.title = `${line.churn === 'trade' ? 'With' : line.churn === 'out' ? 'To' : 'From'} ${names.join(', ')}${partners.size > names.length ? ' and others' : ''}`
+    }
+    li.append(yr, span)
+    return li
+  }
+
   return {
     get selected() {
       return selected
@@ -190,6 +305,11 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     hide() {
       selected = -1
       root.classList.add('hidden')
+    },
+    setPlaces(text: string) {
+      if (placesEl.textContent === text) return
+      placesEl.textContent = text
+      placesEl.classList.toggle('hidden', text === '')
     },
     update(year: number, s0: number, population: number) {
       if (!index || selected < 0) return
@@ -268,7 +388,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       const c = Math.round((year / Math.max(1, h.years)) * SPARK_W)
       if (c !== shownCursor) {
         shownCursor = c
-        cursor.style.transform = `translateX(${c}px)`
+        cursor.style.left = `${((100 * c) / SPARK_W).toFixed(2)}%` // the sparkline stretches with the panel
       }
 
       const c0 = index.childOffsets[selected]
@@ -294,28 +414,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       if (n !== shownEventCount) {
         shownEventCount = n
         eventsEl.replaceChildren()
-        for (let k = lo + n - 1; k >= Math.max(lo, lo + n - RECENT_EVENTS); k--) {
-          const e = h.events[index.eventList[k]]
-          const li = document.createElement('li')
-          li.className = `ev-${eventKind(e)}`
-          const yr = document.createElement('span')
-          yr.className = 'ev-year'
-          yr.textContent = String(e.year)
-          const text = describeEventFor(h, e, selected)
-          const other = e.settlement === selected ? e.other : e.settlement
-          const span = document.createElement('span')
-          span.className = 'ev-text'
-          if (other >= 0 && other !== selected) {
-            // make the other settlement's name a link
-            const name = settlementName(h, other)
-            const at = text.indexOf(name)
-            if (at >= 0) span.append(text.slice(0, at), link(other), text.slice(at + name.length))
-            else span.textContent = text
-          } else span.textContent = text
-          li.append(yr, span)
-          eventsEl.appendChild(li)
-        }
-        eventsTitle.textContent = n > 0 ? `Recent events (${n})` : 'No events yet'
+        for (const line of pickEventLines(h, index.eventList, lo, n, selected)) eventsEl.appendChild(renderLine(h, line))
+        eventsTitle.textContent = n > 0 ? `Recent events (${formatInt(n)})` : 'No events yet'
         let groups = 0, people = 0
         for (let k = lo; k < lo + n; k++) {
           const e = h.events[index.eventList[k]]

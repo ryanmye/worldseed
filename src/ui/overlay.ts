@@ -1,10 +1,20 @@
-// Plain-DOM UI overlay: seed controls, view mode toggle, layer toggles, hover readout.
-// Exposes left/right/bottom containers that other panels (inspector, chronicle, timeline) join.
+// Plain-DOM UI overlay. Top left: the seed bar with the settings (sun, quality) and help
+// popovers. Top right: the map panel, a view-mode menu and the collapsible Layers panel
+// (toggles grouped Nature / People / Movement; the goods legend under Trade while it is
+// on). Bottom left: the hover readout. Other panels join the exposed columns: the
+// inspector under the seed bar (left), the chronicle under the map panel (right), the
+// timeline at the bottom centre. The columns scroll internally and stop above the
+// timeline when the window is too narrow for them to sit beside it.
+//
+// Layer toggles and the open/closed state of the panels are remembered (localStorage);
+// URL parameters still win (see main.ts). Another layer toggle is one addLayerToggle call.
 
 import { VIEW_MODES, BIOME_NAMES, type ViewMode } from '../render/palette.ts'
 import type { Biome } from '../contract.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
 import { GOOD_NAMES } from './format.ts'
+import { addShortcut, shortcutList } from './shortcuts.ts'
+import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import './trade.css'
 
 export interface Readout {
@@ -13,6 +23,10 @@ export interface Readout {
   temperature: number
   rainfall: number
   lake: boolean
+  /** Cell under the pointer (for looking up what lies there). */
+  cell?: number
+  /** Named features on or beside the cell ("Kephia river, Hingara continent"). */
+  places?: string
 }
 
 export interface OverlayCallbacks {
@@ -31,6 +45,8 @@ export interface OverlayCallbacks {
   onTradeToggle?(show: boolean): void
   /** Roads and bridges. */
   onRoadsToggle?(show: boolean): void
+  /** Place-name labels (shown only when given). */
+  onLabelsToggle?(show: boolean): void
 }
 
 export interface OverlayOptions {
@@ -44,6 +60,20 @@ export interface OverlayOptions {
   buildings?: boolean
   trade?: boolean
   roads?: boolean
+  labels?: boolean
+}
+
+export type LayerGroup = 'nature' | 'people' | 'movement'
+
+/** One layer toggle (see Overlay.addLayerToggle). */
+export interface LayerToggle {
+  /** Stable key: remembered in localStorage under it (see loadLayerPrefs). */
+  key: string
+  label: string
+  group: LayerGroup
+  checked: boolean
+  title?: string
+  onChange(show: boolean): void
 }
 
 const MODE_LABELS: Record<ViewMode, string> = {
@@ -57,80 +87,306 @@ const MODE_LABELS: Record<ViewMode, string> = {
   landuse: 'Land use',
 }
 
+const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }
+
+const LAYERS_KEY = 'worldseed.layers'
+const LAYERS_OPEN_KEY = 'worldseed.layersOpen'
+
+/** Remembered layer toggles by key ({} when none or unavailable). */
+export function loadLayerPrefs(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(loadPref(LAYERS_KEY) ?? '{}') as unknown
+    if (!v || typeof v !== 'object') return {}
+    const out: Record<string, boolean> = {}
+    for (const [k, b] of Object.entries(v as Record<string, unknown>)) if (typeof b === 'boolean') out[k] = b
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function saveLayerPref(key: string, on: boolean) {
+  const prefs = loadLayerPrefs()
+  prefs[key] = on
+  savePref(LAYERS_KEY, JSON.stringify(prefs))
+}
+
 export interface Overlay {
   root: HTMLElement
   /** Column under the seed bar (top-left). */
   left: HTMLElement
-  /** Column under the view-mode panel (top-right). */
+  /** Column under the map panel (top-right). */
   right: HTMLElement
   /** Bottom-centre slot. */
   bottom: HTMLElement
+  /** Body of the settings popover (sun and quality controls go here). */
+  settings: HTMLElement
   setGenerating(on: boolean): void
   setReadout(r: Readout | null): void
   setSeed(seed: number): void
   setViewMode(mode: ViewMode): void
+  /** Add a layer toggle to a group of the Layers panel; returns its checkbox. */
+  addLayerToggle(t: LayerToggle): HTMLInputElement
+  /** Re-measure what the columns must keep clear of (after a panel changes size). */
+  relayout(): void
+}
+
+let uid = 0
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 export function createOverlay(container: HTMLElement, initialSeed: number, initial: OverlayOptions, callbacks: OverlayCallbacks): Overlay {
   const root = document.createElement('div')
   root.className = 'overlay'
 
+  // ---------- seed bar ----------
   const topBar = document.createElement('div')
   topBar.className = 'panel top-bar'
 
   const seedLabel = document.createElement('label')
   seedLabel.className = 'seed-label'
-  seedLabel.textContent = 'SEED'
+  seedLabel.textContent = 'Seed'
   const seedInput = document.createElement('input')
   seedInput.type = 'text'
   seedInput.className = 'seed-input'
   seedInput.value = String(initialSeed)
   seedInput.inputMode = 'numeric'
+  seedInput.autocomplete = 'off'
+  seedInput.spellcheck = false
+  seedInput.title = 'World seed (Enter to generate)'
   seedLabel.appendChild(seedInput)
 
   const randomBtn = document.createElement('button')
   randomBtn.className = 'btn'
   randomBtn.type = 'button'
   randomBtn.textContent = 'Random'
+  randomBtn.title = 'A new random world'
 
-  topBar.appendChild(seedLabel)
-  topBar.appendChild(randomBtn)
+  const iconBtn = (cls: string, label: string, svg: string) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = `btn icon-btn ${cls}`
+    b.setAttribute('aria-label', label)
+    b.title = label
+    b.innerHTML = svg
+    return b
+  }
+  const settingsBtn = iconBtn(
+    'settings-btn',
+    'Sun and quality (S)',
+    '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.2v2.1M8 12.7v2.1M1.2 8h2.1M12.7 8h2.1M3.2 3.2l1.5 1.5M11.3 11.3l1.5 1.5M3.2 12.8l1.5-1.5M11.3 4.7l1.5-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
+  )
+  const helpBtn = iconBtn('help-btn', 'Help and keyboard shortcuts (?)', '<span aria-hidden="true">?</span>')
+  topBar.append(seedLabel, randomBtn, settingsBtn, helpBtn)
 
-  const modePanel = document.createElement('div')
-  modePanel.className = 'panel mode-panel'
-  const modeButtons = new Map<ViewMode, HTMLButtonElement>()
-  for (const mode of VIEW_MODES) {
-    const btn = document.createElement('button')
-    btn.className = 'btn mode-btn'
-    btn.type = 'button'
-    btn.textContent = MODE_LABELS[mode]
-    btn.addEventListener('click', () => {
-      callbacks.onViewModeChange(mode)
-    })
-    modeButtons.set(mode, btn)
-    modePanel.appendChild(btn)
+  // ---------- popovers ----------
+  const makePopover = (cls: string, title: string) => {
+    const p = document.createElement('div')
+    p.className = `panel popover ${cls} hidden`
+    p.id = `popover-${++uid}`
+    p.setAttribute('role', 'dialog')
+    p.setAttribute('aria-label', title)
+    p.tabIndex = -1
+    const h = document.createElement('div')
+    h.className = 'popover-title'
+    h.textContent = title
+    const body = document.createElement('div')
+    body.className = 'popover-body'
+    p.append(h, body)
+    return { p, body }
+  }
+  const settingsPop = makePopover('settings-pop', 'Sun and quality')
+  const helpPop = makePopover('help-pop', 'Help')
+  settingsBtn.setAttribute('aria-controls', settingsPop.p.id)
+  helpBtn.setAttribute('aria-controls', helpPop.p.id)
+  settingsBtn.setAttribute('aria-expanded', 'false')
+  helpBtn.setAttribute('aria-expanded', 'false')
+  const popovers: [HTMLElement, HTMLButtonElement][] = [
+    [settingsPop.p, settingsBtn],
+    [helpPop.p, helpBtn],
+  ]
+  let openPop: HTMLElement | null = null
+  function closePopover(returnFocus: boolean) {
+    if (!openPop) return
+    const btn = popovers.find(([p]) => p === openPop)?.[1]
+    openPop.classList.add('hidden')
+    btn?.setAttribute('aria-expanded', 'false')
+    btn?.classList.remove('active-toggle')
+    openPop = null
+    if (returnFocus) btn?.focus()
+  }
+  function togglePopover(p: HTMLElement) {
+    const was = openPop === p
+    closePopover(false)
+    if (was) return
+    if (p === helpPop.p) fillHelp()
+    const btn = popovers.find(([q]) => q === p)?.[1]
+    p.classList.remove('hidden')
+    btn?.setAttribute('aria-expanded', 'true')
+    btn?.classList.add('active-toggle')
+    openPop = p
+    p.focus({ preventScroll: true })
+  }
+  settingsBtn.addEventListener('click', () => togglePopover(settingsPop.p))
+  helpBtn.addEventListener('click', () => togglePopover(helpPop.p))
+  document.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!openPop) return
+      const t = e.target as Node
+      if (openPop.contains(t) || popovers.some(([p, b]) => p === openPop && b.contains(t))) return
+      closePopover(false)
+    },
+    true,
+  )
+
+  function fillHelp() {
+    const body = helpPop.body
+    body.replaceChildren()
+    const mouse: [string, string][] = [
+      ['Drag', 'Orbit the globe'],
+      ['Scroll', 'Zoom'],
+      ['Click', 'Select a settlement (empty ground deselects)'],
+      ['Shift-drag', 'Move the sun (or right-drag)'],
+    ]
+    const section = (title: string, rows: [string, string][]) => {
+      const h = document.createElement('div')
+      h.className = 'help-section'
+      h.textContent = title
+      const dl = document.createElement('dl')
+      dl.className = 'help-list'
+      for (const [k, d] of rows) {
+        const dt = document.createElement('dt')
+        for (const part of k.split(' / ')) {
+          if (dt.childNodes.length) dt.append(' ')
+          const kbd = document.createElement('kbd')
+          kbd.textContent = part
+          dt.appendChild(kbd)
+        }
+        const dd = document.createElement('dd')
+        dd.textContent = d
+        dl.append(dt, dd)
+      }
+      body.append(h, dl)
+    }
+    section('Mouse', mouse)
+    for (const g of ['Timeline', 'View', 'Panels'] as const) {
+      const rows = shortcutList().filter((s) => s.group === g).map((s) => [s.label, s.description] as [string, string])
+      if (rows.length) section(g, rows)
+    }
   }
 
-  const makeToggle = (label: string, checked: boolean, first: boolean) => {
+  // ---------- map panel: view mode and layers ----------
+  const mapPanel = document.createElement('div')
+  mapPanel.className = 'panel map-panel'
+
+  const viewRow = document.createElement('label')
+  viewRow.className = 'view-row'
+  const viewLabel = document.createElement('span')
+  viewLabel.className = 'view-label'
+  viewLabel.textContent = 'View'
+  const viewSelect = document.createElement('select')
+  viewSelect.className = 'view-select'
+  viewSelect.title = 'What the globe shows (V / Shift+V)'
+  for (const mode of VIEW_MODES) {
+    const o = document.createElement('option')
+    o.value = mode
+    o.textContent = MODE_LABELS[mode]
+    viewSelect.appendChild(o)
+  }
+  viewSelect.value = initial.viewMode
+  viewSelect.addEventListener('change', () => callbacks.onViewModeChange(viewSelect.value as ViewMode))
+  viewRow.append(viewLabel, viewSelect)
+
+  const layersHead = document.createElement('button')
+  layersHead.type = 'button'
+  layersHead.className = 'layers-head'
+  layersHead.title = 'Show or hide the layer toggles (L)'
+  const layersTitle = document.createElement('span')
+  layersTitle.className = 'layers-title'
+  layersTitle.textContent = 'Layers'
+  const layersCount = document.createElement('span')
+  layersCount.className = 'layers-count'
+  const layersCaret = document.createElement('span')
+  layersCaret.className = 'caret'
+  layersCaret.setAttribute('aria-hidden', 'true')
+  layersCaret.textContent = '▾'
+  layersHead.append(layersTitle, layersCount, layersCaret)
+  const layersBody = document.createElement('div')
+  layersBody.className = 'layers-body'
+  layersBody.id = `layers-${++uid}`
+  layersHead.setAttribute('aria-controls', layersBody.id)
+
+  const groups = new Map<LayerGroup, HTMLElement>()
+  for (const g of ['nature', 'people', 'movement'] as const) {
+    const fs = document.createElement('fieldset')
+    fs.className = `layer-group ${g}`
+    const lg = document.createElement('legend')
+    lg.textContent = GROUP_LABELS[g]
+    const grid = document.createElement('div')
+    grid.className = 'layer-grid'
+    fs.append(lg, grid)
+    layersBody.appendChild(fs)
+    groups.set(g, grid)
+  }
+  mapPanel.append(viewRow, layersHead, layersBody)
+
+  const toggles: HTMLInputElement[] = []
+  const syncCount = () => {
+    const on = toggles.filter((t) => t.checked).length
+    layersCount.textContent = `${on} of ${toggles.length} on`
+  }
+  function addLayerToggle(t: LayerToggle): HTMLInputElement {
     const row = document.createElement('label')
-    row.className = first ? 'layer-toggle first' : 'layer-toggle'
+    row.className = 'layer-toggle'
+    if (t.title) row.title = t.title
     const box = document.createElement('input')
     box.type = 'checkbox'
-    box.checked = checked
-    row.appendChild(box)
-    row.appendChild(document.createTextNode(' ' + label))
-    modePanel.appendChild(row)
+    box.checked = t.checked
+    box.dataset.layer = t.key
+    const text = document.createElement('span')
+    text.textContent = t.label
+    row.append(box, text)
+    groups.get(t.group)!.appendChild(row)
+    box.addEventListener('change', () => {
+      saveLayerPref(t.key, box.checked)
+      syncCount()
+      t.onChange(box.checked)
+    })
+    toggles.push(box)
+    syncCount()
     return box
   }
-  const riverCheckbox = makeToggle('Rivers', initial.rivers, true)
-  const cloudCheckbox = makeToggle('Clouds', initial.clouds, false)
-  const markerCheckbox = makeToggle('Settlements', initial.markers, false)
-  const journeyCheckbox = makeToggle('Journeys', initial.journeys, false)
-  const tradeCheckbox = makeToggle('Trade', initial.trade ?? true, false)
-  // what the merchants carry, under the Trade toggle
+
+  addLayerToggle({ key: 'rivers', label: 'Rivers', group: 'nature', checked: initial.rivers, onChange: (s) => callbacks.onRiversToggle(s) })
+  addLayerToggle({ key: 'clouds', label: 'Clouds', group: 'nature', checked: initial.clouds, onChange: (s) => callbacks.onCloudsToggle(s) })
+  if (callbacks.onLabelsToggle) {
+    const cb = callbacks.onLabelsToggle
+    addLayerToggle({ key: 'labels', label: 'Labels', group: 'nature', checked: initial.labels ?? true, title: 'Names of places', onChange: (s) => cb(s) })
+  }
+  addLayerToggle({ key: 'markers', label: 'Settlements', group: 'people', checked: initial.markers, onChange: (s) => callbacks.onMarkersToggle(s) })
+  addLayerToggle({ key: 'buildings', label: 'Buildings', group: 'people', checked: initial.buildings ?? true, title: '3D towns, farms and ships up close', onChange: (s) => callbacks.onBuildingsToggle?.(s) })
+  addLayerToggle({ key: 'farmland', label: 'Farmland', group: 'people', checked: initial.farmland, onChange: (s) => callbacks.onFarmlandToggle(s) })
+  addLayerToggle({ key: 'structures', label: 'Structures', group: 'people', checked: initial.structures, title: 'Ports, dams and reservoirs', onChange: (s) => callbacks.onStructuresToggle(s) })
+  addLayerToggle({ key: 'journeys', label: 'Journeys', group: 'movement', checked: initial.journeys, title: 'Settlers and migrants on the move', onChange: (s) => callbacks.onJourneysToggle(s) })
+  const tradeBox = addLayerToggle({
+    key: 'trade',
+    label: 'Trade',
+    group: 'movement',
+    checked: initial.trade ?? true,
+    title: 'Trade routes and merchants',
+    onChange: (s) => {
+      legend.classList.toggle('hidden', !s)
+      callbacks.onTradeToggle?.(s)
+    },
+  })
+  addLayerToggle({ key: 'roads', label: 'Roads', group: 'movement', checked: initial.roads ?? true, title: 'Roads and bridges', onChange: (s) => callbacks.onRoadsToggle?.(s) })
+  // what the merchants carry, while Trade is on
   const legend = document.createElement('div')
   legend.className = 'goods-legend'
-  legend.title = 'Goods carried by merchants'
+  legend.setAttribute('aria-label', 'Goods carried by merchants')
   GOOD_NAMES.forEach((name, g) => {
     const item = document.createElement('span')
     const dot = document.createElement('span')
@@ -139,76 +395,128 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     item.append(dot, name)
     legend.appendChild(item)
   })
-  legend.classList.toggle('off', !tradeCheckbox.checked)
-  modePanel.appendChild(legend)
-  const roadCheckbox = makeToggle('Roads', initial.roads ?? true, false)
-  const farmCheckbox = makeToggle('Farmland', initial.farmland, false)
-  const structureCheckbox = makeToggle('Structures', initial.structures, false)
-  const buildingCheckbox = makeToggle('Buildings', initial.buildings ?? true, false)
+  legend.classList.toggle('hidden', !tradeBox.checked)
+  groups.get('movement')!.parentElement!.appendChild(legend)
 
+  let layersOpen = loadFlag(LAYERS_OPEN_KEY, true)
+  const syncLayersOpen = () => {
+    mapPanel.classList.toggle('layers-collapsed', !layersOpen)
+    layersHead.setAttribute('aria-expanded', String(layersOpen))
+  }
+  syncLayersOpen()
+  const toggleLayers = () => {
+    layersOpen = !layersOpen
+    saveFlag(LAYERS_OPEN_KEY, layersOpen)
+    syncLayersOpen()
+    relayout()
+  }
+  layersHead.addEventListener('click', toggleLayers)
+
+  // ---------- readout, loading ----------
   const readoutPanel = document.createElement('div')
   readoutPanel.className = 'panel readout-panel hidden'
+  readoutPanel.setAttribute('aria-live', 'off')
 
   const loadingOverlay = document.createElement('div')
   loadingOverlay.className = 'loading hidden'
   loadingOverlay.textContent = 'generating world…'
 
-  const hint = document.createElement('div')
-  hint.className = 'panel hint'
-  hint.textContent = 'drag to orbit · scroll to zoom · click settlements'
-
+  // ---------- columns ----------
   const left = document.createElement('div')
   left.className = 'side-column left'
   left.appendChild(topBar)
   const right = document.createElement('div')
   right.className = 'side-column right'
-  right.appendChild(modePanel)
+  right.appendChild(mapPanel)
   const bottom = document.createElement('div')
   bottom.className = 'bottom-slot'
 
-  root.appendChild(left)
-  root.appendChild(right)
-  root.appendChild(bottom)
-  root.appendChild(readoutPanel)
-  root.appendChild(hint)
-  root.appendChild(loadingOverlay)
+  root.append(left, right, bottom, readoutPanel, settingsPop.p, helpPop.p, loadingOverlay)
   container.appendChild(root)
 
+  // A control clicked with the mouse lets go of the focus, so Space goes back to play /
+  // pause; one reached with the keyboard keeps it (and its focus ring).
+  let pointerToggle = false
+  root.addEventListener('pointerdown', () => (pointerToggle = true), true)
+  root.addEventListener('keydown', () => (pointerToggle = false), true)
+  root.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest('button')
+    if (b && e.detail > 0) b.blur()
+  })
+  root.addEventListener('change', (e) => {
+    const t = e.target as HTMLInputElement
+    if (pointerToggle && t.type === 'checkbox') t.blur()
+  })
+
+  // The columns stop above the timeline when they would reach under it, and the left one
+  // keeps clear of the hover readout. Measured on resize and when panels change size only.
+  const GAP = 10
+  function relayout() {
+    const tl = bottom.getBoundingClientRect()
+    const reserveTimeline = tl.height > 0 ? window.innerHeight - tl.top + GAP - 16 : 0
+    const lw = left.getBoundingClientRect().width
+    const rw = right.getBoundingClientRect().width
+    const leftUnder = tl.height > 0 && 16 + lw + GAP > tl.left
+    const rightUnder = tl.height > 0 && window.innerWidth - 16 - rw - GAP < tl.right
+    root.style.setProperty('--left-reserve', `${Math.max(leftUnder ? reserveTimeline : 0, 104)}px`)
+    root.style.setProperty('--right-reserve', `${rightUnder ? reserveTimeline : 0}px`)
+  }
+  let relayoutQueued = false
+  const queueRelayout = () => {
+    if (relayoutQueued) return
+    relayoutQueued = true
+    requestAnimationFrame(() => {
+      relayoutQueued = false
+      relayout()
+    })
+  }
+  window.addEventListener('resize', queueRelayout)
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(queueRelayout)
+    ro.observe(bottom)
+    ro.observe(left)
+    ro.observe(right)
+  }
+  queueRelayout()
+
+  // ---------- seed ----------
   function submitSeed() {
     const parsed = Number.parseInt(seedInput.value, 10)
     if (Number.isFinite(parsed)) callbacks.onSeedSubmit(parsed)
   }
-
   seedInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submitSeed()
   })
   seedInput.addEventListener('blur', submitSeed)
   randomBtn.addEventListener('click', () => callbacks.onRandomSeed())
-  riverCheckbox.addEventListener('change', () => callbacks.onRiversToggle(riverCheckbox.checked))
-  cloudCheckbox.addEventListener('change', () => callbacks.onCloudsToggle(cloudCheckbox.checked))
-  markerCheckbox.addEventListener('change', () => callbacks.onMarkersToggle(markerCheckbox.checked))
-  journeyCheckbox.addEventListener('change', () => callbacks.onJourneysToggle(journeyCheckbox.checked))
-  farmCheckbox.addEventListener('change', () => callbacks.onFarmlandToggle(farmCheckbox.checked))
-  structureCheckbox.addEventListener('change', () => callbacks.onStructuresToggle(structureCheckbox.checked))
-  buildingCheckbox.addEventListener('change', () => callbacks.onBuildingsToggle?.(buildingCheckbox.checked))
-  tradeCheckbox.addEventListener('change', () => {
-    legend.classList.toggle('off', !tradeCheckbox.checked)
-    callbacks.onTradeToggle?.(tradeCheckbox.checked)
-  })
-  roadCheckbox.addEventListener('change', () => callbacks.onRoadsToggle?.(roadCheckbox.checked))
 
-  function setActiveModeButton(mode: ViewMode) {
-    for (const [m, btn] of modeButtons) {
-      btn.classList.toggle('active', m === mode)
-    }
+  // ---------- shortcuts ----------
+  addShortcut({
+    keys: ['Escape'],
+    label: 'Esc',
+    description: 'Close a popup, else deselect',
+    group: 'Panels',
+    run: () => {
+      if (!openPop) return false
+      closePopover(true)
+    },
+  })
+  addShortcut({ keys: ['l', 'L'], label: 'L', description: 'Show or hide the layers', group: 'Panels', run: () => toggleLayers() })
+  addShortcut({ keys: ['s', 'S'], label: 'S', description: 'Sun and quality settings', group: 'Panels', run: () => togglePopover(settingsPop.p) })
+  addShortcut({ keys: ['?'], label: '?', description: 'This help', group: 'Panels', run: () => togglePopover(helpPop.p) })
+  const stepMode = (dir: number) => {
+    const i = VIEW_MODES.indexOf(viewSelect.value as ViewMode)
+    callbacks.onViewModeChange(VIEW_MODES[(i + dir + VIEW_MODES.length) % VIEW_MODES.length])
   }
-  setActiveModeButton(initial.viewMode)
+  addShortcut({ keys: ['v', 'V'], shift: false, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(1) })
+  addShortcut({ keys: ['v', 'V'], shift: true, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(-1) })
 
   return {
     root,
     left,
     right,
     bottom,
+    settings: settingsPop.body,
     setGenerating(on: boolean) {
       loadingOverlay.classList.toggle('hidden', !on)
     },
@@ -220,6 +528,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       readoutPanel.classList.remove('hidden')
       readoutPanel.innerHTML = `
         <div class="readout-biome">${BIOME_NAMES[r.biome] ?? 'Unknown'}${r.lake ? '<span class="readout-tag">lake</span>' : ''}</div>
+        ${r.places ? `<div class="readout-places">${escapeHtml(r.places)}</div>` : ''}
         <div class="readout-row">Elevation <span>${r.elevation.toFixed(2)}</span></div>
         <div class="readout-row">Temperature <span>${r.temperature.toFixed(2)}</span></div>
         <div class="readout-row">Rainfall <span>${r.rainfall.toFixed(2)}</span></div>
@@ -229,7 +538,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       seedInput.value = String(seed)
     },
     setViewMode(mode: ViewMode) {
-      setActiveModeButton(mode)
+      viewSelect.value = mode
     },
+    addLayerToggle,
+    relayout: queueRelayout,
   }
 }

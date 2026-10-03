@@ -36,6 +36,7 @@ import type { History, HistoryOptions, Journeys, Settlement, SimulateHistory, Wo
 import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import { nameSettlements } from '../names/index.ts'
+import { nameFeatures } from '../names/featureNames.ts'
 import { createSearch, migrationSystem } from './migration.ts'
 import { degradationSystem, landUseSystem } from './land.ts'
 import { HISTORY_DEFAULTS, LAND, POPULATION, ROAD } from './params.ts'
@@ -323,6 +324,7 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
       years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity, events: s.events, journeys,
       structures: s.structures, landInterval, landSnapshotCount, landUse, degradation, road, wealth,
       trade: routes, tradeInterval, tradeSnapshotCount, tradeVolume,
+      features: nameFeatures(world, settlements), // named geography (names/featureNames.ts)
     },
     terrain,
     diag: { goodVolume, through, voyages: voyages.log },

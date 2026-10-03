@@ -1,7 +1,7 @@
-// Sun and render-quality controls: sun mode (fixed / follows the camera / daylight
-// everywhere) on the first row; the caret opens the fixed-sun longitude and latitude
-// sliders and the quality preset (the open state is remembered).
-// The sun can also be dragged on the globe (shift-drag or right-drag, see pointer.ts).
+// Sun and render-quality controls, shown in the settings popover of the seed bar: sun
+// mode (fixed / follows the camera / daylight everywhere), the fixed sun's longitude and
+// latitude, and the quality preset. The sun can also be dragged on the globe (shift-drag
+// or right-drag, see pointer.ts).
 
 import { SUN_LAT_LIMIT, SunMode } from '../render/sun.ts'
 import { QUALITIES, type Quality } from '../render/quality.ts'
@@ -33,7 +33,7 @@ const QUALITY_TITLES: Record<Quality, string> = {
 
 export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: SunMode; lon: number; lat: number; quality: Quality }): SunPanel {
   const root = document.createElement('div')
-  root.className = 'panel sun-panel'
+  root.className = 'sun-panel'
 
   const row = (label: string) => {
     const r = document.createElement('div')
@@ -42,7 +42,7 @@ export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: Su
     l.className = 'sun-label'
     l.textContent = label
     r.appendChild(l)
-    ;(root.childElementCount > 0 ? details : root).appendChild(r)
+    root.appendChild(r)
     return r
   }
 
@@ -56,29 +56,21 @@ export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: Su
     b.className = 'btn seg-btn'
     b.textContent = label
     b.title = title
-    b.addEventListener('click', () => {
+    b.addEventListener('click', (e) => {
       callbacks.onSunMode(mode)
-      b.blur()
+      if (e.detail > 0) b.blur() // a mouse click: Space goes back to play / pause
     })
     modeButtons.set(mode, b)
     seg.appendChild(b)
   }
   modeRow.appendChild(seg)
-  const caret = document.createElement('button')
-  caret.type = 'button'
-  caret.className = 'sun-caret'
-  caret.title = 'Sun position and render quality'
-  caret.textContent = '▾'
-  modeRow.appendChild(caret)
-  const details = document.createElement('div')
-  details.className = 'sun-details'
-
   const slider = (label: string, min: number, max: number, title: string) => {
     const r = row(label)
     r.title = title
     const s = document.createElement('input')
     s.type = 'range'
     s.className = 'sun-slider'
+    s.setAttribute('aria-label', title)
     s.min = String(min)
     s.max = String(max)
     s.step = '1'
@@ -103,41 +95,22 @@ export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: Su
     b.className = 'btn seg-btn'
     b.textContent = QUALITY_LABELS[q]
     b.title = QUALITY_TITLES[q]
-    b.addEventListener('click', () => {
+    b.addEventListener('click', (e) => {
       callbacks.onQuality(q)
-      b.blur()
+      if (e.detail > 0) b.blur()
     })
     qButtons.set(q, b)
     qSeg.appendChild(b)
   }
   qRow.appendChild(qSeg)
-  root.appendChild(details)
-  const OPEN_KEY = 'worldseed.sunPanelOpen'
-  const setOpen = (open: boolean) => {
-    root.classList.toggle('open', open)
-    try {
-      window.localStorage.setItem(OPEN_KEY, open ? '1' : '0')
-    } catch {
-      // not remembered
-    }
-  }
-  let open = false
-  try {
-    open = window.localStorage.getItem(OPEN_KEY) === '1'
-  } catch {
-    // storage unavailable
-  }
-  root.classList.toggle('open', open)
-  caret.addEventListener('click', () => {
-    setOpen(!root.classList.contains('open'))
-    caret.blur()
-  })
-
   const fmt = (d: number) => `${Math.round(d)}°`
   const api: SunPanel = {
     root,
     setSun(mode: SunMode, lo: number, la: number) {
-      for (const [m, b] of modeButtons) b.classList.toggle('active', m === mode)
+      for (const [m, b] of modeButtons) {
+        b.classList.toggle('active', m === mode)
+        b.setAttribute('aria-pressed', String(m === mode))
+      }
       lon.s.value = String(Math.round(lo))
       lat.s.value = String(Math.round(la))
       lon.v.textContent = fmt(lo)
@@ -145,7 +118,10 @@ export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: Su
       root.classList.toggle('sun-moving', mode !== SunMode.Fixed)
     },
     setQuality(q: Quality) {
-      for (const [k, b] of qButtons) b.classList.toggle('active', k === q)
+      for (const [k, b] of qButtons) {
+        b.classList.toggle('active', k === q)
+        b.setAttribute('aria-pressed', String(k === q))
+      }
     },
   }
   api.setSun(initial.mode, initial.lon, initial.lat)

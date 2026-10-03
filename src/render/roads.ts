@@ -2,32 +2,35 @@
 //
 // Roads: History.road holds a road level per cell per land snapshot. Drawn naively
 // (every road cell joined to every road neighbour) roads form blobs around busy towns,
-// so the road network is taken from the trade paths instead: only cell-to-cell links that
-// some route actually travels are drawn. Each road cell becomes a smooth piece the way
-// rivers are built (rivers.ts): a quadratic Bezier from the midpoint of the incoming link,
-// with the cell as control point, to the midpoint of the outgoing link (one piece per
-// distinct pair of links a route turns through; a road's end runs to the cell centre).
-// Geometry is static; the level of every link comes from a small texture holding the
-// road rows of the two land snapshots bracketing the year (rewritten only when that pair
-// changes) and is interpolated in the vertex shader, so roads appear, widen and fade
-// with traffic as a pure function of the year. Pale tan ribbons, sun-lit, just above the
-// terrain (over the rivers); faint at globe zoom, clear from mid zoom inward.
+// so the road network is the land part of the bundled trade network (routeCurves.ts):
+// only cell-to-cell links that some route travels, each drawn once along the same curve
+// the land trade line and the merchants follow, so a road and its traffic never run
+// side by side. Where the network runs along a river its nodes sit on one bank, so a
+// road up a valley is drawn beside the river rather than over it, and crosses only where
+// it changes banks. Geometry is static; a link's level is the lower road level of its two
+// cells, read from a small texture holding the road rows of the two land snapshots
+// bracketing the year (rewritten only when that pair changes) and interpolated in the
+// vertex shader, so roads appear, widen and fade with traffic as a pure function of the
+// year. Packed-earth ribbons, sun-lit, just above the terrain (over the rivers); faint at
+// globe zoom (where the trade layer's warm line traces them), clear from mid zoom inward.
 //
-// Bridges: where a road piece passes through a river cell and crosses the river's course
-// (the road's two links separate the river's upstream and downstream links in the cell's
-// neighbour ring, rather than sharing one of them), a bridge sits at the point where the
-// two curves meet. At mid zoom it is a flat glyph, a short light deck with dark end caps
-// (one instanced draw call); up close a low-poly stone bridge from the diorama layer
-// stands in for it (see `placements`).
+// Bridges: wherever a road curve crosses a river curve (the river pieces as rivers.ts
+// draws them through the link's two cells), a bridge sits at the crossing, its deck along
+// the road. At mid zoom it is a flat glyph, a short light deck with dark end caps (one
+// instanced draw call); up close a low-poly stone bridge from the diorama layer stands in
+// for it (see `placements`). A road leaving a river town from its centre gets none (the
+// town draws its own).
 
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.ts'
-import { isWaterCell, lakeArray, surfaceRadius, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
+import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { sunUniforms } from './sun.ts'
+import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
 
 /** Height of road ribbons above the ground (rivers sit at 0.0012). */
 const ROAD_LIFT = 0.0014
-const SEGMENTS = 6
+/** How far a road piece reaches past a junction or end node, so pieces meeting there close up. */
+const JUNCTION_REACH = 0.0006
 /** Road level (0..255) above which a bridge stands (models and glyphs). */
 const BRIDGE_LEVEL = 26
 
@@ -71,98 +74,72 @@ export interface RoadLayer {
 const TEX_W = 1024
 
 export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
-  const { grid, flow, riverTo } = world
+  const { grid, flow, riverTo, elevation } = world
   const P = grid.positions
   const N = grid.cellCount
   const off = grid.neighborOffsets
   const nb = grid.neighbors
   const lake = lakeArray(world)
   const T = input.routes
-  const land = (c: number) => !isWaterCell(world, lake, c)
-  const isRiver = (c: number) => flow[c] >= RIVER_FLOW_THRESHOLD && riverTo[c] >= 0 && land(c)
+  const water = (c: number) => isWaterCell(world, lake, c)
+  const isRiver = (c: number) => flow[c] >= RIVER_FLOW_THRESHOLD && riverTo[c] >= 0 && !water(c)
+  const net = routeNetwork(world, T.pathOffsets, T.path, T.count)
+  const HS = HALF_SAMPLES
+  const degree = (n: number) => net.nodeLinkOffsets[n + 1] - net.nodeLinkOffsets[n]
 
-  // ---------- road pieces from the route paths ----------
-  const turnKeys = new Set<number>()
-  const turns: number[] = [] // p, c, q
-  const halfUsed = new Set<number>() // c * N + neighbour, links covered by a turn piece
-  const ends: number[] = [] // c, neighbour
-  const valid = (c: number) => c >= 0 && c < N
-  for (let r = 0; r < T.count; r++) {
-    const p0 = T.pathOffsets[r], p1 = T.pathOffsets[r + 1]
-    for (let k = p0; k < p1; k++) {
-      const c = T.path[k]
-      if (!valid(c) || !land(c)) continue
-      const prev = k > p0 ? T.path[k - 1] : -1
-      const next = k + 1 < p1 ? T.path[k + 1] : -1
-      const pl = valid(prev) && land(prev)
-      const nl = valid(next) && land(next)
-      if (pl && nl && prev !== next) {
-        const lo = Math.min(prev, next), hi = Math.max(prev, next)
-        const key = (c * N + lo) * N + hi
-        if (!turnKeys.has(key)) {
-          turnKeys.add(key)
-          turns.push(prev, c, next)
-          halfUsed.add(c * N + prev)
-          halfUsed.add(c * N + next)
-        }
-      } else if (pl) ends.push(c, prev)
-      else if (nl) ends.push(c, next)
-    }
+  // ---------- road pieces: the land halves of the network ----------
+  let pieceCount = 0
+  let extCount = 0
+  for (let l = 0; l < net.linkCount; l++) {
+    if (net.linkSea[l]) continue
+    pieceCount += 2
+    if (degree(net.linkNodeA[l]) !== 2) extCount++
+    if (degree(net.linkNodeB[l]) !== 2) extCount++
   }
-  const endKeys = new Set<number>()
-  const endList: number[] = []
-  for (let i = 0; i < ends.length; i += 2) {
-    const key = ends[i] * N + ends[i + 1]
-    if (halfUsed.has(key) || endKeys.has(key)) continue
-    endKeys.add(key)
-    endList.push(ends[i], ends[i + 1])
-  }
-
-  const pieceCount = turns.length / 3 + endList.length / 2
-  const vertsPer = SEGMENTS * 2
-  const V = pieceCount * vertsPer
+  const V = (pieceCount * HS + extCount) * 2
   const pos = new Float32Array(V * 3)
   const side = new Float32Array(V * 4) // side xyz, across
-  const cells = new Float32Array(V * 4) // p, c, q, t
-  const index = new Uint32Array(pieceCount * (SEGMENTS - 1) * 6)
+  const cells = new Float32Array(V * 4) // link end cells, position along the half, 0
+  const index = new Uint32Array((pieceCount * (HS - 1) + extCount) * 6)
   let nv = 0
   let ni = 0
-  const a = new THREE.Vector3(), b = new THREE.Vector3(), m = new THREE.Vector3()
-  const pt = new THREE.Vector3(), tan = new THREE.Vector3(), sd = new THREE.Vector3()
-  const unit = (c: number, out: THREE.Vector3) => out.set(P[c * 3], P[c * 3 + 1], P[c * 3 + 2])
-  const mid = (x: number, y: number, out: THREE.Vector3) => out.set(P[x * 3] + P[y * 3], P[x * 3 + 1] + P[y * 3 + 1], P[x * 3 + 2] + P[y * 3 + 2]).normalize()
-
-  /** Quadratic Bezier on unit vectors a -> ctrl -> b at t: point (normalised) and tangent. */
-  const bezier = (A: THREE.Vector3, C: THREE.Vector3, B: THREE.Vector3, t: number, outP: THREE.Vector3, outT: THREE.Vector3 | null) => {
-    const u = 1 - t
-    outP.set(0, 0, 0).addScaledVector(A, u * u).addScaledVector(C, 2 * u * t).addScaledVector(B, t * t)
-    if (outT) outT.set(0, 0, 0).addScaledVector(C, 2 * u).addScaledVector(A, -2 * u).addScaledVector(B, 2 * t).addScaledVector(C, -2 * t)
-    return outP.normalize()
+  const put = (x: number, y: number, z: number, r: number, sx: number, sy: number, sz: number, a: number, b: number, t: number) => {
+    for (let e = 0; e < 2; e++) {
+      pos[nv * 3] = x * r
+      pos[nv * 3 + 1] = y * r
+      pos[nv * 3 + 2] = z * r
+      side[nv * 4] = sx
+      side[nv * 4 + 1] = sy
+      side[nv * 4 + 2] = sz
+      side[nv * 4 + 3] = e === 0 ? -1 : 1
+      cells[nv * 4] = a
+      cells[nv * 4 + 1] = b
+      cells[nv * 4 + 2] = t
+      nv++
+    }
   }
-
-  function emit(A: THREE.Vector3, C: THREE.Vector3, B: THREE.Vector3, rA: number, rC: number, rB: number, cp: number, cc: number, cq: number) {
-    const base = nv
-    for (let s = 0; s < SEGMENTS; s++) {
-      const t = s / (SEGMENTS - 1)
-      const u = 1 - t
-      bezier(A, C, B, t, pt, tan)
-      sd.crossVectors(pt, tan).normalize()
-      const r = rA * u * u + rC * 2 * u * t + rB * t * t + ROAD_LIFT
-      for (let e = 0; e < 2; e++) {
-        pos[nv * 3] = pt.x * r
-        pos[nv * 3 + 1] = pt.y * r
-        pos[nv * 3 + 2] = pt.z * r
-        side[nv * 4] = sd.x
-        side[nv * 4 + 1] = sd.y
-        side[nv * 4 + 2] = sd.z
-        side[nv * 4 + 3] = e === 0 ? -1 : 1
-        cells[nv * 4] = cp
-        cells[nv * 4 + 1] = cc
-        cells[nv * 4 + 2] = cq
-        cells[nv * 4 + 3] = t
-        nv++
+  const { halfDir: hd, halfRadius: hr, halfSide: hsd } = net
+  for (let l = 0; l < net.linkCount; l++) {
+    if (net.linkSea[l]) continue
+    const a = net.linkA[l], b = net.linkB[l]
+    for (let e = 0; e < 2; e++) {
+      const h = 2 * l + e
+      const node = e === 0 ? net.linkNodeA[l] : net.linkNodeB[l]
+      const i0 = h * HS
+      const base = nv
+      // at a junction or a road's end, reach a little past the node so the pieces close up
+      const ext = degree(node) !== 2
+      if (ext) {
+        const dx = hd[i0 * 3] - hd[i0 * 3 + 3], dy = hd[i0 * 3 + 1] - hd[i0 * 3 + 4], dz = hd[i0 * 3 + 2] - hd[i0 * 3 + 5]
+        const k = JUNCTION_REACH / (Math.hypot(dx, dy, dz) || 1)
+        put(hd[i0 * 3] + dx * k, hd[i0 * 3 + 1] + dy * k, hd[i0 * 3 + 2] + dz * k, hr[i0] + ROAD_LIFT, hsd[i0 * 3], hsd[i0 * 3 + 1], hsd[i0 * 3 + 2], a, b, 0)
       }
-      if (s > 0) {
+      for (let s = 0; s < HS; s++) {
+        const i = i0 + s
+        put(hd[i * 3], hd[i * 3 + 1], hd[i * 3 + 2], hr[i] + ROAD_LIFT, hsd[i * 3], hsd[i * 3 + 1], hsd[i * 3 + 2], a, b, s / (HS - 1))
+      }
+      const n = (nv - base) / 2
+      for (let s = 1; s < n; s++) {
         const v = base + s * 2
         index[ni++] = v - 2; index[ni++] = v; index[ni++] = v - 1
         index[ni++] = v - 1; index[ni++] = v; index[ni++] = v + 1
@@ -170,135 +147,130 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     }
   }
 
-  // main upstream river cell of each cell (as rivers.ts draws them)
+  // ---------- river courses as rivers.ts draws them (for bridges) ----------
   const main = new Int32Array(N).fill(-1)
   for (let i = 0; i < N; i++) {
     if (!isRiver(i)) continue
     const j = riverTo[i]
     if (main[j] < 0 || flow[i] > flow[main[j]]) main[j] = i
   }
-  const ringIndex = (c: number, x: number) => {
-    for (let k = off[c]; k < off[c + 1]; k++) if (nb[k] === x) return k - off[c]
-    return -1
+  const unitOf = (c: number) => new THREE.Vector3(P[c * 3], P[c * 3 + 1], P[c * 3 + 2])
+  const midOf = (x: number, y: number) => unitOf(x).add(unitOf(y)).normalize()
+  /** Sampled river pieces drawn through cell b (its main course and the tributaries joining it), with their flow. */
+  const piecesOf = (b: number): { pts: THREE.Vector3[]; flow: number }[] => {
+    if (!isRiver(b)) return []
+    const out: { pts: THREE.Vector3[]; flow: number }[] = []
+    const bez = (A: THREE.Vector3, C: THREE.Vector3, B: THREE.Vector3) => {
+      const pts: THREE.Vector3[] = []
+      for (let s = 0; s < 8; s++) {
+        const t = s / 7, u = 1 - t
+        pts.push(new THREE.Vector3().addScaledVector(A, u * u).addScaledVector(C, 2 * u * t).addScaledVector(B, t * t).normalize())
+      }
+      return pts
+    }
+    const c = riverTo[b]
+    let end: THREE.Vector3
+    if (water(c)) {
+      const eb = elevation[b], ec = elevation[c]
+      const t = ec < 0 && eb > ec ? Math.min(0.8, Math.max(0.2, eb / (eb - ec))) : 0.5
+      end = unitOf(b).lerp(unitOf(c), t).normalize()
+    } else end = midOf(b, c)
+    const up = main[b]
+    if (up >= 0) {
+      const start = midOf(up, b)
+      out.push({ pts: bez(start, unitOf(b), end), flow: flow[b] })
+      const join = start.clone().multiplyScalar(0.25).addScaledVector(unitOf(b), 0.5).addScaledVector(end, 0.25).normalize()
+      for (let k = off[b]; k < off[b + 1]; k++) {
+        const a = nb[k]
+        if (a === up || riverTo[a] !== b || !isRiver(a)) continue
+        const s0 = midOf(a, b)
+        out.push({ pts: bez(s0, s0.clone().add(join).normalize(), join), flow: flow[a] })
+      }
+    } else {
+      let outlet = -1
+      for (let k = off[b]; k < off[b + 1]; k++) if (riverTo[nb[k]] === b && water(nb[k])) outlet = nb[k]
+      if (outlet >= 0) out.push({ pts: bez(midOf(outlet, b), unitOf(b), end), flow: flow[b] })
+      else out.push({ pts: bez(unitOf(b), unitOf(b).add(end).normalize(), end), flow: flow[b] })
+    }
+    return out
   }
-  /** Whether the road through c (links to p and q) crosses the river through c (links to u and d). */
-  const crosses = (c: number, p: number, q: number, u: number, d: number) => {
-    if (u === p || u === q || d === p || d === q) return false
-    const n = off[c + 1] - off[c]
-    const ip = ringIndex(c, p), iq = ringIndex(c, q), iu = ringIndex(c, u), id = ringIndex(c, d)
-    if (ip < 0 || iq < 0 || iu < 0 || id < 0) return false
-    const span = (iq - ip + n) % n
-    const between = (ix: number) => (ix - ip + n) % n < span
-    return between(iu) !== between(id)
+  const pieceCache = new Map<number, { pts: THREE.Vector3[]; flow: number }[]>()
+  const pieces = (c: number) => {
+    let p = pieceCache.get(c)
+    if (!p) {
+      p = piecesOf(c)
+      pieceCache.set(c, p)
+    }
+    return p
   }
-  const riverHalfWidth = (f: number) => Math.min(0.0032, 0.0006 + 0.00075 * Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD))
 
+  // ---------- bridges: where a road curve crosses a river curve ----------
   const bridgePos: number[] = []
   const bridgeDir: number[] = []
   const bridgeSpan: number[] = []
   const bridgeCells: number[] = []
-  const ra = new THREE.Vector3(), rb = new THREE.Vector3(), rc = new THREE.Vector3(), rq = new THREE.Vector3()
-  const bestP = new THREE.Vector3(), bestT = new THREE.Vector3()
-
-  for (let i = 0; i < turns.length; i += 3) {
-    const p = turns[i], c = turns[i + 1], q = turns[i + 2]
-    mid(p, c, a)
-    unit(c, m)
-    mid(c, q, b)
-    const rc0 = surfaceRadius(world, c)
-    emit(a, m, b, (surfaceRadius(world, p) + rc0) / 2, rc0, (surfaceRadius(world, q) + rc0) / 2, p, c, q)
-  }
-  // ---------- bridges ----------
-  // Walking each route: a road through a river cell crosses there when its two links
-  // separate the river's links in the cell's ring. A road may also join a river and run
-  // along it (both follow cheap valleys, and both are drawn through the cell centres, so
-  // they coincide there); if it leaves on the other bank from the one it came from, it
-  // crossed, and the bridge goes where it leaves.
-  const riverLink = (x: number, y: number) => (riverTo[x] === y && isRiver(x)) || (riverTo[y] === x && isRiver(y))
-  /** Upstream and downstream neighbours of river cell c as drawn, preferring `along` when it is on the river. */
-  const courseOf = (c: number, along: number, out: Int32Array) => {
-    let up = main[c]
-    if (along >= 0 && riverTo[along] === c && isRiver(along)) up = along
-    if (up < 0) for (let k = off[c]; k < off[c + 1]; k++) if (riverTo[nb[k]] === c && !land(nb[k])) up = nb[k] // lake outlet
-    out[0] = up
-    out[1] = riverTo[c]
-    return up >= 0 && out[1] >= 0
-  }
-  /** Which bank of the river (u upstream, d downstream) through c the neighbour x is on. */
-  const bankOf = (c: number, x: number, u: number, d: number) => {
-    const n = off[c + 1] - off[c]
-    const iu = ringIndex(c, u), id = ringIndex(c, d), ix = ringIndex(c, x)
-    return (ix - id + n) % n < (iu - id + n) % n ? 0 : 1
-  }
-  const course = new Int32Array(2)
-  const bridgeKeys = new Set<number>()
-  const addBridge = (p: number, c: number, q: number, u: number, d: number, alongRiver: boolean) => {
-    const key = (c * N + Math.min(p, q)) * N + Math.max(p, q)
-    if (bridgeKeys.has(key)) return
-    bridgeKeys.add(key)
-    mid(p, c, a)
-    unit(c, m)
-    mid(c, q, b)
-    const rc0 = surfaceRadius(world, c)
-    if (alongRiver) {
-      // where the road leaves the river for the far bank
-      bezier(a, m, b, 0.62, bestP, bestT)
-    } else {
-      // where the road and river curves meet
-      mid(u, c, ra)
-      mid(c, d, rb)
-      let best = Infinity
-      for (let s = 1; s < 24; s++) {
-        bezier(a, m, b, s / 24, rc, tan)
-        for (let w = 1; w < 24; w++) {
-          bezier(ra, m, rb, w / 24, rq, null)
-          const dd = rc.distanceToSquared(rq)
-          if (dd < best) {
-            best = dd
-            bestP.copy(rc)
-            bestT.copy(tan)
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), up3 = new THREE.Vector3(), hit = new THREE.Vector3(), dir = new THREE.Vector3()
+  const road2 = new Float64Array(HS * 2)
+  for (let l = 0; l < net.linkCount; l++) {
+    if (net.linkSea[l]) continue
+    const a = net.linkA[l], b = net.linkB[l]
+    const cand = [...pieces(a), ...pieces(b)]
+    if (cand.length === 0) continue
+    for (let e = 0; e < 2; e++) {
+      const h = 2 * l + e
+      const node = e === 0 ? net.linkNodeA[l] : net.linkNodeB[l]
+      const i0 = h * HS
+      // a local plane at the half's node
+      up3.set(hd[i0 * 3], hd[i0 * 3 + 1], hd[i0 * 3 + 2])
+      e1.set(hd[i0 * 3 + 3 * (HS - 1)] - up3.x, hd[i0 * 3 + 3 * (HS - 1) + 1] - up3.y, hd[i0 * 3 + 3 * (HS - 1) + 2] - up3.z)
+      e1.addScaledVector(up3, -e1.dot(up3)).normalize()
+      e2.crossVectors(up3, e1)
+      for (let s = 0; s < HS; s++) {
+        const i = i0 + s
+        const dx = hd[i * 3] - up3.x, dy = hd[i * 3 + 1] - up3.y, dz = hd[i * 3 + 2] - up3.z
+        road2[s * 2] = dx * e1.x + dy * e1.y + dz * e1.z
+        road2[s * 2 + 1] = dx * e2.x + dy * e2.y + dz * e2.z
+      }
+      for (const pc of cand) {
+        for (let w = 0; w + 1 < pc.pts.length; w++) {
+          const p = pc.pts[w], q = pc.pts[w + 1]
+          const px = (p.x - up3.x) * e1.x + (p.y - up3.y) * e1.y + (p.z - up3.z) * e1.z
+          const py = (p.x - up3.x) * e2.x + (p.y - up3.y) * e2.y + (p.z - up3.z) * e2.z
+          const qx = (q.x - up3.x) * e1.x + (q.y - up3.y) * e1.y + (q.z - up3.z) * e1.z
+          const qy = (q.x - up3.x) * e2.x + (q.y - up3.y) * e2.y + (q.z - up3.z) * e2.z
+          for (let s = 0; s + 1 < HS; s++) {
+            const ax = road2[s * 2], ay = road2[s * 2 + 1], bx = road2[s * 2 + 2], by = road2[s * 2 + 3]
+            const rx = bx - ax, ry = by - ay, sx = qx - px, sy = qy - py
+            const den = rx * sy - ry * sx
+            if (Math.abs(den) < 1e-14) continue
+            const t = ((px - ax) * sy - (py - ay) * sx) / den
+            const u = ((px - ax) * ry - (py - ay) * rx) / den
+            if (t < 0 || t > 1 || u < 0 || u > 1) continue
+            const i = i0 + s
+            hit.set(hd[i * 3] + (hd[i * 3 + 3] - hd[i * 3]) * t, hd[i * 3 + 1] + (hd[i * 3 + 4] - hd[i * 3 + 1]) * t, hd[i * 3 + 2] + (hd[i * 3 + 5] - hd[i * 3 + 2]) * t).normalize()
+            // a road leaving a river town from its centre: the town has its own bridges
+            if (net.nodeEnd[node] && hit.distanceTo(up3) < riverHalfWidth(pc.flow) + 0.0015) continue
+            // one bridge per crossing, also where two links meet on the river
+            let dup = false
+            for (let k = 0; k < bridgeSpan.length && !dup; k++) {
+              const o = k * 3, br = bridgeR(k)
+              if (Math.hypot(bridgePos[o] / br - hit.x, bridgePos[o + 1] / br - hit.y, bridgePos[o + 2] / br - hit.z) < 0.004) dup = true
+            }
+            if (dup) continue
+            dir.set(hd[i * 3 + 3] - hd[i * 3], hd[i * 3 + 4] - hd[i * 3 + 1], hd[i * 3 + 5] - hd[i * 3 + 2])
+            dir.addScaledVector(hit, -dir.dot(hit)).normalize()
+            const r = hr[i] + (hr[i + 1] - hr[i]) * t
+            bridgePos.push(hit.x * r, hit.y * r, hit.z * r)
+            bridgeDir.push(dir.x, dir.y, dir.z)
+            bridgeSpan.push(2 * riverHalfWidth(pc.flow) + 0.0026)
+            bridgeCells.push(a, b, b)
           }
         }
       }
     }
-    bestT.addScaledVector(bestP, -bestT.dot(bestP)).normalize()
-    bridgePos.push(bestP.x * rc0, bestP.y * rc0, bestP.z * rc0)
-    bridgeDir.push(bestT.x, bestT.y, bestT.z)
-    bridgeSpan.push(2 * riverHalfWidth(flow[c]) + 0.0026)
-    bridgeCells.push(p, c, q)
   }
-  for (let r = 0; r < T.count; r++) {
-    const p0 = T.pathOffsets[r], p1 = T.pathOffsets[r + 1]
-    let entryBank = -1 // bank the road came from before joining the river (-1: not on a river)
-    for (let k = p0 + 1; k + 1 < p1; k++) {
-      const p = T.path[k - 1], c = T.path[k], q = T.path[k + 1]
-      if (!valid(p) || !valid(c) || !valid(q) || !land(p) || !land(c) || !land(q) || !isRiver(c)) {
-        entryBank = -1
-        continue
-      }
-      const inAlong = riverLink(p, c), outAlong = riverLink(c, q)
-      if (!inAlong && !outAlong) {
-        if (courseOf(c, -1, course) && crosses(c, p, q, course[0], course[1])) addBridge(p, c, q, course[0], course[1], false)
-        entryBank = -1
-      } else if (!inAlong && outAlong) {
-        entryBank = courseOf(c, q, course) && course[0] !== p && course[1] !== p ? bankOf(c, p, course[0], course[1]) : -1
-      } else if (inAlong && !outAlong) {
-        if (entryBank >= 0 && courseOf(c, p, course) && course[0] !== q && course[1] !== q && bankOf(c, q, course[0], course[1]) !== entryBank) {
-          addBridge(p, c, q, course[0], course[1], true)
-        }
-        entryBank = -1
-      }
-    }
-  }
-
-  for (let i = 0; i < endList.length; i += 2) {
-    const c = endList[i], x = endList[i + 1]
-    mid(x, c, a)
-    unit(c, b)
-    m.copy(a).add(b).normalize()
-    const rc0 = surfaceRadius(world, c)
-    const rA = (surfaceRadius(world, x) + rc0) / 2
-    emit(a, m, b, rA, (rA + rc0) / 2, rc0, x, c, x)
+  function bridgeR(k: number) {
+    return Math.hypot(bridgePos[k * 3], bridgePos[k * 3 + 1], bridgePos[k * 3 + 2]) || 1
   }
 
   const geometry = new THREE.BufferGeometry()
@@ -355,7 +327,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     uniforms,
     vertexShader: /* glsl */ `
       attribute vec4 aSide;
-      attribute vec4 aCells; // previous cell, this cell, next cell, position along the piece
+      attribute vec4 aCells; // the link's two cells, position along the half, unused
       uniform float uPixel;
       uniform float uPixelRatio;
       ${roadLevelGlsl}
@@ -365,8 +337,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       varying float vLevel;
       varying vec3 vObjPos;
       void main() {
-        float rc = roadAt(aCells.y);
-        float l = mix(min(roadAt(aCells.x), rc), min(rc, roadAt(aCells.z)), aCells.w);
+        float l = min(roadAt(aCells.x), roadAt(aCells.y));
         float vis = smoothstep(0.035, 0.14, l);
         if (vis <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -447,7 +418,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     vertexShader: /* glsl */ `
       attribute vec3 aPos;
       attribute vec3 aDir;
-      attribute vec4 aInfo; // span (world), previous cell, river cell, next cell
+      attribute vec4 aInfo; // span (world), the road link's two cells (twice the second)
       uniform float uPixel;
       uniform float uPixelRatio;
       uniform float uBridgeZoom;
@@ -542,7 +513,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       fwd.set(bDir[k * 3], bDir[k * 3 + 1], bDir[k * 3 + 2])
       sdv.crossVectors(upv, fwd).normalize()
       // model forward is +z, X = Y x Z; deck length = span, fixed width and height
-      const L = bridgeSpan[k] * 1.1, W = 0.0016, H = 0.0023
+      const L = (bridgeSpan[k] - 0.0018) * 1.1, W = 0.00045, H = 0.0006 // a small bridge, the size of the 3D settlements (dioramas)
       const o = k * 16
       mat[o] = sdv.x * W; mat[o + 1] = sdv.y * W; mat[o + 2] = sdv.z * W; mat[o + 3] = 0
       mat[o + 4] = upv.x * H; mat[o + 5] = upv.y * H; mat[o + 6] = upv.z * H; mat[o + 7] = 0

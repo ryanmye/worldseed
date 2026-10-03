@@ -118,6 +118,7 @@ export function attachPointer(deps: PointerDeps): PointerInput {
       temperature: w.temperature[cell],
       rainfall: w.rainfall[cell],
       lake: lake !== null && lake[cell] === 1,
+      cell,
     })
   }
 

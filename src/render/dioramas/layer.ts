@@ -1,30 +1,43 @@
-// The diorama layer: oversized low-poly models standing on the globe when the camera is
-// close (one cell is ~150 km, so true scale would be invisible). Settlement clusters,
-// farm props on cultivated land, docks and moored ships at ports, dams, and ships or carts
-// for groups under way.
+// The diorama layer: small low-poly models standing on the globe when the camera is close
+// (one cell is ~150 km, so true scale would be invisible; these are some 400x true scale).
+// Settlement plans (town.ts), the countryside (farmsteads, mills, groves), piers and
+// moored boats at ports, dams, bridges, and ships or caravans for groups under way.
 //
-// Draw calls: one InstancedMesh per model (plus one for the contact shadows and two for
-// travelling ships and carts), all sharing one material, whatever the settlement count.
+// Draw calls: one InstancedMesh per model in use (plus one each for the packed-earth
+// ground, the contact shadows, travelling ships and carts, and bridges), all sharing one
+// material, whatever the settlement count. Empty batches are not drawn.
 //
 // Work per frame is uniform updates only. The instance set (which slots of which nearby
 // settlements, farms and structures exist, with their appear / disappear years over the
 // current snapshot window) is rebuilt only when the population snapshot or land snapshot
-// changes, the camera moves by a fraction of its altitude, or a toggle flips. Within a
-// window the shader animates pop-ins and removals from the year alone, so playback,
-// scrubbing back and a direct load at a year all agree. Travelling groups are the one
-// per-frame write (a handful of matrices, into preallocated buffers).
+// changes, the camera moves by a fraction of its altitude, a toggle flips, or layout work
+// left over from a previous rebuild (plans are computed nearest first under a time budget
+// of a few milliseconds per frame) is still pending. Within a window the shader animates
+// pop-ins and removals from the year alone, so playback, scrubbing back and a direct load
+// at a year all agree. Travelling groups are the one per-frame write (a handful of
+// matrices, into preallocated buffers).
 
 import * as THREE from 'three'
 import { StructureType, type History, type Structure, type World } from '../../contract.ts'
 import { requestRender } from '../invalidate.ts'
 import { SUN_DIRECTION, surfaceRadius } from '../globe.ts'
-import { createLayouts, crossing, NEVER, type Layouts, type SlotSet } from './layout.ts'
-import { createModelMaterial, createShadowMaterial, createUniforms } from './material.ts'
+import { createLayouts, crossing, GROUND_MODEL, NEVER, type Layouts, type SlotSet } from './layout.ts'
+import { createGroundMaterial, createModelMaterial, createShadowMaterial, createUniforms } from './material.ts'
 import { loadModels, MODEL_COUNT, MODEL_SPECS, Model, type ModelLibrary } from './models.ts'
+import { createSurface, type Probe } from './surface.ts'
 
-/** Camera distance at which models are full size, and where they are gone. */
-export const DIORAMA_NEAR = 0.24
-export const DIORAMA_FAR = 0.42
+/**
+ * Camera distance (to each instance) at which models are full size, and where they are
+ * gone: a house is ~2 px tall at DIORAMA_FAR on an 800 px tall view, so models arrive as
+ * tiny hints and grow with the approach rather than popping in large.
+ */
+export const DIORAMA_NEAR = 0.2
+export const DIORAMA_FAR = 0.3
+/** Camera distance over which the flat markers step back for the models (models readable: a house ~4-8 px). */
+export const DIORAMA_YIELD_NEAR = 0.08
+export const DIORAMA_YIELD_FAR = 0.15
+/** Milliseconds of layout work per rebuild (nearest settlements and fields first). */
+const LAYOUT_BUDGET_MS = 5
 
 /** Positions of travelling groups, as written each frame by the journey layer (see JourneyLayer.groups). */
 export interface TravelGroups {
@@ -92,26 +105,42 @@ export interface DioramaLayer {
   dispose(): void
 }
 
+const ZERO4 = new Float32Array(4)
+const ZERO3 = new Float32Array(3)
+
 class Batch {
   mesh: THREE.InstancedMesh
   geometry: THREE.BufferGeometry
   anim: Float32Array
   animAttr: THREE.InstancedBufferAttribute
+  roof: Float32Array
+  roofAttr: THREE.InstancedBufferAttribute
+  wall: Float32Array
+  wallAttr: THREE.InstancedBufferAttribute
   count = 0
   capacity: number
+  triangles: number
 
   constructor(source: THREE.BufferGeometry, material: THREE.Material, capacity: number) {
-    // share the model's vertex buffers; only the per-instance attribute is this batch's own
+    // share the model's vertex buffers; only the per-instance attributes are this batch's own
     this.geometry = new THREE.BufferGeometry()
     for (const name of ['position', 'normal', 'aColor']) {
       const a = source.getAttribute(name)
       if (a) this.geometry.setAttribute(name, a)
     }
-    this.geometry.setIndex(source.getIndex())
+    const idx = source.getIndex()
+    this.geometry.setIndex(idx)
+    this.triangles = (idx ? idx.count : source.getAttribute('position').count) / 3
     this.capacity = capacity
     this.anim = new Float32Array(capacity * 4)
     this.animAttr = new THREE.InstancedBufferAttribute(this.anim, 4).setUsage(THREE.DynamicDrawUsage)
+    this.roof = new Float32Array(capacity * 4)
+    this.roofAttr = new THREE.InstancedBufferAttribute(this.roof, 4).setUsage(THREE.DynamicDrawUsage)
+    this.wall = new Float32Array(capacity * 3)
+    this.wallAttr = new THREE.InstancedBufferAttribute(this.wall, 3).setUsage(THREE.DynamicDrawUsage)
     this.geometry.setAttribute('aAnim', this.animAttr)
+    this.geometry.setAttribute('aRoof', this.roofAttr)
+    this.geometry.setAttribute('aWall', this.wallAttr)
     this.mesh = new THREE.InstancedMesh(this.geometry, material, capacity)
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
     this.mesh.frustumCulled = false
@@ -130,23 +159,31 @@ class Batch {
     this.anim = a
     this.animAttr = new THREE.InstancedBufferAttribute(a, 4).setUsage(THREE.DynamicDrawUsage)
     this.geometry.setAttribute('aAnim', this.animAttr)
+    const r = new Float32Array(cap * 4)
+    r.set(this.roof)
+    this.roof = r
+    this.roofAttr = new THREE.InstancedBufferAttribute(r, 4).setUsage(THREE.DynamicDrawUsage)
+    this.geometry.setAttribute('aRoof', this.roofAttr)
+    const w = new Float32Array(cap * 3)
+    w.set(this.wall)
+    this.wall = w
+    this.wallAttr = new THREE.InstancedBufferAttribute(w, 3).setUsage(THREE.DynamicDrawUsage)
+    this.geometry.setAttribute('aWall', this.wallAttr)
     this.capacity = cap
   }
 
-  push(mat: ArrayLike<number>, matOffset: number, a: number, b: number, c: number, d: number, scale = 1) {
+  push(mat: ArrayLike<number>, matOffset: number, a: number, b: number, c: number, d: number, roof: ArrayLike<number> = ZERO4, ro = 0, wall: ArrayLike<number> = ZERO3, wo = 0) {
     if (this.count >= this.capacity) this.grow()
     const i = this.count++
     const dst = this.mesh.instanceMatrix.array as Float32Array
     const o = i * 16
-    if (scale === 1) for (let k = 0; k < 16; k++) dst[o + k] = mat[matOffset + k]
-    else {
-      for (let k = 0; k < 12; k++) dst[o + k] = mat[matOffset + k] * scale
-      for (let k = 12; k < 16; k++) dst[o + k] = mat[matOffset + k]
-    }
+    for (let k = 0; k < 16; k++) dst[o + k] = mat[matOffset + k]
     this.anim[i * 4] = a
     this.anim[i * 4 + 1] = b
     this.anim[i * 4 + 2] = c
     this.anim[i * 4 + 3] = d
+    for (let k = 0; k < 4; k++) this.roof[i * 4 + k] = roof[ro + k]
+    for (let k = 0; k < 3; k++) this.wall[i * 3 + k] = wall[wo + k]
   }
 
   commit() {
@@ -158,9 +195,11 @@ class Batch {
     im.clearUpdateRanges()
     im.addUpdateRange(0, n * 16)
     im.needsUpdate = true
-    this.animAttr.clearUpdateRanges()
-    this.animAttr.addUpdateRange(0, n * 4)
-    this.animAttr.needsUpdate = true
+    for (const [attr, size] of [[this.animAttr, 4], [this.roofAttr, 4], [this.wallAttr, 3]] as const) {
+      attr.clearUpdateRanges()
+      attr.addUpdateRange(0, n * size)
+      attr.needsUpdate = true
+    }
   }
 
   dispose() {
@@ -178,6 +217,25 @@ export interface DioramaInputs {
   /** Land-use rows, or null when the history has none. */
   land: LandRows | null
   structures: StructurePlacements | null
+  /** Cells flooded behind dams (structures.ts ReservoirCells): kept free of buildings. */
+  reservoirs?: { cells: ArrayLike<number>; strength: ArrayLike<number> } | null
+}
+
+/** Per-rebuild counts for perf=1 (window.__dioramaStats). */
+interface Stats {
+  instances: number
+  shadows: number
+  batches: number
+  triangles: number
+  settlements: number
+  farmCells: number
+  pending: boolean
+  rebuildMs: number
+  /** Travelling ships and carts drawn, and the first of each (object space), for aiming test shots. */
+  ships: number
+  carts: number
+  firstShip: number[]
+  firstCart: number[]
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
@@ -191,11 +249,14 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   uniforms.uFade.value.set(DIORAMA_NEAR, DIORAMA_FAR)
   const modelMaterial = createModelMaterial(uniforms)
   const shadowMaterial = createShadowMaterial(uniforms)
+  const groundMaterial = createGroundMaterial(uniforms)
+  const surface = createSurface(world)
 
   let lib: ModelLibrary | null = null
   let layouts: Layouts | null = null
   const batches: (Batch | null)[] = new Array(MODEL_COUNT).fill(null)
   let shadows: Batch | null = null
+  let ground: Batch | null = null
   let travelShips: Batch | null = null
   let travelCarts: Batch | null = null
   let disposed = false
@@ -228,6 +289,13 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const pickV = new THREE.Vector3()
   const pickR = new THREE.Vector3()
   const pickMvp = new THREE.Matrix4()
+  // nearest-first work lists (reused)
+  const visIds = new Int32Array(N)
+  const visD = new Float32Array(Math.max(N, cellCount))
+  const visCells = new Int32Array(cellCount)
+  const byDist = (a: number, b: number) => visD[a] - visD[b]
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0] }
+  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
 
   // owner palette for travelling groups: the journey's origin is not exposed per group, so use a neutral team colour
   const TRAVEL_PALETTE = 2
@@ -242,7 +310,16 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const onLoaded = (l: ModelLibrary) => {
     if (disposed) return
     lib = l
-    layouts = createLayouts(world, h.settlements, l)
+    let res: Float32Array | null = null
+    if (inputs.reservoirs && inputs.reservoirs.cells.length > 0) {
+      res = new Float32Array(cellCount)
+      const { cells, strength } = inputs.reservoirs
+      for (let k = 0; k < cells.length; k++) if (cells[k] >= 0 && cells[k] < cellCount) res[cells[k]] = Math.max(res[cells[k]], strength[k] ?? 1)
+    }
+    layouts = createLayouts(world, h, l, res)
+    ground = new Batch(l.blob, groundMaterial, 128)
+    ground.mesh.renderOrder = 0.5
+    object.add(ground.mesh)
     for (let m = 0; m < MODEL_COUNT; m++) {
       const entry = l.models[m]
       if (!entry) continue
@@ -258,7 +335,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       object.add(travelShips.mesh)
     }
     if (cart) {
-      travelCarts = new Batch(cart.geometry, modelMaterial, 32)
+      travelCarts = new Batch(cart.geometry, modelMaterial, 64)
       object.add(travelCarts.mesh)
     }
     ensureBridgeBatch()
@@ -279,32 +356,44 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const snapOf = (y: number) => Math.min(lastSnap, Math.max(0, Math.floor(y / interval)))
   const landSnapOf = (y: number) => (land ? Math.min(land.count - 1, Math.max(0, Math.floor(y / land.interval))) : 0)
 
-  /** Whether the point (object space) can be on screen and within the fade distance. */
-  const inView = (x: number, y: number, z: number, radius: number) => {
+  /** Distance from the camera if the point (object space) can be on screen within the fade distance, else -1. */
+  const viewDist = (x: number, y: number, z: number, radius: number) => {
     const dx = x - camObj.x, dy = y - camObj.y, dz = z - camObj.z
-    if (Math.hypot(dx, dy, dz) > DIORAMA_FAR + radius) return false
+    const d = Math.hypot(dx, dy, dz)
+    if (d > DIORAMA_FAR + radius) return -1
     // in front of the horizon
-    if (x * dx + y * dy + z * dz > 0.02) return false
+    if (x * dx + y * dy + z * dz > 0.02) return -1
     v4.set(x, y, z, 1).applyMatrix4(objToClip)
-    if (v4.w <= 0) return false
-    const m = 1.6 * v4.w
-    return Math.abs(v4.x) < m && Math.abs(v4.y) < m
+    if (v4.w <= -radius) return -1
+    const m = 1.6 * Math.max(v4.w, 1e-4) + radius * 4
+    if (Math.abs(v4.x) > m || Math.abs(v4.y) > m) return -1
+    return d
   }
 
   const pushSlots = (slots: SlotSet, k: number, appear: number, disappear: number) => {
     const model = slots.model[k]
+    if (model === GROUND_MODEL) {
+      ground?.push(slots.mat, k * 16, appear, disappear, 0, 0, ZERO4, 0, slots.wall, k * 3)
+      return
+    }
     const b = batches[model]
     if (!b) return
     const lit = MODEL_SPECS[model].lit ? 1 : 0
-    b.push(slots.mat, k * 16, appear, disappear, slots.palette[k], lit)
+    b.push(slots.mat, k * 16, appear, disappear, slots.palette[k], lit, slots.roof, k * 4, slots.wall, k * 3)
     shadows?.push(slots.blob, k * 16, appear, disappear, slots.height[k], 0)
   }
 
   function rebuild() {
     if (!lib || !layouts) return
+    const t0 = performance.now()
+    const deadline = t0 + LAYOUT_BUDGET_MS
+    let pending = false
     for (const b of batches) if (b) b.count = 0
     if (shadows) shadows.count = 0
+    if (ground) ground.count = 0
     pickCount = 0
+    stats.settlements = 0
+    stats.farmCells = 0
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -312,15 +401,32 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       const sP = Math.max(0, s0 - 1)
       const y0 = s0 * interval, y1 = s1 * interval, yP = sP * interval
       const pop = h.population
-      // ---- settlements ----
+      // ---- settlements, nearest first ----
+      let nv = 0
       for (let id = 0; id < N; id++) {
         const pA = pop[s0 * N + id], pB = pop[s1 * N + id], pP = pop[sP * N + id]
         if (pA <= 0 && pB <= 0 && pP <= 0) continue
-        const s = h.settlements[id]
-        const c = s.cell
+        const c = h.settlements[id].cell
         const r = surfaceRadius(world, c)
-        if (!inView(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.02)) continue
-        const slots = layouts.settlement(id, Math.max(pA, pB, pP))
+        const d = viewDist(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.012)
+        if (d < 0) continue
+        visIds[nv++] = id
+        visD[id] = d
+      }
+      visIds.subarray(0, nv).sort(byDist)
+      for (let q = 0; q < nv; q++) {
+        const id = visIds[q]
+        const pA = pop[s0 * N + id], pB = pop[s1 * N + id], pP = pop[sP * N + id]
+        const s = h.settlements[id]
+        const r = surfaceRadius(world, s.cell)
+        const got = layouts.settlement(id, Math.max(pA, pB, pP), deadline)
+        if (!got) {
+          pending = true
+          continue
+        }
+        if (!got.done) pending = true
+        const slots = got.set
+        stats.settlements++
         const end = s.abandonedYear >= 0 ? s.abandonedYear : NEVER
         if (slots.n > 0) {
           if (pickCount === pickIds.length) {
@@ -335,7 +441,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           pickPos[pickCount * 4] = slots.cx * r
           pickPos[pickCount * 4 + 1] = slots.cy * r
           pickPos[pickCount * 4 + 2] = slots.cz * r
-          pickPos[pickCount * 4 + 3] = slots.radius
+          pickPos[pickCount * 4 + 3] = Math.max(slots.radius, 0.0015)
           pickCount++
         }
         for (let k = 0; k < slots.n; k++) {
@@ -346,22 +452,38 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           pushSlots(slots, k, appear, disappear)
         }
       }
-      // ---- farm props on cultivated land ----
-      if (land) {
+      // ---- the countryside: farmsteads on cultivated land, groves on wild land ----
+      {
         const l0 = landSnapOf(year)
-        const l1 = Math.min(land.count - 1, l0 + 1)
+        const l1 = land ? Math.min(land.count - 1, l0 + 1) : 0
         const lP = Math.max(0, l0 - 1)
-        const ly0 = l0 * land.interval, ly1 = l1 * land.interval, lyP = lP * land.interval
-        const U = land.landUse
+        const li = land ? land.interval : 1
+        const ly0 = l0 * li, ly1 = l1 * li, lyP = lP * li
+        const U = land ? land.landUse : null
+        let nc = 0
         for (let c = 0; c < cellCount; c++) {
-          const uA = U[l0 * cellCount + c], uB = U[l1 * cellCount + c], uP = U[lP * cellCount + c]
-          if (uA < 40 && uB < 40 && uP < 40) continue
-          if (layouts.settlementCell[c]) continue
+          if (world.elevation[c] < 0) continue
           const r = surfaceRadius(world, c)
-          if (!inView(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.015)) continue
-          const slots = layouts.farm(c)
+          const d = viewDist(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.014)
+          if (d < 0) continue
+          visCells[nc++] = c
+          visD[c] = d
+        }
+        visCells.subarray(0, nc).sort(byDist)
+        for (let q = 0; q < nc; q++) {
+          const c = visCells[q]
+          const slots = layouts.farm(c, deadline)
+          if (!slots) {
+            pending = true
+            continue
+          }
+          stats.farmCells++
+          const uA = U ? U[l0 * cellCount + c] : 0, uB = U ? U[l1 * cellCount + c] : 0, uP = U ? U[lP * cellCount + c] : 0
           for (let k = 0; k < slots.n; k++) {
-            if (!crossing(slots.threshold[k], uP, uA, uB, lyP, ly0, ly1, cross)) continue
+            const t = slots.threshold[k]
+            // negative thresholds: groves, standing while the land is wilder than -t
+            const ok = t >= 0 ? crossing(t, uP, uA, uB, lyP, ly0, ly1, cross) : crossing(255 + t, 255 - uP, 255 - uA, 255 - uB, lyP, ly0, ly1, cross)
+            if (!ok) continue
             pushSlots(slots, k, cross[0], cross[1])
           }
         }
@@ -374,7 +496,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           if (st.builtYear > y1 + interval) continue
           const lost = st.lostYear >= 0 ? st.lostYear : NEVER
           if (lost < yP) continue
-          if (!inView(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2], 0.015)) continue
+          if (viewDist(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2], 0.006) < 0) continue
           const isPort = st.type === StructureType.Port
           const slots = isPort ? layouts.port(st.id, st.settlement, pos, k * 3, dir, k * 3) : layouts.dam(st.id, st.cell, pos, k * 3, dir, k * 3)
           const owner = st.settlement >= 0 && st.settlement < N ? st.settlement : -1
@@ -383,7 +505,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             let disappear = lost
             const t = slots.threshold[q]
             if (t > 0) {
-              // the second ship waits for its owner to grow into a town
+              // further boats wait for their owner to grow
               if (owner < 0) continue
               if (!crossing(t, pop[sP * N + owner], pop[s0 * N + owner], pop[s1 * N + owner], yP, y0, y1, cross)) continue
               appear = Math.max(appear, cross[0])
@@ -404,17 +526,34 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         const b1 = Math.min(B.snapshots - 1, b0 + 1)
         const bP = Math.max(0, b0 - 1)
         for (let k = 0; k < B.count; k++) {
-          if (!inView(B.pos[k * 3], B.pos[k * 3 + 1], B.pos[k * 3 + 2], 0.01)) continue
+          if (viewDist(B.pos[k * 3], B.pos[k * 3 + 1], B.pos[k * 3 + 2], 0.004) < 0) continue
           if (!crossing(B.threshold, B.level(k, bP), B.level(k, b0), B.level(k, b1), bP * B.interval, b0 * B.interval, b1 * B.interval, cross)) continue
           bridgeBatch.push(B.mat, k * 16, cross[0], cross[1], 0, 0)
         }
       }
       bridgeBatch.commit()
     }
-    for (const b of batches) b?.commit()
+    let inst = 0, used = 0, tris = 0
+    for (const b of batches) {
+      if (!b) continue
+      b.commit()
+      if (b.count > 0) {
+        inst += b.count
+        used++
+        tris += b.count * b.triangles
+      }
+    }
     shadows?.commit()
+    ground?.commit()
+    stats.instances = inst + (ground?.count ?? 0) + (bridgeBatch?.count ?? 0)
+    stats.shadows = shadows?.count ?? 0
+    stats.batches = used + (shadows && shadows.count > 0 ? 1 : 0) + (ground && ground.count > 0 ? 1 : 0) + (bridgeBatch && bridgeBatch.count > 0 ? 1 : 0)
+    stats.triangles = tris + (shadows ? shadows.count * shadows.triangles : 0) + (ground ? ground.count * ground.triangles : 0)
+    stats.pending = pending
+    stats.rebuildMs = performance.now() - t0
     lastCam.copy(camObj)
-    dirty = false
+    // leftover layout work: continue next frame (each rebuild spends at most the budget on it)
+    dirty = pending
     travelDirty = true
     requestRender()
   }
@@ -423,8 +562,32 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const up = new THREE.Vector3()
   const side = new THREE.Vector3()
   const mat = new Float32Array(16)
+  const probe: Probe = { radius: 1, nx: 0, ny: 1, nz: 0, elev: 0, lake: 0, cell: 0 }
+  // coarse lat/lon -> cell lookup, a start for the ground probe under each traveller
+  const LUT_W = 128, LUT_H = 64
+  let lut: Int32Array | null = null
+  const startCell = (x: number, y: number, z: number) => {
+    if (!lut) {
+      lut = new Int32Array(LUT_W * LUT_H)
+      let prev = 0
+      for (let j = 0; j < LUT_H; j++) {
+        for (let i = 0; i < LUT_W; i++) {
+          const lat = ((j + 0.5) / LUT_H - 0.5) * Math.PI, lon = ((i + 0.5) / LUT_W) * Math.PI * 2
+          prev = surface.nearestCell(Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon), prev)
+          lut[j * LUT_W + i] = prev
+        }
+      }
+    }
+    const l = Math.hypot(x, y, z)
+    const lat = Math.asin(Math.max(-1, Math.min(1, y / l)))
+    let lon = Math.atan2(z, x)
+    if (lon < 0) lon += Math.PI * 2
+    const j = Math.min(LUT_H - 1, Math.max(0, Math.floor((lat / Math.PI + 0.5) * LUT_H)))
+    const i = Math.min(LUT_W - 1, Math.max(0, Math.floor((lon / (Math.PI * 2)) * LUT_W)))
+    return lut[j * LUT_W + i]
+  }
 
-  /** Ships at sea, carts on land: one matrix per group near the camera. */
+  /** Ships at sea, caravans of carts on land: matrices per group near the camera. */
   function writeTravellers() {
     if (!travelShips && !travelCarts) return
     if (travelShips) travelShips.count = 0
@@ -434,35 +597,57 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     if (visible && traders && tradersVisible && alt < DIORAMA_FAR) writeGroups(traders(), true)
     travelShips?.commit()
     travelCarts?.commit()
+    stats.ships = travelShips?.count ?? 0
+    stats.carts = travelCarts?.count ?? 0
+    const im = (b: Batch | null, out: number[]) => {
+      if (!b || b.count === 0) return
+      const a = b.mesh.instanceMatrix.array as Float32Array
+      out[0] = a[12]; out[1] = a[13]; out[2] = a[14]
+    }
+    im(travelShips, stats.firstShip)
+    im(travelCarts, stats.firstCart)
   }
 
-  /** One matrix per group near the camera; `ownPalette`: info[0] is the group's palette index. */
+  /** Puts the matrix of one ship or cart at (x, y, z) facing fwd (scale sc), on the ground or the water. */
+  const placeTraveller = (batch: Batch, x: number, y: number, z: number, sc: number, sea: boolean, palette: number) => {
+    const l = Math.hypot(x, y, z)
+    surface.probe(x / l, y / l, z / l, startCell(x, y, z), probe)
+    up.set(x / l, y / l, z / l)
+    side.crossVectors(up, fwd)
+    const hgt = sea ? lib!.models[Model.Ship]!.height * 0.08 * (sc / MODEL_SPECS[Model.Ship].scale) : 0
+    // the sea is drawn at radius 1, land on its triangles
+    const r = (sea ? Math.max(1, probe.radius) : probe.radius) - hgt
+    mat[0] = side.x * sc; mat[1] = side.y * sc; mat[2] = side.z * sc; mat[3] = 0
+    mat[4] = up.x * sc; mat[5] = up.y * sc; mat[6] = up.z * sc; mat[7] = 0
+    mat[8] = fwd.x * sc; mat[9] = fwd.y * sc; mat[10] = fwd.z * sc; mat[11] = 0
+    mat[12] = up.x * r; mat[13] = up.y * r; mat[14] = up.z * r; mat[15] = 1
+    batch.push(mat, 0, -NEVER, NEVER, palette, 0)
+  }
+
+  /** One ship, or a string of two or three carts, per group near the camera; `ownPalette`: info[0] is the group's palette index. */
   function writeGroups(g: TravelGroups, ownPalette: boolean) {
-    {
-      for (let i = 0; i < g.count; i++) {
-        const x = g.pos[i * 3], y = g.pos[i * 3 + 1], z = g.pos[i * 3 + 2]
-        if (Math.hypot(x - camObj.x, y - camObj.y, z - camObj.z) > DIORAMA_FAR) continue
-        const sea = g.info[i * 4 + 2] > 0.5
-        const batch = sea ? travelShips : travelCarts
-        if (!batch) continue
-        const model = sea ? Model.Ship : Model.Cart
-        const spec = MODEL_SPECS[model]
-        const entry = lib!.models[model]!
-        up.set(x, y, z).normalize()
-        fwd.set(g.dir[i * 3], g.dir[i * 3 + 1], g.dir[i * 3 + 2])
-        fwd.addScaledVector(up, -fwd.dot(up))
-        if (fwd.lengthSq() < 1e-12) continue
-        fwd.normalize()
-        // model forward is +z: X = Y x Z
-        side.crossVectors(up, fwd)
-        const sc = spec.scale * Math.max(0, Math.min(1, g.info[i * 4 + 3])) * (sea ? 0.85 + 0.3 * g.info[i * 4 + 1] : 1)
-        // the route floats a little above the ground; ships sit at their waterline, carts on the road
-        const r = Math.hypot(x, y, z) - 0.0032 - (sea ? entry.height * 0.1 : 0)
-        mat[0] = side.x * sc; mat[1] = side.y * sc; mat[2] = side.z * sc; mat[3] = 0
-        mat[4] = up.x * sc; mat[5] = up.y * sc; mat[6] = up.z * sc; mat[7] = 0
-        mat[8] = fwd.x * sc; mat[9] = fwd.y * sc; mat[10] = fwd.z * sc; mat[11] = 0
-        mat[12] = up.x * r; mat[13] = up.y * r; mat[14] = up.z * r; mat[15] = 1
-        batch.push(mat, 0, -NEVER, NEVER, ownPalette ? g.info[i * 4] : TRAVEL_PALETTE, 0)
+    for (let i = 0; i < g.count; i++) {
+      const x = g.pos[i * 3], y = g.pos[i * 3 + 1], z = g.pos[i * 3 + 2]
+      if (Math.hypot(x - camObj.x, y - camObj.y, z - camObj.z) > DIORAMA_FAR) continue
+      const sea = g.info[i * 4 + 2] > 0.5
+      const batch = sea ? travelShips : travelCarts
+      if (!batch) continue
+      up.set(x, y, z).normalize()
+      fwd.set(g.dir[i * 3], g.dir[i * 3 + 1], g.dir[i * 3 + 2])
+      fwd.addScaledVector(up, -fwd.dot(up))
+      if (fwd.lengthSq() < 1e-12) continue
+      fwd.normalize()
+      const fade = Math.max(0, Math.min(1, g.info[i * 4 + 3]))
+      const size = g.info[i * 4 + 1]
+      if (sea) {
+        const sc = MODEL_SPECS[Model.Ship].scale * 1.1 * fade * (0.85 + 0.3 * size)
+        placeTraveller(batch, x, y, z, sc, true, ownPalette ? g.info[i * 4] : TRAVEL_PALETTE)
+      } else {
+        // a caravan: carts one behind the other along the road (own colours, no team tint)
+        const sc = MODEL_SPECS[Model.Cart].scale * fade
+        const len = (lib!.models[Model.Cart]!.size.z ?? 1.3) * MODEL_SPECS[Model.Cart].scale * 1.35
+        const n = size > 0.45 ? 3 : 2
+        for (let k = 0; k < n; k++) placeTraveller(batch, x - fwd.x * len * k, y - fwd.y * len * k, z - fwd.z * len * k, sc, false, 0)
       }
     }
   }
@@ -484,8 +669,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       for (let i = 0; i < pickCount; i++) {
         const px = pickPos[i * 4], py = pickPos[i * 4 + 1], pz = pickPos[i * 4 + 2]
         const dist = Math.hypot(px - pickR.x, py - pickR.y, pz - pickR.z)
-        // only where the models are well grown (the flat marker handles the rest)
-        if (dist > (DIORAMA_NEAR + DIORAMA_FAR) / 2) continue
+        // only where the models are readable (the flat marker handles the rest)
+        if (dist > DIORAMA_YIELD_FAR) continue
         if ((pickR.x - px) * px + (pickR.y - py) * py + (pickR.z - pz) * pz <= 0) continue
         pickV.set(px, py, pz).applyMatrix4(pickMvp)
         const sx = ((pickV.x + 1) / 2) * width
@@ -564,7 +749,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       camera.getWorldPosition(camObj)
       object.worldToLocal(camObj)
       uniforms.uCamObj.value.copy(camObj)
-      const alt = Math.max(0.02, camObj.length() - 1)
+      const alt = Math.max(0.005, camObj.length() - 1)
       const wasNear = lastCam.length() - 1 < DIORAMA_FAR
       const near = alt < DIORAMA_FAR
       if (near || wasNear) {
@@ -584,11 +769,13 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       disposed = true
       for (const b of batches) b?.dispose()
       shadows?.dispose()
+      ground?.dispose()
       travelShips?.dispose()
       travelCarts?.dispose()
       bridgeBatch?.dispose()
       modelMaterial.dispose()
       shadowMaterial.dispose()
+      groundMaterial.dispose()
     },
   }
 }

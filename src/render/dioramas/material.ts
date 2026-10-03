@@ -104,6 +104,10 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       varying vec3 vLocalN;
       varying float vLit;
       varying float vSeed;
+      varying float vRoof;
+      varying float vSnow;
+      attribute vec4 aRoof; // roof colour (linear), snow
+      attribute vec3 aWall; // wall colour (linear)
       vec3 srgbToLinear(vec3 c) {
         return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
       }
@@ -120,18 +124,31 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         vUp = normalize(origin);
         vec3 c = srgbToLinear(aColor.rgb);
         int pi = int(aAnim.z + 0.5);
-        if (aColor.a > 0.5 && pi > 0) {
-          // team colour, keeping the pack's shading gradient (its blue has luminance ~0.13)
+        float m = aColor.a;
+        vRoof = 0.0;
+        bool tinted = aRoof.r + aRoof.g + aRoof.b > 0.0;
+        if (m > 0.9) {
+          // team colour (KayKit), keeping the pack's shading gradient (its blue has luminance ~0.13):
+          // the settlement's roof colour, else the palette
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          c = uPalette[pi] * clamp(l / 0.13, 0.5, 1.8);
+          if (tinted) c = aRoof.rgb * clamp(l / 0.13, 0.55, 1.6);
+          else if (pi > 0) c = uPalette[pi] * clamp(l / 0.13, 0.5, 1.8);
+          vRoof = 1.0;
+        } else if (m > 0.6) {
+          // generated roof: the instance's roof colour, shaded by the vertex grey (188 = 1x)
+          c = aRoof.rgb * (c.r / 0.5);
+          vRoof = 1.0;
+        } else if (m > 0.35) {
+          c = aWall * (c.r / 0.5);
         }
         // a touch less saturated and bright than the packs, closer to the planet's albedos
         float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-        vAlb = mix(vec3(lum), c, 0.85) * 0.9;
+        vSeed = fract(sin(dot(origin * 1000.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        vAlb = mix(vec3(lum), c, 0.85) * 0.9 * (0.94 + 0.12 * vSeed);
+        vSnow = aRoof.a;
         vLocal = position;
         vLocalN = normal;
         vLit = mod(aAnim.w, 2.0);
-        vSeed = fract(sin(dot(origin * 1000.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -145,6 +162,8 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       varying vec3 vLocalN;
       varying float vLit;
       varying float vSeed;
+      varying float vRoof;
+      varying float vSnow;
       float hash12(vec2 p) {
         return fract(sin(dot(p, vec2(12.9898, 78.233)) + vSeed * 91.7) * 43758.5453);
       }
@@ -157,12 +176,15 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         float diff = max(dot(N, L), 0.0) * day;
         vec3 sky = mix(vec3(0.030, 0.040, 0.070), ${SKY} * 0.08, smoothstep(-0.25, 0.4, mu));
         float up = dot(N, vUp);
+        vec3 alb = vAlb;
+        // snow on roofs (and lightly on other upward faces) where the ground is snowy
+        if (vSnow > 0.0) alb = mix(alb, vec3(0.82, 0.85, 0.9), vSnow * smoothstep(0.3, 0.75, up) * (vRoof > 0.5 ? 1.0 : 0.55) * step(0.02, vLocal.y));
         // sky from above, a warm bounce from the sunlit ground below, so faces turned away
         // from the sun stay readable instead of sinking into the planet's deep shade
         vec3 fill = sky * (2.4 + 1.2 * up) + uSunColor * day * (0.2 + 0.08 * up) * vec3(1.0, 0.94, 0.85);
         // at night: darker, but lived-in buildings catch a little warm light from the streets
         fill *= mix(0.5, 1.0, day);
-        vec3 col = vAlb * (uSunColor * diff + fill + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025));
+        vec3 col = alb * (uSunColor * diff + fill + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025));
         // night: a scatter of warm windows on the walls of lived-in buildings
         if (vLit > 0.5 && day < 0.98) {
           vec3 ln = normalize(vLocalN);
@@ -173,7 +195,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           vec2 f = fract(g);
           float win = step(0.3, f.x) * step(f.x, 0.7) * step(0.28, f.y) * step(f.y, 0.78);
           float on = step(0.42, hash12(floor(g)));
-          float band = step(0.1, vLocal.y) * (1.0 - step(1.6, vLocal.y));
+          float band = step(0.1, vLocal.y) * (1.0 - step(1.6, vLocal.y)) * (1.0 - vRoof);
           col += (1.0 - day) * wall * win * on * band * vec3(1.0, 0.58, 0.24) * 1.4;
         }
         gl_FragColor = vec4(col, 1.0);
@@ -224,6 +246,54 @@ export function createShadowMaterial(uniforms: DioramaUniforms): THREE.ShaderMat
       varying float vA;
       void main() {
         gl_FragColor = vec4(0.0, 0.0, 0.0, vA);
+      }
+    `,
+  })
+}
+
+/** Packed earth under built-up patches: a soft disc in the instance's wall colour, lit like the ground. */
+export function createGroundMaterial(uniforms: DioramaUniforms): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: uniforms as unknown as Record<string, THREE.IUniform>,
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+    vertexShader: /* glsl */ `
+      ${LIFE_GLSL}
+      attribute vec3 aWall;
+      uniform vec3 uSunObj;
+      uniform vec3 uSunColor;
+      ${SUN_AT_GLSL}
+      varying float vA;
+      varying vec3 vC;
+      void main() {
+        vec3 origin = instanceMatrix[3].xyz;
+        float s = instanceSize(origin);
+        if (s <= 0.002) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
+        vec3 up = normalize(origin);
+        vec3 L = sunAt(up, uSunObj);
+        float mu = dot(up, L);
+        float day = smoothstep(-0.12, 0.12, mu);
+        vec3 sky = mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu));
+        vC = aWall * (uSunColor * max(mu, 0.0) * day * 0.9 + sky * 2.0);
+        vec3 q = mat3(instanceMatrix) * position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(origin + q * min(s, 1.0), 1.0);
+        vA = aColor.a * min(s, 1.0) * 0.6;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      varying float vA;
+      varying vec3 vC;
+      void main() {
+        gl_FragColor = vec4(vC, vA);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `,
   })

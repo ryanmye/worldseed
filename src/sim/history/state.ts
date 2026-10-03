@@ -73,6 +73,8 @@ export interface HistoryState {
   nearCount: Int32Array
   /** Sum over living settlements of catchment weight * claim strength (population^0.75) on this cell. */
   claim: Float64Array
+  /** 1 / claim on land cells with a claim (0 elsewhere), set by the food system after the claims pass. */
+  invClaim: Float64Array
   /** Effective capacity this year at productivity 1: capFarm * (1 - yieldLoss * degradation) * farmMul + capFish. */
   effCap: Float64Array
   /** Cultivated fraction in [0, 1], and the target the food system set this year (consumed by the land-use system). */
@@ -150,6 +152,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     occupant: new Int32Array(N).fill(-1),
     nearCount: new Int32Array(N),
     claim: new Float64Array(N),
+    invClaim: new Float64Array(N),
     effCap: Float64Array.from(terrain.capacity),
     landUse: new Float64Array(N),
     landTarget: new Float64Array(N),

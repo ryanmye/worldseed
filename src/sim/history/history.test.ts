@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../index.ts'
+import { buildTerrain } from './terrain.ts'
+import type { Terrain } from './terrain.ts'
 
 const SEEDS = [1, 2, 3, 42, 1337, 2024, 31337, 77, 99999, 123456]
 
@@ -60,6 +62,12 @@ function world(seed: number): World {
   let w = worlds.get(seed)
   if (!w) { w = generateWorld(seed); worlds.set(seed, w) }
   return w
+}
+const terrains = new Map<number, Terrain>()
+function terrain(seed: number): Terrain {
+  let t = terrains.get(seed)
+  if (!t) { t = buildTerrain(world(seed)); terrains.set(seed, t) }
+  return t
 }
 const histories = new Map<number, History>()
 function history(seed: number): History {
@@ -407,6 +415,17 @@ function checkInvariants(w: World, h: History): void {
     // A route still open at the end has both ends alive at the end.
     if (open[r]) expect(h.settlements[tr.a[r]].abandonedYear < 0 && h.settlements[tr.b[r]].abandonedYear < 0).toBe(true)
   }
+
+  // Named geography (names/featureNames.ts): valid, in naming order, named by a settlement founded by then, names unique.
+  const names = new Set(h.settlements.map((s) => s.name.toLowerCase()))
+  h.features.forEach((f, i) => {
+    if (f.id !== i) throw new Error(`feature ${i} has id ${f.id}`)
+    if (i > 0 && f.namedYear < h.features[i - 1].namedYear) throw new Error(`feature ${i} named out of order`)
+    if (!(f.namedBy >= 0 && f.namedBy < S) || h.settlements[f.namedBy].foundedYear > f.namedYear) throw new Error(`feature ${i} named by ${f.namedBy} before its founding`)
+    if (!(f.anchorCell >= 0 && f.anchorCell < N) || !(f.size > 0) || f.spine.some((c) => !(c >= 0 && c < N))) throw new Error(`feature ${i} has bad cells`)
+    if (!f.name || names.has(f.name.toLowerCase())) throw new Error(`feature ${i} name "${f.name}" is empty or not unique`)
+    names.add(f.name.toLowerCase())
+  })
 }
 
 describe('simulateHistory', () => {
@@ -684,5 +703,120 @@ describe('simulateHistory', () => {
     expect(withCity).toBeGreaterThanOrEqual(SEEDS.length - 3)
     // The best sites (irrigated, fishing ports) outgrow the old ~25k ceiling somewhere.
     expect(biggest).toBeGreaterThan(30000)
+  }, 60_000)
+
+  it('seaborne foundings sail over water from a coastal origin to a coastal landfall, longer voyages taking longer', () => {
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const h = history(seed)
+      const T = terrain(seed)
+      const J = h.journeys
+      let voyages = 0, overseas = 0
+      const len: number[] = [], dur: number[] = []
+      for (let j = 0; j < J.count; j++) {
+        if (J.kind[j] !== JourneyKind.Settlers) continue
+        const a = J.pathOffsets[j], b = J.pathOffsets[j + 1]
+        const inner = b - a - 2
+        let sea = 0
+        for (let k = a + 1; k < b - 1; k++) if (w.elevation[J.path[k]] < 0) sea++
+        if (inner < 3 || sea < inner) continue // voyages: every cell between origin and landfall is water
+        voyages++
+        const from = J.path[a], to = J.path[b - 1]
+        // A coastal origin and a coastal landfall: land cells, the route leaving and arriving over water.
+        if (w.elevation[from] < 0 || w.elevation[to] < 0 || !T.seaCoast[from] || !T.seaCoast[to]) throw new Error(`seed ${seed}: voyage ${j} does not run coast to coast`)
+        const d = J.arriveYear[j] - J.departYear[j]
+        if (!(d > 0 && d <= 5)) throw new Error(`seed ${seed}: voyage ${j} over ${inner} sea cells takes ${d} years`)
+        if (T.landmass[from] !== T.landmass[to]) overseas++
+        len.push(inner)
+        dur.push(d)
+      }
+      expect(voyages).toBeGreaterThan(20)
+      expect(overseas).toBeGreaterThan(10)
+      // Longer voyages take longer (unless the departure is clipped to the sender's founding).
+      const order = len.map((_, i) => i).sort((x, y) => len[x] - len[y] || x - y)
+      const half = order.length >> 1
+      let short = 0, long = 0
+      for (let i = 0; i < half; i++) { short += dur[order[i]]; long += dur[order[order.length - 1 - i]] }
+      expect(long).toBeGreaterThan(short)
+    }
+  }, 60_000)
+
+  it('voyages carry settlers to other continents, which fill up after the cradle, and to most islands', () => {
+    let eligible = 0, second = 0, early = 0, frontier = 0, lag = 0, filled = 0, islandSeeds = 0
+    for (const seed of SEEDS) {
+      const h = history(seed)
+      const T = terrain(seed)
+      const N = T.cellCount
+      const S = h.settlements.length
+      const M = T.landmassSize.length
+      const hab = new Int32Array(M)
+      for (let i = 0; i < N; i++) if (T.habitable[i]) hab[T.landmass[i]]++
+      const cradle = T.landmass[h.settlements[0].cell]
+      // Continent-sized: >= 0.5% of the planet's cells with >= 50 habitable cells (as the stats harness counts them).
+      const continent = (m: number) => T.landmassSize[m] >= 0.005 * N && hab[m] >= 50
+      let others = 0
+      for (let m = 0; m < M; m++) if (m !== cradle && continent(m)) others++
+      // Share of habitable continent cells inside a living settlement's catchment, cradle and the others.
+      const claim = (year: number): [number, number] => {
+        const q = Math.floor(year / h.snapshotInterval)
+        const mark = new Uint8Array(N)
+        for (let id = 0; id < S; id++) {
+          if (h.population[q * S + id] <= 0) continue
+          const c = h.settlements[id].cell
+          for (let k = T.catchOff[c]; k < T.catchOff[c + 1]; k++) mark[T.catchCell[k]] = 1
+        }
+        let all = 0, allIn = 0, oth = 0, othIn = 0
+        for (let i = 0; i < N; i++) {
+          const m = T.landmass[i]
+          if (!T.habitable[i] || !continent(m)) continue
+          all++; allIn += mark[i]
+          if (m !== cradle) { oth++; othIn += mark[i] }
+        }
+        return [allIn / all, oth > 0 ? othIn / oth : 0]
+      }
+      const offCradle = (year: number): number => {
+        const q = Math.floor(year / h.snapshotInterval)
+        let t = 0, off = 0
+        for (let id = 0; id < S; id++) {
+          const p = h.population[q * S + id]
+          t += p
+          if (T.landmass[h.settlements[id].cell] !== cradle) off += p
+        }
+        return off / t
+      }
+      if (claim(2000)[0] >= 0.8) filled++
+      // Newly reached lands lag the cradle: little of the population lives off it by year 750.
+      if (offCradle(750) < 0.2) lag++
+      // Small islands: most of them settled by the end.
+      const islandAlive = new Uint8Array(M)
+      const last = h.snapshotCount - 1
+      for (let id = 0; id < S; id++) if (h.population[last * S + id] > 0) islandAlive[T.landmass[h.settlements[id].cell]] = 1
+      let islands = 0, settledIslands = 0
+      for (let m = 0; m < M; m++) if (m !== cradle && hab[m] > 0 && !continent(m)) { islands++; settledIslands += islandAlive[m] }
+      if (settledIslands >= 0.5 * islands) islandSeeds++
+      if (others === 0) continue
+      eligible++
+      let first = -1
+      for (let id = 0; id < S && first < 0; id++) {
+        const m = T.landmass[h.settlements[id].cell]
+        if (m !== cradle && continent(m)) first = h.settlements[id].foundedYear
+      }
+      let aliveElsewhere = false
+      for (let id = 0; id < S; id++) {
+        const m = T.landmass[h.settlements[id].cell]
+        if (m !== cradle && continent(m) && h.population[last * S + id] > 0) aliveElsewhere = true
+      }
+      if (aliveElsewhere) second++
+      if (first >= 0 && first < 1000) early++
+      // The far side is still a frontier at year 1000.
+      if (claim(1000)[1] < 0.5) frontier++
+    }
+    expect(eligible).toBeGreaterThanOrEqual(6)
+    expect(second).toBeGreaterThanOrEqual(eligible - 1)
+    expect(early).toBeGreaterThanOrEqual(eligible - 3)
+    expect(frontier).toBeGreaterThanOrEqual(eligible - 1)
+    expect(lag).toBe(SEEDS.length)
+    expect(filled).toBeGreaterThanOrEqual(SEEDS.length - 3)
+    expect(islandSeeds).toBeGreaterThanOrEqual(SEEDS.length - 2)
   }, 60_000)
 })

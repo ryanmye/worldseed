@@ -14,8 +14,9 @@
 // so groups reaching a new, empty land spread out over it.
 
 import { EventType, JourneyKind } from '../../contract.ts'
-import { clamp, MinHeap, smoothstep } from '../util.ts'
-import { MIGRATION, PORT, WEALTH } from './params.ts'
+import { clamp, smoothstep } from '../util.ts'
+import { Heap } from './heap.ts'
+import { MIGRATION, PORT, VOYAGE, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
 import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
@@ -27,7 +28,7 @@ export interface Search {
   stamp: Int32Array
   /** Predecessor cell on the shortest path found so far, valid wherever `stamp` matches `run`. */
   prev: Int32Array
-  heap: MinHeap
+  heap: Heap
   run: number
 }
 
@@ -36,7 +37,7 @@ export function createSearch(cellCount: number): Search {
     dist: new Float64Array(cellCount),
     stamp: new Int32Array(cellCount),
     prev: new Int32Array(cellCount),
-    heap: new MinHeap(1024),
+    heap: new Heap(1024),
     run: 0,
   }
 }
@@ -54,12 +55,19 @@ function reconstructPath(prev: Int32Array, origin: number, dest: number): number
 }
 
 /**
- * Cosmetic travel time in years for a route that cost `dist` out of `budget`:
- * about 1 year for a short hop, growing toward ~10 for routes that use up
- * most of the (possibly voyage-boosted) budget.
+ * Cosmetic travel time in years for a route: about 1 year for a short hop,
+ * growing toward ~10 for routes whose land legs use up most of the (possibly
+ * voyage-boosted) budget; sea legs go by boat, VOYAGE.travelPerCell years a cell.
  */
-function travelYears(dist: number, budget: number): number {
-  return clamp(1 + 9 * (dist / budget), 1, 10)
+function travelYears(s: HistoryState, path: number[], budget: number): number {
+  const T = s.terrain
+  let land = 0, sea = 0
+  for (let k = 1; k < path.length; k++) {
+    const c = path[k]
+    if (T.sea[c]) sea++
+    else land += s.moveCost[c]
+  }
+  return clamp(1 + 9 * (land / budget) + VOYAGE.travelPerCell * sea, 1, 10)
 }
 
 /**
@@ -163,7 +171,6 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   heap.push(0, origin)
 
   let bestScore = 0
-  let bestDist = 0
   let bestCell = -1
   let bestJoin = -1
   const minFood = M.foundMinRatio * g
@@ -177,15 +184,18 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     if (c !== origin) {
       const occ = s.occupant[c]
       if (occ >= 0) {
-        const pop = s.pop[occ]
-        const wf = prosperity(s, occ)
-        const rich = wf >= WEALTH.joinMin
-        let spare = M.joinRoom * foodBase(s, occ) - pop
-        if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
-        if ((mayJoin || rich) && spare >= g && s.food[occ] >= M.joinFood) {
-          const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
-          const score = (M.joinBias * spare * draw * rng.range(0.75, 1.25)) / penalty
-          if (score > bestScore) { bestScore = score; bestDist = d; bestCell = -1; bestJoin = occ }
+        // A hungry place takes nobody in (checked first: the rest is dearer).
+        if (s.food[occ] >= M.joinFood) {
+          const pop = s.pop[occ]
+          const wf = prosperity(s, occ)
+          const rich = wf >= WEALTH.joinMin
+          let spare = M.joinRoom * foodBase(s, occ) - pop
+          if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
+          if ((mayJoin || rich) && spare >= g) {
+            const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
+            const score = (M.joinBias * spare * draw * rng.range(0.75, 1.25)) / penalty
+            if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
+          }
         }
       } else if (canSettle(s, c) && T.potential[c] * prod >= minFood) {
         const food = settlerFood(s, c, g)
@@ -194,7 +204,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
           const free = settlerAlone > 0 ? food / settlerAlone : 0
           let score = (food * (1 + M.emptyPull * free * free) * rng.range(0.75, 1.25)) / penalty
           if (s.portReach[c]) score *= sitePref
-          if (score > bestScore) { bestScore = score; bestDist = d; bestCell = c; bestJoin = -1 }
+          if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }
     }
@@ -215,8 +225,8 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     s.pop[bestJoin] += g
     logEvent(s, EventType.Migration, from, bestJoin, g)
     const arriveYear = s.year
-    const departYear = Math.max(s.founded[from], arriveYear - travelYears(bestDist, budget))
     const path = reconstructPath(prev, origin, s.cell[bestJoin])
+    const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))
     logJourney(s, { departYear, arriveYear, from, to: bestJoin, size: g, kind: JourneyKind.Migrants, path })
     return true
   }
@@ -224,8 +234,8 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     s.pop[from] -= g
     const to = found(s, bestCell, g, from)
     const arriveYear = s.year
-    const departYear = Math.max(s.founded[from], arriveYear - travelYears(bestDist, budget))
     const path = reconstructPath(prev, origin, bestCell)
+    const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))
     logJourney(s, { departYear, arriveYear, from, to, size: g, kind: JourneyKind.Settlers, path })
     return true
   }

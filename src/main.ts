@@ -6,7 +6,7 @@ import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
 import { buildAtmosphere, buildClouds, buildStarfield, type Clouds } from './render/sky.ts'
-import { createOverlay } from './ui/overlay.ts'
+import { createOverlay, loadLayerPrefs } from './ui/overlay.ts'
 import { attachPointer } from './ui/pointer.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
@@ -22,7 +22,7 @@ import { createPerfMonitor } from './render/perfTools.ts'
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
 // sub (subdivisions), year=<n> (start year), play=0 (start paused), select=<settlement id>, markers=0, journeys=0,
 // land=0 (no farmland on the Terrain view), structures=0 (no ports, dams or reservoirs), models=0 (no 3D buildings up close),
-// tilt=0 (keep looking straight down when zoomed in),
+// tilt=0 (keep looking straight down when zoomed in), labels=0 (no place names),
 // sun=fixed|follow|full, sunlon/sunlat (degrees, fixed sun), quality=high|balanced|low, bake=0 (procedural
 // surface every frame, for comparison), perf=1 (frame-rate readout and window.__worldseed tools)
 
@@ -62,12 +62,15 @@ app.appendChild(canvas)
 
 // ---------- three.js scaffolding ----------
 
+/** Closest camera distance from the planet centre (radius 1): low enough to see the 3D settlements (src/render/dioramas) house by house, above where the surface detail runs out. */
+const MIN_DISTANCE = 1.025
+
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.05, 300)
 {
   const lat = THREE.MathUtils.degToRad(numParam('lat', 12, -89, 89))
   const az = THREE.MathUtils.degToRad(numParam('az', 0))
-  const dist = numParam('dist', 3.25, 1.1, 8)
+  const dist = numParam('dist', 3.25, MIN_DISTANCE, 8)
   camera.position.set(dist * Math.sin(az) * Math.cos(lat), dist * Math.sin(lat), dist * Math.cos(az) * Math.cos(lat))
 }
 
@@ -90,7 +93,7 @@ const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
 const DAMPING_PER_60HZ_FRAME = 0.08
 controls.dampingFactor = DAMPING_PER_60HZ_FRAME
-controls.minDistance = 1.1 // close enough to read the 3D settlements (src/render/dioramas)
+controls.minDistance = MIN_DISTANCE // close enough to read the 3D settlements (src/render/dioramas)
 controls.maxDistance = 8
 controls.rotateSpeed = 0.6
 controls.zoomSpeed = 0.8
@@ -136,15 +139,25 @@ let currentGlobe: GlobeMesh | null = null
 let currentRivers: RiverLines | null = null
 let currentClouds: Clouds | null = null
 let currentWorld: World | null = null
-let showRivers = params.get('rivers') !== '0'
-let showClouds = params.get('clouds') !== '0'
-let showMarkers = params.get('markers') !== '0'
-let showJourneys = params.get('journeys') !== '0'
-let showFarmland = params.get('land') !== '0'
-let showStructures = params.get('structures') !== '0'
-let showBuildings = params.get('models') !== '0'
-let showTrade = params.get('trade') !== '0' // trade=0: no trade routes or merchants
-let showRoads = params.get('roads') !== '0' // roads=0: no roads or bridges
+// Layer toggles: the URL parameter when given, else the remembered toggle (overlay.ts), else on.
+// A layer remembered off is written to the URL, so the address reproduces the view.
+const layerPrefs = loadLayerPrefs()
+function layerOn(param: string, key: string): boolean {
+  if (params.has(param)) return params.get(param) !== '0'
+  const on = layerPrefs[key] ?? true
+  if (!on) setUrlParam(param, '0')
+  return on
+}
+let showRivers = layerOn('rivers', 'rivers')
+let showClouds = layerOn('clouds', 'clouds')
+let showMarkers = layerOn('markers', 'markers')
+let showJourneys = layerOn('journeys', 'journeys')
+let showFarmland = layerOn('land', 'farmland')
+let showStructures = layerOn('structures', 'structures')
+let showBuildings = layerOn('models', 'buildings')
+let showTrade = layerOn('trade', 'trade') // trade=0: no trade routes or merchants
+let showRoads = layerOn('roads', 'roads') // roads=0: no roads or bridges
+let showLabels = layerOn('labels', 'labels') // labels=0: no place names
 let viewMode: ViewModeT = isViewMode(params.get('view')) ? (params.get('view') as ViewModeT) : ViewMode.Terrain
 
 function applyLayerVisibility() {
@@ -235,7 +248,7 @@ function clearHistoryParams() {
   setUrlParam('select', null)
 }
 
-const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, clouds: showClouds, markers: showMarkers, journeys: showJourneys, farmland: showFarmland, structures: showStructures, buildings: showBuildings, trade: showTrade, roads: showRoads }, {
+const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, clouds: showClouds, markers: showMarkers, journeys: showJourneys, farmland: showFarmland, structures: showStructures, buildings: showBuildings, trade: showTrade, roads: showRoads, labels: showLabels }, {
   onSeedSubmit(seed: number) {
     if (seed === currentSeed && currentWorld?.seed === seed) return
     currentSeed = seed
@@ -260,6 +273,7 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
   },
   onRiversToggle(show: boolean) {
     showRivers = show
+    setUrlParam('rivers', show ? null : '0')
     applyLayerVisibility()
   },
   onCloudsToggle(show: boolean) {
@@ -303,6 +317,11 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     setUrlParam('roads', show ? null : '0')
     historyView.setRoadsVisible(show)
   },
+  onLabelsToggle(show: boolean) {
+    showLabels = show
+    setUrlParam('labels', show ? null : '0')
+    historyView.setLabelsVisible(show)
+  },
 })
 
 const intParam = (name: string): number | null => {
@@ -335,6 +354,7 @@ historyView.setStructuresVisible(showStructures)
 historyView.setBuildingsVisible(showBuildings)
 historyView.setTradeVisible(showTrade)
 historyView.setRoadsVisible(showRoads)
+historyView.setLabelsVisible(showLabels)
 
 setUrlParam('seed', String(currentSeed))
 requestWorld(currentSeed)
@@ -346,7 +366,7 @@ const pointerInput = attachPointer({
   camera,
   getWorld: () => currentWorld,
   getGlobe: () => currentGlobe,
-  setReadout: (r) => overlay.setReadout(r),
+  setReadout: (r) => overlay.setReadout(r && r.cell !== undefined ? { ...r, places: historyView.placesAt(r.cell) } : r),
   pickSettlement: (x, y) => historyView.pickAt(x, y),
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
@@ -407,8 +427,8 @@ const sunPanel = createSunPanel(
   },
   { mode: sunState.mode, lon: sunState.lon, lat: sunState.lat, quality },
 )
-// under the seed bar (the right column is full of layer toggles and the chronicle)
-overlay.left.insertBefore(sunPanel.root, overlay.left.children[1] ?? null)
+// in the settings popover of the seed bar
+overlay.settings.appendChild(sunPanel.root)
 
 // ---------- resize ----------
 
@@ -523,6 +543,12 @@ function applySize() {
 /** Advance time-based state and draw one frame. */
 function draw(ts: number) {
   if (sizeDirty) applySize()
+  // near plane follows the altitude, so the ground up close is not clipped
+  const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - 1) * 0.12))
+  if (Math.abs(camera.near - nearWant) > camera.near * 0.15) {
+    camera.near = nearWant
+    camera.updateProjectionMatrix()
+  }
   if (spinTime > 0) planetGroup.rotation.y += SPIN_SPEED * spinTime
   if (cloudTime > 0) currentClouds?.update(cloudTime)
   spinTime = cloudTime = 0
@@ -554,6 +580,8 @@ function frame(ts: number) {
   fly.update(Math.min(dt, 0.1))
   // damping per unit of time, not per frame: the same glide (and settle time) at any frame rate
   controls.dampingFactor = 1 - Math.pow(1 - DAMPING_PER_60HZ_FRAME, Math.min(Math.max(dt * 60, 0.25), 6))
+  // drag speed eases off near the ground, where the view is a few houses across
+  controls.rotateSpeed = 0.6 * Math.min(1, Math.max(0.025, (camera.position.length() - 1) / 0.5))
   inLoopControlsUpdate = true
   const moved = controls.update()
   inLoopControlsUpdate = false

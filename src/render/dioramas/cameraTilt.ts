@@ -18,6 +18,10 @@ import { requestRender } from '../invalidate.ts'
 const TILT_START = 0.6
 const TILT_FULL = 0.14
 const MAX_TILT = THREE.MathUtils.degToRad(40)
+/** Below TILT_FULL the view leans further, toward the horizon, down to the closest zoom. */
+const LOW_TILT_START = 0.1
+const LOW_TILT_FULL = 0.03
+const LOW_EXTRA_TILT = THREE.MathUtils.degToRad(14)
 
 /** `enabled` is polled on every update (the tilt belongs to the 3D buildings: off with them). */
 export function installCameraTilt(camera: THREE.PerspectiveCamera, controls: OrbitControls, enabled: () => boolean = () => true): void {
@@ -44,7 +48,8 @@ export function installCameraTilt(camera: THREE.PerspectiveCamera, controls: Orb
     const alt = dist - 1
     const k = THREE.MathUtils.clamp((TILT_START - alt) / (TILT_START - TILT_FULL), 0, 1)
     if (k <= 0) return
-    const tilt = MAX_TILT * k * k * (3 - 2 * k)
+    const k2 = THREE.MathUtils.clamp((LOW_TILT_START - alt) / (LOW_TILT_START - LOW_TILT_FULL), 0, 1)
+    const tilt = MAX_TILT * k * k * (3 - 2 * k) + LOW_EXTRA_TILT * k2 * k2 * (3 - 2 * k2)
     basePos.copy(camera.position)
     baseQuat.copy(camera.quaternion)
     ground.copy(camera.position).multiplyScalar(1 / dist)

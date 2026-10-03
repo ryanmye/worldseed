@@ -1,42 +1,62 @@
-// The model set: CC0 meshes packed into two .glb files (see tools/buildModels.mjs and
-// public/models/CREDITS.md) plus a few generated pieces (haystacks, a dam, the soft
-// contact shadow). Every geometry carries the same attributes (position, normal and an
-// RGBA8 `aColor`: sRGB albedo plus a "team colour" mask in alpha), so one material
-// draws them all. Loading is asynchronous and failure-tolerant: until the promise
-// resolves (or if it rejects) the diorama layer simply draws nothing.
+// The model set: a few CC0 meshes packed into two .glb files (see tools/buildModels.mjs and
+// public/models/CREDITS.md) for the landmarks, ships, pier and cart, plus generated
+// low-poly geometry (shapes.ts) for the bulk houses of every building style, the
+// landmarks of the non-European styles, walls, trees, haystacks, the dam and the contact
+// shadow. Every geometry carries the same attributes (position, normal and an RGBA8
+// `aColor`: sRGB albedo plus a mask in alpha), so one material draws them all. Loading is
+// asynchronous and failure-tolerant: until the promise resolves (or if it rejects) the
+// diorama layer simply draws nothing; generated models never depend on the files.
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import {
+  buildBlob, buildDam, buildHaystacks, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
+  KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
+} from './shapes.ts'
 
-/** Width of a KayKit house on the globe (world units; the planet radius is 1, a cell ~0.023). */
-export const HOUSE_WIDTH = 0.0031
-/** World units per KayKit model unit (a KayKit house is ~0.8 units wide). */
-export const KK = HOUSE_WIDTH / 0.8
+/**
+ * World units per KayKit model unit. A generated house (0.8 units wide) is ~0.0006 wide on
+ * the globe: 0.026 of a cell (~150 km), still some 400 times true scale, but small enough
+ * that settlements sit in the landscape instead of covering it.
+ */
+export const KK = 0.00075
+/** Width of a common house on the globe (world units). */
+export const HOUSE_WIDTH = 0.8 * KK
 
 export const Model = {
-  HomeA: 0,
-  HomeB: 1,
-  Church: 2,
-  Market: 3,
-  Tavern: 4,
-  Well: 5,
-  Blacksmith: 6,
-  Windmill: 7,
-  Watermill: 8,
-  Castle: 9,
-  Tower: 10,
-  Barracks: 11,
-  Lumbermill: 12,
-  Trees: 13,
-  Ship: 14,
-  ShipMedium: 15,
-  Dock: 16,
-  Cart: 17,
-  Haystack: 18,
-  Dam: 19,
+  Church: 0,
+  Market: 1,
+  Tavern: 2,
+  Well: 3,
+  Blacksmith: 4,
+  Windmill: 5,
+  Watermill: 6,
+  Castle: 7,
+  Tower: 8,
+  Barracks: 9,
+  Lumbermill: 10,
+  Ship: 11,
+  ShipMedium: 12,
+  Dock: 13,
+  Cart: 14,
+  Haystack: 15,
+  Dam: 16,
+  WallSeg: 17,
+  WallTower: 18,
+  Stalls: 19,
+  SmallWell: 20,
+  TownBridge: 21,
 } as const
 export type Model = (typeof Model)[keyof typeof Model]
-export const MODEL_COUNT = 20
+const FLORA_BASE = 22
+const STYLE_BASE = FLORA_BASE + FLORA_COUNT
+export const MODEL_COUNT = STYLE_BASE + STYLE_COUNT * KIND_COUNT
+
+/** Model of a generated grove. */
+export const floraModel = (f: Flora) => FLORA_BASE + f
+/** Model of a generated building of a style. */
+export const styleModel = (s: Style, k: Kind) => STYLE_BASE + s * KIND_COUNT + k
+export const isStyleModel = (m: number) => m >= STYLE_BASE
 
 interface ModelSpec {
   /** Mesh name in the .glb, or null for generated geometry. */
@@ -49,29 +69,39 @@ interface ModelSpec {
 
 const S = (name: string | null, scale: number, lit = false): ModelSpec => ({ name, scale, lit })
 
-/** Per model: source mesh, scale on the globe, night windows. Kenney models are rescaled to sit with the KayKit ones. */
-export const MODEL_SPECS: readonly ModelSpec[] = [
-  S('home_A', KK, true),
-  S('home_B', KK, true),
-  S('church', KK, true),
-  S('market', KK * 0.9, true),
-  S('tavern', KK * 0.9, true),
-  S('well', KK * 0.8),
-  S('blacksmith', KK * 0.9, true),
-  S('windmill', KK, true),
-  S('watermill', KK, true),
-  S('castle', KK * 0.7, true),
-  S('tower_A', KK * 0.9, true),
-  S('barracks', KK * 0.85, true),
-  S('lumbermill', KK * 0.85, true),
-  S('trees', KK * 0.8),
-  S('ship', KK * 0.2), // ~1.8 KayKit units long: two houses
-  S('ship_medium', KK * 0.19),
-  S('dock', KK * 0.34),
-  S('cart', KK * 0.45),
-  S(null, KK), // haystack
-  S(null, KK), // dam (x is scaled to the river per instance)
-]
+/**
+ * KayKit landmarks are a little larger than the generated houses (a church ~1.3 houses
+ * wide); ships and boats are smaller than a church; the pier is a few house widths.
+ */
+export const MODEL_SPECS: readonly ModelSpec[] = (() => {
+  const specs: ModelSpec[] = [
+    S('church', KK * 1.3, true),
+    S('market', KK * 1.05, true),
+    S('tavern', KK * 1.05, true),
+    S('well', KK * 0.8),
+    S('blacksmith', KK * 1.0, true),
+    S('windmill', KK * 1.25, true),
+    S('watermill', KK * 1.1, true),
+    S('castle', KK * 0.85, true),
+    S('tower_A', KK * 1.05, true),
+    S('barracks', KK * 0.95, true),
+    S('lumbermill', KK * 0.95, true),
+    S('ship', KK * 0.14), // ~8.8 units long: 1.2 KayKit units, about a long house
+    S('ship_medium', KK * 0.13),
+    S('dock', KK * 0.24),
+    S('cart', KK * 0.26),
+    S(null, KK * 0.9), // haystacks
+    S(null, KK), // dam (x is scaled to the river per instance)
+    S(null, KK), // wall section (x scaled per instance)
+    S(null, KK), // wall tower
+    S(null, KK * 1.1), // market stalls
+    S(null, KK), // small well
+    S(null, KK), // town bridge (x scaled per instance)
+  ]
+  for (let f = 0; f < FLORA_COUNT; f++) specs.push(S(null, KK))
+  for (let s = 0; s < STYLE_COUNT; s++) for (let k = 0; k < KIND_COUNT; k++) specs.push(S(null, KK, true))
+  return specs
+})()
 
 export interface ModelEntry {
   geometry: THREE.BufferGeometry
@@ -81,6 +111,8 @@ export interface ModelEntry {
   footprint: number
   /** Height on the globe (world units). */
   height: number
+  /** Triangles. */
+  triangles: number
 }
 
 export interface ModelLibrary {
@@ -94,10 +126,28 @@ const FILES = [`${BASE}models/kaykit/kaykit-medieval.glb`, `${BASE}models/kenney
 
 let pending: Promise<ModelLibrary> | null = null
 
-/** Starts loading (once) and resolves with the library; rejects if nothing usable loaded. */
+/** Starts loading (once) and resolves with the library; rejects only if nothing usable exists. */
 export function loadModels(): Promise<ModelLibrary> {
   if (!pending) pending = load()
   return pending
+}
+
+function generated(id: number): THREE.BufferGeometry | null {
+  switch (id) {
+    case Model.Haystack: return buildHaystacks()
+    case Model.Dam: return buildDam()
+    case Model.WallSeg: return buildWallSegment()
+    case Model.WallTower: return buildWallTower()
+    case Model.Stalls: return buildStalls()
+    case Model.SmallWell: return buildWell()
+    case Model.TownBridge: return buildTownBridge()
+  }
+  if (id >= STYLE_BASE) {
+    const k = id - STYLE_BASE
+    return styleGeometry(Math.floor(k / KIND_COUNT) as Style, (k % KIND_COUNT) as Kind)
+  }
+  if (id >= FLORA_BASE) return floraGeometry((id - FLORA_BASE) as Flora)
+  return null
 }
 
 async function load(): Promise<ModelLibrary> {
@@ -122,19 +172,20 @@ async function load(): Promise<ModelLibrary> {
       for (const m of mats) m.dispose()
     })
   }
-  if (byName.size === 0) throw new Error('no diorama models loaded')
-  const generated: Partial<Record<Model, THREE.BufferGeometry>> = {
-    [Model.Haystack]: buildHaystacks(),
-    [Model.Dam]: buildDam(),
-  }
   const models: (ModelEntry | null)[] = MODEL_SPECS.map((spec, id) => {
-    const g = spec.name ? byName.get(spec.name) : generated[id as Model]
+    const g = spec.name ? byName.get(spec.name) : generated(id)
     if (!g) return null
     g.computeBoundingBox()
     const size = new THREE.Vector3()
     g.boundingBox!.getSize(size)
-    return { geometry: g, size, footprint: 0.5 * Math.max(size.x, size.z) * spec.scale, height: size.y * spec.scale }
+    const idx = g.getIndex()
+    const triangles = (idx ? idx.count : g.getAttribute('position').count) / 3
+    // height above the ground (generated walls reach below y = 0)
+    const top = g.boundingBox!.max.y
+    return { geometry: g, size, footprint: 0.5 * Math.max(size.x, size.z) * spec.scale, height: top * spec.scale, triangles }
   })
+  // unused meshes of the packs
+  for (const [name, g] of byName) if (!MODEL_SPECS.some((s) => s.name === name)) g.dispose()
   const blob = buildBlob()
   return {
     models,
@@ -144,109 +195,4 @@ async function load(): Promise<ModelLibrary> {
       blob.dispose()
     },
   }
-}
-
-// ---------- generated geometry ----------
-
-class Builder {
-  pos: number[] = []
-  col: number[] = []
-  tri(a: number[], b: number[], c: number[], rgb: number[]) {
-    this.pos.push(...a, ...b, ...c)
-    for (let i = 0; i < 3; i++) this.col.push(rgb[0], rgb[1], rgb[2], 0)
-  }
-  quad(a: number[], b: number[], c: number[], d: number[], rgb: number[]) {
-    this.tri(a, b, c, rgb)
-    this.tri(a, c, d, rgb)
-  }
-  /** Frustum of a cone around the y axis (r0 at y0, r1 at y1), with caps. */
-  frustum(cx: number, cz: number, y0: number, y1: number, r0: number, r1: number, seg: number, side: number[], cap: number[]) {
-    for (let i = 0; i < seg; i++) {
-      const a0 = (i / seg) * Math.PI * 2, a1 = ((i + 1) / seg) * Math.PI * 2
-      const p = (r: number, a: number, y: number) => [cx + r * Math.cos(a), y, cz + r * Math.sin(a)]
-      if (r1 > 0) this.quad(p(r0, a0, y0), p(r1, a0, y1), p(r1, a1, y1), p(r0, a1, y0), side)
-      else this.tri(p(r0, a0, y0), [cx, y1, cz], p(r0, a1, y0), side)
-      if (r1 > 0) this.tri([cx, y1, cz], p(r1, a1, y1), p(r1, a0, y1), cap)
-    }
-  }
-  /** Axis-aligned box. */
-  box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: number[], top = rgb) {
-    const v = (x: number, y: number, z: number) => [x, y, z]
-    this.quad(v(x0, y1, z0), v(x0, y1, z1), v(x1, y1, z1), v(x1, y1, z0), top)
-    this.quad(v(x0, y0, z1), v(x1, y0, z1), v(x1, y1, z1), v(x0, y1, z1), rgb)
-    this.quad(v(x1, y0, z0), v(x0, y0, z0), v(x0, y1, z0), v(x1, y1, z0), rgb)
-    this.quad(v(x1, y0, z1), v(x1, y0, z0), v(x1, y1, z0), v(x1, y1, z1), rgb)
-    this.quad(v(x0, y0, z0), v(x0, y0, z1), v(x0, y1, z1), v(x0, y1, z0), rgb)
-  }
-  build(): THREE.BufferGeometry {
-    const g = new THREE.BufferGeometry()
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
-    g.setAttribute('aColor', new THREE.BufferAttribute(new Uint8Array(this.col), 4, true))
-    g.computeVertexNormals() // non-indexed: flat facets, the low-poly look of the packs
-    return g
-  }
-}
-
-/** Three haystacks: a squat drum under a rounded cone each. */
-function buildHaystacks(): THREE.BufferGeometry {
-  const b = new Builder()
-  const hay = [214, 172, 84], hayTop = [196, 150, 66], dark = [168, 128, 58]
-  const stacks: [number, number, number][] = [[0, 0, 1], [0.27, 0.12, 0.8], [-0.12, 0.26, 0.7]]
-  for (const [x, z, s] of stacks) {
-    b.frustum(x, z, 0, 0.13 * s, 0.13 * s, 0.135 * s, 9, hay, hayTop)
-    b.frustum(x, z, 0.13 * s, 0.2 * s, 0.135 * s, 0.1 * s, 9, hayTop, hayTop)
-    b.frustum(x, z, 0.2 * s, 0.29 * s, 0.1 * s, 0, 9, dark, dark)
-  }
-  return b.build()
-}
-
-/**
- * A gently curved concrete dam, 1 unit wide along x (scaled per instance to the river),
- * bowed upstream (-z; +z is downstream), with a darker spillway face.
- */
-function buildDam(): THREE.BufferGeometry {
-  const b = new Builder()
-  const concrete = [186, 180, 168], top = [206, 201, 190], face = [140, 136, 128], spill = [120, 160, 175]
-  const seg = 8
-  const H = 0.5, T = 0.14, bow = 0.14
-  const zAt = (x: number) => -bow * (1 - 4 * x * x)
-  for (let i = 0; i < seg; i++) {
-    const xa = -0.5 + i / seg, xb = -0.5 + (i + 1) / seg
-    const za = zAt(xa), zb = zAt(xb)
-    const mid = i === seg / 2 - 1 || i === seg / 2
-    // upstream face, top, downstream face (sloped buttress)
-    b.quad([xa, -0.05, za - T * 0.5], [xa, H, za - T * 0.5], [xb, H, zb - T * 0.5], [xb, -0.05, zb - T * 0.5], concrete)
-    b.quad([xa, H, za - T * 0.5], [xa, H, za + T * 0.5], [xb, H, zb + T * 0.5], [xb, H, zb - T * 0.5], top)
-    b.quad([xb, -0.05, zb + T * 1.6], [xb, H, zb + T * 0.5], [xa, H, za + T * 0.5], [xa, -0.05, za + T * 1.6], mid ? spill : face)
-  }
-  // abutments
-  b.box(-0.62, -0.05, -0.12, -0.48, H + 0.05, 0.22, concrete, top)
-  b.box(0.48, -0.05, -0.12, 0.62, H + 0.05, 0.22, concrete, top)
-  return b.build()
-}
-
-/** Unit disk in the xz plane; alpha 1 at the centre falling to 0 at the rim. */
-function buildBlob(): THREE.BufferGeometry {
-  const seg = 20
-  const pos = [0, 0, 0]
-  const col = [0, 0, 0, 255]
-  for (let i = 0; i <= seg; i++) {
-    const a = (i / seg) * Math.PI * 2
-    for (const [r, alpha] of [[0.55, 170], [1, 0]] as const) {
-      pos.push(Math.cos(a) * r, 0, Math.sin(a) * r)
-      col.push(0, 0, 0, alpha)
-    }
-  }
-  const index: number[] = []
-  for (let i = 0; i < seg; i++) {
-    const a = 1 + i * 2, b = 1 + (i + 1) * 2
-    index.push(0, b, a) // inner fan (CCW seen from +y)
-    index.push(a, b, b + 1, a, b + 1, a + 1)
-  }
-  const g = new THREE.BufferGeometry()
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array((pos.length / 3) * 3).fill(0).map((_, i) => (i % 3 === 1 ? 1 : 0)), 3))
-  g.setAttribute('aColor', new THREE.BufferAttribute(new Uint8Array(col), 4, true))
-  g.setIndex(index)
-  return g
 }

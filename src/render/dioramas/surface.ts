@@ -36,7 +36,8 @@ export interface Surface {
   wet(p: Probe, margin: number): boolean
 }
 
-export function createSurface(world: World): Surface {
+/** `reservoir`: per-cell reservoir strength (0 = none), the fill the planet shader floods behind dams. */
+export function createSurface(world: World, reservoir: Float32Array | null = null): Surface {
   const { positions: P, neighborOffsets: off, neighbors: nb } = world.grid
   const lake = lakeArray(world)
   const E = world.elevation
@@ -136,6 +137,11 @@ export function createSurface(world: World): Surface {
       let e = p.elev
       if (Math.abs(e) < amp * 1.25 + margin * amp) e += fbm(tri.x + 17, tri.y + 17, tri.z + 17, cellFreq * 0.6, 5) * amp
       if (e < margin * amp) return true
+      if (reservoir && (reservoir[a] > 0 || reservoir[b] > 0 || reservoir[d] > 0)) {
+        // the reservoir contour at its fullest (planetShaders.ts: resLin - 0.6 + 0.16 fbm)
+        const f = la * reservoir[a] + lb * reservoir[b] + ld * reservoir[d] - 0.6 + 0.16 * fbm(tri.x + 37, tri.y + 37, tri.z + 37, cellFreq * 1.6, 4)
+        if (f > -0.12 * margin - 0.03) return true
+      }
       if (lake && (lake[a] | lake[b] | lake[d])) {
         const f = la * lake[a] + lb * lake[b] + ld * lake[d] - 0.5 + 0.55 * fbm(tri.x + 29, tri.y + 29, tri.z + 29, cellFreq * 0.6, 5)
         if (f > -0.12 * margin - 0.04) return true

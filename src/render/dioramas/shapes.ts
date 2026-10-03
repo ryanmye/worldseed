@@ -439,6 +439,19 @@ export function buildWell(): THREE.BufferGeometry {
   return b.build()
 }
 
+/** A short town bridge, 1 unit long along x (scaled to the river per instance) and 1 wide along z. */
+export function buildTownBridge(): THREE.BufferGeometry {
+  const b = new Builder()
+  const stone: RGB = [176, 164, 142], dark: RGB = [136, 126, 110], deck: RGB = [150, 128, 98]
+  b.box(-0.55, 0.1, -0.5, 0.55, 0.2, 0.5, stone, M_FIXED, deck)
+  b.box(-0.55, 0.2, -0.5, 0.55, 0.3, -0.38, dark)
+  b.box(-0.55, 0.2, 0.38, 0.55, 0.3, 0.5, dark)
+  b.box(-0.08, -0.3, -0.45, 0.08, 0.1, 0.45, dark)
+  b.box(-0.6, -0.3, -0.5, -0.45, 0.2, 0.5, dark)
+  b.box(0.45, -0.3, -0.5, 0.6, 0.2, 0.5, dark)
+  return b.build()
+}
+
 // ---------- vegetation ----------
 
 export const Flora = {

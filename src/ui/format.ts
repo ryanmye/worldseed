@@ -1,6 +1,6 @@
 // Text formatting shared by the timeline, inspector and chronicle.
 
-import { EventType, StructureType, type History, type HistoryEvent } from '../contract.ts'
+import { EventType, FeatureKind, StructureType, type GeoFeature, type History, type HistoryEvent } from '../contract.ts'
 
 /** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
@@ -168,4 +168,27 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`
   }
+}
+
+/** Plain noun for a kind of named feature, as the chronicle says it ("the river Kephia"). */
+export function featureNoun(kind: number): string {
+  return ['land', 'island', 'ocean', 'sea', 'lake', 'river', 'mountains', 'desert', 'forest'][kind] ?? 'land'
+}
+
+/** Kinds in the order a place is described, most local first: river, lake, range, desert, forest, sea, ocean, island, continent. */
+const PLACE_ORDER = [8, 7, 6, 5, 1, 0, 2, 3, 4]
+
+/** "Kephia river, Oru Tal sea, Hingara continent": the named features a place lies on or beside. */
+export function describePlaces(features: readonly GeoFeature[]): string {
+  const sorted = features.slice().sort((a, b) => (PLACE_ORDER[a.kind] ?? 9) - (PLACE_ORDER[b.kind] ?? 9) || a.id - b.id)
+  return sorted.map((f) => `${f.name} ${f.kind === FeatureKind.Continent ? 'continent' : featureNoun(f.kind)}`).join(', ')
+}
+
+/** Chronicle line for features named together by one settlement ("The people of Kepia name the sea Oru Tal and the river Kephia"). */
+export function describeNaming(h: History, featureIds: readonly number[]): string {
+  const fs = featureIds.map((id) => h.features[id]).filter((f) => f !== undefined)
+  if (!fs.length) return ''
+  const items = fs.map((f) => `the ${featureNoun(f.kind)} ${f.name}`)
+  const list = items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+  return `The people of ${settlementName(h, fs[0].namedBy)} name ${list}`
 }

@@ -141,7 +141,7 @@ export const MIGRATION = {
   retryRefugees: 5,
   /** Score = value * (1 + emptyPull * free^2) * jitter / (1 + costPenalty * cost / budget), free = share of the site's land nobody else works. */
   costPenalty: 0.6,
-  emptyPull: 1,
+  emptyPull: 2,
   /** A new site must offer at least this multiple of the group size in free capacity. */
   foundMinRatio: 2,
   /** Refugees join only a settlement below joinRoom * its expected food after they arrive, fed at least joinFood this year. */
@@ -223,17 +223,20 @@ export const PORT = {
 export const VOYAGE = {
   /** Senders: coastal settlements of at least minPop people. */
   minPop: 100,
-  /** Yearly chance of an expedition from a coastal settlement without / with a port, at full drive. */
-  coastChance: 0.012,
-  portChance: 0.012,
-  /** Drive = drive0 + (1 - drive0) * population pressure (as for colonists); wealth multiplies the chance by 1 + wealthChance * prosperity. */
+  /** Yearly chance of an expedition from a coastal settlement without / with a port, at full drive; without a port it fades with technology (divided by 1 + coastFade * (productivity - 1)): early on anyone sails, later mostly ports. */
+  coastChance: 0.016,
+  portChance: 0.02,
+  coastFade: 1.5,
+  /** Drive = drive0 + (1 - drive0) * population pressure (as for colonists); wealth multiplies the chance by 1 + wealthChance * prosperity, size by 1 + sizeChance * smoothstep(sizeLow, sizeHigh, pop). */
   drive0: 0.2,
   wealthChance: 1,
+  sizeChance: 2,
   /** Chance multiplier while a known, still open land discovered from the sender's landmass lies within reach. */
   knownBoost: 2,
-  /** Sea range: base (no port / port) * (1 + rangeTech * (productivity - 1)) * (1 + wealthRange * prosperity) * (1 + sizeRange * smoothstep(sizeLow, sizeHigh, pop)) * jitter. */
-  coastRange: 7,
+  /** Sea range: base (no port / port) * (1 + tech * (productivity - 1)) * (1 + wealthRange * prosperity) * (1 + sizeRange * smoothstep(sizeLow, sizeHigh, pop)) * jitter, tech = coastTech / rangeTech. */
+  coastRange: 10,
   portRange: 9,
+  coastTech: 0.5,
   rangeTech: 1,
   wealthRange: 1,
   sizeRange: 0.5,
@@ -250,7 +253,7 @@ export const VOYAGE = {
   /** Sailing for a known land: range at least 1.1 * the discovery's cost, up to knownRangeMax * range. */
   knownRangeMax: 1.6,
   /** The search stops after this many sea cells, or after this many acceptable landfalls. */
-  maxVisits: 4000,
+  maxVisits: 2500,
   maxCandidates: 16,
   /** A landfall on the sender's own landmass counts this much toward maxCandidates. */
   homeCount: 0.5,
@@ -261,15 +264,16 @@ export const VOYAGE = {
   groupHigh: 250,
   /** A landfall must leave the group at least this share of what the land would give it alone (sparsely settled at most). */
   freeMin: 0.6,
-  /** Landfall value multipliers: river mouth, another landmass than the sender's, a landmass with nobody on it, a known open land. */
+  /** Landfall value multipliers: river mouth, sheltered shore (reached over shallow water), another landmass than the sender's, a landmass with nobody on it, a known open land. */
   riverMouth: 0.4,
+  sheltered: 0.2,
   otherLand: 1,
   emptyLand: 1,
   knownPref: 1,
   /** Score = value * free share * jitter / (1 + costPenalty * cost / range). */
   costPenalty: 1.5,
-  /** Loss at sea: 1 - 1 / (1 + lossBase + lossDeep * deep cells / (1 + lossTech * (productivity - 1))), times knownSafe on a known route. */
-  lossBase: 0.1,
+  /** Loss at sea: 1 - 1 / (1 + hazard), hazard = (lossShallow * shallow cells + lossDeep * deep cells) / (1 + lossTech * (productivity - 1)), times knownSafe on a known route. */
+  lossShallow: 0.012,
   lossDeep: 0.04,
   lossTech: 0.5,
   knownSafe: 0.6,
@@ -277,10 +281,10 @@ export const VOYAGE = {
   attrition: 0.3,
   /** Years before a settlement sends again: after finding no landfall (times the number of such searches in a row, at most retryMax), after a loss, after a colony. */
   retry: 40,
-  retryMax: 4,
+  retryMax: 3,
   /** A search from a weather region that found no landfall stops voyages of range up to newsMargin times its range from there for newsYears. */
-  newsYears: 50,
-  newsMargin: 1.25,
+  newsYears: 100,
+  newsMargin: 1.75,
   retryLost: 15,
   cooldown: 10,
   /** Hard first years of a seaborne colony: for hardYears, a yearly chance of losing U(hardMin, hardMax) of its people. */

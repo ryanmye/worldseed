@@ -147,6 +147,8 @@ export interface History {
   /** Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. */
   wealth: Float32Array
   trade: TradeRoutes
+  /** Named geographic features, in order of naming. */
+  features: GeoFeature[]
   /** Years between trade snapshots; trade snapshot s is year s * tradeInterval. */
   tradeInterval: number
   tradeSnapshotCount: number
@@ -247,4 +249,38 @@ export interface Journeys {
   pathOffsets: Uint32Array
   /** Cell ids along each route, origin cell first, destination cell last; consecutive cells are neighbours. May include water cells for sea crossings. */
   path: Uint32Array
+}
+
+// ---------------------------------------------------------------------------
+// Named geography: continents, seas, rivers and so on get a name when a people
+// first settles on or beside them, in that people's language.
+
+export const FeatureKind = {
+  Continent: 0,
+  Island: 1,
+  Ocean: 2,
+  Sea: 3, // enclosed or marginal sea, large bay, strait
+  Lake: 4,
+  River: 5,
+  MountainRange: 6,
+  Desert: 7,
+  Forest: 8,
+} as const
+export type FeatureKind = (typeof FeatureKind)[keyof typeof FeatureKind]
+
+export interface GeoFeature {
+  /** Index into History.features. */
+  id: number
+  kind: FeatureKind
+  name: string
+  /** Year it was named; it has no name before this. */
+  namedYear: number
+  /** Settlement whose people named it. */
+  namedBy: number
+  /** Cell to anchor a label at, near the feature's visual centre (for a river, a cell on its lower course). */
+  anchorCell: number
+  /** Extent in cells (for a river, its length in cells), for sizing and prioritising labels. */
+  size: number
+  /** Cells along the feature's main axis for curved labels (river course, range crest), or empty. */
+  spine: number[]
 }
