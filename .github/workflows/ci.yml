@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # Some simulation tests run a full 2000-year history and can exceed vitest's
+      # default 5s per-test timeout on a loaded CI runner; raise it for this job only.
+      - run: npx vitest run --testTimeout=60000
+
+      - run: npm run build
