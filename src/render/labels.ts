@@ -213,7 +213,8 @@ class BoxGrid {
   }
 }
 
-export function createLabelLayer(container: HTMLElement, before: Node | null, world: World, history: History, source: LabelSource): LabelLayer {
+/** `normYear`: label sizes are scaled by the largest feature of each kind named by then (so a longer history does not resize earlier labels). */
+export function createLabelLayer(container: HTMLElement, before: Node | null, world: World, history: History, source: LabelSource, normYear = Infinity): LabelLayer {
   const canvas = document.createElement('canvas')
   canvas.className = 'label-layer'
   canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;display:block'
@@ -248,12 +249,15 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   // ---- features
   const features: GeoFeature[] = Array.isArray((history as Partial<History>).features) ? history.features : []
   const maxSize: number[] = []
-  for (const f of features) maxSize[f.kind] = Math.max(maxSize[f.kind] ?? 1, f.size)
+  for (const f of features) if (f.namedYear <= normYear) maxSize[f.kind] = Math.max(maxSize[f.kind] ?? 1, f.size)
+  const later: number[] = []
+  for (const f of features) if (maxSize[f.kind] === undefined) later[f.kind] = Math.max(later[f.kind] ?? 1, f.size)
+  later.forEach((m, k) => (maxSize[k] = m))
   const featureLabels: FeatureLabel[] = []
   for (const f of features) {
     const style = FEATURE_STYLE[f.kind]
     if (!style || f.anchorCell < 0 || f.anchorCell >= N) continue
-    const rel = Math.sqrt(f.size / Math.max(1, maxSize[f.kind]))
+    const rel = Math.sqrt(Math.min(1, f.size / Math.max(1, maxSize[f.kind])))
     const size = style.size[0] + (style.size[1] - style.size[0]) * rel
     const line = f.kind === FeatureKind.River || f.kind === FeatureKind.MountainRange
     let path: Float32Array | null = null

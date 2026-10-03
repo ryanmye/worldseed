@@ -12,34 +12,83 @@
 // rich settlement instead of founding a new one. Founders value uncrowded
 // land: a site's score rises with the share of its land nobody else works,
 // so groups reaching a new, empty land spread out over it.
+//
+// Knowledge (knowledge.ts): a group moves only through cells its people
+// knows, and joins only settlements of its own people or of a people it has
+// met; it may found a site beside strangers it knows of, and meets them
+// there. Its route and the cells beside it become known (and a route passing
+// strangers' land makes first contact).
 
 import { EventType, JourneyKind } from '../../contract.ts'
 import { clamp, smoothstep } from '../util.ts'
-import { Heap } from './heap.ts'
 import { MIGRATION, PORT, VOYAGE, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
 import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
-import { canSettle, found, logEvent, logJourney } from './state.ts'
+import { found, logEvent, logJourney, productivityOf } from './state.ts'
+import { learnPath } from './knowledge.ts'
 
-/** Reusable Dijkstra buffers. */
+/**
+ * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
+ * holds cells at travel cost [b * width, (b + 1) * width), width below the cheapest step anywhere
+ * (MIGRATION.bucketWidth cell units), so every cell is final when its bucket comes up; within a
+ * bucket cells are settled in the order they were reached.
+ */
 export interface Search {
   dist: Float64Array
   stamp: Int32Array
   /** Predecessor cell on the shortest path found so far, valid wherever `stamp` matches `run`. */
   prev: Int32Array
-  heap: Heap
+  /** Cells settled this run (stamp), at what cost. */
+  done: Int32Array
+  doneDist: Float64Array
+  buckets: Int32Array[]
+  bucketLen: Int32Array
+  /** Buckets [0, used) may hold entries from the last run. */
+  used: number
+  /** 1 / bucket width. */
+  inv: number
   run: number
 }
 
-export function createSearch(cellCount: number): Search {
+export function createSearch(cellCount: number, cellScale: number): Search {
+  const buckets: Int32Array[] = []
+  for (let b = 0; b < 64; b++) buckets.push(new Int32Array(16))
   return {
     dist: new Float64Array(cellCount),
     stamp: new Int32Array(cellCount),
     prev: new Int32Array(cellCount),
-    heap: new Heap(1024),
+    done: new Int32Array(cellCount),
+    doneDist: new Float64Array(cellCount),
+    buckets,
+    bucketLen: new Int32Array(64),
+    used: 0,
+    inv: 1 / (MIGRATION.bucketWidth * cellScale),
     run: 0,
   }
+}
+
+/** Queues cell c at cost d (bucket floor(d * inv)), growing the buckets as needed. */
+function enqueue(search: Search, c: number, d: number): void {
+  const b = Math.floor(d * search.inv)
+  if (b >= search.bucketLen.length) {
+    let size = search.bucketLen.length
+    while (size <= b) size *= 2
+    const len = new Int32Array(size)
+    len.set(search.bucketLen)
+    search.bucketLen = len
+    for (let k = search.buckets.length; k < size; k++) search.buckets.push(new Int32Array(16))
+  }
+  let arr = search.buckets[b]
+  const n = search.bucketLen[b]
+  if (n === arr.length) {
+    const a = new Int32Array(arr.length * 2)
+    a.set(arr)
+    search.buckets[b] = arr = a
+  }
+  arr[n] = c
+  search.bucketLen[b] = n + 1
+  if (b >= search.used) search.used = b + 1
 }
 
 /** Walks `prev` from `dest` back to `origin`, returning the path origin-first. */
@@ -69,30 +118,6 @@ function travelYears(s: HistoryState, path: number[], budget: number): number {
   }
   return clamp(1 + 9 * (land / budget) + VOYAGE.travelPerCell * sea, 1, 10)
 }
-
-/**
- * What a group of g settlers could expect at `cell` (people fed, this year's
- * productivity), sharing every base-catchment cell with its current claimants
- * as the food system would.
- */
-export function settlerFood(s: HistoryState, cell: number, g: number): number {
-  const T = s.terrain
-  const st = claimStrength(g)
-  let v = 0, a = 0
-  for (let k = T.catchOff[cell]; k < T.catchBase[cell]; k++) {
-    const j = T.catchCell[k]
-    const w = T.catchW[k]
-    const wg = w * st
-    const cw = s.effCap[j] * w
-    v += (cw * wg) / (s.claim[j] + wg)
-    a += cw
-  }
-  settlerAlone = a * s.productivity
-  return v * s.productivity
-}
-
-/** What the group of the last settlerFood call would get at that cell with nobody else around (set by settlerFood). */
-let settlerAlone = 0
 
 /** Prosperity f = max(w / (w + half), x / (1 + x)) of a settlement, w = wealth per head, x = hub size (0 for none). */
 export function prosperity(s: HistoryState, id: number): number {
@@ -140,9 +165,137 @@ export function migrationSystem(s: HistoryState, search: Search): void {
     const g = Math.floor(p * rng.range(M.groupMin, M.groupMax))
     if (g < M.minGroup || p - g < M.minGroup) continue
     const refugees = roll >= colonise
-    // A group that finds nowhere to go stays; its settlement waits before trying again.
-    if (!migrate(s, search, id, g, refugees)) s.nextMigration[id] = s.year + (refugees ? M.retryRefugees : M.retryColonists)
+    // A group that finds nowhere to go stays; its settlement waits before trying again
+    // (colonists longer after each search in a row that found nothing, up to retryMax times as long).
+    if (migrate(s, search, id, g, refugees)) s.migFails[id] = 0
+    else if (refugees) s.nextMigration[id] = s.year + M.retryRefugees
+    else {
+      const k = s.migFails[id] < M.retryMax ? ++s.migFails[id] : M.retryMax
+      s.nextMigration[id] = s.year + M.retryColonists * k
+    }
   }
+}
+
+/** Result of the last siteSearch: best new site (cell) or settlement to join, -1 if none. */
+let foundCell = -1
+let foundJoin = -1
+/** Whether the last shadow siteSearch (restricted, no jitter) met unknown cells within its budget. */
+let foundFrontier = false
+
+/**
+ * The search a group of g from settlement `from` makes for somewhere to go (Dijkstra over travel
+ * cost within `budget`). With `restrict`, only through cells its people knows and joining only
+ * peoples it has met; with `jitter`, scores carry the usual random factor (drawn from the
+ * migration stream; without it nothing is drawn, for shadow decisions). Sets foundCell / foundJoin.
+ */
+function siteSearch(s: HistoryState, search: Search, from: number, g: number, mayJoin: boolean, budget: number, ocean: number, seaMul: number, prod: number, restrict: boolean, jitter: boolean): void {
+  const M = MIGRATION
+  const T = s.terrain
+  const rng = s.rngMigration
+  const sitePref = 1 + PORT.sitePref
+  const k = s.know
+  const known = k.known
+  const people = s.people[from]
+  const kBase = people * k.N
+  const cBase = people * k.P
+  const contact = k.contact
+
+  const { dist, stamp, prev, done, doneDist } = search
+  const run = ++search.run
+  search.bucketLen.fill(0, 0, search.used)
+  search.used = 0
+  const origin = s.cell[from]
+  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  dist[origin] = 0
+  stamp[origin] = run
+  enqueue(search, origin, 0)
+
+  let bestScore = 0
+  let bestCell = -1
+  let bestJoin = -1
+  const minFood = M.foundMinRatio * g
+  // Hoisted for the hot loop.
+  const { occupant, food: foodRatio, people: peopleOf, nearCount, claim, effCap, portReach } = s
+  const moveCost = s.moveCost
+  const { habitable, potential, deep, sea, catchOff, catchBase, catchCell, catchW } = T
+  const seaCost = T.moveCost
+  const st = claimStrength(g)
+  const maxVisits = M.maxVisits
+  const costPenalty = M.costPenalty
+  let visits = 0
+  let frontier = false
+  const inv = search.inv
+  for (let b = 0, i = 0; ;) {
+    if (i >= search.bucketLen[b]) {
+      if (++b >= search.used) break
+      i = 0
+      continue
+    }
+    const c = search.buckets[b][i++]
+    const d = dist[c]
+    if (Math.floor(d * inv) !== b || (done[c] === run && doneDist[c] <= d)) continue // stale entry
+    if (visits >= maxVisits) break
+    done[c] = run
+    doneDist[c] = d
+    visits++
+    if (c !== origin) {
+      const occ = occupant[c]
+      if (occ >= 0) {
+        // A hungry place takes nobody in (checked first: the rest is dearer); strangers neither.
+        if (foodRatio[occ] >= M.joinFood && (!restrict || peopleOf[occ] === people || contact[cBase + peopleOf[occ]] >= 0)) {
+          const pop = s.pop[occ]
+          const wf = prosperity(s, occ)
+          const rich = wf >= WEALTH.joinMin
+          let spare = M.joinRoom * foodBase(s, occ) - pop
+          if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
+          if ((mayJoin || rich) && spare >= g) {
+            const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
+            const score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+            if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
+          }
+        }
+      } else if (habitable[c] === 1 && nearCount[c] === 0 && potential[c] * prod >= minFood) {
+        // What the group could expect here (people fed, at its productivity), sharing every base-catchment
+        // cell with its current claimants as the food system would, and what the land would give it alone.
+        let v = 0, a = 0
+        for (let q = catchOff[c], e = catchBase[c]; q < e; q++) {
+          const j = catchCell[q]
+          const w = catchW[q]
+          const wg = w * st
+          const cw = effCap[j] * w
+          v += (cw * wg) / (claim[j] + wg)
+          a += cw
+        }
+        const food = v * prod
+        if (food >= minFood) {
+          // Empty land pulls: the larger the share of the land nobody else works, the better.
+          const alone = a * prod
+          const free = alone > 0 ? food / alone : 0
+          let score = (food * (1 + M.emptyPull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+          if (portReach[c]) score *= sitePref
+          if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
+        }
+      }
+    }
+    for (let e = off[c], e1 = off[c + 1]; e < e1; e++) {
+      const j = nb[e]
+      if (restrict && known[kBase + j] < 0) {
+        // Nobody of this people has seen it (the shadow search notes whether that cut its reach short).
+        if (!jitter && !frontier) frontier = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : moveCost[j]) <= budget
+        continue
+      }
+      const nd = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : moveCost[j])
+      if (nd > budget) continue
+      if (stamp[j] === run && nd >= dist[j]) continue
+      stamp[j] = run
+      dist[j] = nd
+      prev[j] = c
+      enqueue(search, j, nd)
+    }
+  }
+  foundCell = bestCell
+  foundJoin = bestJoin
+  foundFrontier = frontier
 }
 
 /** Sends a group of g from settlement `from`; returns false if it found nowhere to go. */
@@ -150,7 +303,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const M = MIGRATION
   const T = s.terrain
   const rng = s.rngMigration
-  const prod = s.productivity
+  const prod = productivityOf(s, from)
   const hasPort = s.port[from] >= 0
   const voyage = rng.next() < (hasPort ? PORT.voyageChance : M.voyageChance)
   let budget = M.budget * (1 + M.budgetTech * (prod - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
@@ -159,66 +312,24 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   // Boats: from a port the sea is cheap; without one every sea cell costs more.
   ocean *= hasPort ? PORT.oceanMul : M.seaNoPort
   const seaMul = hasPort ? PORT.seaMul : M.seaNoPort
-  const sitePref = 1 + PORT.sitePref
 
-  const { dist, stamp, prev, heap } = search
-  const run = ++search.run
-  heap.size = 0
-  const origin = s.cell[from]
-  const { neighborOffsets: off, neighbors: nb } = s.world.grid
-  dist[origin] = 0
-  stamp[origin] = run
-  heap.push(0, origin)
-
-  let bestScore = 0
-  let bestCell = -1
-  let bestJoin = -1
-  const minFood = M.foundMinRatio * g
-  let visits = 0
-  while (heap.size > 0 && visits < M.maxVisits) {
-    const d = heap.topKey()
-    const c = heap.pop()
-    if (d > dist[c]) continue // stale entry
-    visits++
-    const penalty = 1 + (M.costPenalty * d) / budget
-    if (c !== origin) {
-      const occ = s.occupant[c]
-      if (occ >= 0) {
-        // A hungry place takes nobody in (checked first: the rest is dearer).
-        if (s.food[occ] >= M.joinFood) {
-          const pop = s.pop[occ]
-          const wf = prosperity(s, occ)
-          const rich = wf >= WEALTH.joinMin
-          let spare = M.joinRoom * foodBase(s, occ) - pop
-          if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
-          if ((mayJoin || rich) && spare >= g) {
-            const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
-            const score = (M.joinBias * spare * draw * rng.range(0.75, 1.25)) / penalty
-            if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
-          }
-        }
-      } else if (canSettle(s, c) && T.potential[c] * prod >= minFood) {
-        const food = settlerFood(s, c, g)
-        if (food >= minFood) {
-          // Empty land pulls: the larger the share of the land nobody else works, the better.
-          const free = settlerAlone > 0 ? food / settlerAlone : 0
-          let score = (food * (1 + M.emptyPull * free * free) * rng.range(0.75, 1.25)) / penalty
-          if (s.portReach[c]) score *= sitePref
-          if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
-        }
-      }
-    }
-    for (let k = off[c]; k < off[c + 1]; k++) {
-      const j = nb[k]
-      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j])
-      if (nd > budget) continue
-      if (stamp[j] === run && nd >= dist[j]) continue
-      stamp[j] = run
-      dist[j] = nd
-      prev[j] = c
-      heap.push(nd, j)
+  const kd = s.knowDiag
+  if (kd) {
+    // Shadow decisions without randomness: from what the people knows, and from full knowledge.
+    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, false)
+    const kc = foundCell, kj = foundJoin
+    if (foundFrontier) kd.migFrontier++
+    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, false, false)
+    kd.migrations++
+    if (foundCell !== kc || foundJoin !== kj) {
+      if (kc < 0 && kj < 0) kd.migBlocked++
+      else kd.migRedirected++
     }
   }
+  siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, true)
+  const bestCell = foundCell, bestJoin = foundJoin
+  const { prev } = search
+  const origin = s.cell[from]
 
   if (bestJoin >= 0) {
     s.pop[from] -= g
@@ -228,6 +339,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     const path = reconstructPath(prev, origin, s.cell[bestJoin])
     const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))
     logJourney(s, { departYear, arriveYear, from, to: bestJoin, size: g, kind: JourneyKind.Migrants, path })
+    learnPath(s, from, path, true)
     return true
   }
   if (bestCell >= 0) {
@@ -237,6 +349,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     const path = reconstructPath(prev, origin, bestCell)
     const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))
     logJourney(s, { departYear, arriveYear, from, to, size: g, kind: JourneyKind.Settlers, path })
+    learnPath(s, to, path, true)
     return true
   }
   return false

@@ -110,7 +110,8 @@ function centripetal(p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, p3
   return out.set(coord(p0.x, p1.x, p2.x, p3.x), coord(p0.y, p1.y, p2.y, p3.y), coord(p0.z, p1.z, p2.z, p3.z))
 }
 
-export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
+/** `normYear`: the group size scale is taken over journeys arriving by then (so a longer history does not rescale earlier groups). */
+export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity): JourneyLayer {
   const P = world.grid.positions
   const nbOff = world.grid.neighborOffsets
   const nbList = world.grid.neighbors
@@ -353,6 +354,10 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
     uDaylight: sunUniforms.uDaylight,
     uPixel: { value: 0.001 },
     uPixelRatio: { value: 1 },
+    // up close (among the 3D towns) trails thin and fade out, and trails and markers come
+    // down from LIFT toward the ground; set in update()
+    uClose: { value: 1 },
+    uDrop: { value: 0 },
   }
   const trailUniforms = (mode: number) => ({
     ...shared,
@@ -383,6 +388,8 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
     uniform int uMode; // 0 trails, 1 highlighted route
     uniform float uPixel; // world size of a device pixel at unit view depth
     uniform float uPixelRatio;
+    uniform float uClose;
+    uniform float uDrop;
     uniform vec3 uCamObj;
     uniform vec3 uSunObj;
       uniform float uDaylight; // 1: daylight everywhere (sun.ts)
@@ -406,15 +413,16 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       vAge = uYear - passYear;
       float head = uMode == 1 ? 1.0 : exp(-max(vAge, 0.0) / uHeadYears);
       // half widths in CSS pixels: a hairline thread, a stronger head, a bold highlight with a dark rim
-      float core = uMode == 1 ? 1.25 : mix(0.62, 1.0, head);
-      float rim = uMode == 1 ? 1.1 : 0.0;
-      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      float core = (uMode == 1 ? 1.25 : mix(0.62, 1.0, head)) * mix(0.45, 1.0, uClose);
+      float rim = uMode == 1 ? mix(0.3, 1.1, uClose) : 0.0;
+      vec3 base = position - normalize(position) * uDrop;
+      vec4 mv = modelViewMatrix * vec4(base, 1.0);
       float pix = -mv.z * uPixel * uPixelRatio;
       float outer = core + rim + 0.6;
       vCore = core / outer;
       vSoft = 0.9 / outer;
       vAcross = aSide.w;
-      vec3 p = position + aSide.xyz * aSide.w * outer * pix;
+      vec3 p = base + aSide.xyz * aSide.w * outer * pix;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       vec3 up = normalize(position);
       vFacing = dot(up, normalize(uCamObj - position));
@@ -426,6 +434,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
     }
   `
   const trailFragment = /* glsl */ `
+    uniform float uClose;
     uniform float uHeadYears;
     uniform float uThreadYears;
     uniform int uMode;
@@ -468,7 +477,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
         }
         a *= mix(1.0, 0.45, vNight); // the city lights carry the night side
       }
-      a *= limb;
+      a *= limb * uClose;
       if (a < 0.004) discard;
       gl_FragColor = vec4(col * a, a);
     }
@@ -502,7 +511,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
   quad.instanceCount = 0
 
   let maxSize = 1
-  for (let j = 0; j < count; j++) maxSize = Math.max(maxSize, J.size[j])
+  for (let j = 0; j < count; j++) if (J.arriveYear[j] <= normYear) maxSize = Math.max(maxSize, J.size[j])
   const sizeT = new Float32Array(count)
   for (let j = 0; j < count; j++) sizeT[j] = Math.sqrt(Math.min(1, J.size[j] / maxSize))
 
@@ -525,6 +534,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       uniform vec3 uSunObj;
       uniform float uDaylight; // 1: daylight everywhere (sun.ts)
       uniform vec2 uYield;
+      uniform float uDrop;
       varying vec2 vPx;
       varying float vR;
       varying float vKindV;
@@ -533,13 +543,14 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       varying float vNight;
       void main() {
         vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
+        vec3 at = aPos - up * uDrop;
+        float facing = dot(up, normalize(uCamObj - at));
         if (facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPos, 1.0);
-        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(aPos + aDir * 0.01, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
+        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(at + aDir * 0.01, 1.0);
         vec2 d = (ahead.xy / ahead.w - clip.xy / clip.w) * uViewport;
         vec2 fwd = length(d) > 1e-5 ? normalize(d) : vec2(1.0, 0.0);
         vec2 side = vec2(-fwd.y, fwd.x);
@@ -555,7 +566,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
         vSea = aInfo.z;
         vAlpha = aInfo.w * smoothstep(0.0, 0.3, facing);
         // up close a ship or cart model stands in for the marker
-        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - at));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,
@@ -720,6 +731,9 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       groupUniforms.uViewport.value.copy(drawSize)
       const dist = camera.position.length()
       groupUniforms.uSizeScale.value = Math.min(1.4, Math.max(0.85, Math.sqrt(3.25 / dist)))
+      const tc = Math.min(1, Math.max(0, (dist - 1.1) / 0.25))
+      shared.uClose.value = tc * tc * (3 - 2 * tc)
+      shared.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, (dist - 1) / 0.6)))
     },
     dispose() {
       trailGeom.dispose()

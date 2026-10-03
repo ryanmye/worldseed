@@ -31,7 +31,7 @@ export interface HistoryIndex {
   aliveCount: Uint32Array
   /** Total population per snapshot. */
   totalPopulation: Float64Array
-  /** Largest population any settlement reaches (for size and light scaling). */
+  /** Largest population any settlement reaches in the first NORM_YEARS (for size and light scaling; later peaks saturate). */
   maxPopulation: number
   /** log(1 + maxPopulation / POP_LOG_BASE), the normaliser for log-scaled sizes. */
   logMax: number
@@ -212,30 +212,53 @@ const MIGRANT_THREAD_YEARS = 60
 const MIGRANT_MIN_SIZE = 20
 
 /**
+ * Histories grow in chunks of this many years (see historyView.ts). Whatever is chosen per
+ * chunk of years, in order, is the same in a longer run of the same world (a shorter run
+ * reproduces the start of a longer one), so a history and its extension agree on the past.
+ */
+export const HISTORY_CHUNK_YEARS = 500
+/**
+ * Scales that depend on the whole run (largest population, busiest route, largest
+ * travelling group) are taken over the first NORM_YEARS years only, so extending the
+ * history past them does not rescale (and so change) what was already shown. Later
+ * peaks saturate the scale instead.
+ */
+export const NORM_YEARS = 2000
+
+/**
  * The journeys worth drawing: every settler party, and the larger migrant groups, at most
  * MIGRANT_THREADS of them under way or still trailing at any time (largest first). Since
  * migration toward prosperous towns became common, drawing every group turned the map
  * into a hairball. Returns the input when nothing is dropped.
+ *
+ * Chosen chunk by chunk of HISTORY_CHUNK_YEARS (by arrival year, in order; the largest first
+ * within a chunk), so a journey kept in a run stays kept in any longer run of the same world.
  */
 function thinJourneys(J: Journeys, years: number): Journeys {
   const n = J.count
   const span = Math.max(1, Math.ceil(years) + MIGRANT_THREAD_YEARS + 2)
   const load = new Uint16Array(span)
   const keep = new Uint8Array(n)
-  const migrants: number[] = []
+  const chunks: number[][] = []
   for (let j = 0; j < n; j++) {
     if (J.kind[j] !== JourneyKind.Migrants) keep[j] = 1
-    else if (J.size[j] >= MIGRANT_MIN_SIZE) migrants.push(j)
+    else if (J.size[j] >= MIGRANT_MIN_SIZE) {
+      const c = Math.max(0, Math.ceil(J.arriveYear[j] / HISTORY_CHUNK_YEARS) - 1)
+      ;(chunks[c] ??= []).push(j)
+    }
   }
-  migrants.sort((a, b) => J.size[b] - J.size[a] || a - b)
-  for (const j of migrants) {
-    const y0 = Math.max(0, Math.floor(J.departYear[j]))
-    const y1 = Math.min(span - 1, Math.ceil(J.arriveYear[j] + MIGRANT_THREAD_YEARS))
-    let full = false
-    for (let y = y0; y <= y1 && !full; y++) if (load[y] >= MIGRANT_THREADS) full = true
-    if (full) continue
-    for (let y = y0; y <= y1; y++) load[y]++
-    keep[j] = 1
+  for (const migrants of chunks) {
+    if (!migrants) continue
+    migrants.sort((a, b) => J.size[b] - J.size[a] || a - b)
+    for (const j of migrants) {
+      const y0 = Math.max(0, Math.floor(J.departYear[j]))
+      const y1 = Math.min(span - 1, Math.ceil(J.arriveYear[j] + MIGRANT_THREAD_YEARS))
+      let full = false
+      for (let y = y0; y <= y1 && !full; y++) if (load[y] >= MIGRANT_THREADS) full = true
+      if (full) continue
+      for (let y = y0; y <= y1; y++) load[y]++
+      keep[j] = 1
+    }
   }
   let kept = 0
   for (let j = 0; j < n; j++) kept += keep[j]
@@ -344,32 +367,45 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const aliveCount = new Uint32Array(S)
   const totalPopulation = new Float64Array(S)
   let maxPopulation = 0
+  // the size scale: over the first NORM_YEARS only (see there)
+  const normSnapshots = Math.floor(NORM_YEARS / Math.max(1, h.snapshotInterval)) + 1
+  // size tiers per snapshot, in the same pass
+  const townCount = new Uint32Array(S)
+  const cityCount = new Uint32Array(S)
   for (let s = 0; s < S; s++) {
-    let alive = 0, total = 0
+    let alive = 0, total = 0, peak = 0, towns = 0, cities = 0
     const base = s * N
     for (let i = 0; i < N; i++) {
       const p = h.population[base + i]
       if (p > 0) {
         alive++
         total += p
-        if (p > maxPopulation) maxPopulation = p
+        if (p > peak) peak = p
+        if (p >= CITY_POPULATION) cities++
+        else if (p >= TOWN_POPULATION) towns++
       }
     }
+    if (s < normSnapshots && peak > maxPopulation) maxPopulation = peak
     aliveCount[s] = alive
     totalPopulation[s] = total
+    townCount[s] = towns
+    cityCount[s] = cities
   }
 
   const E = h.events.length
-  const order = Int32Array.from({ length: E }, (_, i) => i)
+  const order = new Int32Array(E)
+  for (let i = 0; i < E; i++) order[i] = i
   let sorted = true
   for (let i = 1; i < E; i++) if (h.events[i].year < h.events[i - 1].year) sorted = false
   if (!sorted) order.sort((a, b) => h.events[a].year - h.events[b].year || a - b)
-  const orderYear = Float64Array.from(order, (i) => h.events[i].year)
+  const orderYear = new Float64Array(E)
+  for (let k = 0; k < E; k++) orderYear[k] = h.events[order[k]].year
 
   // Migrations are frequent (people move toward prosperous towns); the chronicle only
   // shows the largest few percent of them, gathered per decade.
+  // (the threshold from the first NORM_YEARS, so a longer run picks the same ones there)
   const migrations: number[] = []
-  for (const e of h.events) if (e.type === EventType.Migration) migrations.push(e.value)
+  for (const e of h.events) if (e.type === EventType.Migration && e.year <= NORM_YEARS) migrations.push(e.value)
   migrations.sort((a, b) => a - b)
   const migrationThreshold = migrations.length ? Math.max(150, migrations[Math.floor(migrations.length * 0.97)]) : Infinity
   // A regional drought starves many settlements in the same year: one entry for the burst.
@@ -447,7 +483,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     if (involves(e.settlement)) eventList[cursor[e.settlement]++] = i
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) eventList[cursor[e.other]++] = i
   }
-  const eventListYear = Float64Array.from(eventList, (i) => h.events[i].year)
+  const eventListYear = new Float64Array(eventList.length)
+  for (let k = 0; k < eventList.length; k++) eventListYear[k] = h.events[eventList[k]].year
 
   // children per settlement (ids are in founding order, so each list is chronological)
   const childOffsets = new Uint32Array(N + 1)
@@ -467,21 +504,6 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
       const to = journeys.to[j]
       if (journeys.kind[j] === JourneyKind.Settlers && to >= 0 && to < N) foundingJourney[to] = j
     }
-  }
-
-  // size tiers per snapshot
-  const townCount = new Uint32Array(S)
-  const cityCount = new Uint32Array(S)
-  for (let s = 0; s < S; s++) {
-    let towns = 0, cities = 0
-    const base = s * N
-    for (let i = 0; i < N; i++) {
-      const p = h.population[base + i]
-      if (p >= CITY_POPULATION) cities++
-      else if (p >= TOWN_POPULATION) towns++
-    }
-    townCount[s] = towns
-    cityCount[s] = cities
   }
 
   // structures per settlement (ids are in building order)

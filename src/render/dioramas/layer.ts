@@ -95,6 +95,11 @@ export interface DioramaLayer {
   setTime(year: number, animYears: number): void
   /** Per frame (cheap unless a rebuild is due). */
   update(camera: THREE.PerspectiveCamera): void
+  /**
+   * A longer run of the same world replaces the history (same settlements first, more after):
+   * the layouts already made are kept, so nothing visible changes at the swap.
+   */
+  setHistory(inputs: DioramaInputs): void
   /** Whether models are loaded and showing (the flat layers should then yield up close). */
   readonly active: boolean
   /**
@@ -239,8 +244,10 @@ interface Stats {
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
-  const { world, history: h, land, structures } = inputs
-  const N = h.settlements.length
+  const { world } = inputs
+  // (not `inputs` itself: a swapped-out history must not stay reachable)
+  let { history: h, land, structures, reservoirs } = inputs
+  let N = h.settlements.length
   const P = world.grid.positions
   const cellCount = world.grid.cellCount
   const object = new THREE.Group()
@@ -290,8 +297,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const pickR = new THREE.Vector3()
   const pickMvp = new THREE.Matrix4()
   // nearest-first work lists (reused)
-  const visIds = new Int32Array(N)
-  const visD = new Float32Array(Math.max(N, cellCount))
+  let visIds = new Int32Array(N)
+  let visD = new Float32Array(Math.max(N, cellCount))
   const visCells = new Int32Array(cellCount)
   const byDist = (a: number, b: number) => visD[a] - visD[b]
   const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0] }
@@ -311,9 +318,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     if (disposed) return
     lib = l
     let res: Float32Array | null = null
-    if (inputs.reservoirs && inputs.reservoirs.cells.length > 0) {
+    if (reservoirs && reservoirs.cells.length > 0) {
       res = new Float32Array(cellCount)
-      const { cells, strength } = inputs.reservoirs
+      const { cells, strength } = reservoirs
       for (let k = 0; k < cells.length; k++) if (cells[k] >= 0 && cells[k] < cellCount) res[cells[k]] = Math.max(res[cells[k]], strength[k] ?? 1)
     }
     layouts = createLayouts(world, h, l, res)
@@ -352,7 +359,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
 
   // ---------- snapshot rows ----------
   const interval = h.snapshotInterval
-  const lastSnap = h.snapshotCount - 1
+  let lastSnap = h.snapshotCount - 1
   const snapOf = (y: number) => Math.min(lastSnap, Math.max(0, Math.floor(y / interval)))
   const landSnapOf = (y: number) => (land ? Math.min(land.count - 1, Math.max(0, Math.floor(y / land.interval))) : 0)
 
@@ -736,6 +743,21 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         shownB0 = b0
         dirty = true
       }
+    },
+    setHistory(next: DioramaInputs) {
+      if (next.history.snapshotInterval !== interval || next.history.settlements.length < N) return
+      h = next.history
+      land = next.land
+      structures = next.structures
+      reservoirs = next.reservoirs
+      N = h.settlements.length
+      lastSnap = h.snapshotCount - 1
+      if (visIds.length < N) visIds = new Int32Array(N)
+      if (visD.length < Math.max(N, cellCount)) visD = new Float32Array(Math.max(N, cellCount))
+      layouts?.setHistory(h)
+      shownS0 = -1
+      shownL0 = -1
+      dirty = true
     },
     update(camera: THREE.PerspectiveCamera) {
       if (!visible) return

@@ -50,10 +50,17 @@ export const CATCHMENT = {
 }
 
 
-/** Productivity (technology stand-in): 1 + linear * y + quad * y^2. Reaches 4 at year 2000. */
+/**
+ * Productivity (technology stand-in): 1 + linear * y + quad * y^2 up to year easeYear (4 at year 2000);
+ * after it, growth eases off: p(easeYear) + slope * d / (1 + d / easeSpan), d = y - easeYear, slope the
+ * curve's slope at easeYear (so the curve is smooth there). It approaches p(easeYear) + slope * easeSpan
+ * (7.6 with these values): about 5.4 at year 3000, 6.4 at 5000, instead of exploding quadratically.
+ */
 export const PRODUCTIVITY = {
   linear: 0.0006,
   quad: 0.00000045,
+  easeYear: 2000,
+  easeSpan: 1500,
 }
 
 export const POPULATION = {
@@ -71,11 +78,73 @@ export const POPULATION = {
   famineCooldown: 30,
   /** Settlements below this are abandoned. */
   abandonPop: 15,
-  /** Founding tribes: count range and size range. */
-  tribesMin: 4,
-  tribesMax: 8,
+  /** Founding tribes: size range (how many and where: see CRADLE). */
   tribePopMin: 40,
   tribePopMax: 100,
+}
+
+/**
+ * Cradles (peoples.ts): the founding tribes live in a few separate regions of
+ * the world, each the home of several tribes, so separate civilisations grow
+ * up apart and meet later. Distances are chords on the unit sphere (0.1 is
+ * about 4 cells at n = 48); cell counts are at n = 48 and scale with the grid.
+ */
+export const CRADLE = {
+  /** A landmass can hold a cradle with at least this many habitable cells; one with bigHab or more can hold two. */
+  minHab: 150,
+  bigHab: 2600,
+  /** Cradle count: one per eligible landmass (two on big ones), clamped to [minCount, maxCount]; above minCount, dropChance of one fewer. */
+  minCount: 2,
+  maxCount: 4,
+  dropChance: 0.3,
+  /** A cradle centre's region: habitable cells within regionHops plain hops over land; its value is their summed potential. */
+  regionHops: 7,
+  /** Centres are drawn among the best candidates (top `pool` by region value * spacing factor), at least minChord apart (relaxed by relax when none fits, down to floorChord). */
+  pool: 6,
+  minChord: 0.7,
+  floorChord: 0.4,
+  relax: 0.85,
+  /** Spacing factor: min(1, nearest chosen centre chord / spreadChord), times otherLand on a landmass without a cradle yet. */
+  spreadChord: 1.2,
+  otherLand: 1.6,
+  /** Tribes per cradle: rng.int(tribesLow, tribesHigh), tribesLow = tribesLow2 with only two cradles; the total is at most maxTribes. */
+  tribesLow: 2,
+  tribesLow2: 3,
+  tribesHigh: 4,
+  maxTribes: 12,
+  /** Tribes sit within tribeHops plain hops of their cradle's centre, among the better half of those cells (by potential), at least tribeChord apart (relaxed when sites run out, but never below tribeFloor: out of each other's sight at first). */
+  tribeHops: 10,
+  tribeChord: 0.2,
+  tribeFloor: 0.14,
+}
+
+/**
+ * Knowledge (knowledge.ts): what each people knows of the world (History.knownYear) and whom it has met.
+ * Hop units are n = 48 cells; costs scale with the grid.
+ */
+export const KNOW = {
+  /** Sight radius of a settlement in hop units: (sight + sightSize * smoothstep(sizeLow, sizeHigh, pop)) * (1 + sightTech * (productivity - 1)). */
+  sight: 4,
+  sightSize: 3,
+  sizeLow: 100,
+  sizeHigh: 10000,
+  sightTech: 0.3,
+  /** Hop costs of sight: entering a land cell; between two coastal cells or along a river (cheaper: boats, the shore). */
+  land: 1,
+  coast: 0.6,
+  river: 0.7,
+  /** Entering a sea cell, shallow / deep, without a port and from a port (fishing fleets and coasters see far). */
+  seaShallow: 1.3,
+  seaDeep: 2.6,
+  portShallow: 0.5,
+  portDeep: 0.9,
+  /** Years between sight refreshes; a settlement looks again when its radius grew by at least regrow hops. */
+  sightStep: 20,
+  regrow: 1.25,
+  /** Journeys, voyages and trade routes reveal their path and the cells within this many plain hops of it. */
+  margin: 1,
+  /** Peoples in contact share what they learn every shareStep years. */
+  shareStep: 10,
 }
 
 export const WEATHER = {
@@ -136,9 +205,12 @@ export const MIGRATION = {
   voyageOcean: 0.5,
   /** Search stops after settling this many cells (bounds the cost of a search). */
   maxVisits: 500,
-  /** After finding nowhere to go, a settlement waits this many years before sending colonists / refugees again. */
+  /** Bucket width of the search queue in cell units: below the cheapest step (a road along a coastal river, about 0.39). */
+  bucketWidth: 0.25,
+  /** After finding nowhere to go, a settlement waits this many years before sending colonists / refugees again; colonists wait retryColonists times the number of such searches in a row (at most retryMax). */
   retryColonists: 80,
   retryRefugees: 5,
+  retryMax: 3,
   /** Score = value * (1 + emptyPull * free^2) * jitter / (1 + costPenalty * cost / budget), free = share of the site's land nobody else works. */
   costPenalty: 0.6,
   emptyPull: 2,
@@ -231,7 +303,7 @@ export const VOYAGE = {
   drive0: 0.2,
   wealthChance: 1,
   sizeChance: 2,
-  /** Chance multiplier while a known, still open land discovered from the sender's landmass lies within reach. */
+  /** Chance multiplier while a still open land, discovered from the sender's landmass by its people or a people in contact with it (its network), lies within reach. */
   knownBoost: 2,
   /** Sea range: base (no port / port) * (1 + tech * (productivity - 1)) * (1 + wealthRange * prosperity) * (1 + sizeRange * smoothstep(sizeLow, sizeHigh, pop)) * jitter, tech = coastTech / rangeTech. */
   coastRange: 10,
@@ -272,7 +344,7 @@ export const VOYAGE = {
   knownPref: 1,
   /** Score = value * free share * jitter / (1 + costPenalty * cost / range). */
   costPenalty: 1.5,
-  /** Loss at sea: 1 - 1 / (1 + hazard), hazard = (lossShallow * shallow cells + lossDeep * deep cells) / (1 + lossTech * (productivity - 1)), times knownSafe on a known route. */
+  /** Loss at sea: 1 - 1 / (1 + hazard), hazard = (lossShallow * shallow cells + lossDeep * deep cells) / (1 + lossTech * (productivity - 1)), times knownSafe on a known route (a people of the sender's network landed a colony on that landmass before). */
   lossShallow: 0.012,
   lossDeep: 0.04,
   lossTech: 0.5,

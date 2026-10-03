@@ -22,9 +22,9 @@ import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
 
 export const PLANET_RADIUS = 1
 /** Geometric displacement of land (fraction of radius). Kept subtle: no lumpy limb. */
-export const RELIEF_SCALE = 0.008
+export const RELIEF_SCALE = 0.011
 /** Exaggerated displacement used only to derive shading normals. */
-const NORMAL_RELIEF_SCALE = 0.05
+const NORMAL_RELIEF_SCALE = 0.065
 
 /** Sun direction in world space (shared, mutable: see sun.ts) and colour. */
 export { SUN_COLOR, SUN_DIRECTION }

@@ -1,6 +1,14 @@
 // Timeline bar: play/pause, scrub slider, year readout, speed and live stats.
 // Owns the playback clock (a single `year` value); everything shown on the globe is
 // derived from that year, so scrubbing in either direction is exact.
+//
+// Open-ended playback: the history can be extended past its current end (the caller
+// simulates a longer run and calls extendRange). While playing within PREFETCH_YEARS of
+// the end the timeline asks for more (onWantMore) so playback at 1x normally never has
+// to wait; if it does reach the end first it holds there ("simulating…") without
+// advancing, and carries on when the longer history arrives. The initial animation stops
+// at a soft stop (the end of the initial history, normally year 2000) even if more has
+// been simulated by then; from there Play continues.
 
 import { formatPopulation, formatInt } from './format.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -9,20 +17,53 @@ import { addShortcut } from './shortcuts.ts'
 export const YEARS_PER_SECOND = 20
 export const SPEEDS = [0.25, 1, 4, 16] as const
 const DEFAULT_SPEED = 1
+/** While playing this close to the end of the history (years), more is requested. */
+export const PREFETCH_YEARS = 150
+/** Length of the default history: marked on the slider once the range runs past it. */
+const BASE_YEARS = 2000
+
+/** Whether the history can grow past its current end. */
+export const More = {
+  /** More can be requested. */
+  Yes: 0,
+  /** A longer history is being simulated. */
+  Pending: 1,
+  /** No more: the length cap, or the last extension failed. */
+  No: 2,
+} as const
+export type More = (typeof More)[keyof typeof More]
 
 export interface TimelineCallbacks {
   /** Playback state changed (play/pause/scrub end/step); not called every frame. */
   onSettled(year: number, playing: boolean): void
+  /** More history past the current end is wanted (may be called repeatedly; the caller dedupes). */
+  onWantMore(): void
 }
 
 export interface Timeline {
   readonly year: number
+  /** Playback is on (including while held at the end waiting for more history). */
   readonly playing: boolean
+  /** Playing but held at the end until a longer history arrives. */
+  readonly waiting: boolean
   readonly speed: number
   /** True while the user drags the slider. */
   readonly scrubbing: boolean
-  /** Enable for a history of `years` with snapshots every `interval` years; null disables (and shows `status`). */
+  /** The initial animation is under way (playing toward its soft stop). */
+  readonly intro: boolean
+  /** Enable for a history of `years` with snapshots every `interval` years; null disables (and shows `status`). Resets to year 0. */
   setRange(years: number | null, interval: number, status?: string): void
+  /** The history grew to `years` (same start, same interval): keeps the year, playback and speed; resumes a held playback. */
+  extendRange(years: number): void
+  /**
+   * Whether the history can grow. `message` explains a No (cap reached, extension failed); it is
+   * shown briefly when playback stops at the end, or at once with `now`.
+   */
+  setMore(more: More, message?: string, now?: boolean): void
+  /** Stop playback once on reaching this year (the end of the initial animation), or null for none. */
+  setSoftStop(year: number | null): void
+  /** Ask for more this many real seconds of playback before the end (at least PREFETCH_YEARS before it). */
+  setPrefetchLead(seconds: number): void
   setYear(year: number): void
   play(): void
   pause(): void
@@ -39,6 +80,8 @@ export interface Timeline {
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>'
 const PAUSE_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 2.5h3v11h-3zM9.5 2.5h3v11h-3z" fill="currentColor"/></svg>'
+/** Play on past the end: a play triangle with a second one behind it. */
+const CONTINUE_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2 3v10l6.5-5z" fill="currentColor" opacity="0.55"/><path d="M7.5 3v10l7-5z" fill="currentColor"/></svg>'
 
 export function createTimeline(container: HTMLElement, callbacks: TimelineCallbacks): Timeline {
   const root = document.createElement('div')
@@ -109,7 +152,17 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   const ticks = document.createElement('div')
   ticks.className = 'tl-ticks'
 
-  root.append(row, slider, ticks)
+  // "Continue past 2000": shown once, when playback first stops where it can go on
+  const hint = document.createElement('button')
+  hint.type = 'button'
+  hint.className = 'btn tl-hint hidden'
+  hint.title = 'Simulate further and play on (Space)'
+  // the end-of-history notice (cap reached, extension failed): brief, non-blocking
+  const note = document.createElement('div')
+  note.className = 'tl-note hidden'
+  note.setAttribute('role', 'status')
+
+  root.append(hint, note, row, slider, ticks)
   container.appendChild(root)
 
   let years = 0
@@ -117,8 +170,21 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   let enabled = false
   let year = 0
   let playing = false
+  let waiting = false
   let speed: number = DEFAULT_SPEED
   let scrubbing = false
+  let more: More = More.Yes
+  /** Why the history cannot grow (with More.No), shown when playback stops at the end. */
+  let endMessage = ''
+  let softStop: number | null = null
+  let leadSeconds = 0
+  /** Year where playback last stopped by itself (soft stop or end) and could go on from; -1 for none. */
+  let stopPoint = -1
+  let hintShown = false
+  let noteTimer = 0
+  /** What to do once the history has grown (step or End pressed at the end). */
+  let afterExtend: 'step' | 'end' | null = null
+  let baseStatus = ''
   let shownYear = -1
   let shownAlive = -1
   let shownPop = ''
@@ -132,10 +198,43 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   }
   syncSpeed()
 
+  /** Paused where Play would simulate further (or play on into history already simulated past a stop). */
+  const atContinue = () => enabled && !playing && more !== More.No && (year >= years - 1e-6 || (stopPoint >= 0 && Math.abs(year - stopPoint) < 1e-6))
+
   function syncPlay() {
-    playBtn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON
-    playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play')
+    const cont = atContinue()
+    playBtn.innerHTML = playing ? PAUSE_ICON : cont ? CONTINUE_ICON : PLAY_ICON
+    const label = playing ? 'Pause' : cont ? `Continue past ${Math.round(year)}` : 'Play'
+    playBtn.setAttribute('aria-label', label)
+    playBtn.title = playing ? 'Pause (Space)' : cont ? `${label}: simulate further and play on (Space)` : 'Play (Space)'
+    playBtn.classList.toggle('continue', cont)
     root.classList.toggle('playing', playing)
+    root.classList.toggle('waiting', waiting)
+    syncStatus()
+    if (!cont && !hint.classList.contains('hidden')) hint.classList.add('hidden')
+  }
+
+  function syncStatus() {
+    const s = baseStatus !== '' ? baseStatus : waiting ? 'simulating…' : ''
+    if (statusText.textContent !== s) statusText.textContent = s
+    stats.classList.toggle('has-status', s !== '')
+  }
+
+  function showNote(text: string, ms: number) {
+    window.clearTimeout(noteTimer)
+    note.textContent = text
+    note.classList.toggle('hidden', text === '')
+    if (text !== '' && ms > 0) noteTimer = window.setTimeout(() => note.classList.add('hidden'), ms)
+  }
+
+  /** Playback stopped by itself at a point it can go on from: flag it, and the first time show the hint. */
+  function stoppedAt(y: number) {
+    stopPoint = y
+    if (!hintShown && more !== More.No) {
+      hintShown = true
+      hint.textContent = `Continue past ${Math.round(y)} ▸`
+      hint.classList.remove('hidden')
+    }
   }
 
   function syncYear() {
@@ -157,6 +256,59 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     syncYear()
   }
 
+  /** Labels every 500 years (1000 on long runs), and a subtle mark where the initial history ended once the range runs past it. */
+  function buildTicks() {
+    ticks.innerHTML = ''
+    if (!enabled) return
+    const stepYears = years > 4000 ? 1000 : years >= 1500 ? 500 : years >= 600 ? 200 : 100
+    for (let t = 0; t <= years; t += stepYears) {
+      const s = document.createElement('span')
+      s.textContent = String(t)
+      s.style.left = `${(100 * t) / years}%`
+      ticks.appendChild(s)
+    }
+    if (years > BASE_YEARS) {
+      const m = document.createElement('i')
+      m.className = 'tl-mark'
+      m.title = `Year ${BASE_YEARS}: the end of the initial history`
+      m.style.left = `${(100 * BASE_YEARS) / years}%`
+      ticks.appendChild(m)
+    }
+  }
+
+  /** Start (or continue) playing; at the end with more possible, hold and ask for more. */
+  function start() {
+    if (!enabled) return
+    hint.classList.add('hidden')
+    if (year >= years - 1e-6) {
+      if (more !== More.No) {
+        year = years
+        playing = true
+        waiting = true
+        stopPoint = -1
+        softStop = null
+        syncPlay()
+        settle()
+        callbacks.onWantMore()
+        return
+      }
+      if (endMessage !== '') showNote(endMessage, 6000)
+      setYear(0)
+    }
+    if (softStop !== null && year >= softStop - 1e-6) softStop = null // going on past the stop
+    stopPoint = -1
+    playing = true
+    syncPlay()
+    settle()
+  }
+
+  function stop() {
+    playing = false
+    waiting = false
+    afterExtend = null
+    syncPlay()
+  }
+
   const api: Timeline = {
     get year() {
       return year
@@ -164,11 +316,17 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     get playing() {
       return playing
     },
+    get waiting() {
+      return waiting
+    },
     get speed() {
       return speed
     },
     get scrubbing() {
       return scrubbing
+    },
+    get intro() {
+      return playing && softStop !== null && year < softStop
     },
     setRange(y: number | null, iv: number, status = '') {
       enabled = y !== null && y > 0
@@ -178,11 +336,17 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       slider.disabled = !enabled
       playBtn.disabled = !enabled
       slider.max = String(years || 1)
-      statusText.textContent = status
-      stats.classList.toggle('has-status', status !== '')
+      baseStatus = status
+      waiting = false
+      afterExtend = null
+      stopPoint = -1
+      softStop = null
+      more = More.Yes
+      endMessage = ''
+      showNote('', 0)
+      hint.classList.add('hidden')
       if (!enabled) {
         playing = false
-        syncPlay()
         aliveText.textContent = ''
         popText.textContent = ''
         tierText.textContent = ''
@@ -190,33 +354,66 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
         shownPop = ''
         shownTiers = ''
       }
-      ticks.innerHTML = ''
-      if (enabled) {
-        const stepYears = years >= 1500 ? 500 : years >= 600 ? 200 : 100
-        for (let t = 0; t <= years; t += stepYears) {
-          const s = document.createElement('span')
-          s.textContent = String(t)
-          s.style.left = `${(100 * t) / years}%`
-          ticks.appendChild(s)
-        }
-      }
+      buildTicks()
       shownYear = -1
       setYear(0)
+      syncPlay()
+    },
+    extendRange(y: number) {
+      if (!enabled || !(y > years)) return
+      years = y
+      slider.max = String(years)
+      buildTicks()
+      shownYear = -1
+      syncYear()
+      const then = afterExtend
+      afterExtend = null
+      if (waiting) {
+        waiting = false
+        if (then === 'step') {
+          playing = false
+          api.step(1)
+        } else if (then === 'end') {
+          playing = false
+          setYear(years)
+          settle()
+        }
+      }
+      syncPlay()
+    },
+    setMore(m: More, message = '', now = false) {
+      more = m
+      endMessage = m === More.No ? message : ''
+      if (m === More.No) {
+        afterExtend = null
+        hint.classList.add('hidden')
+        if (waiting) {
+          // held at the end for history that will not come: stop there
+          waiting = false
+          playing = false
+          settle()
+          now = true
+        }
+        if (now && message !== '') showNote(message, 6000)
+      }
+      syncPlay()
+    },
+    setSoftStop(y: number | null) {
+      softStop = y
+    },
+    setPrefetchLead(seconds: number) {
+      leadSeconds = Math.max(0, seconds)
     },
     setYear(y: number) {
       setYear(y)
+      syncPlay()
     },
     play() {
-      if (!enabled) return
-      if (year >= years) setYear(0)
-      playing = true
-      syncPlay()
-      settle()
+      start()
     },
     pause() {
       if (!playing) return
-      playing = false
-      syncPlay()
+      stop()
       settle()
     },
     toggle() {
@@ -225,10 +422,22 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     },
     step(dir: number) {
       if (!enabled) return
-      playing = false
-      syncPlay()
+      softStop = null
+      stopPoint = -1
+      hint.classList.add('hidden')
+      if (dir > 0 && year >= years - 1e-6 && more !== More.No) {
+        // stepping on from the end: simulate further, then step
+        playing = true
+        waiting = true
+        afterExtend = 'step'
+        syncPlay()
+        callbacks.onWantMore()
+        return
+      }
+      stop()
       const s = dir > 0 ? Math.floor(year / interval + 1e-6) + dir : Math.ceil(year / interval - 1e-6) + dir
       setYear(s * interval)
+      syncPlay()
       settle()
     },
     setSpeed(s: number) {
@@ -237,12 +446,32 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       syncSpeed()
     },
     tick(dt: number) {
-      if (playing && !scrubbing && enabled) {
-        setYear(year + dt * speed * YEARS_PER_SECOND)
-        if (year >= years) {
+      if (playing && !waiting && !scrubbing && enabled) {
+        const next = year + dt * speed * YEARS_PER_SECOND
+        if (softStop !== null && year < softStop && next >= softStop) {
+          // the end of the initial animation
+          const at = Math.min(softStop, years)
+          softStop = null
+          setYear(at)
           playing = false
+          stoppedAt(at)
           syncPlay()
           settle()
+          return year
+        }
+        setYear(next)
+        if (more === More.Yes && years - year < Math.max(PREFETCH_YEARS, leadSeconds * speed * YEARS_PER_SECOND)) callbacks.onWantMore()
+        if (year >= years) {
+          if (more !== More.No) {
+            waiting = true
+            syncPlay()
+            callbacks.onWantMore()
+          } else {
+            playing = false
+            if (endMessage !== '') showNote(endMessage, 6000)
+            syncPlay()
+            settle()
+          }
         }
       }
       return year
@@ -270,37 +499,60 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   }
 
   playBtn.addEventListener('click', () => api.toggle())
+  hint.addEventListener('click', () => api.play())
   slider.addEventListener('pointerdown', () => {
     scrubbing = true
+    softStop = null
   })
   const endScrub = () => {
     if (!scrubbing) return
     scrubbing = false
+    syncPlay()
     settle()
   }
   slider.addEventListener('pointerup', endScrub)
   slider.addEventListener('pointercancel', endScrub)
   slider.addEventListener('change', endScrub)
   slider.addEventListener('input', () => {
+    softStop = null
+    stopPoint = -1
+    hint.classList.add('hidden')
+    if (waiting) {
+      // dragged away from the end while held there: play on from here
+      waiting = false
+      afterExtend = null
+    }
     setYear(Number(slider.value))
-    if (!scrubbing) settle() // keyboard on the focused slider
+    if (!scrubbing) {
+      syncPlay()
+      settle() // keyboard on the focused slider
+    }
   })
 
-  addShortcut({ keys: [' '], label: 'Space', description: 'Play / pause', group: 'Timeline', run: () => api.toggle() })
+  addShortcut({ keys: [' '], label: 'Space', description: 'Play / pause (at the end: simulate further)', group: 'Timeline', run: () => api.toggle() })
   addShortcut({ keys: ['ArrowLeft', 'ArrowRight'], shift: false, label: '← / →', description: 'Step one snapshot back / forward', group: 'Timeline', run: (e) => api.step(e.key === 'ArrowRight' ? 1 : -1) })
   addShortcut({ keys: ['ArrowLeft', 'ArrowRight'], shift: true, label: 'Shift+← / Shift+→', description: 'Step ten snapshots', group: 'Timeline', run: (e) => api.step(e.key === 'ArrowRight' ? 10 : -10) })
   addShortcut({
     keys: ['Home', 'End'],
     label: 'Home / End',
-    description: 'First / last year',
+    description: 'First / last year (at the end: simulate further)',
     group: 'Timeline',
     run: (e) => {
       if (!enabled) return false
-      if (playing) {
-        playing = false
+      softStop = null
+      stopPoint = -1
+      hint.classList.add('hidden')
+      if (e.key === 'End' && year >= years - 1e-6 && more !== More.No) {
+        playing = true
+        waiting = true
+        afterExtend = 'end'
         syncPlay()
+        callbacks.onWantMore()
+        return
       }
+      if (playing) stop()
       setYear(e.key === 'Home' ? 0 : years)
+      syncPlay()
       settle()
     },
   })

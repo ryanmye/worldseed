@@ -11,8 +11,11 @@
 // cells, read from a small texture holding the road rows of the two land snapshots
 // bracketing the year (rewritten only when that pair changes) and interpolated in the
 // vertex shader, so roads appear, widen and fade with traffic as a pure function of the
-// year. Packed-earth ribbons, sun-lit, just above the terrain (over the rivers); faint at
-// globe zoom (where the trade layer's warm line traces them), clear from mid zoom inward.
+// year. Packed-earth ribbons, sun-lit, over the rivers; faint at globe zoom (where the
+// trade layer's warm line traces them), clear from mid zoom inward. Close to the ground,
+// among the 3D settlements, a road is a narrow track a cart or two wide lying on the
+// rendered ground (probed), with a lift that shrinks with the camera's altitude, so
+// houses and carts stand on it rather than under it.
 //
 // Bridges: wherever a road curve crosses a river curve (the river pieces as rivers.ts
 // draws them through the link's two cells), a bridge sits at the crossing, its deck along
@@ -26,11 +29,14 @@ import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.
 import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
+import { createSurface, type Probe } from './dioramas/surface.ts'
 
-/** Height of road ribbons above the ground (rivers sit at 0.0012). */
+/** Height of road ribbons above the ground at globe zoom (rivers 0.0012); it shrinks toward the ground up close. */
 const ROAD_LIFT = 0.0014
 /** How far a road piece reaches past a junction or end node, so pieces meeting there close up. */
-const JUNCTION_REACH = 0.0006
+const JUNCTION_REACH = 0.00025
+/** A crossing this close to a route end (a river town's centre) gets no bridge: the town draws its own. */
+const TOWN_BRIDGE_RADIUS = 0.006
 /** Road level (0..255) above which a bridge stands (models and glyphs). */
 const BRIDGE_LEVEL = 26
 
@@ -103,7 +109,16 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const index = new Uint32Array((pieceCount * (HS - 1) + extCount) * 6)
   let nv = 0
   let ni = 0
+  const surface = createSurface(world)
+  const probe: Probe = { radius: 0, nx: 0, ny: 0, nz: 0, elev: 0, lake: 0, cell: 0 }
+  let probeStart = 0
   const put = (x: number, y: number, z: number, r: number, sx: number, sy: number, sz: number, a: number, b: number, t: number) => {
+    // on the rendered ground (the triangulated surface); the lift is added in the shader
+    const len = Math.hypot(x, y, z) || 1
+    if (surface.probe(x / len, y / len, z / len, surface.nearestCell(x / len, y / len, z / len, probeStart), probe)) {
+      r = probe.radius / len
+      probeStart = probe.cell
+    }
     for (let e = 0; e < 2; e++) {
       pos[nv * 3] = x * r
       pos[nv * 3 + 1] = y * r
@@ -132,11 +147,11 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       if (ext) {
         const dx = hd[i0 * 3] - hd[i0 * 3 + 3], dy = hd[i0 * 3 + 1] - hd[i0 * 3 + 4], dz = hd[i0 * 3 + 2] - hd[i0 * 3 + 5]
         const k = JUNCTION_REACH / (Math.hypot(dx, dy, dz) || 1)
-        put(hd[i0 * 3] + dx * k, hd[i0 * 3 + 1] + dy * k, hd[i0 * 3 + 2] + dz * k, hr[i0] + ROAD_LIFT, hsd[i0 * 3], hsd[i0 * 3 + 1], hsd[i0 * 3 + 2], a, b, 0)
+        put(hd[i0 * 3] + dx * k, hd[i0 * 3 + 1] + dy * k, hd[i0 * 3 + 2] + dz * k, hr[i0], hsd[i0 * 3], hsd[i0 * 3 + 1], hsd[i0 * 3 + 2], a, b, 0)
       }
       for (let s = 0; s < HS; s++) {
         const i = i0 + s
-        put(hd[i * 3], hd[i * 3 + 1], hd[i * 3 + 2], hr[i] + ROAD_LIFT, hsd[i * 3], hsd[i * 3 + 1], hsd[i * 3 + 2], a, b, s / (HS - 1))
+        put(hd[i * 3], hd[i * 3 + 1], hd[i * 3 + 2], hr[i], hsd[i * 3], hsd[i * 3 + 1], hsd[i * 3 + 2], a, b, s / (HS - 1))
       }
       const n = (nv - base) / 2
       for (let s = 1; s < n; s++) {
@@ -249,7 +264,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
             const i = i0 + s
             hit.set(hd[i * 3] + (hd[i * 3 + 3] - hd[i * 3]) * t, hd[i * 3 + 1] + (hd[i * 3 + 4] - hd[i * 3 + 1]) * t, hd[i * 3 + 2] + (hd[i * 3 + 5] - hd[i * 3 + 2]) * t).normalize()
             // a road leaving a river town from its centre: the town has its own bridges
-            if (net.nodeEnd[node] && hit.distanceTo(up3) < riverHalfWidth(pc.flow) + 0.0015) continue
+            if (net.nodeEnd[node] && hit.distanceTo(up3) < TOWN_BRIDGE_RADIUS) continue
             // one bridge per crossing, also where two links meet on the river
             let dup = false
             for (let k = 0; k < bridgeSpan.length && !dup; k++) {
@@ -259,10 +274,12 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
             if (dup) continue
             dir.set(hd[i * 3 + 3] - hd[i * 3], hd[i * 3 + 4] - hd[i * 3 + 1], hd[i * 3 + 5] - hd[i * 3 + 2])
             dir.addScaledVector(hit, -dir.dot(hit)).normalize()
-            const r = hr[i] + (hr[i + 1] - hr[i]) * t
+            let r = hr[i] + (hr[i + 1] - hr[i]) * t
+            if (surface.probe(hit.x, hit.y, hit.z, surface.nearestCell(hit.x, hit.y, hit.z, probeStart), probe)) r = probe.radius // on the ground
             bridgePos.push(hit.x * r, hit.y * r, hit.z * r)
             bridgeDir.push(dir.x, dir.y, dir.z)
-            bridgeSpan.push(2 * riverHalfWidth(pc.flow) + 0.0026)
+            // (the diorama bridge is (span - 0.0018) * 1.1 long: the river and a little either side)
+            bridgeSpan.push(2.1 * riverHalfWidth(pc.flow) + 0.0022)
             bridgeCells.push(a, b, b)
           }
         }
@@ -298,6 +315,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     uPixel: { value: 0.001 },
     uPixelRatio: { value: 1 },
     uZoom: { value: 0.3 },
+    uLift: { value: ROAD_LIFT },
+    uFar: { value: 1 },
     uBridgeZoom: { value: 0 },
     uYield: { value: new THREE.Vector2(0, 0) },
   }
@@ -330,6 +349,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       attribute vec4 aCells; // the link's two cells, position along the half, unused
       uniform float uPixel;
       uniform float uPixelRatio;
+      uniform float uLift;
+      uniform float uFar;
       ${roadLevelGlsl}
       varying float vAcross;
       varying float vSoft;
@@ -343,16 +364,18 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 ground = position + normalize(position) * uLift;
+        vec4 mv = modelViewMatrix * vec4(ground, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
-        float w = 0.0002 + 0.00058 * l;
+        // half width: a track a cart or two wide up close, the map's width further out
+        float w = mix(0.0001 + 0.00016 * l, 0.0002 + 0.00058 * l, uFar);
         float hw = max(w, 0.55 * pix);
-        vAlpha = vis * (0.5 + 0.4 * l) * min(1.0, w / hw);
+        vAlpha = vis * mix(0.95, 0.5 + 0.4 * l, uFar) * min(1.0, w / hw);
         float outer = hw + 0.6 * pix;
         vAcross = aSide.w;
         vSoft = min(1.0, pix / outer);
         vLevel = l;
-        vec3 p = position + aSide.xyz * aSide.w * outer;
+        vec3 p = ground + aSide.xyz * aSide.w * outer;
         vObjPos = p;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }
@@ -360,6 +383,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     fragmentShader: /* glsl */ `
       ${litGlsl}
       uniform float uZoom;
+      uniform float uFar;
       varying float vAcross;
       varying float vSoft;
       varying float vAlpha;
@@ -372,6 +396,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
         float edge = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
         // packed earth with a slightly darker verge; highways a little paler
         vec3 albedo = mix(vec3(0.25, 0.19, 0.12), vec3(0.36, 0.29, 0.19), vLevel);
+        // up close a darker, warmer packed earth (the map's paler line reads better far out)
+        albedo = mix(albedo * vec3(0.78, 0.74, 0.68), albedo, uFar);
         albedo *= mix(1.0, 0.72, smoothstep(0.55, 1.0, x));
         vec3 col = lit(albedo, up);
         float a = vAlpha * edge * limb * uZoom;
@@ -422,6 +448,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       uniform float uPixel;
       uniform float uPixelRatio;
       uniform float uBridgeZoom;
+      uniform float uLift;
       uniform vec2 uYield;
       uniform vec3 uCamObj;
       ${roadLevelGlsl}
@@ -439,10 +466,11 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 c = aPos * (1.0 + ${(ROAD_LIFT + 0.0003).toFixed(4)});
+        vec3 c = aPos * (1.0 + uLift + 0.00006);
         vec4 mv = modelViewMatrix * vec4(c, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio; // world size of a CSS pixel here
-        vec2 halfPx = vec2(max(0.5 * aInfo.x / pix, 6.0), max((0.00035 + 0.0007 * l) / pix, 2.0));
+        // a deck about as wide as the road (the 3D bridge is 0.00045 wide)
+        vec2 halfPx = vec2(max(0.5 * aInfo.x / pix, 6.0), max((0.00016 + 0.00012 * l) / pix, 2.0));
         vec2 ext = halfPx + 2.0;
         vec3 sd = normalize(cross(up, aDir));
         vec3 p = c + (aDir * position.x * ext.x + sd * position.y * ext.y) * pix;
@@ -571,6 +599,11 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       uniforms.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, drawSize.y)
       uniforms.uPixelRatio.value = pixelRatio
       const dist = cam.length()
+      // close to the ground: narrow tracks lying on it
+      const alt = Math.max(0, dist - 1)
+      const tf = Math.min(1, Math.max(0, (alt - 0.12) / 0.5))
+      uniforms.uFar.value = tf * tf * (3 - 2 * tf)
+      uniforms.uLift.value = Math.min(ROAD_LIFT, Math.max(0.00004, 0.0006 * alt))
       // faint at globe zoom, clear from mid zoom inward; bridge glyphs only from mid zoom
       const t = Math.min(1, Math.max(0, (2.9 - dist) / 0.9))
       uniforms.uZoom.value = 0.3 + 0.7 * t * t * (3 - 2 * t)

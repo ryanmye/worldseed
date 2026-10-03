@@ -14,7 +14,7 @@
 // the set of distinct cell-to-cell links the routes travel, each drawn (and travelled)
 // along one shared curve:
 //  - Nodes are the cells on some path. A node sits at its cell centre, except that a land
-//    node on a river (not a route end) moves to one bank, clear of the river ribbon, so a
+//    node on a river (route ends included) moves to one bank, clear of the river ribbon, so a
 //    road along a valley runs beside its river instead of on top of it. The bank is the
 //    one most of the node's off-river links lead to; a run of nodes along the river keeps
 //    the bank of its neighbours. Chains of plain nodes (two links, not on a river, not at
@@ -33,6 +33,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius } from './globe.ts'
+import { riverHalfWidthNear } from './rivers.ts'
 
 const KNOT_STRIDE = 3
 const SAMPLES_PER_CELL = 3
@@ -231,13 +232,13 @@ export function smoothPaths(world: World, pathOffsets: Uint32Array, path: Uint32
 /** Samples per half link (node to link midpoint), both ends included. */
 export const HALF_SAMPLES = 6
 
-/** Half width of a river ribbon at flow f (as rivers.ts draws it). */
+/** Half width of a river ribbon at flow f, close up (as rivers.ts draws it there; wider further out, where roads are a map line). */
 export function riverHalfWidth(f: number): number {
-  return Math.min(0.0032, 0.0006 + 0.00075 * Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD))
+  return riverHalfWidthNear(f)
 }
 
-/** Gap between a river's edge and the centre of a road on its bank. */
-const BANK_CLEARANCE = 0.0023
+/** Gap between a river's edge (close up) and the centre of a road on its bank: a road's half width and a little verge. */
+const BANK_CLEARANCE = 0.0013
 
 export interface RouteNetwork {
   world: World
@@ -430,7 +431,7 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
   const along = (c: number, x: number) => (riverTo[x] === c && isRiver(x)) || riverTo[c] === x
   for (let n = 0; n < nodeCount; n++) {
     const c = nodeCell[n]
-    if (!isRiver(c) || nodeEnd[n]) continue
+    if (!isRiver(c)) continue // route ends too: a riverside village's road starts on its bank
     const up = upOf(c), down = riverTo[c]
     u3.set(P[c * 3], P[c * 3 + 1], P[c * 3 + 2])
     const ux = up >= 0 ? up : c

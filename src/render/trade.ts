@@ -74,6 +74,8 @@ export interface TradeInput {
   volume: Float32Array
   /** Road level rows (as the road layer gets them), so land trade hands over to the roads; optional. */
   road?: { road: Uint8Array; interval: number; snapshots: number } | null
+  /** The volume scale is taken over the first this many trade snapshots (so a longer history does not rescale earlier ones); default all. */
+  normSnapshots?: number
 }
 
 /** Merchants as last written by setTime, in the diorama layer's TravelGroups layout. */
@@ -145,24 +147,31 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   // ---------- active routes per trade-snapshot pair (s, s + 1), largest first ----------
   const pairOff = new Uint32Array(S + 1)
   const pairTmp: number[] = []
-  const pairKey = new Float32Array(R)
   {
-    const lists: number[][] = []
+    // largest volume first, then by route id: one numeric sort of packed keys (the float32
+    // volume's bits, inverted, above the route id), several times faster than a comparator
+    // on long histories (R < 2^21 keeps the keys exact in a double)
+    const ROUTE_BITS = 2097152
+    const bits = new Uint32Array(1)
+    const f32 = new Float32Array(bits.buffer)
+    const keys = new Float64Array(R)
     for (let s = 0; s < S; s++) {
       const s1 = Math.min(S - 1, s + 1)
-      const list: number[] = []
+      let n = 0
       for (let r = 0; r < R; r++) {
         const m = Math.max(vol[s * R + r], vol[s1 * R + r])
         if (m > 0) {
-          list.push(r)
-          pairKey[r] = m
+          f32[0] = m
+          keys[n++] = (0xffffffff - bits[0]) * ROUTE_BITS + r
         }
       }
-      list.sort((a, b) => pairKey[b] - pairKey[a] || a - b)
-      lists.push(list)
-      pairOff[s + 1] = pairOff[s] + list.length
+      const sorted = keys.subarray(0, n).sort()
+      for (let i = 0; i < n; i++) {
+        const k = sorted[i]
+        pairTmp.push(k - Math.floor(k / ROUTE_BITS) * ROUTE_BITS) // exact: a power-of-two divisor
+      }
+      pairOff[s + 1] = pairOff[s] + n
     }
-    for (const l of lists) for (const r of l) pairTmp.push(r)
   }
   const pairList = Int32Array.from(pairTmp)
   const jitter = new Float32Array(R)
@@ -183,7 +192,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const linkVol0 = new Float32Array(L)
   const linkVol1 = new Float32Array(L)
   let maxVol = 1
-  for (let s = 0; s < S; s++) {
+  for (let s = 0, sn = Math.min(S, input.normSnapshots ?? S); s < sn; s++) {
     linkVolumes(s, s, linkVol0)
     for (let l = 0; l < L; l++) if (linkVol0[l] > maxVol) maxVol = linkVol0[l]
   }
@@ -263,6 +272,10 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
     uPixelRatio: { value: 1 },
     uLogMax: { value: logMax },
     uFrac: { value: 0 },
+    /** Route lines thin and fade out close to the ground (1 from mid zoom out, 0 among the 3D towns). */
+    uClose: { value: 1 },
+    /** How far lines and markers are lowered from LIFT toward the ground up close. */
+    uDrop: { value: 0 },
   }
   const lineUniforms = {
     ...shared,
@@ -294,6 +307,8 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       uniform float uLogMax;
       uniform float uPixel;
       uniform float uPixelRatio;
+      uniform float uClose;
+      uniform float uDrop;
       uniform vec3 uCamObj;
       uniform vec3 uSunObj;
       uniform float uDaylight;
@@ -327,14 +342,15 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         // a thin branch swells into the trunk at a junction
         vStrength = mix(max(s, sn), s, smoothstep(0.0, 0.45, aLink.z));
         // half widths in CSS pixels: hairlines for minor links, a couple of pixels for arteries
-        float core = 0.3 + 1.15 * vStrength * vStrength;
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float core = (0.3 + 1.15 * vStrength * vStrength) * mix(0.45, 1.0, uClose);
+        vec3 base = position - normalize(position) * uDrop;
+        vec4 mv = modelViewMatrix * vec4(base, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + 0.6;
         vCore = core / outer;
         vSoft = 0.9 / outer;
         vAcross = aSide.w;
-        vec3 p = position + aSide.xyz * aSide.w * outer * pix;
+        vec3 p = base + aSide.xyz * aSide.w * outer * pix;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         vec3 up = normalize(position);
         vFacing = dot(up, normalize(uCamObj - position));
@@ -343,6 +359,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform float uClose;
       varying float vAcross;
       varying float vSoft;
       varying float vCore;
@@ -368,7 +385,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           col = mix(vec3(0.95, 0.58, 0.26), vec3(1.0, 0.84, 0.55), vStrength);
           a = (0.2 + 0.66 * vStrength) * coreMask * vLand;
         }
-        a *= mix(1.0, 0.5, vNight) * limb;
+        a *= mix(1.0, 0.5, vNight) * limb * uClose;
         if (a < 0.004) discard;
         gl_FragColor = vec4(col * a, a);
       }
@@ -396,6 +413,8 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       uniform float uYear;
       uniform float uPixel;
       uniform float uPixelRatio;
+      uniform float uClose;
+      uniform float uDrop;
       uniform vec3 uCamObj;
       varying float vAcross;
       varying float vSoft;
@@ -416,14 +435,15 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           return;
         }
         float strength = max(s, vGhost * 0.15);
-        float core = 1.05 + 0.75 * strength;
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        float core = (1.05 + 0.75 * strength) * mix(0.4, 1.0, uClose);
+        vec3 base = position - normalize(position) * uDrop;
+        vec4 mv = modelViewMatrix * vec4(base, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
-        float outer = core + 1.0 + 0.6;
+        float outer = core + mix(0.3, 1.0, uClose) + 0.6;
         vCore = core / outer;
         vSoft = 0.9 / outer;
         vAcross = aSide.w;
-        vec3 p = position + aSide.xyz * aSide.w * outer * pix;
+        vec3 p = base + aSide.xyz * aSide.w * outer * pix;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         vFacing = dot(normalize(position), normalize(uCamObj - position));
         vArc = aRoute.w;
@@ -431,6 +451,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform float uClose;
       varying float vAcross;
       varying float vSoft;
       varying float vCore;
@@ -449,7 +470,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         float a = body * mix(0.55, 1.0, coreMask);
         if (sea) a *= mix(0.3, 1.0, step(0.42, fract(vArc / 0.009)));
         if (vGhost > 0.5) a *= 0.35 * mix(0.25, 1.0, step(0.5, fract(vArc / 0.005)));
-        a *= limb;
+        a *= limb * uClose;
         if (a < 0.004) discard;
         gl_FragColor = vec4(col * a, a);
       }
@@ -548,6 +569,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       uniform vec3 uSunObj;
       uniform float uDaylight;
       uniform vec2 uYield;
+      uniform float uDrop;
       uniform vec3 uGood[${GOOD_COUNT}];
       varying vec2 vPx;
       varying float vR;
@@ -557,13 +579,14 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       varying vec3 vFill;
       void main() {
         vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
+        vec3 at = aPos - up * uDrop;
+        float facing = dot(up, normalize(uCamObj - at));
         if (facing <= 0.0 || aInfo.w <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPos, 1.0);
-        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(aPos + aDir * 0.01, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
+        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(at + aDir * 0.01, 1.0);
         vec2 d = (ahead.xy / ahead.w - clip.xy / clip.w) * uViewport;
         vec2 fwd = length(d) > 1e-5 ? normalize(d) : vec2(1.0, 0.0);
         vec2 side = vec2(-fwd.y, fwd.x);
@@ -576,7 +599,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         vR = r;
         vSea = aInfo.z;
         vAlpha = aInfo.w * smoothstep(0.0, 0.3, facing);
-        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - at));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vFill = uGood[int(aInfo.x + 0.5)];
       }
@@ -864,6 +887,12 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         return t * t * (3 - 2 * t)
       }
       lineUniforms.uRoadCarry.value = roadsShown && road ? smooth(1.3, 1.65) * (0.35 + 0.65 * smooth(1.9, 2.7)) : 1
+      // among the 3D towns the road, carts and ships carry the picture: route lines thin
+      // and fade out, and lines and markers come down from their lift toward the ground
+      const alt = dist - 1
+      shared.uClose.value = smooth(1.1, 1.35)
+      shared.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, alt / 0.6)))
+      lines.visible = shared.uClose.value > 0.003
     },
     merchants() {
       return view

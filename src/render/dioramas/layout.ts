@@ -98,6 +98,11 @@ class SlotWriter {
 
 export interface Layouts {
   /**
+   * A longer run of the same world (same settlements first, more after): facts for the new
+   * settlements come from it; those already known keep theirs, and every cached layout stays.
+   */
+  setHistory(h: History): void
+  /**
    * Slots of settlement `id`, laid out at least as far as population `need` requires if
    * the time budget (performance.now() deadline) allows; `done` says whether it did.
    */
@@ -113,7 +118,7 @@ export interface Layouts {
 }
 
 export function createLayouts(world: World, h: History, lib: ModelLibrary, reservoir: Float32Array | null = null): Layouts {
-  const settlements = h.settlements
+  let settlements = h.settlements
   const { positions: GP, neighborOffsets: off, neighbors: nb, cellCount } = world.grid
   const seed = world.seed | 0
   const surface = createSurface(world, reservoir)
@@ -122,67 +127,105 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   const isRiver = (i: number) => world.flow[i] >= RIVER_FLOW_THRESHOLD && world.riverTo[i] >= 0 && !water(i)
   const riverHalfWidth = (f: number) => Math.min(0.0032, 0.0006 + 0.00075 * Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD))
   const spacing = Math.sqrt((4 * Math.PI) / cellCount)
-  const N = settlements.length
+  let N = settlements.length
 
   const footprint = (m: number) => lib.models[m]?.footprint ?? 0
   const heightOf = (m: number) => lib.models[m]?.height ?? 0
   const has = (m: number) => lib.models[m] != null
 
   // ---------- what the simulation says about each settlement ----------
-  const S = h.snapshotCount
-  const peak = new Float32Array(N)
-  for (let s = 0; s < S; s++) for (let i = 0; i < N; i++) peak[i] = Math.max(peak[i], h.population[s * N + i])
-  const peakWealth = new Float32Array(N)
-  if (h.wealth) for (let s = 0; s < S; s++) for (let i = 0; i < N; i++) peakWealth[i] = Math.max(peakWealth[i], h.wealth[s * N + i])
-  const wealthRank = new Float32Array(N)
-  {
-    const ids = Array.from({ length: N }, (_, i) => i).sort((a, b) => peakWealth[a] - peakWealth[b])
-    ids.forEach((id, r) => (wealthRank[id] = N > 1 ? r / (N - 1) : 0.5))
-  }
-  const famine = new Uint8Array(N)
-  for (const e of h.events) if (e.type === EventType.Famine && e.settlement >= 0 && e.settlement < N && famine[e.settlement] < 255) famine[e.settlement]++
-  // directions out of each settlement: trade routes (weighted by their busiest year), founding and colonising journeys
-  const linkCells: number[][] = Array.from({ length: N }, () => [])
-  const linkWeights: number[][] = Array.from({ length: N }, () => [])
-  const routeCount = new Uint16Array(N)
-  const T = h.trade
-  if (T && T.count > 0) {
-    const peakVol = new Float32Array(T.count)
-    const vol = h.tradeVolume
-    if (vol) for (let s = 0; s < h.tradeSnapshotCount; s++) for (let r = 0; r < T.count; r++) peakVol[r] = Math.max(peakVol[r], vol[s * T.count + r])
-    for (let r = 0; r < T.count; r++) {
-      const o0 = T.pathOffsets[r], o1 = T.pathOffsets[r + 1]
-      if (o1 - o0 < 2) continue
-      const w = 1 + Math.sqrt(peakVol[r])
-      const a = T.a[r], b = T.b[r]
-      if (a >= 0 && a < N) { linkCells[a].push(T.path[Math.min(o1 - 1, o0 + 2)]); linkWeights[a].push(w); routeCount[a]++ }
-      if (b >= 0 && b < N) { linkCells[b].push(T.path[Math.max(o0, o1 - 3)]); linkWeights[b].push(w); routeCount[b]++ }
-    }
-  }
-  for (let i = 0; i < N; i++) {
-    const p = settlements[i].parent
-    if (p >= 0 && p < N) {
-      linkCells[i].push(settlements[p].cell); linkWeights[i].push(0.8)
-      linkCells[p].push(settlements[i].cell); linkWeights[p].push(0.5)
-    }
-  }
-  const portOf = new Int32Array(N).fill(-1)
-  for (const st of h.structures) if (st.type === StructureType.Port && st.settlement >= 0 && st.settlement < N && portOf[st.settlement] < 0) portOf[st.settlement] = st.cell
+  // Recomputed by setHistory for a longer run of the same world; settlements already known
+  // keep their values (their plans are cached and must not change under the viewer).
+  let peak = new Float32Array(0)
+  let wealthRank = new Float32Array(0)
+  let famine = new Uint8Array(0)
+  let linkCells: number[][] = []
+  let linkWeights: number[][] = []
+  let routeCount = new Uint16Array(0)
+  let portOf = new Int32Array(0)
+  let styleCache = new Int8Array(0)
+  let root = new Int32Array(0)
+  let settlementCell = new Int32Array(cellCount).fill(-1)
 
-  const styleCache = new Int8Array(N).fill(-1)
+  /** Per-settlement facts from history `h`; ids below `keep` keep their current values. */
+  function computeFacts(h: History, keep: number) {
+    const S = h.snapshotCount
+    const old = { peak, wealthRank, famine, linkCells, linkWeights, routeCount, portOf, styleCache, root }
+    const nPeak = new Float32Array(N)
+    for (let s = 0; s < S; s++) for (let i = 0; i < N; i++) nPeak[i] = Math.max(nPeak[i], h.population[s * N + i])
+    const peakWealth = new Float32Array(N)
+    if (h.wealth) for (let s = 0; s < S; s++) for (let i = 0; i < N; i++) peakWealth[i] = Math.max(peakWealth[i], h.wealth[s * N + i])
+    const nRank = new Float32Array(N)
+    {
+      const ids = Array.from({ length: N }, (_, i) => i).sort((a, b) => peakWealth[a] - peakWealth[b])
+      ids.forEach((id, r) => (nRank[id] = N > 1 ? r / (N - 1) : 0.5))
+    }
+    const nFamine = new Uint8Array(N)
+    for (const e of h.events) if (e.type === EventType.Famine && e.settlement >= 0 && e.settlement < N && nFamine[e.settlement] < 255) nFamine[e.settlement]++
+    // directions out of each settlement: trade routes (weighted by their busiest year), founding and colonising journeys
+    const nLinkCells: number[][] = Array.from({ length: N }, () => [])
+    const nLinkWeights: number[][] = Array.from({ length: N }, () => [])
+    const nRouteCount = new Uint16Array(N)
+    const T = h.trade
+    if (T && T.count > 0) {
+      const peakVol = new Float32Array(T.count)
+      const vol = h.tradeVolume
+      if (vol) for (let s = 0; s < h.tradeSnapshotCount; s++) for (let r = 0; r < T.count; r++) peakVol[r] = Math.max(peakVol[r], vol[s * T.count + r])
+      for (let r = 0; r < T.count; r++) {
+        const o0 = T.pathOffsets[r], o1 = T.pathOffsets[r + 1]
+        if (o1 - o0 < 2) continue
+        const w = 1 + Math.sqrt(peakVol[r])
+        const a = T.a[r], b = T.b[r]
+        if (a >= 0 && a < N) { nLinkCells[a].push(T.path[Math.min(o1 - 1, o0 + 2)]); nLinkWeights[a].push(w); nRouteCount[a]++ }
+        if (b >= 0 && b < N) { nLinkCells[b].push(T.path[Math.max(o0, o1 - 3)]); nLinkWeights[b].push(w); nRouteCount[b]++ }
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const p = settlements[i].parent
+      if (p >= 0 && p < N) {
+        nLinkCells[i].push(settlements[p].cell); nLinkWeights[i].push(0.8)
+        nLinkCells[p].push(settlements[i].cell); nLinkWeights[p].push(0.5)
+      }
+    }
+    const nPortOf = new Int32Array(N).fill(-1)
+    for (const st of h.structures) if (st.type === StructureType.Port && st.settlement >= 0 && st.settlement < N && nPortOf[st.settlement] < 0) nPortOf[st.settlement] = st.cell
+    const nStyle = new Int8Array(N).fill(-1)
+    // lineage: the root ancestor picks the settlement's favourite roof (culture travels with settlers)
+    const nRoot = new Int32Array(N)
+    for (let i = 0; i < N; i++) {
+      const p = settlements[i].parent
+      nRoot[i] = p >= 0 && p < i ? nRoot[p] : i
+    }
+    const k = Math.min(keep, old.peak.length, N)
+    nPeak.set(old.peak.subarray(0, k))
+    nRank.set(old.wealthRank.subarray(0, k))
+    nFamine.set(old.famine.subarray(0, k))
+    nRouteCount.set(old.routeCount.subarray(0, k))
+    nPortOf.set(old.portOf.subarray(0, k))
+    nStyle.set(old.styleCache.subarray(0, k))
+    nRoot.set(old.root.subarray(0, k))
+    for (let i = 0; i < k; i++) {
+      nLinkCells[i] = old.linkCells[i]
+      nLinkWeights[i] = old.linkWeights[i]
+    }
+    peak = nPeak
+    wealthRank = nRank
+    famine = nFamine
+    linkCells = nLinkCells
+    linkWeights = nLinkWeights
+    routeCount = nRouteCount
+    portOf = nPortOf
+    styleCache = nStyle
+    root = nRoot
+    settlementCell = new Int32Array(cellCount).fill(-1)
+    for (const s of settlements) if (settlementCell[s.cell] < 0 || peak[s.id] > peak[settlementCell[s.cell]]) settlementCell[s.cell] = s.id
+  }
+  computeFacts(h, 0)
+
   const styleOf = (id: number): StyleT => {
     if (styleCache[id] < 0) styleCache[id] = styleOfCell(world, settlements[id].cell)
     return styleCache[id] as StyleT
   }
-  // lineage: the root ancestor picks the settlement's favourite roof (culture travels with settlers)
-  const root = new Int32Array(N)
-  for (let i = 0; i < N; i++) {
-    const p = settlements[i].parent
-    root[i] = p >= 0 && p < i ? root[p] : i
-  }
-
-  const settlementCell = new Int32Array(cellCount).fill(-1)
-  for (const s of settlements) if (settlementCell[s.cell] < 0 || peak[s.id] > peak[settlementCell[s.cell]]) settlementCell[s.cell] = s.id
 
   // ---------- geometry helpers ----------
   const probe: Probe = { radius: 1, nx: 0, ny: 1, nz: 0, elev: 0, lake: 0, cell: 0 }
@@ -782,6 +825,13 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   }
 
   return {
+    setHistory(next: History) {
+      if (next.settlements.length < N) return
+      const keep = N
+      settlements = next.settlements
+      N = settlements.length
+      computeFacts(next, keep)
+    },
     settlement: getSettlement,
     settlementReady(id, need) {
       const st = states.get(id)

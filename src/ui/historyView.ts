@@ -4,6 +4,14 @@
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
+//
+// Open-ended playback: the history can be extended past its end (deps.requestYears asks
+// for a longer run of the same world; extendHistory receives it). A longer run reproduces
+// the shorter one bit for bit, and settlement ids are stable, so the swap keeps the year,
+// the selection, the camera and the toggles. The per-history indexes and GPU layers are
+// rebuilt off the critical path: one build step per task while the old ones keep drawing,
+// then a cheap commit swaps them in at once. The diorama layer is updated in place (its
+// town layouts are kept), and the surface bake does not depend on the history at all.
 
 import * as THREE from 'three'
 import { CITY_POPULATION, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
@@ -13,14 +21,15 @@ import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../rend
 import type { CameraFly } from '../render/cameraFly.ts'
 import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
 import { buildStructureLayer, type StructureLayer } from '../render/structures.ts'
-import { createDioramaLayer, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
+import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
-import { buildHistoryIndex, landSnapshotAt, logScaled, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
+import { buildHistoryIndex, HISTORY_CHUNK_YEARS, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
-import { createTimeline, YEARS_PER_SECOND } from './timeline.ts'
+import { createTimeline, More, YEARS_PER_SECOND } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
 import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
+import { routeNetwork } from '../render/routeCurves.ts'
 import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
@@ -39,12 +48,33 @@ export interface HistoryViewDeps {
   /** Called before flying to a settlement (stops the planet spinning). */
   onFly(): void
   setUrlParam(name: string, value: string | null): void
+  /** Ask for a longer run (`years` long) of the current world; answered by extendHistory or extendFailed. */
+  requestYears(years: number): void
+  /** Something changed outside a frame (a swapped-in history): wake the render loop. */
+  wake(): void
 }
 
 export interface InitialHistoryState {
   year: number | null
   play: boolean
   select: number | null
+}
+
+/** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
+export const MAX_YEARS = 6000
+/** Length of a history `years` long extended once (the next chunk boundary), capped. */
+export const nextHistoryLength = (years: number) => Math.min(MAX_YEARS, (Math.floor(years / HISTORY_CHUNK_YEARS + 1e-9) + 1) * HISTORY_CHUNK_YEARS)
+
+/** Timing of the last history swap, for measurement (perf=1). */
+export interface SwapStats {
+  years: number
+  /** Simulation time in the worker. */
+  simMs: number
+  /** Main-thread time of all build steps and the commit, the longest single step, and the commit. */
+  totalMs: number
+  maxStepMs: number
+  commitMs: number
+  steps: Record<string, number>
 }
 
 export interface HistoryView {
@@ -72,8 +102,16 @@ export interface HistoryView {
   /** The named features (by the current year) a cell lies in or on, e.g. "Kephia river, Hingara continent"; '' for none. */
   placesAt(cell: number): string
   tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number): void
-  /** The timeline is playing (the picture changes every frame). */
+  /** The timeline is playing (the picture changes every frame); false while it waits at the end for more history. */
   isPlaying(): boolean
+  /** A longer run of the current world (requested through deps.requestYears), with its simulation time. */
+  extendHistory(history: History, ms: number): void
+  /** The requested longer run failed: keep the current history and stop asking. */
+  extendFailed(message: string): void
+  /** Length of the current history in years (0 while there is none). */
+  readonly years: number
+  /** Timing of the last swap (null before the first). */
+  readonly lastSwap: SwapStats | null
 }
 
 const FLY_DIST = 2.3
@@ -82,6 +120,40 @@ const THREAD_MIN_YEARS = 40
 const THREAD_MAX_YEARS = 120
 /** Upper bound on how long a trail's bright head takes to decay (years). */
 const HEAD_MAX_YEARS = 30
+
+/** The History feature (by kind and anchor) of each detected feature region, or null. */
+function featureOfRegions(map: FeatureMap, h: History): (GeoFeature | null)[] {
+  const fs = (h as Partial<History>).features
+  const byKey = new Map<string, GeoFeature>()
+  if (Array.isArray(fs)) for (const f of fs) byKey.set(f.kind + ':' + f.anchorCell, f)
+  return map.features.map((d) => byKey.get(d.kind + ':' + d.anchorCell) ?? null)
+}
+
+/**
+ * Why `next` cannot replace `cur` as a longer run of the same world, or '' if it can: it
+ * must be longer, keep the snapshot layout and the settlements (ids, places, founding years)
+ * and be internally consistent. Differences in the shared years' numbers are only warned
+ * about (the swap is then not seamless, but the history is still usable).
+ */
+function degenerate(cur: History, next: History): string {
+  const N0 = cur.settlements.length
+  const N = next.settlements?.length ?? 0
+  if (!(next.years > cur.years)) return `not longer (${next.years} years after ${cur.years})`
+  if (next.snapshotInterval !== cur.snapshotInterval) return 'a different snapshot interval'
+  if (N === 0) return 'no settlements'
+  if (N < N0) return `fewer settlements (${N} after ${N0})`
+  if (!(next.population instanceof Float32Array) || next.population.length !== next.snapshotCount * N || next.snapshotCount !== Math.floor(next.years / next.snapshotInterval) + 1) return 'inconsistent snapshot arrays'
+  const stride = Math.max(1, Math.floor(N0 / 97))
+  let popDiffs = 0
+  const s = cur.snapshotCount - 1
+  for (let i = 0; i < N0; i += stride) {
+    const a = cur.settlements[i], b = next.settlements[i]
+    if (!b || a.cell !== b.cell || a.foundedYear !== b.foundedYear || a.parent !== b.parent) return `settlement ${i} is not the same in the longer run`
+    if (cur.population[s * N0 + i] !== next.population[s * N + i]) popDiffs++
+  }
+  if (popDiffs > 0) console.warn(`longer history: ${popDiffs} sampled populations at year ${cur.years} differ from the shorter run (the simulation is not prefix-stable)`)
+  return ''
+}
 
 export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistoryState): HistoryView {
   let world: World | null = null
@@ -119,6 +191,18 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let cellPop: Float32Array | null = null
   const pos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
   const tmp = new THREE.Vector3()
+  // ---- extension state ----
+  /** Length (years) of the longer run asked for and not yet swapped in, 0 for none. */
+  let requested = 0
+  /** The last extension failed: do not ask again for this world. */
+  let failed = false
+  /** A longer history that arrived during the initial animation: swapped in once it ends. */
+  let deferred: { h: History; ms: number } | null = null
+  /** The staged rebuild in progress (cancel() drops it), or null. */
+  let staging: { cancel(): void } | null = null
+  /** Simulation milliseconds per simulated year (for the prefetch lead), from the last run. */
+  let simMsPerYear = 0.6
+  let lastSwap: SwapStats | null = null
 
   const timeline = createTimeline(deps.bottom, {
     onSettled(year: number, playing: boolean) {
@@ -126,7 +210,32 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       deps.setUrlParam('year', playing ? null : String(Math.round(year)))
       deps.setUrlParam('play', playing ? null : '0')
     },
+    onWantMore() {
+      wantMore()
+    },
   })
+
+  const capMessage = () => `History ends at year ${MAX_YEARS}, the longest run kept in memory`
+
+  /** Ask the worker for the next chunk of history, unless one is on its way or there can be none. */
+  function wantMore() {
+    if (!index || requested > 0 || failed || deferred || staging) return
+    const cur = index.history.years
+    const next = nextHistoryLength(cur)
+    if (next <= cur) {
+      timeline.setMore(More.No, capMessage())
+      return
+    }
+    requested = next
+    timeline.setMore(More.Pending)
+    deps.requestYears(next)
+  }
+
+  /** Playback lead (real seconds) at which to ask for more: the expected simulation time of the next run, plus margin. */
+  function syncPrefetchLead() {
+    const cur = index ? index.history.years : 0
+    timeline.setPrefetchLead((simMsPerYear * nextHistoryLength(cur)) / 1000 + 1.5)
+  }
   const inspector = createInspector(deps.left, {
     onSelect: (id) => api.select(id, true),
     onClose: () => api.select(-1, false),
@@ -145,42 +254,244 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
   })
 
+  /** The per-history objects, built step by step (see buildSteps). */
+  interface Built {
+    index?: HistoryIndex
+    layer?: SettlementLayer
+    journeys?: JourneyLayer | null
+    structures?: StructureLayer | null
+    trade?: TradeLayer | null
+    roads?: RoadLayer | null
+  }
+
+  function disposeBuilt(b: Built) {
+    const drop = (o: { dispose(): void } | null | undefined, obj: THREE.Object3D | undefined) => {
+      if (!o) return
+      if (obj) deps.planetGroup.remove(obj)
+      o.dispose()
+    }
+    drop(b.layer, b.layer?.mesh)
+    drop(b.journeys, b.journeys?.object)
+    drop(b.structures, b.structures?.mesh)
+    drop(b.trade, b.trade?.object)
+    drop(b.roads, b.roads?.object)
+  }
+
   function clearLayer() {
-    if (layer) {
-      deps.planetGroup.remove(layer.mesh)
-      layer.dispose()
-      layer = null
-    }
-    if (journeys) {
-      deps.planetGroup.remove(journeys.object)
-      journeys.dispose()
-      journeys = null
-    }
-    if (structures) {
-      deps.planetGroup.remove(structures.mesh)
-      structures.dispose()
-      structures = null
-    }
+    disposeBuilt({ layer: layer ?? undefined, journeys, structures, trade, roads })
+    layer = null
+    journeys = null
+    structures = null
+    trade = null
+    roads = null
     if (dioramas) {
       deps.planetGroup.remove(dioramas.object)
       dioramas.dispose()
       dioramas = null
-    }
-    if (trade) {
-      deps.planetGroup.remove(trade.object)
-      trade.dispose()
-      trade = null
-    }
-    if (roads) {
-      deps.planetGroup.remove(roads.object)
-      roads.dispose()
-      roads = null
     }
     if (labels) {
       labels.dispose()
       labels = null
     }
     geo = null
+  }
+
+  /**
+   * The build steps for history `h`, each a separately timed piece of main-thread work that
+   * fills in `b`. Nothing here touches what is on screen: commit() swaps the result in.
+   */
+  function buildSteps(w: World, h: History, b: Built): { name: string; run(): void }[] {
+    return [
+      {
+        name: 'index',
+        run() {
+          const lake = lakeArray(w)
+          b.index = buildHistoryIndex(h, (c) => isWaterCell(w, lake, c))
+        },
+      },
+      { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
+      { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
+      { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
+      {
+        // the bundled route network (cached per route set, shared by the trade and road layers)
+        name: 'network',
+        run() {
+          const td = b.index!.trade
+          if (td) routeNetwork(w, td.routes.pathOffsets, td.routes.path, td.routes.count)
+        },
+      },
+      {
+        name: 'trade',
+        run() {
+          const td = b.index!.trade
+          const rd = b.index!.roads
+          b.trade = td
+            ? buildTradeLayer(w, {
+                routes: td.routes,
+                interval: td.interval,
+                snapshots: td.count,
+                volume: td.volume,
+                road: rd ? { road: rd.road, interval: rd.interval, snapshots: rd.count } : null,
+                normSnapshots: Math.floor(NORM_YEARS / td.interval) + 1,
+              })
+            : null
+        },
+      },
+      {
+        name: 'roads',
+        run() {
+          const td = b.index!.trade
+          const rd = b.index!.roads
+          b.roads = td && rd ? buildRoadLayer(w, { road: rd.road, interval: rd.interval, snapshots: rd.count, routes: td.routes }) : null
+        },
+      },
+    ]
+  }
+
+  /**
+   * Swap the built objects in (and dispose the old ones), carrying over the selection, hover
+   * and toggles. `extend`: a longer run of the history on screen (keep the chronicle rows and
+   * the diorama layouts; the timeline range only grows).
+   */
+  function commit(w: World, h: History, b: Built, extend: boolean) {
+    const old: Built = { layer: layer ?? undefined, journeys, structures, trade, roads }
+    disposeBuilt(old)
+    index = b.index!
+    layer = b.layer!
+    deps.planetGroup.add(layer.mesh)
+    journeys = b.journeys ?? null
+    if (journeys) {
+      journeys.object.visible = journeysVisible
+      deps.planetGroup.add(journeys.object)
+    }
+    structures = b.structures ?? null
+    if (structures) {
+      structures.mesh.visible = structuresVisible
+      deps.planetGroup.add(structures.mesh)
+    }
+    trade = b.trade ?? null
+    if (trade) {
+      trade.object.visible = tradeVisible
+      deps.planetGroup.add(trade.object)
+    }
+    roads = b.roads ?? null
+    if (roads) {
+      roads.object.visible = roadsVisible
+      deps.planetGroup.add(roads.object)
+    }
+    const dioramaInputs = {
+      world: w,
+      history: h,
+      land: index.land ? { interval: index.land.interval, count: index.land.count, landUse: index.land.landUse } : null,
+      structures: structures ? structures.placements : null,
+      reservoirs: structures ? structures.reservoirs : null,
+    }
+    if (extend && dioramas) dioramas.setHistory(dioramaInputs)
+    else {
+      if (dioramas) {
+        deps.planetGroup.remove(dioramas.object)
+        dioramas.dispose()
+      }
+      dioramas = createDioramaLayer(dioramaInputs)
+      dioramas.setVisible(buildingsVisible)
+      deps.planetGroup.add(dioramas.object)
+    }
+    dioramas.setBridges(roads ? roads.placements : null, roadsVisible)
+    const globe = deps.getGlobe()
+    const res = structures?.reservoirs
+    globe?.setReservoirs(res && res.cells.length > 0 ? res.cells : null, res?.built, res?.lost, res?.strength)
+    if (!index.land) globe?.setLandRows(null, null, 0, 0)
+    shownL0 = shownL1 = -1
+    applyMarkerStyle()
+    const settlementLayer = layer
+    labels?.dispose()
+    labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, w, h, { population: (id) => settlementLayer.displayedPopulation(id) }, NORM_YEARS)
+    labels.setVisible(labelsVisible)
+    globe?.setCapacity(h.capacity)
+    chronicle.setIndex(index, extend)
+    // the feature regions are geography (kept); which History feature each is may have grown
+    if (geo) geo = { map: geo.map, feature: featureOfRegions(geo.map, index.history) }
+    shownS0 = shownS1 = -1
+    if (extend) {
+      // the same settlement (ids are stable), shown from the longer history
+      layer.setHovered(hovered)
+      labels.setHovered(hovered)
+      if (selected >= index.count) selected = -1
+      if (selected >= 0) reselect(selected)
+    }
+  }
+
+  /** Re-apply a selection after a swap: highlight, inspector (with the whole run's sparkline), places. */
+  function reselect(id: number) {
+    if (!index || !world) return
+    selected = id
+    layer?.setSelected(id)
+    journeys?.setHighlight(index.foundingJourney[id])
+    trade?.setSelected(id)
+    labels?.setSelected(id)
+    selPlaces = featuresNear(index.history.settlements[id].cell, true).sort((a, b) => a.namedYear - b.namedYear)
+    selPlacesShown = -1
+    inspector.show(index, world, id)
+  }
+
+  /** Build the longer history `h` step by step, one step per task, then commit it. */
+  function stage(h: History, ms: number) {
+    const w = world!
+    const b: Built = {}
+    const steps = buildSteps(w, h, b)
+    const times: Record<string, number> = {}
+    let k = 0
+    let cancelled = false
+    let timer = 0
+    let total = 0
+    let maxStep = 0
+    const cancel = () => {
+      cancelled = true
+      window.clearTimeout(timer)
+      disposeBuilt(b)
+    }
+    const next = () => {
+      timer = 0
+      if (cancelled || world !== w) return
+      const t0 = performance.now()
+      if (k < steps.length) {
+        const step = steps[k++]
+        try {
+          step.run()
+        } catch (err) {
+          staging = null
+          disposeBuilt(b)
+          api.extendFailed(`building the ${step.name} layer failed: ${err instanceof Error ? err.message : String(err)}`)
+          return
+        }
+        const dt = performance.now() - t0
+        times[step.name] = dt
+        total += dt
+        maxStep = Math.max(maxStep, dt)
+        timer = window.setTimeout(next, 0)
+        return
+      }
+      // all built: swap in, in one task
+      staging = null
+      requested = 0
+      commit(w, h, b, true)
+      timeline.extendRange(h.years)
+      timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
+      syncPrefetchLead()
+      const commitMs = performance.now() - t0
+      times.commit = commitMs
+      total += commitMs
+      lastSwap = { years: h.years, simMs: ms, totalMs: total, maxStepMs: Math.max(maxStep, commitMs), commitMs, steps: times }
+      console.info(
+        `history extended to ${h.years} years: simulation ${ms.toFixed(0)} ms (worker); main thread ${total.toFixed(0)} ms in ${steps.length + 1} tasks, longest ${lastSwap.maxStepMs.toFixed(0)} ms (` +
+          Object.entries(times).map(([n, t]) => `${n} ${t.toFixed(1)}`).join(', ') +
+          `); ${h.settlements.length} settlements, ${h.events.length} events`,
+      )
+      requestRender()
+      deps.wake()
+    }
+    staging = { cancel }
+    timer = window.setTimeout(next, 0)
   }
 
   /** Features of the history on (and, with `beside`, beside) a cell, named or not yet, via the detected regions. */
@@ -190,9 +501,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     if (!Array.isArray(fs) || !fs.length) return []
     if (!geo) {
       const map = detectFeatures(world)
-      const byKey = new Map<string, GeoFeature>()
-      for (const f of fs) byKey.set(f.kind + ':' + f.anchorCell, f)
-      geo = { map, feature: map.features.map((d) => byKey.get(d.kind + ':' + d.anchorCell) ?? null) }
+      geo = { map, feature: featureOfRegions(map, index.history) }
     }
     const out: GeoFeature[] = []
     for (const d of featuresAt(geo.map, world, cell, [], beside)) {
@@ -265,6 +574,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setWorld(w: World) {
       world = w
       index = null
+      staging?.cancel()
+      staging = null
+      deferred = null
+      requested = 0
+      failed = false
       clearLayer()
       selected = -1
       hovered = -1
@@ -279,72 +593,54 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     setHistory(h: History) {
       if (!world) return
-      const lake = lakeArray(world)
-      const w = world
-      index = buildHistoryIndex(h, (c) => isWaterCell(w, lake, c))
-      clearLayer()
-      layer = buildSettlementLayer(world, h, index.maxPopulation)
-      deps.planetGroup.add(layer.mesh)
-      if (index.journeys) {
-        journeys = buildJourneyLayer(world, index.journeys)
-        journeys.object.visible = journeysVisible
-        deps.planetGroup.add(journeys.object)
-      }
-      if (index.structures.length > 0) {
-        structures = buildStructureLayer(world, index.structures, h.settlements)
-        structures.mesh.visible = structuresVisible
-        deps.planetGroup.add(structures.mesh)
-      }
-      dioramas = createDioramaLayer({
-        world,
-        history: h,
-        land: index.land ? { interval: index.land.interval, count: index.land.count, landUse: index.land.landUse } : null,
-        structures: structures ? structures.placements : null,
-        reservoirs: structures ? structures.reservoirs : null,
-      })
-      dioramas.setVisible(buildingsVisible)
-      deps.planetGroup.add(dioramas.object)
-      const td = index.trade
-      if (td) {
-        const rd = index.roads
-        trade = buildTradeLayer(world, {
-          routes: td.routes,
-          interval: td.interval,
-          snapshots: td.count,
-          volume: td.volume,
-          road: rd ? { road: rd.road, interval: rd.interval, snapshots: rd.count } : null,
-        })
-        trade.object.visible = tradeVisible
-        deps.planetGroup.add(trade.object)
-        if (index.roads) {
-          roads = buildRoadLayer(world, { road: index.roads.road, interval: index.roads.interval, snapshots: index.roads.count, routes: td.routes })
-          roads.object.visible = roadsVisible
-          deps.planetGroup.add(roads.object)
-          dioramas.setBridges(roads.placements, roadsVisible)
-        }
-      }
-      const globe = deps.getGlobe()
-      const res = structures?.reservoirs
-      globe?.setReservoirs(res && res.cells.length > 0 ? res.cells : null, res?.built, res?.lost, res?.strength)
-      if (!index.land) globe?.setLandRows(null, null, 0, 0)
-      shownL0 = shownL1 = -1
-      applyMarkerStyle()
-      const settlementLayer = layer
-      labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, world, h, { population: (id) => settlementLayer.displayedPopulation(id) })
-      labels.setVisible(labelsVisible)
-      deps.getGlobe()?.setCapacity(h.capacity)
-      chronicle.setIndex(index)
+      staging?.cancel()
+      staging = null
+      deferred = null
+      requested = 0
+      const b: Built = {}
+      for (const step of buildSteps(world, h, b)) step.run()
+      commit(world, h, b, false)
       timeline.setRange(h.years, h.snapshotInterval)
+      timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
+      syncPrefetchLead()
       shownS0 = shownS1 = -1
       const init = pending
       pending = null
       if (init && init.year !== null) timeline.setYear(init.year)
-      if (!init || init.play) timeline.play()
-      if (init && init.select !== null && init.select >= 0 && init.select < index.count) api.select(init.select, true)
+      // the initial animation stops at the end of the initial history (from there Play goes on)
+      if (!init || init.play) {
+        timeline.setSoftStop(h.years)
+        timeline.play()
+      } else timeline.setSoftStop(null)
+      if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
     },
     setHistoryError(message: string) {
       timeline.setRange(null, 1, 'history unavailable')
       console.error('history simulation failed:', message)
+    },
+    extendHistory(h: History, ms: number) {
+      if (!world || !index || requested <= 0) return
+      const problem = degenerate(index.history, h)
+      if (problem) {
+        api.extendFailed(problem)
+        return
+      }
+      simMsPerYear = ms / Math.max(1, h.years)
+      if (timeline.intro) deferred = { h, ms } // swapped in when the initial animation ends (tick)
+      else stage(h, ms)
+    },
+    extendFailed(message: string) {
+      requested = 0
+      failed = true
+      const end = index ? index.history.years : 0
+      console.error('history extension failed (keeping the current history):', message)
+      timeline.setMore(More.No, `Could not simulate past year ${end}; the history ends there`, true)
+    },
+    get years() {
+      return index ? index.history.years : 0
+    },
+    get lastSwap() {
+      return lastSwap
     },
     pickAt(x: number, y: number) {
       if (!layer || !layer.mesh.visible) return -1
@@ -433,6 +729,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number) {
       year = timeline.tick(dt)
+      if (deferred && !timeline.intro && !staging) {
+        // the initial animation is over: swap in the longer history that arrived meanwhile
+        const d = deferred
+        deferred = null
+        stage(d.h, d.ms)
+      }
       if (!index || !layer) return
       const h = index.history
       snapshotAt(h, year, pos)
@@ -482,8 +784,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         const far = dioramas.active ? DIORAMA_YIELD_FAR : 0
         layer.setYield(near, far)
         structures?.setYield(near, far)
-        journeys?.setYield(near, far)
-        trade?.setYield(near, far)
+        // merchants and travelling groups are 3D carts and ships once the models are in:
+        // their flat markers have gone by the distance at which the models are full size
+        const tNear = dioramas.active ? DIORAMA_NEAR : 0
+        const tFar = dioramas.active ? DIORAMA_FAR - 0.02 : 0
+        journeys?.setYield(tNear, tFar)
+        trade?.setYield(tNear, tFar)
         roads?.setYield(near, far)
       }
       chronicle.update(year)
@@ -502,7 +808,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       }
     },
     isPlaying() {
-      return timeline.playing
+      return timeline.playing && !timeline.waiting
     },
   }
   return api

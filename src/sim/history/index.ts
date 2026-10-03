@@ -5,7 +5,7 @@
 // Each year runs a fixed sequence of small systems over shared state:
 //   productivity -> weather -> food -> trade -> population -> migration
 //   -> voyages -> abandonment (-> routes of the abandoned close) -> structures
-//   -> [land use -> degradation] -> [roads] -> milestones -> snapshots
+//   -> [land use -> degradation] -> [roads] -> milestones -> knowledge -> snapshots
 // (land use and degradation advance every LAND.step years, roads every
 // ROAD.step years; in land
 // years the food system also records which fields feed each settlement). The
@@ -16,91 +16,50 @@
 // trade-volume snapshots every tradeInterval years.
 // Later systems (polities, war) slot into this sequence.
 //
-// Random streams (all derived from world.seed): 'history-tribes' (founders),
-// 'history-weather' (fixed draws per year, independent of what people do),
-// 'history-migration' (who leaves, where they go), 'history-voyages' (voyages
-// of settlement by sea: who sails, where to, who is lost; voyages.ts) and
-// 'history-structures' (when ports and dams get built); 'history-ore' seeds
-// the ore-richness noise.
+// Peoples (peoples.ts): the founding tribes live in a few separate cradles
+// over the world's continents; each founds a people, and every settlement
+// belongs to its founder's people. What each people knows of the world and
+// whom it has met (knowledge.ts) limits where its groups migrate, sail and
+// trade; peoples in contact share what they know.
+//
+// Random streams (all derived from world.seed): 'history-cradles' (where the
+// cradles and tribes are), 'history-weather' (fixed draws per year,
+// independent of what people do), 'history-migration' (who leaves, where they
+// go), 'history-voyages' (voyages of settlement by sea: who sails, where to,
+// who is lost; voyages.ts) and 'history-structures' (when ports and dams get
+// built); 'history-ore' seeds the ore-richness noise; people names come from
+// 'names-people-<founder>' (peoples.ts). Knowledge and contact draw nothing.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
-// across engines.
+// across engines. Nothing depends on the run's length: a longer run repeats a
+// shorter one exactly up to its end.
 //
 // History.capacity is the base carrying capacity at productivity 1 (year 0);
 // the effective capacity in year y is roughly capacity * productivityAt(y)
-// (about 4x by year 2000), lowered by degradation and raised by irrigation
+// (about 4x by year 2000, easing off after it), lowered by degradation and raised by irrigation
 // (land.ts, structures.ts), and raised by wealth and trade (trade.ts: rich
 // hubs get more from their land and import food).
 
 import { GOOD_COUNT } from '../../contract.ts'
 import type { History, HistoryOptions, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
-import type { Rng } from '../rng.ts'
-import { nameSettlements } from '../names/index.ts'
+import { nameSettlementsDetailed } from '../names/index.ts'
 import { nameFeatures } from '../names/featureNames.ts'
 import { createSearch, migrationSystem } from './migration.ts'
 import { degradationSystem, landUseSystem } from './land.ts'
-import { HISTORY_DEFAULTS, LAND, POPULATION, ROAD } from './params.ts'
+import { HISTORY_DEFAULTS, LAND, ROAD } from './params.ts'
 import { abandonmentSystem, foodSystem, milestoneSystem, populationSystem, productivitySystem } from './population.ts'
 import { createPortSearch, structureSystem } from './structures.ts'
 import type { HistoryState } from './state.ts'
-import { canSettle, createState, found } from './state.ts'
+import { createState } from './state.ts'
+import { knowledgeSystem } from './knowledge.ts'
+import type { CradlePlan } from './peoples.ts'
+import { namePeoples, seedPeoples } from './peoples.ts'
 import { buildTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
 import { createWeather, weatherSystem } from './weather.ts'
 import { createVoyages, voyageSystem } from './voyages.ts'
 import { assembleTrade, createTrade, roadSystem, tradeAbandonSystem, tradeSystem } from './trade.ts'
 import type { TradeState } from './trade.ts'
-
-/**
- * Founding tribes: on the landmass with the most total potential (the
- * "cradle"), drawn among its best sites, weighted by potential, mutually far apart.
- */
-function seedTribes(s: HistoryState, rng: Rng): void {
-  const T = s.terrain
-  const N = T.cellCount
-  const P = s.world.grid.positions
-  const lmPot = new Float64Array(T.landmassSize.length)
-  for (let i = 0; i < N; i++) if (T.habitable[i]) lmPot[T.landmass[i]] += T.capacity[i]
-  let cradle = -1
-  for (let m = 0; m < lmPot.length; m++) if (lmPot[m] > 0 && (cradle < 0 || lmPot[m] > lmPot[cradle])) cradle = m
-  if (cradle < 0) return // no habitable land at all
-
-  // Candidates: the best quarter of the cradle's habitable cells by potential.
-  const cand: number[] = []
-  for (let i = 0; i < N; i++) if (T.habitable[i] && T.landmass[i] === cradle) cand.push(i)
-  cand.sort((a, b) => T.potential[b] - T.potential[a] || a - b)
-  cand.length = Math.max(1, Math.ceil(cand.length / 4))
-  let total = 0
-  for (const c of cand) total += T.potential[c]
-
-  const count = rng.int(POPULATION.tribesMin, POPULATION.tribesMax)
-  const placed: number[] = []
-  // Minimum chord distance between tribes; shrinks when sites run out.
-  let minChord2 = 0.5 * 0.5
-  let fails = 0
-  while (placed.length < count && minChord2 > 1e-6) {
-    let x = rng.next() * total
-    let c = cand[cand.length - 1]
-    for (let k = 0; k < cand.length; k++) {
-      x -= T.potential[cand[k]]
-      if (x < 0) { c = cand[k]; break }
-    }
-    let ok = canSettle(s, c)
-    for (let k = 0; ok && k < placed.length; k++) {
-      const q = placed[k]
-      const dx = P[c * 3] - P[q * 3], dy = P[c * 3 + 1] - P[q * 3 + 1], dz = P[c * 3 + 2] - P[q * 3 + 2]
-      if (dx * dx + dy * dy + dz * dz < minChord2) ok = false
-    }
-    if (ok) {
-      placed.push(c)
-      found(s, c, Math.round(rng.range(POPULATION.tribePopMin, POPULATION.tribePopMax)), -1)
-      fails = 0
-    } else if (++fails >= 40) {
-      minChord2 *= 0.7
-      fails = 0
-    }
-  }
-}
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -120,6 +79,34 @@ export interface HistoryDiagnostics {
   through: Float64Array
   /** Every voyage of settlement searched for (see voyages.ts), in order. */
   voyages?: VoyageLog
+  /** The founding plan: tribe cells and their cradles. */
+  cradles?: CradlePlan
+  /** How often knowledge changed a decision (only when runHistory is asked to measure it). */
+  knowledge?: KnowledgeDiag
+  /** How each pair of peoples first met (knowledge.ts ContactVia), -1 if never: contactVia[a * P + b]. */
+  contactVia?: Int8Array
+}
+
+/**
+ * Decisions knowledge changed, measured by shadow decisions without randomness (runHistory with
+ * measureKnowledge): the same choice made from what the people knows and from full knowledge.
+ */
+export interface KnowledgeDiag {
+  /** Migration searches; of them, those where the no-jitter best destination differs (redirected) or exists only with full knowledge (blocked). */
+  migrations: number
+  migRedirected: number
+  migBlocked: number
+  /** Migration searches whose reach was cut short by the edge of what their people knew (unknown cells within the budget). */
+  migFrontier: number
+  /** Trade partner searches (one per trader per link rebuild), partners chosen with full knowledge, and of those not chosen from what the people knows. */
+  tradeSearches: number
+  tradePartners: number
+  tradeLost: number
+  /** Voyages, and those whose known-open-land target differs from what the old per-landmass rule (anyone's discoveries) would give. */
+  voyages: number
+  voyTargetDiffers: number
+  /** Voyage searches that sighted a settlement of a people not yet met. */
+  voySightings: number
 }
 
 /** Voyage records for the stats harness: one entry per expedition that set out to look for land. */
@@ -185,8 +172,9 @@ function assembleJourneys(records: HistoryState['journeys']): Journeys {
  * Runs the simulation and also returns the internal terrain and diagnostics (for the stats harness).
  * `probe`, if given, is called with the internal state at the end of every year (tuning only; it must not modify anything).
  */
-export function runHistory(world: World, options?: HistoryOptions, probe?: (s: HistoryState, t: TradeState) => void): HistoryRun {
-  const years = Math.max(0, Math.floor(options?.years ?? HISTORY_DEFAULTS.years))
+export function runHistory(world: World, options?: HistoryOptions, probe?: (s: HistoryState, t: TradeState) => void, measureKnowledge = false): HistoryRun {
+  // (At most 32767: knownYear and contactYear store years as Int16.)
+  const years = Math.min(32767, Math.max(0, Math.floor(options?.years ?? HISTORY_DEFAULTS.years)))
   const interval = Math.max(1, Math.floor(options?.snapshotInterval ?? HISTORY_DEFAULTS.snapshotInterval))
   const snapshotCount = Math.floor(years / interval) + 1
   const seed = world.seed
@@ -194,10 +182,14 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
   const terrain = buildTerrain(world)
   const weather = createWeather(world, createRng(seed, 'history-weather'))
   const s = createState(world, terrain, weather.region, weather.regionCount, createRng(seed, 'history-migration'), createRng(seed, 'history-structures'))
-  const search = createSearch(terrain.cellCount)
+  const search = createSearch(terrain.cellCount, terrain.cellScale)
   const N = terrain.cellCount
   const scratch = new Float64Array(N)
   const portSearch = createPortSearch(N)
+  if (measureKnowledge) s.knowDiag = { migrations: 0, migRedirected: 0, migBlocked: 0, migFrontier: 0, tradeSearches: 0, tradePartners: 0, tradeLost: 0, voyages: 0, voyTargetDiffers: 0, voySightings: 0 }
+  s.year = 0
+  productivitySystem(s)
+  const cradles = seedPeoples(s, createRng(seed, 'history-cradles'))
   const voyages = createVoyages(s, createRng(seed, 'history-voyages'))
 
   // Land snapshots: fixed size, written in place.
@@ -263,9 +255,6 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
     for (let g = 0; g < GOOD_COUNT; g++) goodVolume[q * GOOD_COUNT + g] = trade.goodYear[g]
   }
 
-  s.year = 0
-  productivitySystem(s)
-  seedTribes(s, createRng(seed, 'history-tribes'))
   snapshot()
   landSnapshot(0)
   tradeSnapshot(0)
@@ -288,6 +277,7 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
     }
     if (year % ROAD.step === 0) roadSystem(s, trade)
     milestoneSystem(s)
+    knowledgeSystem(s)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot(year / landInterval)
     if (year % tradeInterval === 0) tradeSnapshot(year / tradeInterval)
@@ -311,10 +301,12 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
   for (let id = 0; id < S; id++) through[id] = s.through[id]
   const settlements: Settlement[] = []
   for (let id = 0; id < S; id++) {
-    settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '' })
+    settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id] })
   }
-  const names = nameSettlements(world, settlements)
-  for (let id = 0; id < S; id++) settlements[id].name = names[id]
+  const naming = nameSettlementsDetailed(world, settlements)
+  for (let id = 0; id < S; id++) settlements[id].name = naming.names[id]
+  const features = nameFeatures(world, settlements) // named geography (names/featureNames.ts)
+  const peoples = namePeoples(world, s.founders, naming)
   const capacity = new Float32Array(terrain.cellCount)
   for (let i = 0; i < terrain.cellCount; i++) capacity[i] = terrain.capacity[i]
   const journeys = assembleJourneys(s.journeys)
@@ -324,10 +316,12 @@ export function runHistory(world: World, options?: HistoryOptions, probe?: (s: H
       years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity, events: s.events, journeys,
       structures: s.structures, landInterval, landSnapshotCount, landUse, degradation, road, wealth,
       trade: routes, tradeInterval, tradeSnapshotCount, tradeVolume,
-      features: nameFeatures(world, settlements), // named geography (names/featureNames.ts)
+      features, peoples,
+      knownYear: s.know.known, // (allocated for this run: owns its buffer)
+      contactYear: s.know.contact,
     },
     terrain,
-    diag: { goodVolume, through, voyages: voyages.log },
+    diag: { goodVolume, through, voyages: voyages.log, cradles, knowledge: s.knowDiag ?? undefined, contactVia: s.know.via },
   }
 }
 

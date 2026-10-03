@@ -86,6 +86,8 @@ export interface Settlement {
   abandonedYear: number
   /** Procedurally generated name, unique within a world. */
   name: string
+  /** The people this settlement descends from: index into History.peoples. */
+  people: number
 }
 
 export const EventType = {
@@ -99,6 +101,9 @@ export const EventType = {
   StructureLost: 7, // a structure fell out of use; `other` is the structure id; `value` is the StructureType
   TradeOpened: 8, // a trade route opened; `settlement` and `other` are its two ends; `value` is the route id
   TradeClosed: 9, // a trade route closed; `settlement` and `other` are its two ends; `value` is the route id
+  VoyageLost: 10, // a colonising expedition from `settlement` was lost at sea; `other` is -1; `value` is the people lost
+  Landfall: 11, // first settlement on a previously empty landmass; `settlement` is the new colony, `other` its sender; `value` is the landmass size in cells
+  FirstContact: 12, // two peoples met for the first time; `settlement` and `other` are the settlements through which they met; `value` is the other people's id (that of `other`)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -149,6 +154,18 @@ export interface History {
   trade: TradeRoutes
   /** Named geographic features, in order of naming. */
   features: GeoFeature[]
+  /** The founding peoples; every settlement descends from exactly one. */
+  peoples: People[]
+  /**
+   * Year each people first knew of each cell, or -1 if never by the end of the run, row-major:
+   * knownYear[people * grid.cellCount + cell]. Knowledge is never lost, and peoples in contact share it.
+   */
+  knownYear: Int16Array
+  /**
+   * Year each pair of peoples first made contact, or -1 if never, row-major and symmetric:
+   * contactYear[a * peoples.length + b]. The diagonal is 0.
+   */
+  contactYear: Int16Array
   /** Years between trade snapshots; trade snapshot s is year s * tradeInterval. */
   tradeInterval: number
   tradeSnapshotCount: number
@@ -283,4 +300,13 @@ export interface GeoFeature {
   size: number
   /** Cells along the feature's main axis for curved labels (river course, range crest), or empty. */
   spine: number[]
+}
+
+/** A founding people: the descendants of one original tribe. */
+export interface People {
+  /** Index into History.peoples. */
+  id: number
+  /** The original tribe's settlement. */
+  founder: number
+  name: string
 }

@@ -17,7 +17,12 @@ export interface ChronicleCallbacks {
 }
 
 export interface Chronicle {
-  setIndex(index: HistoryIndex | null): void
+  /**
+   * `keep`: the new index extends the current one (a longer run of the same history, whose
+   * entries begin the same): the rows stay as they are (no flash, same scroll position) and
+   * are only rewritten where what they show differs.
+   */
+  setIndex(index: HistoryIndex | null, keep?: boolean): void
   update(year: number): void
 }
 
@@ -180,9 +185,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   }
 
   const api: Chronicle = {
-    setIndex(ix: HistoryIndex | null) {
+    setIndex(ix: HistoryIndex | null, keep = false) {
       index = ix
       shownMembers = -1
+      if (keep && ix) {
+        // re-render each row in place on the next update (same entry ids, possibly new text)
+        for (const r of rows) r.shown = -1
+        return
+      }
       for (const r of rows) {
         r.entry = -1
         r.target = -1

@@ -48,7 +48,11 @@ export function foodSystem(s: HistoryState): void {
   const { catchOff, catchBase, catchCell, catchW, catchDist, capFish } = T
   const capacity = s.effCap
   const claim = s.claim
-  claim.fill(0)
+  // Last year's claimed cells back to 0 (every other cell already is), then this year's claims,
+  // listing each cell the first time it is claimed.
+  const claimed = s.claimed
+  for (let t = 0; t < s.claimedCount; t++) claim[claimed[t]] = 0
+  let nClaimed = 0
   const living = s.living
   const smallPop = CATCHMENT.reachLow
   for (let t = 0; t < living.length; t++) {
@@ -58,7 +62,11 @@ export function foodSystem(s: HistoryState): void {
     const st = claimStrength(p)
     if (p <= smallPop) {
       // Base catchment only: the common case, kept tight.
-      for (let k = catchOff[c], e = catchBase[c]; k < e; k++) claim[catchCell[k]] += catchW[k] * st
+      for (let k = catchOff[c], e = catchBase[c]; k < e; k++) {
+        const j = catchCell[k]
+        if (claim[j] === 0) claimed[nClaimed++] = j
+        claim[j] += catchW[k] * st
+      }
       continue
     }
     const r1 = reachOf(p) + 1
@@ -71,16 +79,17 @@ export function foodSystem(s: HistoryState): void {
         if (f <= 0) break
         if (f > 1) f = 1
       }
-      claim[catchCell[k]] += f * catchW[k] * st
+      const j = catchCell[k]
+      if (claim[j] === 0) claimed[nClaimed++] = j
+      claim[j] += f * catchW[k] * st
     }
   }
-  // Inverse claims, once per cell (the same quotient each claimant would compute).
+  s.claimedCount = nClaimed
+  // Inverse claims, once per claimed cell (the same quotient each claimant would compute).
   const invClaim = s.invClaim
-  const landCells = T.landCells
-  for (let t = 0; t < landCells.length; t++) {
-    const j = landCells[t]
-    const cl = claim[j]
-    invClaim[j] = cl > 0 ? 1 / cl : 0
+  for (let t = 0; t < nClaimed; t++) {
+    const j = claimed[t]
+    invClaim[j] = 1 / claim[j]
   }
   // Expected food per settlement. Along the way, record which fields feed its
   // people this year: nearest catchment cells first, each up to the
@@ -114,7 +123,16 @@ export function foodSystem(s: HistoryState): void {
     const crowd = recordFields ? p / foodBase(s, id) : 0
     let perStrength = 0 // food per unit of claim strength
     let perFish = 0, perLive = 0 // the fish and livestock parts of it (land years only)
-    for (let k = catchOff[c]; k < end; k++) {
+    // A cell's food is its capacity, plus fish * its fishing part for a port's owner.
+    if (!recordFields && !big) {
+      // The common case (no fields to record, base catchment only), kept tight.
+      for (let k = catchOff[c]; k < base; k++) {
+        const j = catchCell[k]
+        const w = catchW[k]
+        const cj = fish > 0 ? capacity[j] + fish * capFish[j] : capacity[j]
+        perStrength += cj * (w * w * invClaim[j])
+      }
+    } else for (let k = catchOff[c]; k < end; k++) {
       let w = catchW[k]
       if (k >= base) {
         // Beyond the base catchment: fades to 0 over the hop past reach, as the claims do.
@@ -124,13 +142,13 @@ export function foodSystem(s: HistoryState): void {
       }
       const j = catchCell[k]
       const ic = invClaim[j]
-      const cf = fish > 0 ? (1 + fish) * capFish[j] : capFish[j]
-      const cj = capacity[j] - capFish[j] + cf
+      const cj = fish > 0 ? capacity[j] + fish * capFish[j] : capacity[j]
       const ww = w * w * ic
       const term = cj * ww
       perStrength += term
       if (recordFields) {
-        const farm = cj - cf
+        const farm = capacity[j] - capFish[j]
+        const cf = cj - farm
         perFish += (cf + farm * riverFishFrac[j]) * ww
         perLive += farm * liveFrac[j] * ww
       }

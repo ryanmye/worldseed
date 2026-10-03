@@ -10,7 +10,8 @@ import { createOverlay, loadLayerPrefs } from './ui/overlay.ts'
 import { attachPointer } from './ui/pointer.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
-import { createHistoryView } from './ui/historyView.ts'
+import { createHistoryView, MAX_YEARS } from './ui/historyView.ts'
+import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
@@ -20,7 +21,8 @@ import { createPerfMonitor } from './render/perfTools.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
-// sub (subdivisions), year=<n> (start year), play=0 (start paused), select=<settlement id>, markers=0, journeys=0,
+// sub (subdivisions), year=<n> (start year; past 2000 the history is first simulated that far), years=<n> (length of the
+// initial history, default 2000, in steps of 500 up to 6000: auto-play stops at its end), play=0 (start paused), select=<settlement id>, markers=0, journeys=0,
 // land=0 (no farmland on the Terrain view), structures=0 (no ports, dams or reservoirs), models=0 (no 3D buildings up close),
 // tilt=0 (keep looking straight down when zoomed in), labels=0 (no place names),
 // sun=fixed|follow|full, sunlon/sunlat (degrees, fixed sun), quality=high|balanced|low, bake=0 (procedural
@@ -207,12 +209,24 @@ function showWorld(world: World) {
 }
 
 // ---------- worker ----------
-// One request per seed; responses for superseded requests are dropped.
+// One request per seed; responses for superseded requests are dropped. Extensions (a longer
+// run of the same world, see historyView.ts) carry the seed's requestId; at most one is in
+// flight. A new seed while one runs restarts the worker rather than wait for it.
 
-const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+let worker = createWorker()
 let requestId = 0
+/** Years of the extension in flight, 0 for none. */
+let extending = 0
+/** Debugging (perf=1): make the next extension fail as if the simulation had thrown. */
+let failNextExtension = false
 
-worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
+function createWorker(): Worker {
+  const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+  w.onmessage = onWorkerMessage
+  return w
+}
+
+function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
   const msg = ev.data
   if (msg.requestId !== requestId) return
   requestRender()
@@ -221,20 +235,46 @@ worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     overlay.setGenerating(false)
     showWorld(msg.world)
   } else if (msg.type === 'history') {
-    console.info(`history: ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
-    historyView.setHistory(msg.history)
+    console.info(`history: ${msg.history.years} years, ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
+    if (msg.extend) {
+      extending = 0
+      historyView.extendHistory(msg.history, msg.ms)
+    } else historyView.setHistory(msg.history)
   } else if (msg.stage === 'world') {
     overlay.setGenerating(false)
     console.error('world generation failed:', msg.message)
+  } else if (msg.stage === 'extend') {
+    extending = 0
+    historyView.extendFailed(msg.message)
   } else {
     historyView.setHistoryError(msg.message)
   }
 }
 
+/** Length of the initial history: years= (default 2000), or long enough for a start year= past it; in whole chunks, capped. */
+function initialYears(): number {
+  const want = Math.max(numParam('years', 2000, 1, MAX_YEARS), numParam('year', 0, 0, MAX_YEARS))
+  return Math.min(MAX_YEARS, Math.max(HISTORY_CHUNK_YEARS, Math.ceil(want / HISTORY_CHUNK_YEARS - 1e-9) * HISTORY_CHUNK_YEARS))
+}
+let historyYears = initialYears()
+
 function requestWorld(seed: number) {
   overlay.setGenerating(true)
   overlay.setReadout(null)
-  const req: WorkerRequest = { requestId: ++requestId, seed, options: WORLD_OPTIONS }
+  if (extending) {
+    // the worker is busy simulating a longer run of the old world: start afresh
+    worker.terminate()
+    worker = createWorker()
+    extending = 0
+  }
+  const req: WorkerRequest = { type: 'generate', requestId: ++requestId, seed, options: WORLD_OPTIONS, historyOptions: historyYears === 2000 ? undefined : { years: historyYears } }
+  worker.postMessage(req)
+}
+
+function requestYears(years: number) {
+  extending = years
+  const req: WorkerRequest = { type: 'extend', requestId, years, fail: failNextExtension || undefined }
+  failNextExtension = false
   worker.postMessage(req)
 }
 
@@ -244,8 +284,10 @@ let currentSeed = seedFromUrl()
 
 function clearHistoryParams() {
   setUrlParam('year', null)
+  setUrlParam('years', null)
   setUrlParam('play', null)
   setUrlParam('select', null)
+  historyYears = 2000 // a new world starts with the default history again
 }
 
 const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, clouds: showClouds, markers: showMarkers, journeys: showJourneys, farmland: showFarmland, structures: showStructures, buildings: showBuildings, trade: showTrade, roads: showRoads, labels: showLabels }, {
@@ -344,6 +386,8 @@ const historyView = createHistoryView(
       spinning = false
     },
     setUrlParam,
+    requestYears,
+    wake: () => wake(),
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select') },
 )
@@ -681,3 +725,14 @@ perf.expose({
   quality: () => quality,
   setAtmosphereSteps: (n) => atmosphere.setSteps(n),
 })
+if (params.get('perf') === '1') {
+  // history extension: state, the last swap's timing, and a simulated failure
+  ;(window as unknown as { __worldseedHistory: unknown }).__worldseedHistory = {
+    years: () => historyView.years,
+    extending: () => extending,
+    lastSwap: () => historyView.lastSwap,
+    failNextExtension: () => {
+      failNextExtension = true
+    },
+  }
+}

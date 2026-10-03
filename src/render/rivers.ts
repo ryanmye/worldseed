@@ -6,14 +6,24 @@
 // Width and opacity scale with log flow; the vertex shader widens sub-pixel
 // ribbons to ~1px and lowers their alpha instead, so thin tributaries stay
 // faint and stable. Ribbons are sun-lit and fade out toward the limb.
+// Close to the ground (where the 3D settlements stand, see dioramas/) a river narrows
+// to a believable channel (a big river a few houses wide) of opaque water, lying on
+// the rendered ground (the triangulated surface, probed) with a lift that shrinks with
+// the camera's altitude; from mid zoom outward it widens to the readable map width.
 
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { sunUniforms } from './sun.ts'
+import { createSurface, type Probe } from './dioramas/surface.ts'
 
-/** Height of river ribbons above the ground, avoids z-fighting with the terrain. */
+/** Height of river ribbons above the ground at globe zoom (it shrinks toward the ground up close; polygon offset does the rest). */
 const RIVER_LIFT = 0.0012
+
+/** Half width of a river close up, at flow f (houses are ~0.0006 across). Roads keep clear of it (routeCurves.ts). */
+export function riverHalfWidthNear(f: number): number {
+  return Math.min(0.0011, 0.00014 + 0.00026 * Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD))
+}
 const SAMPLES = 6
 
 export interface RiverLines {
@@ -26,7 +36,8 @@ export interface RiverLines {
 interface Knot {
   p: THREE.Vector3 // unit direction
   r: number // surface radius
-  w: number // half width
+  w: number // half width (map zoom)
+  wn: number // half width up close
   a: number // alpha
 }
 
@@ -42,7 +53,8 @@ export function buildRiverLines(world: World): RiverLines {
   const index: number[] = []
 
   const logFlow = (f: number) => Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD)
-  const halfWidth = (f: number) => Math.min(0.0032, 0.0006 + 0.00075 * logFlow(f))
+  // (the map width, from mid zoom out; capped so a road on the bank stays clear of it, see routeCurves.ts)
+  const halfWidth = (f: number) => Math.min(0.002, 0.0006 + 0.00055 * logFlow(f))
   const alphaOf = (f: number) => Math.min(0.9, 0.35 + 0.18 * logFlow(f))
 
   const water = (i: number) => isWaterCell(world, lake, i)
@@ -57,14 +69,19 @@ export function buildRiverLines(world: World): RiverLines {
     if (main[j] < 0 || flow[i] > flow[main[j]]) main[j] = i
   }
 
+  const surface = createSurface(world)
+  const probe: Probe = { radius: 0, nx: 0, ny: 0, nz: 0, elev: 0, lake: 0, cell: 0 }
+
   const midKnot = (a: number, b: number): Knot => ({
     p: unit(a).add(unit(b)).normalize(),
     r: (surfaceRadius(world, a) + surfaceRadius(world, b)) / 2,
     w: halfWidth(flow[a]),
+    wn: riverHalfWidthNear(flow[a]),
     a: alphaOf(flow[a]),
   })
-  const cellKnot = (b: number, f: number): Knot => ({ p: unit(b), r: surfaceRadius(world, b), w: halfWidth(f), a: alphaOf(f) })
+  const cellKnot = (b: number, f: number): Knot => ({ p: unit(b), r: surfaceRadius(world, b), w: halfWidth(f), wn: riverHalfWidthNear(f), a: alphaOf(f) })
 
+  let probeStart = 0
   const tmp = new THREE.Vector3()
   const tan = new THREE.Vector3()
   const sd = new THREE.Vector3()
@@ -72,9 +89,9 @@ export function buildRiverLines(world: World): RiverLines {
 
   /** Emit a ribbon along the quadratic Bezier k0 -> (ctrl) -> k2; alpha is scaled by fadeIn/fadeOut ramps. */
   function emit(k0: Knot, ctrl: Knot, k2: Knot, fadeIn: boolean, fadeOut: boolean) {
-    q0.copy(k0.p).multiplyScalar(k0.r + RIVER_LIFT)
-    q1.copy(ctrl.p).multiplyScalar(ctrl.r + RIVER_LIFT)
-    q2.copy(k2.p).multiplyScalar(k2.r + RIVER_LIFT)
+    q0.copy(k0.p).multiplyScalar(k0.r)
+    q1.copy(ctrl.p).multiplyScalar(ctrl.r)
+    q2.copy(k2.p).multiplyScalar(k2.r)
     const base = pos.length / 3
     for (let s = 0; s < SAMPLES; s++) {
       const t = s / (SAMPLES - 1)
@@ -82,18 +99,24 @@ export function buildRiverLines(world: World): RiverLines {
       // point and tangent on the Bezier, then snapped to the sphere at an interpolated radius
       tmp.set(0, 0, 0).addScaledVector(q0, u * u).addScaledVector(q1, 2 * u * t).addScaledVector(q2, t * t)
       tan.set(0, 0, 0).addScaledVector(q1, 2 * u).addScaledVector(q0, -2 * u).addScaledVector(q2, 2 * t).addScaledVector(q1, -2 * t)
-      const r = k0.r * u * u + ctrl.r * 2 * u * t + k2.r * t * t + RIVER_LIFT
+      let r = k0.r * u * u + ctrl.r * 2 * u * t + k2.r * t * t
       tmp.normalize()
+      // on the rendered ground (the lift is added in the shader)
+      if (surface.probe(tmp.x, tmp.y, tmp.z, surface.nearestCell(tmp.x, tmp.y, tmp.z, probeStart), probe)) {
+        r = probe.radius
+        probeStart = probe.cell
+      }
       sd.crossVectors(tmp, tan).normalize()
       tmp.multiplyScalar(r)
       const w = k0.w + (k2.w - k0.w) * t
       let a = k0.a + (k2.a - k0.a) * t
       if (fadeIn) a *= Math.min(1, t * 1.6)
       if (fadeOut) a *= Math.min(1, (1 - t) * 2.5 + 0.15)
+      const wn = k0.wn + (k2.wn - k0.wn) * t
       for (const across of [-1, 1]) {
         pos.push(tmp.x, tmp.y, tmp.z)
         side.push(sd.x, sd.y, sd.z)
-        data.push(across, w, a)
+        data.push(across, w, a, wn)
       }
       if (s > 0) {
         const v = base + s * 2
@@ -116,6 +139,7 @@ export function buildRiverLines(world: World): RiverLines {
         p: unit(b).lerp(unit(c), t).normalize(),
         r: surfaceRadius(world, b),
         w: halfWidth(flow[b]),
+        wn: riverHalfWidthNear(flow[b]),
         a: alphaOf(flow[b]),
       }
     } else {
@@ -135,13 +159,13 @@ export function buildRiverLines(world: World): RiverLines {
         if (riverTo[a] === b && water(a)) outlet = a
       }
       if (outlet >= 0) {
-        start = { ...midKnot(outlet, b), w: halfWidth(flow[b]), a: alphaOf(flow[b]) }
+        start = { ...midKnot(outlet, b), w: halfWidth(flow[b]), wn: riverHalfWidthNear(flow[b]), a: alphaOf(flow[b]) }
         emit(start, cellKnot(b, flow[b]), end, false, mouth)
         continue
       }
       // Source: start at the cell centre and fade in.
       start = cellKnot(b, flow[b])
-      const mid: Knot = { p: start.p.clone().add(end.p).normalize(), r: (start.r + end.r) / 2, w: start.w, a: start.a }
+      const mid: Knot = { p: start.p.clone().add(end.p).normalize(), r: (start.r + end.r) / 2, w: start.w, wn: start.wn, a: start.a }
       emit(start, mid, end, true, mouth)
     }
 
@@ -151,14 +175,15 @@ export function buildRiverLines(world: World): RiverLines {
         p: start.p.clone().multiplyScalar(0.25).addScaledVector(unit(b), 0.5).addScaledVector(end.p, 0.25).normalize(),
         r: surfaceRadius(world, b),
         w: 0,
+        wn: 0,
         a: 0,
       }
       for (let k = grid.neighborOffsets[b]; k < grid.neighborOffsets[b + 1]; k++) {
         const a = grid.neighbors[k]
         if (a === up || riverTo[a] !== b || !isRiver(a)) continue
         const s0 = midKnot(a, b)
-        const j: Knot = { ...join, w: s0.w, a: s0.a }
-        const m: Knot = { p: s0.p.clone().add(j.p).normalize(), r: (s0.r + j.r) / 2, w: s0.w, a: s0.a }
+        const j: Knot = { ...join, w: s0.w, wn: s0.wn, a: s0.a }
+        const m: Knot = { p: s0.p.clone().add(j.p).normalize(), r: (s0.r + j.r) / 2, w: s0.w, wn: s0.wn, a: s0.a }
         emit(s0, m, j, false, false)
       }
     }
@@ -167,7 +192,7 @@ export function buildRiverLines(world: World): RiverLines {
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
   geometry.setAttribute('aSide', new THREE.BufferAttribute(new Float32Array(side), 3))
-  geometry.setAttribute('aData', new THREE.BufferAttribute(new Float32Array(data), 3))
+  geometry.setAttribute('aData', new THREE.BufferAttribute(new Float32Array(data), 4))
   geometry.setIndex(index)
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1.02)
 
@@ -178,24 +203,31 @@ export function buildRiverLines(world: World): RiverLines {
       uCamObj: { value: new THREE.Vector3(0, 0, 3) },
       uSunColor: { value: SUN_COLOR.clone() },
       uPixel: { value: 0.001 },
+      uLift: { value: RIVER_LIFT },
+      uFar: { value: 1 },
     },
     vertexShader: /* glsl */ `
       attribute vec3 aSide;
-      attribute vec3 aData; // across (-1|1), half width, alpha
+      attribute vec4 aData; // across (-1|1), half width (map zoom), alpha (map zoom), half width up close
       uniform float uPixel; // world size of a pixel at unit view depth
+      uniform float uLift; // height above the ground (shrinks up close)
+      uniform float uFar; // 0 up close .. 1 from mid zoom out
       varying float vAcross;
       varying float vSoft;
       varying float vAlpha;
       varying vec3 vObjPos;
       void main() {
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 ground = position + normalize(position) * uLift;
+        vec4 mv = modelViewMatrix * vec4(ground, 1.0);
         float pix = -mv.z * uPixel;
-        float hw = max(aData.y, 0.6 * pix);
-        vAlpha = aData.z * min(1.0, aData.y / hw);
+        float w = mix(aData.w, aData.y, uFar);
+        float hw = max(w, 0.6 * pix);
+        // opaque water up close, the map's translucent ribbon further out
+        vAlpha = mix(1.0, aData.z, uFar) * min(1.0, w / hw);
         float outer = hw + 0.5 * pix;
         vAcross = aData.x;
         vSoft = min(1.0, pix / outer);
-        vec3 p = position + aSide * aData.x * outer;
+        vec3 p = ground + aSide * aData.x * outer;
         vObjPos = p;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }
@@ -247,6 +279,11 @@ export function buildRiverLines(world: World): RiverLines {
       camera.getWorldPosition(cam)
       lines.worldToLocal(cam)
       material.uniforms.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, viewportHeight)
+      // close to the ground: a narrow opaque channel lying on it (under the roads and models)
+      const alt = Math.max(0, cam.length() - 1)
+      const t = Math.min(1, Math.max(0, (alt - 0.12) / 0.5))
+      material.uniforms.uFar.value = t * t * (3 - 2 * t)
+      material.uniforms.uLift.value = Math.min(RIVER_LIFT, Math.max(0.00002, 0.0005 * alt))
     },
     dispose() {
       geometry.dispose()

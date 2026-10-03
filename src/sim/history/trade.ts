@@ -23,6 +23,11 @@
 // does the trader whose region holds a shore where the goods change between
 // land and sea (transshipment), which makes ports, river mouths and straits hubs.
 // Pairs that have never traded are only re-examined every TRADE.probeStep years.
+// Knowledge (knowledge.ts): a trader searches only through settlements whose
+// cells its people knows; a partner (or a settlement on the way) of a people
+// not yet met makes first contact (the route would link them), so routes run
+// only between peoples in contact. A new route's path becomes known to the
+// peoples at both ends.
 //
 // Market. Each year, after the harvest, goods flow along the candidate pairs
 // (cheapest first, TRADE.passes sweeps): wherever the price gap for a good
@@ -52,7 +57,8 @@ import { GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
 import { prosperity } from './migration.ts'
 import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
-import { logEvent } from './state.ts'
+import { logEvent, productivityOf } from './state.ts'
+import { ContactVia, learnPath, meet } from './knowledge.ts'
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -449,7 +455,7 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
   const pairA: number[] = [], pairB: number[] = [], pairCost: number[] = [], pairRoute: number[] = []
   const pairChain: number[][] = []
   const index = new Map<number, number>()
-  const { gDist, gPrev, gStamp, gHeap: heap, adjOff, adjNode, adjEdge, edgeCost } = ts
+  const gPrev = ts.gPrev
   const candId: number[] = [], candCost: number[] = []
   const chosen: number[] = []
   const addPair = (a: number, b: number, cost: number, chain: number[] | null, route: number): void => {
@@ -463,55 +469,32 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
     if (chain && a > b) chain.reverse()
     pairChain.push(chain ?? [])
   }
+  const kd = s.knowDiag
   for (let t = 0; t < living.length; t++) {
     const src = living[t]
     if (!ts.trader[src] || src >= ts.adjCount) continue
     const reachSrc = s.port[src] >= 0 ? reach * TRADE.portReach : reach // shipping lines from ports
-    const run = ++ts.gRun
-    heap.size = 0
-    gStamp[src] = run
-    gDist[src] = 0
-    gPrev[src] = -1
-    heap.push(0, src)
-    candId.length = 0
-    candCost.length = 0
-    let visits = 0
-    while (heap.size > 0 && visits < TRADE.maxNodes) {
-      const d = heap.topKey()
-      const u = heap.pop()
-      if (d > gDist[u]) continue
-      visits++
-      if (u !== src && ts.trader[u]) { candId.push(u); candCost.push(d) }
-      for (let k = adjOff[u]; k < adjOff[u + 1]; k++) {
-        const v = adjNode[k]
-        const nd = d + edgeCost[adjEdge[k]]
-        if (nd > reachSrc) continue
-        if (gStamp[v] === run && nd >= gDist[v]) continue
-        gStamp[v] = run
-        gDist[v] = nd
-        gPrev[v] = u
-        heap.push(nd, v)
+    if (kd) {
+      // Shadow: the partners full knowledge would give.
+      partnerSearch(s, ts, src, reachSrc, false, candId, candCost, chosen)
+      const all = chosen.map((i) => candId[i])
+      partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen)
+      kd.tradeSearches++
+      kd.tradePartners += all.length
+      for (const v of all) {
+        let hit = false
+        for (const i of chosen) if (candId[i] === v) hit = true
+        if (!hit) kd.tradeLost++
       }
-    }
-    // Nearest few, then the strongest pulls (size / cost^2) among the rest.
-    chosen.length = 0
-    for (let i = 0; i < candId.length && i < TRADE.nearest; i++) chosen.push(i)
-    for (let m = 0; m < TRADE.gravity; m++) {
-      let best = -1, bestScore = 0
-      for (let i = TRADE.nearest; i < candId.length; i++) {
-        if (chosen.indexOf(i) >= 0) continue
-        const c = candCost[i] > 1 ? candCost[i] : 1
-        const score = s.pop[candId[i]] / (c * c)
-        if (score > bestScore) { bestScore = score; best = i }
-      }
-      if (best < 0) break
-      chosen.push(best)
-    }
+    } else partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen)
     for (const i of chosen) {
       const v = candId[i]
       const chain: number[] = []
       for (let u = v; u >= 0; u = gPrev[u]) chain.push(u)
       chain.reverse() // src ... v
+      // Strangers on the way or at the end: the route would link them, so they meet.
+      const ps = s.people[src]
+      for (let k = 1; k < chain.length; k++) if (s.people[chain[k]] !== ps) meet(s, src, chain[k], ContactVia.Trade)
       addPair(src, v, candCost[i], chain, -1)
     }
   }
@@ -542,6 +525,60 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
     ts.pairChain.push(pairChain[p])
   }
   ts.pairFlow = new Float64Array(P * G * 2)
+}
+
+/**
+ * Partner search from trader `src` over the link graph within `reachSrc`: candidates (traders, in
+ * order of cost) into candId / candCost, the chosen ones (indices) into `chosen`: the nearest few,
+ * then the strongest pulls (size / cost^2) among the rest. With `restrict`, only through settlements
+ * whose cells src's people knows. Chains back to src are in ts.gPrev until the next search.
+ */
+function partnerSearch(s: HistoryState, ts: TradeState, src: number, reachSrc: number, restrict: boolean, candId: number[], candCost: number[], chosen: number[]): void {
+  const { gDist, gPrev, gStamp, gHeap: heap, adjOff, adjNode, adjEdge, edgeCost } = ts
+  const k = s.know
+  const known = k.known
+  const kBase = s.people[src] * k.N
+  const cell = s.cell
+  const run = ++ts.gRun
+  heap.size = 0
+  gStamp[src] = run
+  gDist[src] = 0
+  gPrev[src] = -1
+  heap.push(0, src)
+  candId.length = 0
+  candCost.length = 0
+  let visits = 0
+  while (heap.size > 0 && visits < TRADE.maxNodes) {
+    const d = heap.topKey()
+    const u = heap.pop()
+    if (d > gDist[u]) continue
+    visits++
+    if (u !== src && ts.trader[u]) { candId.push(u); candCost.push(d) }
+    for (let e = adjOff[u]; e < adjOff[u + 1]; e++) {
+      const v = adjNode[e]
+      if (restrict && known[kBase + cell[v]] < 0) continue // unheard of
+      const nd = d + edgeCost[adjEdge[e]]
+      if (nd > reachSrc) continue
+      if (gStamp[v] === run && nd >= gDist[v]) continue
+      gStamp[v] = run
+      gDist[v] = nd
+      gPrev[v] = u
+      heap.push(nd, v)
+    }
+  }
+  chosen.length = 0
+  for (let i = 0; i < candId.length && i < TRADE.nearest; i++) chosen.push(i)
+  for (let m = 0; m < TRADE.gravity; m++) {
+    let best = -1, bestScore = 0
+    for (let i = TRADE.nearest; i < candId.length; i++) {
+      if (chosen.indexOf(i) >= 0) continue
+      const c = candCost[i] > 1 ? candCost[i] : 1
+      const score = s.pop[candId[i]] / (c * c)
+      if (score > bestScore) { bestScore = score; best = i }
+    }
+    if (best < 0) break
+    chosen.push(best)
+  }
 }
 
 /** Prices of the food goods at settlement i (they share the hunger term). */
@@ -607,6 +644,9 @@ function createRoute(s: HistoryState, ts: TradeState, p: number): number {
     if (x !== a && x !== b && transit.indexOf(x) < 0) transit.push(x)
   }
   ts.rTransit.push(transit)
+  // The peoples at both ends learn the way.
+  learnPath(s, a, path, false)
+  if (s.people[b] !== s.people[a]) learnPath(s, b, path, false)
   return r
 }
 
@@ -660,7 +700,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     stock[o] = F * (1 - ff - lf)
     stock[o + 1] = F * ff
     stock[o + 2] = F * lf
-    const lab = (prod * p) / (p + workHalf)
+    const lab = (productivityOf(s, id) * p) / (p + workHalf)
     stock[o + 3] = res[id * 3] * lab
     stock[o + 4] = res[id * 3 + 1] * lab
     stock[o + 5] = res[id * 3 + 2] * lab

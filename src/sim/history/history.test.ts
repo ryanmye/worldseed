@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
-import type { History, World } from '../../contract.ts'
+import type { History, HistoryEvent, World } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../index.ts'
+import { runHistory } from './index.ts'
+import type { HistoryRun } from './index.ts'
 import { buildTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
 
@@ -37,9 +39,15 @@ function hashHistory(hi: History): string {
   for (const a of [t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]) h = fnv(h, a)
   const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount, hi.tradeInterval, hi.tradeSnapshotCount, t.count]
   for (const s of hi.settlements) {
-    ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear)
+    ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear, s.people)
     for (let i = 0; i < s.name.length; i++) ints.push(s.name.charCodeAt(i))
   }
+  for (const p of hi.peoples) {
+    ints.push(p.id, p.founder)
+    for (let i = 0; i < p.name.length; i++) ints.push(p.name.charCodeAt(i))
+  }
+  h = fnv(h, hi.knownYear)
+  h = fnv(h, hi.contactYear)
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
   h = fnv(h, Int32Array.from(ints))
   const ev = new Float64Array(hi.events.length * 5)
@@ -69,11 +77,15 @@ function terrain(seed: number): Terrain {
   if (!t) { t = buildTerrain(world(seed)); terrains.set(seed, t) }
   return t
 }
-const histories = new Map<number, History>()
+const runs = new Map<number, HistoryRun>()
+/** The default run of a seed, with the internal diagnostics (its history is what simulateHistory returns). */
+function run(seed: number): HistoryRun {
+  let r = runs.get(seed)
+  if (!r) { r = runHistory(world(seed)); runs.set(seed, r) }
+  return r
+}
 function history(seed: number): History {
-  let h = histories.get(seed)
-  if (!h) { h = simulateHistory(world(seed)); histories.set(seed, h) }
-  return h
+  return run(seed).history
 }
 
 /** Checks every structural invariant of a History against its World. */
@@ -176,6 +188,7 @@ function checkInvariants(w: World, h: History): void {
   const lost = new Int32Array(T)
   const townYear = new Int32Array(S).fill(-1)
   const cityYear = new Int32Array(S).fill(-1)
+  const lostVoyages: HistoryEvent[] = [], landfalls: HistoryEvent[] = [], contacts: HistoryEvent[] = []
   for (let i = 0; i < h.events.length; i++) {
     const e = h.events[i]
     if (i > 0) expect(e.year).toBeGreaterThanOrEqual(h.events[i - 1].year)
@@ -243,6 +256,18 @@ function checkInvariants(w: World, h: History): void {
         if (o.abandonedYear >= 0) expect(e.year).toBeLessThanOrEqual(o.abandonedYear)
         break
       }
+      case EventType.VoyageLost:
+        // From a coastal settlement alive that year; checked further below.
+        expect(e.other).toBe(-1)
+        expect(e.value).toBeGreaterThan(0)
+        lostVoyages.push(e)
+        break
+      case EventType.Landfall:
+        landfalls.push(e)
+        break
+      case EventType.FirstContact:
+        contacts.push(e)
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -426,6 +451,203 @@ function checkInvariants(w: World, h: History): void {
     if (!f.name || names.has(f.name.toLowerCase())) throw new Error(`feature ${i} name "${f.name}" is empty or not unique`)
     names.add(f.name.toLowerCase())
   })
+  checkPeoples(w, h, { lostVoyages, landfalls, contacts })
+}
+
+/** Landmass label per cell (land connected through land neighbours), -1 for sea. */
+function landmasses(w: World): { label: Int32Array; size: number[] } {
+  const N = w.grid.cellCount
+  const { neighborOffsets: off, neighbors: nb } = w.grid
+  const label = new Int32Array(N).fill(-1)
+  const size: number[] = []
+  for (let s = 0; s < N; s++) {
+    if (w.elevation[s] < 0 || label[s] >= 0) continue
+    const id = size.length
+    const stack = [s]
+    label[s] = id
+    let n = 0
+    while (stack.length > 0) {
+      const c = stack.pop() as number
+      n++
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const j = nb[k]
+        if (w.elevation[j] >= 0 && label[j] < 0) { label[j] = id; stack.push(j) }
+      }
+    }
+    size.push(n)
+  }
+  return { label, size }
+}
+
+/** Peoples, knowledge, contact and the events that go with them. */
+function checkPeoples(w: World, h: History, ev: { lostVoyages: HistoryEvent[]; landfalls: HistoryEvent[]; contacts: HistoryEvent[] }): void {
+  const N = w.grid.cellCount
+  const P = h.peoples.length
+  const { neighborOffsets: off, neighbors: nb } = w.grid
+  // Peoples: one per original tribe, in founding order; every settlement in its parent's people.
+  const tribes = h.settlements.filter((st) => st.parent === -1)
+  expect(P).toBe(tribes.length)
+  const peopleNames = new Set<string>()
+  h.peoples.forEach((p, i) => {
+    expect(p.id).toBe(i)
+    expect(p.founder).toBe(tribes[i].id)
+    expect(h.settlements[p.founder].people).toBe(i)
+    if (!p.name || peopleNames.has(p.name.toLowerCase())) throw new Error(`people ${i} name "${p.name}" is empty or not unique`)
+    peopleNames.add(p.name.toLowerCase())
+  })
+  for (const st of h.settlements) {
+    if (!(Number.isInteger(st.people) && st.people >= 0 && st.people < P)) throw new Error(`settlement ${st.id} has people ${st.people}`)
+    if (st.parent >= 0 && st.people !== h.settlements[st.parent].people) throw new Error(`settlement ${st.id} is not of its parent's people`)
+  }
+  // Knowledge: -1 or a year of the run; every settlement's cell known to its people from its founding.
+  expect(h.knownYear.length).toBe(P * N)
+  for (let i = 0; i < h.knownYear.length; i++) {
+    const y = h.knownYear[i]
+    if (!(y === -1 || (y >= 0 && y <= h.years))) throw new Error(`knownYear[${i}] = ${y}`)
+  }
+  for (const st of h.settlements) {
+    const y = h.knownYear[st.people * N + st.cell]
+    if (!(y >= 0 && y <= st.foundedYear)) throw new Error(`settlement ${st.id}'s cell known to its people in ${y}, founded ${st.foundedYear}`)
+  }
+  // Every journey's path is known to the travelling people by its arrival.
+  const J = h.journeys
+  for (let j = 0; j < J.count; j++) {
+    const p = h.settlements[J.from[j]].people
+    for (let k = J.pathOffsets[j]; k < J.pathOffsets[j + 1]; k++) {
+      const y = h.knownYear[p * N + J.path[k]]
+      if (!(y >= 0 && y <= J.arriveYear[j])) throw new Error(`journey ${j} passes cell ${J.path[k]}, known to its people in ${y}, arriving ${J.arriveYear[j]}`)
+    }
+  }
+  // Contact: symmetric, 0 on the diagonal, -1 or a year of the run; one FirstContact per pair that met, in that year.
+  expect(h.contactYear.length).toBe(P * P)
+  for (let a = 0; a < P; a++) {
+    expect(h.contactYear[a * P + a]).toBe(0)
+    for (let b = 0; b < P; b++) {
+      const y = h.contactYear[a * P + b]
+      if (y !== h.contactYear[b * P + a]) throw new Error(`contactYear not symmetric for ${a}, ${b}`)
+      if (a !== b && !(y === -1 || (y >= 0 && y <= h.years))) throw new Error(`contactYear[${a}, ${b}] = ${y}`)
+    }
+  }
+  const seenPair = new Set<number>()
+  const alive = (id: number, year: number): boolean => {
+    const st = h.settlements[id]
+    return year >= st.foundedYear && (st.abandonedYear < 0 || year <= st.abandonedYear)
+  }
+  for (const e of ev.contacts) {
+    const pa = h.settlements[e.settlement].people
+    expect(e.other).toBeGreaterThanOrEqual(0)
+    const pb = h.settlements[e.other].people
+    expect(e.value).toBe(pb)
+    expect(pa).not.toBe(pb)
+    if (!alive(e.other, e.year)) throw new Error(`FirstContact in ${e.year} through settlement ${e.other}, not alive then`)
+    const key = Math.min(pa, pb) * P + Math.max(pa, pb)
+    if (seenPair.has(key)) throw new Error(`peoples ${pa} and ${pb} met twice`)
+    seenPair.add(key)
+    expect(h.contactYear[pa * P + pb]).toBe(e.year)
+  }
+  let pairsMet = 0
+  for (let a = 0; a < P; a++) for (let b = a + 1; b < P; b++) if (h.contactYear[a * P + b] >= 0) pairsMet++
+  expect(seenPair.size).toBe(pairsMet)
+  // Trade only between peoples that had met by the route's opening.
+  const tr = h.trade
+  for (let r = 0; r < tr.count; r++) {
+    const pa = h.settlements[tr.a[r]].people, pb = h.settlements[tr.b[r]].people
+    if (pa === pb) continue
+    const y = h.contactYear[pa * P + pb]
+    if (!(y >= 0 && y <= tr.openedYear[r])) throw new Error(`route ${r} opened in ${tr.openedYear[r]} between peoples ${pa} and ${pb} who met in ${y}`)
+  }
+  // Landfall: the first settlement ever on a landmass, unless an original tribe; exactly one per such landmass.
+  const lm = landmasses(w)
+  const first = new Int32Array(lm.size.length).fill(-1)
+  for (const st of h.settlements) if (first[lm.label[st.cell]] < 0) first[lm.label[st.cell]] = st.id
+  const landfallAt = new Int32Array(lm.size.length).fill(-1)
+  for (const e of ev.landfalls) {
+    const st = h.settlements[e.settlement]
+    const m = lm.label[st.cell]
+    if (landfallAt[m] >= 0) throw new Error(`two Landfall events on landmass ${m}`)
+    landfallAt[m] = e.settlement
+    expect(first[m]).toBe(e.settlement)
+    expect(st.parent).toBeGreaterThanOrEqual(0)
+    expect(e.other).toBe(st.parent)
+    expect(e.year).toBe(st.foundedYear)
+    expect(e.value).toBe(lm.size[m])
+  }
+  for (let m = 0; m < lm.size.length; m++) if (first[m] >= 0 && h.settlements[first[m]].parent >= 0) expect(landfallAt[m]).toBe(first[m])
+  // VoyageLost: from a coastal settlement alive that year.
+  for (const e of ev.lostVoyages) {
+    if (!alive(e.settlement, e.year)) throw new Error(`VoyageLost from ${e.settlement}, not alive in ${e.year}`)
+    const c = h.settlements[e.settlement].cell
+    let coastal = false
+    for (let k = off[c]; k < off[c + 1]; k++) if (w.elevation[nb[k]] < 0) coastal = true
+    if (!coastal) throw new Error(`VoyageLost from inland settlement ${e.settlement}`)
+  }
+}
+
+/**
+ * `short` is the start of `long` (same world, shorter run): every field agrees up to short.years.
+ * "First year" values beyond short.years in the long run (knownYear, contactYear, abandonedYear,
+ * lostYear) are -1 in the short one.
+ */
+function expectPrefix(short: History, long: History): void {
+  const Y = short.years
+  const S0 = short.settlements.length
+  const S1 = long.settlements.length
+  expect(S0).toBeLessThanOrEqual(S1)
+  const later = (a: number, b: number) => a === b || (a === -1 && b > Y)
+  for (let id = 0; id < S0; id++) {
+    const a = short.settlements[id], b = long.settlements[id]
+    expect([b.id, b.cell, b.foundedYear, b.parent, b.name, b.people]).toEqual([a.id, a.cell, a.foundedYear, a.parent, a.name, a.people])
+    if (!later(a.abandonedYear, b.abandonedYear)) throw new Error(`settlement ${id} abandoned ${a.abandonedYear} vs ${b.abandonedYear}`)
+  }
+  for (let id = S0; id < S1; id++) expect(long.settlements[id].foundedYear).toBeGreaterThan(Y)
+  for (let q = 0; q < short.snapshotCount; q++) {
+    for (let id = 0; id < S0; id++) {
+      for (const [x, y] of [[short.population, long.population], [short.food, long.food], [short.wealth, long.wealth]]) {
+        if (x[q * S0 + id] !== y[q * S1 + id]) throw new Error(`snapshot ${q} differs for settlement ${id}`)
+      }
+    }
+  }
+  const N = short.capacity.length
+  expect(Array.from(long.capacity)).toEqual(Array.from(short.capacity))
+  for (const [x, y] of [[short.landUse, long.landUse], [short.degradation, long.degradation], [short.road, long.road]]) {
+    for (let i = 0; i < short.landSnapshotCount * N; i++) if (x[i] !== y[i]) throw new Error(`land snapshot differs at ${i}`)
+  }
+  // Events up to Y in the same order; journeys arriving by Y in the same order.
+  const evL = long.events.filter((e) => e.year <= Y)
+  expect(evL.length).toBe(short.events.length)
+  for (let i = 0; i < evL.length; i++) expect(evL[i]).toEqual(short.events[i])
+  const J0 = short.journeys, J1 = long.journeys
+  let j1 = 0
+  for (let j = 0; j < J0.count; j++) {
+    while (J1.arriveYear[j1] > Y) j1++
+    expect([J1.departYear[j1], J1.arriveYear[j1], J1.from[j1], J1.to[j1], J1.size[j1], J1.kind[j1]]).toEqual([J0.departYear[j], J0.arriveYear[j], J0.from[j], J0.to[j], J0.size[j], J0.kind[j]])
+    expect(Array.from(J1.path.subarray(J1.pathOffsets[j1], J1.pathOffsets[j1 + 1]))).toEqual(Array.from(J0.path.subarray(J0.pathOffsets[j], J0.pathOffsets[j + 1])))
+    j1++
+  }
+  for (; j1 < J1.count; j1++) if (!(J1.arriveYear[j1] > Y)) throw new Error(`long run has an extra journey arriving in ${J1.arriveYear[j1]}`)
+  // Structures, trade routes and volumes.
+  for (let k = 0; k < short.structures.length; k++) {
+    const a = short.structures[k], b = long.structures[k]
+    expect([b.id, b.type, b.cell, b.settlement, b.builtYear]).toEqual([a.id, a.type, a.cell, a.settlement, a.builtYear])
+    if (!later(a.lostYear, b.lostYear)) throw new Error(`structure ${k} lost ${a.lostYear} vs ${b.lostYear}`)
+  }
+  for (let k = short.structures.length; k < long.structures.length; k++) expect(long.structures[k].builtYear).toBeGreaterThan(Y)
+  const R0 = short.trade.count, R1 = long.trade.count
+  for (let r = 0; r < R0; r++) {
+    expect([long.trade.a[r], long.trade.b[r], long.trade.openedYear[r]]).toEqual([short.trade.a[r], short.trade.b[r], short.trade.openedYear[r]])
+    expect(Array.from(long.trade.path.subarray(long.trade.pathOffsets[r], long.trade.pathOffsets[r + 1]))).toEqual(Array.from(short.trade.path.subarray(short.trade.pathOffsets[r], short.trade.pathOffsets[r + 1])))
+  }
+  for (let r = R0; r < R1; r++) expect(long.trade.openedYear[r]).toBeGreaterThan(Y)
+  for (let q = 0; q < short.tradeSnapshotCount; q++) for (let r = 0; r < R0; r++) if (short.tradeVolume[q * R0 + r] !== long.tradeVolume[q * R1 + r]) throw new Error(`trade snapshot ${q} differs on route ${r}`)
+  // Peoples; knowledge and contact years as of Y.
+  expect(long.peoples).toEqual(short.peoples)
+  expect(long.knownYear.length).toBe(short.knownYear.length)
+  for (let i = 0; i < short.knownYear.length; i++) if (!later(short.knownYear[i], long.knownYear[i])) throw new Error(`knownYear[${i}] ${short.knownYear[i]} vs ${long.knownYear[i]}`)
+  for (let i = 0; i < short.contactYear.length; i++) if (!later(short.contactYear[i], long.contactYear[i])) throw new Error(`contactYear[${i}] ${short.contactYear[i]} vs ${long.contactYear[i]}`)
+  // Named geography up to Y: same features in the same order, named by the same settlements, alike.
+  const fL = long.features.filter((f) => f.namedYear <= Y)
+  expect(fL.length).toBe(short.features.length)
+  for (let i = 0; i < fL.length; i++) expect([fL[i].kind, fL[i].name, fL[i].namedYear, fL[i].namedBy, fL[i].anchorCell, fL[i].size]).toEqual([short.features[i].kind, short.features[i].name, short.features[i].namedYear, short.features[i].namedBy, short.features[i].anchorCell, short.features[i].size])
 }
 
 describe('simulateHistory', () => {
@@ -460,10 +682,12 @@ describe('simulateHistory', () => {
     expect(h.tradeInterval).toBe(10)
     expect(h.tradeSnapshotCount).toBe(201)
     expect(h.tradeVolume.byteLength).toBeLessThan(4 * 1024 * 1024)
+    // Knowledge: an Int16 per people per cell (under 1 MB at the default grid).
+    expect(h.knownYear.byteLength).toBeLessThan(1024 * 1024)
     expect(h.wealth.length).toBe(401 * h.settlements.length)
     const t = h.trade
     const arrays = [h.population, h.food, h.capacity, h.landUse, h.degradation, h.road, h.wealth, h.tradeVolume, J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path,
-      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]
+      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path, h.knownYear, h.contactYear]
     const buffers = new Set<ArrayBufferLike>()
     for (const a of arrays) {
       expect(a.byteOffset).toBe(0)
@@ -511,6 +735,8 @@ describe('simulateHistory', () => {
     for (let q = 0; q < short.landSnapshotCount; q++) {
       for (let i = 0; i < N; i++) if (short.road[q * N + i] !== full.road[q * N + i]) throw new Error(`road snapshot ${q} differs at cell ${i}`)
     }
+    // Peoples, knowledge and contact as of year 200.
+    expectPrefix(short, full)
     const zero = simulateHistory(w, { years: 0 })
     expect(zero.snapshotCount).toBe(1)
     expect(zero.landSnapshotCount).toBe(1)
@@ -519,6 +745,30 @@ describe('simulateHistory', () => {
     expect(zero.structures.length).toBe(0)
     checkInvariants(w, zero)
   })
+
+  it('a longer run reproduces the first 2000 years exactly, stays finite and alive to year 3000', () => {
+    for (const seed of [3, 42]) {
+      const w = world(seed)
+      const short = history(seed)
+      const long = simulateHistory(w, { years: 3000 })
+      expect(long.years).toBe(3000)
+      checkInvariants(w, long)
+      expectPrefix(short, long)
+      // Finite everywhere, people alive at the end, no runaway.
+      const S = long.settlements.length
+      const last = long.snapshotCount - 1
+      for (const a of [long.population, long.food, long.wealth, long.tradeVolume]) for (let i = 0; i < a.length; i++) if (!Number.isFinite(a[i])) throw new Error(`seed ${seed}: non-finite value at ${i}`)
+      let total = 0, living = 0, total2000 = 0
+      for (let id = 0; id < S; id++) {
+        const p = long.population[last * S + id]
+        if (p > 0) { living++; total += p }
+        total2000 += long.population[400 * S + id]
+      }
+      expect(living).toBeGreaterThan(100)
+      expect(total).toBeGreaterThan(total2000)
+      expect(total).toBeLessThan(5 * total2000)
+    }
+  }, 120_000)
 
   it('runs at other resolutions', () => {
     const w = generateWorld(9, { subdivisions: 24 })
@@ -540,9 +790,9 @@ describe('simulateHistory', () => {
       const living = (s: number) => { let n = 0; for (let id = 0; id < S; id++) if (h.population[s * S + id] > 0) n++; return n }
       const last = h.snapshotCount - 1
       const at = (year: number) => Math.floor(year / h.snapshotInterval)
-      // Founders: a handful of tribes.
-      expect(living(0)).toBeGreaterThanOrEqual(3)
-      expect(living(0)).toBeLessThanOrEqual(8)
+      // Founders: several tribes in a few cradles.
+      expect(living(0)).toBeGreaterThanOrEqual(4)
+      expect(living(0)).toBeLessThanOrEqual(12)
       // Nobody goes extinct; settlements keep spreading but stay bounded.
       for (let s = 0; s <= last; s += 20) if (living(s) === 0) throw new Error(`seed ${seed}: extinct at year ${s * h.snapshotInterval}`)
       expect(living(last)).toBeGreaterThan(100)
@@ -565,6 +815,95 @@ describe('simulateHistory', () => {
     }
     expect(heavy).toBeGreaterThanOrEqual(SEEDS.length - 1)
     expect(joined).toBe(SEEDS.length)
+  }, 60_000)
+
+  it('peoples: several cradles; neighbours meet early, other cradles later; knowledge spreads', () => {
+    let sep500 = 0, sep1000 = 0, merged2000 = 0, extinctEarly = 0
+    const inner: number[] = [], cross: number[] = [], unknown500: number[] = [], unknown2000: number[] = []
+    let innerPairs = 0, crossPairs = 0
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const { history: h, diag } = run(seed)
+      const P = h.peoples.length
+      const N = w.grid.cellCount
+      const S = h.settlements.length
+      const cradle = diag.cradles?.cradle ?? []
+      expect(cradle.length).toBe(P)
+      const K = Math.max(...cradle) + 1
+      expect(K).toBeGreaterThanOrEqual(2)
+      expect(K).toBeLessThanOrEqual(4)
+      for (let k = 0; k < K; k++) {
+        const n = cradle.filter((c) => c === k).length
+        expect(n).toBeGreaterThanOrEqual(1)
+        expect(n).toBeLessThanOrEqual(4)
+      }
+      // Contact networks (components of the contact graph) as of a year.
+      const networks = (year: number): number => {
+        const lab = h.peoples.map((_, i) => i)
+        const find = (x: number): number => { while (lab[x] !== x) x = lab[x]; return x }
+        for (let a = 0; a < P; a++) for (let b = a + 1; b < P; b++) {
+          const y = h.contactYear[a * P + b]
+          if (y >= 0 && y <= year) { const ra = find(a), rb = find(b); if (ra !== rb) lab[Math.max(ra, rb)] = Math.min(ra, rb) }
+        }
+        let n = 0
+        for (let p = 0; p < P; p++) if (find(p) === p) n++
+        return n
+      }
+      if (networks(500) >= 2) sep500++
+      if (networks(1000) >= 2) sep1000++
+      if (networks(2000) <= 2) merged2000++
+      const best = new Map<number, number>()
+      for (let a = 0; a < P; a++) for (let b = a + 1; b < P; b++) {
+        const y = h.contactYear[a * P + b]
+        if (cradle[a] === cradle[b]) { innerPairs++; if (y >= 0) inner.push(y) }
+        else {
+          const key = Math.min(cradle[a], cradle[b]) * 8 + Math.max(cradle[a], cradle[b])
+          const cur = best.get(key)
+          if (cur === undefined || (y >= 0 && (cur < 0 || y < cur))) best.set(key, y)
+        }
+      }
+      for (const key of [...best.keys()].sort((x, y) => x - y)) { crossPairs++; const y = best.get(key) as number; if (y >= 0) cross.push(y) }
+      // Land known to nobody.
+      const unknownAt = (year: number): number => {
+        let land = 0, unk = 0
+        for (let i = 0; i < N; i++) {
+          if (w.elevation[i] < 0) continue
+          land++
+          let k = false
+          for (let p = 0; p < P && !k; p++) { const y = h.knownYear[p * N + i]; if (y >= 0 && y <= year) k = true }
+          if (!k) unk++
+        }
+        return unk / land
+      }
+      unknown500.push(unknownAt(500))
+      unknown2000.push(unknownAt(2000))
+      // Lost expeditions and landfalls on empty land happen.
+      expect(h.events.some((e) => e.type === EventType.VoyageLost)).toBe(true)
+      expect(h.events.some((e) => e.type === EventType.Landfall)).toBe(true)
+      // A whole cradle dying out before year 1000 is rare.
+      for (let k = 0; k < K; k++) {
+        for (let q = 0; q <= 1000 / h.snapshotInterval; q++) {
+          let alive = false
+          for (let id = 0; id < S && !alive; id++) if (h.population[q * S + id] > 0 && cradle[h.settlements[id].people] === k) alive = true
+          if (!alive) { extinctEarly++; break }
+        }
+      }
+    }
+    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]
+    // Separate civilisations for a long stretch, mostly one or two networks by the end.
+    expect(sep500).toBe(SEEDS.length)
+    expect(sep1000).toBeGreaterThanOrEqual(SEEDS.length / 2)
+    expect(merged2000).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    // Neighbours within a cradle meet within the first centuries; cradles meet later, mostly 600-1600.
+    expect(inner.length).toBeGreaterThanOrEqual(0.9 * innerPairs)
+    expect(med(inner)).toBeLessThan(600)
+    expect(cross.length).toBeGreaterThanOrEqual(0.8 * crossPairs)
+    expect(med(cross)).toBeGreaterThan(600)
+    expect(med(cross)).toBeLessThan(1600)
+    // Most of the world is unknown to everyone at first, nearly none of it by the end.
+    expect(med(unknown500)).toBeGreaterThan(0.4)
+    expect(med(unknown2000)).toBeLessThan(0.1)
+    expect(extinctEarly).toBeLessThanOrEqual(1)
   }, 60_000)
 
   it('trade emerges late, grows into networks, feeds hubs that become the big cities, and wears roads', () => {
@@ -741,7 +1080,7 @@ describe('simulateHistory', () => {
     }
   }, 60_000)
 
-  it('voyages carry settlers to other continents, which fill up after the cradle, and to most islands', () => {
+  it('voyages carry settlers to continents without a cradle, which fill up after the cradles, and to most islands', () => {
     let eligible = 0, second = 0, early = 0, frontier = 0, lag = 0, filled = 0, islandSeeds = 0
     for (const seed of SEEDS) {
       const h = history(seed)
@@ -751,11 +1090,13 @@ describe('simulateHistory', () => {
       const M = T.landmassSize.length
       const hab = new Int32Array(M)
       for (let i = 0; i < N; i++) if (T.habitable[i]) hab[T.landmass[i]]++
-      const cradle = T.landmass[h.settlements[0].cell]
+      // Cradles: the landmasses the founding tribes lived on.
+      const isCradle = new Uint8Array(M)
+      for (const st of h.settlements) if (st.parent < 0) isCradle[T.landmass[st.cell]] = 1
       // Continent-sized: >= 0.5% of the planet's cells with >= 50 habitable cells (as the stats harness counts them).
       const continent = (m: number) => T.landmassSize[m] >= 0.005 * N && hab[m] >= 50
       let others = 0
-      for (let m = 0; m < M; m++) if (m !== cradle && continent(m)) others++
+      for (let m = 0; m < M; m++) if (!isCradle[m] && continent(m)) others++
       // Share of habitable continent cells inside a living settlement's catchment, cradle and the others.
       const claim = (year: number): [number, number] => {
         const q = Math.floor(year / h.snapshotInterval)
@@ -770,7 +1111,7 @@ describe('simulateHistory', () => {
           const m = T.landmass[i]
           if (!T.habitable[i] || !continent(m)) continue
           all++; allIn += mark[i]
-          if (m !== cradle) { oth++; othIn += mark[i] }
+          if (!isCradle[m]) { oth++; othIn += mark[i] }
         }
         return [allIn / all, oth > 0 ? othIn / oth : 0]
       }
@@ -780,7 +1121,7 @@ describe('simulateHistory', () => {
         for (let id = 0; id < S; id++) {
           const p = h.population[q * S + id]
           t += p
-          if (T.landmass[h.settlements[id].cell] !== cradle) off += p
+          if (!isCradle[T.landmass[h.settlements[id].cell]]) off += p
         }
         return off / t
       }
@@ -792,19 +1133,19 @@ describe('simulateHistory', () => {
       const last = h.snapshotCount - 1
       for (let id = 0; id < S; id++) if (h.population[last * S + id] > 0) islandAlive[T.landmass[h.settlements[id].cell]] = 1
       let islands = 0, settledIslands = 0
-      for (let m = 0; m < M; m++) if (m !== cradle && hab[m] > 0 && !continent(m)) { islands++; settledIslands += islandAlive[m] }
+      for (let m = 0; m < M; m++) if (!isCradle[m] && hab[m] > 0 && !continent(m)) { islands++; settledIslands += islandAlive[m] }
       if (settledIslands >= 0.5 * islands) islandSeeds++
       if (others === 0) continue
       eligible++
       let first = -1
       for (let id = 0; id < S && first < 0; id++) {
         const m = T.landmass[h.settlements[id].cell]
-        if (m !== cradle && continent(m)) first = h.settlements[id].foundedYear
+        if (!isCradle[m] && continent(m)) first = h.settlements[id].foundedYear
       }
       let aliveElsewhere = false
       for (let id = 0; id < S; id++) {
         const m = T.landmass[h.settlements[id].cell]
-        if (m !== cradle && continent(m) && h.population[last * S + id] > 0) aliveElsewhere = true
+        if (!isCradle[m] && continent(m) && h.population[last * S + id] > 0) aliveElsewhere = true
       }
       if (aliveElsewhere) second++
       if (first >= 0 && first < 1000) early++
