@@ -321,15 +321,20 @@ describe('generateWorld', () => {
   })
 
   it('continents vary: several seeds have many landmasses, few are one supercontinent, poles mostly open', () => {
-    let many = 0, single = 0
+    let many = 0, single = 0, polarContinents = 0
     for (const seed of SEEDS) {
       const s = worldStats(world(seed), 0)
       if (s.landmasses >= 4) many++
       if (s.largestLandPct > 85) single++
-      if (!(s.polarLandPct < 10)) throw new Error(`seed ${seed}: ${s.polarLandPct.toFixed(1)}% of land poleward of 65 deg`)
+      if (!(s.polarLandPct < 20)) throw new Error(`seed ${seed}: ${s.polarLandPct.toFixed(1)}% of land poleward of 65 deg`)
+      // An Antarctica-like continent covers about half of its polar cap.
+      if (s.polarCapPct >= 45) polarContinents++
     }
     expect(many).toBeGreaterThanOrEqual(3)
     expect(single).toBeLessThanOrEqual(3)
+    // Some worlds have a polar continent, most do not.
+    expect(polarContinents).toBeGreaterThanOrEqual(1)
+    expect(polarContinents).toBeLessThanOrEqual(4)
   })
 
   it('biome balance is Earth-like on average and desert never dominates', () => {

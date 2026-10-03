@@ -1,4 +1,5 @@
-// Plain-DOM UI overlay: seed controls, view mode toggle, river toggle, hover readout.
+// Plain-DOM UI overlay: seed controls, view mode toggle, layer toggles, hover readout.
+// Exposes left/right/bottom containers that other panels (inspector, chronicle, timeline) join.
 
 import { VIEW_MODES, BIOME_NAMES, type ViewMode } from '../render/palette.ts'
 import type { Biome } from '../contract.ts'
@@ -17,12 +18,20 @@ export interface OverlayCallbacks {
   onViewModeChange(mode: ViewMode): void
   onRiversToggle(show: boolean): void
   onCloudsToggle(show: boolean): void
+  onMarkersToggle(show: boolean): void
+  onJourneysToggle(show: boolean): void
+  onFarmlandToggle(show: boolean): void
+  onStructuresToggle(show: boolean): void
 }
 
 export interface OverlayOptions {
   viewMode: ViewMode
   rivers: boolean
   clouds: boolean
+  markers: boolean
+  journeys: boolean
+  farmland: boolean
+  structures: boolean
 }
 
 const MODE_LABELS: Record<ViewMode, string> = {
@@ -32,10 +41,18 @@ const MODE_LABELS: Record<ViewMode, string> = {
   rainfall: 'Rainfall',
   plates: 'Plates',
   biomes: 'Biomes',
+  population: 'Population',
+  landuse: 'Land use',
 }
 
 export interface Overlay {
   root: HTMLElement
+  /** Column under the seed bar (top-left). */
+  left: HTMLElement
+  /** Column under the view-mode panel (top-right). */
+  right: HTMLElement
+  /** Bottom-centre slot. */
+  bottom: HTMLElement
   setGenerating(on: boolean): void
   setReadout(r: Readout | null): void
   setSeed(seed: number): void
@@ -95,6 +112,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   }
   const riverCheckbox = makeToggle('Rivers', initial.rivers, true)
   const cloudCheckbox = makeToggle('Clouds', initial.clouds, false)
+  const markerCheckbox = makeToggle('Settlements', initial.markers, false)
+  const journeyCheckbox = makeToggle('Journeys', initial.journeys, false)
+  const farmCheckbox = makeToggle('Farmland', initial.farmland, false)
+  const structureCheckbox = makeToggle('Structures', initial.structures, false)
 
   const readoutPanel = document.createElement('div')
   readoutPanel.className = 'panel readout-panel hidden'
@@ -105,10 +126,20 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
 
   const hint = document.createElement('div')
   hint.className = 'panel hint'
-  hint.textContent = 'drag to orbit · scroll to zoom · hover to inspect'
+  hint.textContent = 'drag to orbit · scroll to zoom · click settlements'
 
-  root.appendChild(topBar)
-  root.appendChild(modePanel)
+  const left = document.createElement('div')
+  left.className = 'side-column left'
+  left.appendChild(topBar)
+  const right = document.createElement('div')
+  right.className = 'side-column right'
+  right.appendChild(modePanel)
+  const bottom = document.createElement('div')
+  bottom.className = 'bottom-slot'
+
+  root.appendChild(left)
+  root.appendChild(right)
+  root.appendChild(bottom)
   root.appendChild(readoutPanel)
   root.appendChild(hint)
   root.appendChild(loadingOverlay)
@@ -126,6 +157,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   randomBtn.addEventListener('click', () => callbacks.onRandomSeed())
   riverCheckbox.addEventListener('change', () => callbacks.onRiversToggle(riverCheckbox.checked))
   cloudCheckbox.addEventListener('change', () => callbacks.onCloudsToggle(cloudCheckbox.checked))
+  markerCheckbox.addEventListener('change', () => callbacks.onMarkersToggle(markerCheckbox.checked))
+  journeyCheckbox.addEventListener('change', () => callbacks.onJourneysToggle(journeyCheckbox.checked))
+  farmCheckbox.addEventListener('change', () => callbacks.onFarmlandToggle(farmCheckbox.checked))
+  structureCheckbox.addEventListener('change', () => callbacks.onStructuresToggle(structureCheckbox.checked))
 
   function setActiveModeButton(mode: ViewMode) {
     for (const [m, btn] of modeButtons) {
@@ -136,6 +171,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
 
   return {
     root,
+    left,
+    right,
+    bottom,
     setGenerating(on: boolean) {
       loadingOverlay.classList.toggle('hidden', !on)
     },

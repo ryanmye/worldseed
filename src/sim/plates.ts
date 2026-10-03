@@ -126,7 +126,7 @@ export function generatePlates(g: SimGrid, rng: Rng, opts: PlateOptions): Plates
   // Continental flags. Each world draws a dispersal tendency: clustered
   // worlds let continental plates touch (one or two big landmasses), dispersed
   // worlds prefer plates that do not border an already-continental plate
-  // (several mid-sized continents). Plates centred near a pole are usually
+  // (several mid-sized continents). Plates centred near a pole are often
   // passed over, and very large plates are avoided so no single plate makes a
   // supercontinent on its own. Plates passed over get a second chance if the
   // target area is not reached.
@@ -160,7 +160,7 @@ export function generatePlates(g: SimGrid, rng: Rng, opts: PlateOptions): Plates
     const adj = perimeter[p] > 0 ? touching / perimeter[p] : 0
     const polar = cy[p] < 0 ? -cy[p] : cy[p]
     let reject = 0
-    if (polar > 0.78) reject += 0.4 + 2 * (polar - 0.78)
+    if (polar > 0.8) reject += 0.25 + 1.5 * (polar - 0.8)
     if (size[p] > 0.6 * target) reject += 0.5
     reject += disperse * 2.5 * adj
     if (rng.next() < reject) { deferred.push(p); continue }

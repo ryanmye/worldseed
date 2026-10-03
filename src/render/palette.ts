@@ -12,6 +12,8 @@ export const ViewMode = {
   Rainfall: 'rainfall',
   Plates: 'plates',
   Biomes: 'biomes',
+  Population: 'population',
+  LandUse: 'landuse',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -22,6 +24,8 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Rainfall,
   ViewMode.Plates,
   ViewMode.Biomes,
+  ViewMode.Population,
+  ViewMode.LandUse,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -42,7 +46,8 @@ export function blendStyleFor(mode: ViewMode): number {
   switch (mode) {
     case ViewMode.Terrain: return BlendStyle.Terrain
     case ViewMode.Plates:
-    case ViewMode.Biomes: return BlendStyle.Categorical
+    case ViewMode.Biomes:
+    case ViewMode.Population: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
 }
@@ -212,7 +217,35 @@ const RAIN_STOPS: readonly (readonly [number, RGB])[] = [
 ]
 const SEA_TINT = 0.55
 
-export function colorForMode(mode: ViewMode, world: World, i: number, out: Float32Array | Uint8Array, o: number, scale = 1): void {
+/** Extra per-cell data some view modes need (it arrives later than the world). */
+export interface ModeData {
+  /** Carrying capacity per cell in people, from the settlement history. */
+  capacity: Float32Array | null
+  capacityMax: number
+}
+
+/** Population view: heat ramp over sqrt(capacity / max). */
+const CAPACITY_STOPS: readonly (readonly [number, RGB])[] = [
+  [0, rgb(40, 30, 52)],
+  [0.25, rgb(98, 34, 96)],
+  [0.5, rgb(186, 52, 68)],
+  [0.75, rgb(238, 126, 48)],
+  [1, rgb(252, 222, 132)],
+]
+const CAPACITY_WATER = rgb(14, 22, 38)
+const CAPACITY_BARREN = rgb(30, 30, 36)
+/** Land use view: the base under the shader's cultivation / degradation ramp (which needs the year). */
+const LANDUSE_WILD = rgb(46, 52, 50)
+
+export function colorForMode(
+  mode: ViewMode,
+  world: World,
+  i: number,
+  out: Float32Array | Uint8Array,
+  o: number,
+  scale = 1,
+  data: ModeData | null = null,
+): void {
   const e = world.elevation[i]
   switch (mode) {
     case ViewMode.Terrain:
@@ -240,6 +273,19 @@ export function colorForMode(mode: ViewMode, world: World, i: number, out: Float
     case ViewMode.Biomes:
       write(BIOME_COLOR[world.biome[i]] ?? BIOME_COLOR[Biome.Grassland], out, o, scale)
       return
+    case ViewMode.Population: {
+      const water = e < 0 || world.lake?.[i] === 1
+      const cap = data?.capacity ? data.capacity[i] : 0
+      if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (cap <= 0 || !data || data.capacityMax <= 0) write(CAPACITY_BARREN, out, o, scale)
+      else write(ramp(CAPACITY_STOPS, Math.sqrt(cap / data.capacityMax)), out, o, scale)
+      return
+    }
+    case ViewMode.LandUse: {
+      const water = e < 0 || world.lake?.[i] === 1
+      write(water ? CAPACITY_WATER : LANDUSE_WILD, out, o, scale)
+      return
+    }
   }
 }
 

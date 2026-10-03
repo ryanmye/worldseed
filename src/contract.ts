@@ -70,3 +70,133 @@ export interface WorldOptions {
 
 /** Signature of the entry point exported by src/sim/index.ts. Must be deterministic in (seed, options). */
 export type GenerateWorld = (seed: number, options?: WorldOptions) => World
+
+// ---------------------------------------------------------------------------
+// History: settlements over time, precomputed for the whole run so the UI can
+// scrub freely. Produced by `simulateHistory` exported from src/sim/index.ts.
+
+export interface Settlement {
+  /** Index into History.settlements; ids are assigned in founding order. */
+  id: number
+  cell: number
+  foundedYear: number
+  /** Settlement the founders migrated from, or -1 for an original tribe. */
+  parent: number
+  /** Year the settlement was abandoned, or -1 if it survives to the end of the run. */
+  abandonedYear: number
+}
+
+export const EventType = {
+  Founded: 0, // settlement founded; `other` is the parent settlement or -1; `value` is the founding group size
+  Abandoned: 1, // settlement abandoned; `value` is the remaining headcount
+  Famine: 2, // severe food shortfall; `value` is the fraction of population lost
+  Migration: 3, // people moved from `settlement` to existing settlement `other`; `value` is headcount
+  Built: 4, // `settlement` built a structure; `other` is the structure id; `value` is the StructureType
+  BecameTown: 5, // population first reached TOWN_POPULATION; `value` is the population
+  BecameCity: 6, // population first reached CITY_POPULATION; `value` is the population
+  StructureLost: 7, // a structure fell out of use; `other` is the structure id; `value` is the StructureType
+} as const
+export type EventType = (typeof EventType)[keyof typeof EventType]
+
+export interface HistoryEvent {
+  year: number
+  type: EventType
+  settlement: number
+  /** Related settlement id, or -1. For Built and StructureLost it is a structure id instead. */
+  other: number
+  value: number
+}
+
+export interface History {
+  /** The run covers years 0..years inclusive. */
+  years: number
+  /** Years between snapshots; snapshot s is year s * snapshotInterval. */
+  snapshotInterval: number
+  snapshotCount: number
+  settlements: Settlement[]
+  /**
+   * Population per snapshot per settlement, row-major:
+   * population[s * settlements.length + id]. 0 before founding and after abandonment.
+   */
+  population: Float32Array
+  /** Food supply ratio in [0, 1] per snapshot per settlement (1 = fully fed), same layout as `population`. */
+  food: Float32Array
+  /** Per-cell carrying capacity in people at year 0 (0 for water), length grid.cellCount. Productivity growth raises the effective value over the run. */
+  capacity: Float32Array
+  /** All events in chronological order. */
+  events: HistoryEvent[]
+  journeys: Journeys
+  /** Ports, dams and other things people build, indexed by Structure.id. */
+  structures: Structure[]
+  /** Years between land snapshots; land snapshot s is year s * landInterval. */
+  landInterval: number
+  landSnapshotCount: number
+  /**
+   * How intensively each cell is farmed, 0 (wild) to 255 (fully cultivated), per land snapshot per cell,
+   * row-major: landUse[s * grid.cellCount + cell]. Cultivated forest is cleared forest.
+   */
+  landUse: Uint8Array
+  /** Soil exhaustion and erosion from over-use, 0 (pristine) to 255 (ruined), same layout as `landUse`. Recovers when land is left alone. */
+  degradation: Uint8Array
+}
+
+/** Population at which a settlement counts as a town, and as a city. */
+export const TOWN_POPULATION = 3000
+export const CITY_POPULATION = 10000
+
+export const StructureType = {
+  Port: 0, // on a coastal settlement's cell; makes sea travel and fishing easier
+  Dam: 1, // on a river cell near its settlement; irrigates land downstream and forms a reservoir
+} as const
+export type StructureType = (typeof StructureType)[keyof typeof StructureType]
+
+export interface Structure {
+  /** Index into History.structures; ids are assigned in building order. */
+  id: number
+  type: StructureType
+  cell: number
+  /** Settlement that built it. */
+  settlement: number
+  builtYear: number
+  /** Year it fell out of use (e.g. its settlement was abandoned), or -1 if it lasts to the end of the run. */
+  lostYear: number
+}
+
+export interface HistoryOptions {
+  /** Length of the run in years. Default 2000. */
+  years?: number
+  /** Years between snapshots. Default 5. */
+  snapshotInterval?: number
+}
+
+/** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. */
+export type SimulateHistory = (world: World, options?: HistoryOptions) => History
+
+// ---------------------------------------------------------------------------
+// Journeys: groups of people travelling between settlements, for display.
+// One per Founded event that has a parent and one per Migration event.
+
+export const JourneyKind = {
+  Settlers: 0, // founded settlement `to`
+  Migrants: 1, // joined existing settlement `to`
+} as const
+export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
+
+/** Struct-of-arrays, sorted by departYear. Journey j follows cells path[pathOffsets[j] .. pathOffsets[j + 1]). */
+export interface Journeys {
+  count: number
+  /** Fractional year the group sets out; arriveYear - departYear grows with route length. */
+  departYear: Float32Array
+  /** Year the group arrives: the year of the corresponding Founded or Migration event. */
+  arriveYear: Float32Array
+  /** Origin settlement id. */
+  from: Int32Array
+  /** Destination settlement id (the one founded or joined). */
+  to: Int32Array
+  /** Headcount. */
+  size: Float32Array
+  kind: Uint8Array
+  pathOffsets: Uint32Array
+  /** Cell ids along each route, origin cell first, destination cell last; consecutive cells are neighbours. May include water cells for sea crossings. */
+  path: Uint32Array
+}

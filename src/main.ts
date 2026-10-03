@@ -3,14 +3,19 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { World, WorldOptions } from './contract.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
-import { buildGlobeMesh, lakeArray, type GlobeMesh } from './render/globe.ts'
+import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
 import { buildAtmosphere, buildClouds, buildStarfield, type Clouds } from './render/sky.ts'
-import { createOverlay, type Readout } from './ui/overlay.ts'
+import { createOverlay } from './ui/overlay.ts'
+import { attachPointer } from './ui/pointer.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
+import { createCameraFly } from './render/cameraFly.ts'
+import { createHistoryView } from './ui/historyView.ts'
 
 // ---------- URL parameters ----------
-// seed, view (terrain|elevation|...), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0, sub (subdivisions)
+// seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
+// sub (subdivisions), year=<n> (start year), play=0 (start paused), select=<settlement id>, markers=0, journeys=0,
+// land=0 (no farmland on the Terrain view), structures=0 (no ports, dams or reservoirs)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -76,8 +81,10 @@ controls.zoomSpeed = 0.8
 // The planet turns beneath a sun fixed in world space; the first drag stops it.
 let spinning = numParam('spin', 1) !== 0
 const SPIN_SPEED = 0.05 // rad/s
+const fly = createCameraFly(camera)
 controls.addEventListener('start', () => {
   spinning = false
+  fly.cancel()
 })
 
 const stars = buildStarfield()
@@ -95,6 +102,10 @@ let currentClouds: Clouds | null = null
 let currentWorld: World | null = null
 let showRivers = params.get('rivers') !== '0'
 let showClouds = params.get('clouds') !== '0'
+let showMarkers = params.get('markers') !== '0'
+let showJourneys = params.get('journeys') !== '0'
+let showFarmland = params.get('land') !== '0'
+let showStructures = params.get('structures') !== '0'
 let viewMode: ViewModeT = isViewMode(params.get('view')) ? (params.get('view') as ViewModeT) : ViewMode.Terrain
 
 function applyLayerVisibility() {
@@ -120,39 +131,51 @@ function clearPlanet() {
     currentClouds.dispose()
     currentClouds = null
   }
-  hoverCell = 0
+  pointerInput.reset()
 }
 
 function showWorld(world: World) {
   clearPlanet()
   currentWorld = world
   currentGlobe = buildGlobeMesh(world, viewMode)
+  currentGlobe.setFarmlandVisible(showFarmland)
+  currentGlobe.setReservoirsVisible(showStructures)
   planetGroup.add(currentGlobe.mesh)
   currentRivers = buildRiverLines(world)
   planetGroup.add(currentRivers.lines)
   currentClouds = buildClouds(world.seed)
   planetGroup.add(currentClouds.mesh)
   applyLayerVisibility()
+  historyView.setWorld(world)
 }
 
 // ---------- worker ----------
+// One request per seed; responses for superseded requests are dropped.
 
 const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+let requestId = 0
 
 worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
   const msg = ev.data
-  overlay.setGenerating(false)
+  if (msg.requestId !== requestId) return
   if (msg.type === 'world') {
+    overlay.setGenerating(false)
     showWorld(msg.world)
-  } else {
+  } else if (msg.type === 'history') {
+    console.info(`history: ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
+    historyView.setHistory(msg.history)
+  } else if (msg.stage === 'world') {
+    overlay.setGenerating(false)
     console.error('world generation failed:', msg.message)
+  } else {
+    historyView.setHistoryError(msg.message)
   }
 }
 
 function requestWorld(seed: number) {
   overlay.setGenerating(true)
   overlay.setReadout(null)
-  const req: WorkerRequest = { seed, options: WORLD_OPTIONS }
+  const req: WorkerRequest = { requestId: ++requestId, seed, options: WORLD_OPTIONS }
   worker.postMessage(req)
 }
 
@@ -160,17 +183,25 @@ function requestWorld(seed: number) {
 
 let currentSeed = seedFromUrl()
 
-const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, clouds: showClouds }, {
+function clearHistoryParams() {
+  setUrlParam('year', null)
+  setUrlParam('play', null)
+  setUrlParam('select', null)
+}
+
+const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, clouds: showClouds, markers: showMarkers, journeys: showJourneys, farmland: showFarmland, structures: showStructures }, {
   onSeedSubmit(seed: number) {
     if (seed === currentSeed && currentWorld?.seed === seed) return
     currentSeed = seed
     setUrlParam('seed', String(seed))
+    clearHistoryParams()
     requestWorld(seed)
   },
   onRandomSeed() {
     currentSeed = Math.floor(Math.random() * 1_000_000)
     overlay.setSeed(currentSeed)
     setUrlParam('seed', String(currentSeed))
+    clearHistoryParams()
     requestWorld(currentSeed)
   },
   onViewModeChange(mode: ViewModeT) {
@@ -178,6 +209,7 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     overlay.setViewMode(mode)
     setUrlParam('view', mode === ViewMode.Terrain ? null : mode)
     currentGlobe?.setMode(mode)
+    historyView.setViewMode(mode)
     applyLayerVisibility()
   },
   onRiversToggle(show: boolean) {
@@ -189,78 +221,72 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     setUrlParam('clouds', show ? null : '0')
     applyLayerVisibility()
   },
+  onMarkersToggle(show: boolean) {
+    showMarkers = show
+    setUrlParam('markers', show ? null : '0')
+    historyView.setMarkersVisible(show)
+  },
+  onJourneysToggle(show: boolean) {
+    showJourneys = show
+    setUrlParam('journeys', show ? null : '0')
+    historyView.setJourneysVisible(show)
+  },
+  onFarmlandToggle(show: boolean) {
+    showFarmland = show
+    setUrlParam('land', show ? null : '0')
+    currentGlobe?.setFarmlandVisible(show)
+  },
+  onStructuresToggle(show: boolean) {
+    showStructures = show
+    setUrlParam('structures', show ? null : '0')
+    currentGlobe?.setReservoirsVisible(show)
+    historyView.setStructuresVisible(show)
+  },
 })
+
+const intParam = (name: string): number | null => {
+  const raw = params.get(name)
+  const v = raw === null ? NaN : Number.parseInt(raw, 10)
+  return Number.isFinite(v) ? v : null
+}
+
+const historyView = createHistoryView(
+  {
+    bottom: overlay.bottom,
+    left: overlay.left,
+    right: overlay.right,
+    planetGroup,
+    camera,
+    canvas,
+    fly,
+    getGlobe: () => currentGlobe,
+    onFly: () => {
+      spinning = false
+    },
+    setUrlParam,
+  },
+  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select') },
+)
+historyView.setViewMode(viewMode)
+historyView.setMarkersVisible(showMarkers)
+historyView.setJourneysVisible(showJourneys)
+historyView.setStructuresVisible(showStructures)
 
 setUrlParam('seed', String(currentSeed))
 requestWorld(currentSeed)
 
-// ---------- hover / click readout ----------
-// Ray vs. the unit sphere in planet space, then a greedy walk over the cell
-// graph to the nearest cell centre (cheap even at 100k+ cells).
+// ---------- pointer: terrain readout on hover, settlement hover/click ----------
 
-const raycaster = new THREE.Raycaster()
-const pointer = new THREE.Vector2()
-const planetSphere = new THREE.Sphere(new THREE.Vector3(), 1)
-const invMatrix = new THREE.Matrix4()
-const localRay = new THREE.Ray()
-const hitPoint = new THREE.Vector3()
-let hoverCell = 0
-
-function nearestCell(world: World, x: number, y: number, z: number, start: number): number {
-  const { positions: P, neighborOffsets: off, neighbors: nb } = world.grid
-  let cur = start < world.grid.cellCount ? start : 0
-  let best = P[cur * 3] * x + P[cur * 3 + 1] * y + P[cur * 3 + 2] * z
-  for (let iter = 0; iter < 4096; iter++) {
-    let next = -1
-    for (let k = off[cur]; k < off[cur + 1]; k++) {
-      const j = nb[k]
-      const d = P[j * 3] * x + P[j * 3 + 1] * y + P[j * 3 + 2] * z
-      if (d > best) {
-        best = d
-        next = j
-      }
-    }
-    if (next < 0) break
-    cur = next
-  }
-  return cur
-}
-
-function updateReadoutFromEvent(clientX: number, clientY: number) {
-  if (!currentGlobe || !currentWorld) return
-  const rect = renderer.domElement.getBoundingClientRect()
-  pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
-  pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
-  raycaster.setFromCamera(pointer, camera)
-  currentGlobe.mesh.updateWorldMatrix(true, false)
-  invMatrix.copy(currentGlobe.mesh.matrixWorld).invert()
-  localRay.copy(raycaster.ray).applyMatrix4(invMatrix)
-  if (!localRay.intersectSphere(planetSphere, hitPoint)) {
-    overlay.setReadout(null)
-    return
-  }
-  hitPoint.normalize()
-  const w = currentWorld
-  const cell = nearestCell(w, hitPoint.x, hitPoint.y, hitPoint.z, hoverCell)
-  hoverCell = cell
-  const lake = lakeArray(w)
-  const readout: Readout = {
-    biome: w.biome[cell] as Readout['biome'],
-    elevation: w.elevation[cell],
-    temperature: w.temperature[cell],
-    rainfall: w.rainfall[cell],
-    lake: lake !== null && lake[cell] === 1,
-  }
-  overlay.setReadout(readout)
-}
-
-renderer.domElement.addEventListener('pointermove', (e) => {
-  updateReadoutFromEvent(e.clientX, e.clientY)
+const pointerInput = attachPointer({
+  canvas,
+  camera,
+  getWorld: () => currentWorld,
+  getGlobe: () => currentGlobe,
+  setReadout: (r) => overlay.setReadout(r),
+  pickSettlement: (x, y) => historyView.pickAt(x, y),
+  hoverSettlement: (id) => historyView.setHover(id),
+  selectSettlement: (id) => historyView.select(id, false),
 })
-renderer.domElement.addEventListener('click', (e) => {
-  updateReadoutFromEvent(e.clientX, e.clientY)
-})
-renderer.domElement.addEventListener('pointerleave', () => overlay.setReadout(null))
 
 // ---------- resize ----------
 
@@ -281,11 +307,13 @@ function tick(timestamp?: number) {
   timer.update(timestamp)
   const dt = Math.min(timer.getDelta(), 0.1)
   if (spinning) planetGroup.rotation.y += SPIN_SPEED * dt
+  fly.update(dt)
   controls.update()
   currentClouds?.update(dt)
   currentGlobe?.update(camera)
   renderer.getDrawingBufferSize(drawSize)
   currentRivers?.update(camera, drawSize.y)
+  historyView.tick(dt, drawSize, renderer.getPixelRatio())
   renderer.render(scene, camera)
   requestAnimationFrame(tick)
 }

@@ -40,6 +40,8 @@ export interface WorldStats {
   interiorShallowMaxPatchPct: number
   /** % of land cells poleward of 65 degrees. */
   polarLandPct: number
+  /** Land share (%) of the more land-covered of the two polar caps (poleward of 65 degrees). */
+  polarCapPct: number
 }
 
 /** Connected components of cells where mask[i] = 1; returns component sizes (unsorted) and the label per cell. */
@@ -106,10 +108,14 @@ export function worldStats(world: World, ms: number): WorldStats {
   const landCounts = new Array<number>(BIOME_COUNT).fill(0)
   let ocean = 0, maxE = -Infinity, minE = Infinity, river = 0, maxFlow = 0
   let land = 0, lakes = 0, polar = 0
+  let capN = 0, capS = 0, capNLand = 0, capSLand = 0
   const lake = world.lake as Uint8Array | undefined
   const landMask = new Uint8Array(N)
   for (let i = 0; i < N; i++) {
     const e = world.elevation[i]
+    const yc = world.grid.positions[i * 3 + 1]
+    if (yc > 0.9063) { capN++; if (e >= 0) capNLand++ }
+    if (yc < -0.9063) { capS++; if (e >= 0) capSLand++ }
     counts[world.biome[i]]++
     if (e < 0) ocean++
     else {
@@ -153,6 +159,7 @@ export function worldStats(world: World, ms: number): WorldStats {
     interiorShallowPct: ocean > 0 ? (100 * shallowCount) / ocean : 0,
     interiorShallowMaxPatchPct: (100 * maxPatch) / N,
     polarLandPct: land > 0 ? (100 * polar) / land : 0,
+    polarCapPct: Math.max(capN > 0 ? (100 * capNLand) / capN : 0, capS > 0 ? (100 * capSLand) / capS : 0),
   }
 }
 
@@ -164,10 +171,10 @@ export function formatStats(rows: WorldStats[]): string {
   lines.push('IceAll and Coast are % of all cells; the biome columns after them are % of land cells')
   lines.push(
     `lake% = lake cells / land; nLand = landmasses >= ${LANDMASS_MIN_FRACTION * 100}% of planet; big% = largest landmass / land; ` +
-      `shSea% = water cells shallower than ${SHALLOW_DEPTH} and > ${SHALLOW_HOPS} hops from deep water; shPatch = largest such patch, % of planet; pole% = land poleward of 65 deg`,
+      `shSea% = water cells shallower than ${SHALLOW_DEPTH} and > ${SHALLOW_HOPS} hops from deep water; shPatch = largest such patch, % of planet; pole% = land poleward of 65 deg; cap% = land share of the fuller polar cap`,
   )
   lines.push(
-    [pad('seed', 6), pad('ms', 5), pad('pl', 3), pad('ocean%', 7), pad('maxE', 5), pad('rivers', 6), pad('maxFl', 6), pad('lake%', 5), pad('nLand', 5), pad('big%', 5), pad('shSea%', 6), pad('shPatch', 7), pad('pole%', 5), pad('IceAll', 6), pad('Coast', 5)]
+    [pad('seed', 6), pad('ms', 5), pad('pl', 3), pad('ocean%', 7), pad('maxE', 5), pad('rivers', 6), pad('maxFl', 6), pad('lake%', 5), pad('nLand', 5), pad('big%', 5), pad('shSea%', 6), pad('shPatch', 7), pad('pole%', 5), pad('cap%', 5), pad('IceAll', 6), pad('Coast', 5)]
       .concat(SHORT.slice(2).map((s) => pad(s, 5)))
       .join(' '),
   )
@@ -187,6 +194,7 @@ export function formatStats(rows: WorldStats[]): string {
         pad(r.interiorShallowPct.toFixed(2), 6),
         pad(r.interiorShallowMaxPatchPct.toFixed(2), 7),
         pad(r.polarLandPct.toFixed(1), 5),
+        pad(r.polarCapPct.toFixed(0), 5),
         pad(r.biomePct[Biome.Ice].toFixed(1), 6),
         pad(r.biomePct[Biome.Coast].toFixed(1), 5),
       ]
@@ -201,7 +209,7 @@ export function formatStats(rows: WorldStats[]): string {
       pad(mean((r) => r.maxElevation).toFixed(2), 5), pad(mean((r) => r.riverCells).toFixed(0), 6), pad('', 6),
       pad(mean((r) => r.lakePct).toFixed(2), 5), pad(mean((r) => r.landmasses).toFixed(1), 5), pad(mean((r) => r.largestLandPct).toFixed(1), 5),
       pad(mean((r) => r.interiorShallowPct).toFixed(2), 6), pad(mean((r) => r.interiorShallowMaxPatchPct).toFixed(2), 7), pad(mean((r) => r.polarLandPct).toFixed(1), 5),
-      pad(mean((r) => r.biomePct[Biome.Ice]).toFixed(1), 6), pad(mean((r) => r.biomePct[Biome.Coast]).toFixed(1), 5),
+      pad(mean((r) => r.polarCapPct).toFixed(0), 5), pad(mean((r) => r.biomePct[Biome.Ice]).toFixed(1), 6), pad(mean((r) => r.biomePct[Biome.Coast]).toFixed(1), 5),
     ]
       .concat(SHORT.slice(2).map((_, k) => pad(mean((r) => r.landBiomePct[k + 2]).toFixed(1), 5)))
       .join(' '),

@@ -78,7 +78,8 @@ export function generateElevation(g: SimGrid, pl: Plates, rng: Rng, opts: Elevat
   blur(g, cont, scaledPasses(g, 16), 0.6)
 
   // Continental crust = blurred plate flag + large-scale noise, minus a soft
-  // polar penalty (continents may reach the poles, but rarely sit on them).
+  // polar penalty (continents may reach the poles; a polar continent forms only
+  // where a continental plate sits there, in roughly a quarter of worlds).
   // The mask adds domain-warped multi-octave noise on top, so coasts get
   // bays, peninsulas and offshore islands at the scale of a few cells.
   const crustSmooth = new Float64Array(N)
@@ -88,7 +89,7 @@ export function generateElevation(g: SimGrid, pl: Plates, rng: Rng, opts: Elevat
     const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
     large[i] = fbm(nBase, x, y, z, { octaves: 4, frequency: 1.4 })
     const ay = y < 0 ? -y : y
-    crustSmooth[i] = cont[i] + 0.55 * large[i] - 0.8 * smoothstep(0.87, 0.995, ay)
+    crustSmooth[i] = cont[i] + 0.55 * large[i] - 0.35 * smoothstep(0.9, 1.0, ay)
     const wx = x + 0.2 * fbm(nWarp, x, y, z, { octaves: 3, frequency: 2.2 })
     const wy = y + 0.2 * fbm(nWarp, x + 19.1, y - 7.3, z + 3.7, { octaves: 3, frequency: 2.2 })
     const wz = z + 0.2 * fbm(nWarp, x - 5.9, y + 13.3, z - 29.1, { octaves: 3, frequency: 2.2 })

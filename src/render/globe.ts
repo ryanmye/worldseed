@@ -16,7 +16,7 @@
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { NOISE_GLSL } from './glsl.ts'
-import { blendStyleFor, colorForMode, seaIceFactor, snowFactor, type ViewMode } from './palette.ts'
+import { ViewMode, blendStyleFor, colorForMode, seaIceFactor, snowFactor, type ModeData } from './palette.ts'
 
 export const PLANET_RADIUS = 1
 /** Geometric displacement of land (fraction of radius). Kept subtle: no lumpy limb. */
@@ -48,11 +48,34 @@ export interface GlobeMesh {
   /** Cell index of each (non-indexed) vertex. */
   cellOfVertex: Uint32Array
   setMode(mode: ViewMode): void
+  /** Per-cell carrying capacity for the Population view (null until history arrives). */
+  setCapacity(capacity: Float32Array | null): void
   /**
-   * Night-side settlement lights (hook for a later milestone): per-cell intensity in 0..1
-   * (null clears) and a global multiplier. Lights only show on the night side, on land.
+   * Night-side settlement lights: per-cell intensity in 0..1 (null clears) and a global
+   * multiplier. Lights only show on the night side, on land. Cheap: uploads one float
+   * per cell to a texture, so it can be called whenever the snapshot changes.
    */
   setCityLights(perCell: Float32Array | null, intensity: number): void
+  /**
+   * Land use and degradation (0..255 per cell) of the two land snapshots bracketing the
+   * current year: rows `row0` and `row1` of the row-major arrays (null clears). Uploads
+   * one RGBA8 texel per cell, so call it only when the snapshot pair changes; the shader
+   * interpolates by `setLandFrac`.
+   */
+  setLandRows(landUse: Uint8Array | null, degradation: Uint8Array | null, row0: number, row1: number): void
+  /** Per frame: interpolation fraction between the two land rows. */
+  setLandFrac(frac: number): void
+  /** Draw cultivated and degraded land on the Terrain view. */
+  setFarmlandVisible(show: boolean): void
+  /**
+   * Reservoirs: cells that hold water from the year in `built` until `lost` (-1 = never),
+   * filling over a few decades and draining after; `strength` scales the pool (0..1).
+   * Static per history (one upload); the shader derives the fill from `setYear`. Null clears.
+   */
+  setReservoirs(cells: ArrayLike<number> | null, built?: ArrayLike<number>, lost?: ArrayLike<number>, strength?: ArrayLike<number>): void
+  setReservoirsVisible(show: boolean): void
+  /** Per frame: the history year (reservoir fill). */
+  setYear(year: number): void
   /** Update per-frame uniforms (sun and camera in object space). */
   update(camera: THREE.Camera): void
   dispose(): void
@@ -135,7 +158,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     cellSurf[i * 4] = world.elevation[i]
     cellSurf[i * 4 + 1] = snowFactor(world, i)
     cellSurf[i * 4 + 2] = seaIceFactor(world, i)
-    cellSurf[i * 4 + 3] = 0 // night-lights intensity: driven by settlements in a later milestone
+    cellSurf[i * 4 + 3] = 0 // unused
     cellSeed[i] = Math.floor(hash01(i) * 256)
   }
   const cellNormal = reliefNormals(world)
@@ -147,6 +170,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   const surf = new Float32Array(vCount * 4)
   const seeds = new Uint8Array(vCount * 4)
   const depth = new Float32Array(vCount)
+  const corners = new Float32Array(vCount * 3) // the triangle's three cell indices, on every vertex
   for (let v = 0; v < vCount; v++) {
     const c = cellOfVertex[v]
     depth[v] = cellDepth[c]
@@ -165,6 +189,9 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     seeds[v * 4 + 1] = cellSeed[cellOfVertex[tri + 1]]
     seeds[v * 4 + 2] = cellSeed[cellOfVertex[tri + 2]]
     seeds[v * 4 + 3] = cellSlope[c]
+    corners[v * 3] = cellOfVertex[tri]
+    corners[v * 3 + 1] = cellOfVertex[tri + 1]
+    corners[v * 3 + 2] = cellOfVertex[tri + 2]
   }
 
   const geometry = new THREE.BufferGeometry()
@@ -173,16 +200,69 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   geometry.setAttribute('aSurf', new THREE.BufferAttribute(surf, 4))
   geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4, true))
   geometry.setAttribute('aDepth', new THREE.BufferAttribute(depth, 1))
+  geometry.setAttribute('aCorners', new THREE.BufferAttribute(corners, 3))
   const corner = [0, 1, 2].map(() => new THREE.BufferAttribute(new Uint8Array(vCount * 4), 4, true))
   geometry.setAttribute('aC0', corner[0])
   geometry.setAttribute('aC1', corner[1])
   geometry.setAttribute('aC2', corner[2])
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS * (1 + RELIEF_SCALE) + 1e-3)
 
+  // Per-cell city-light intensity, fetched by cell index in the vertex shader.
+  const lightH = Math.ceil(cellCount / LIGHT_TEX_WIDTH)
+  const lightData = new Float32Array(LIGHT_TEX_WIDTH * lightH)
+  const lightTex = new THREE.DataTexture(lightData, LIGHT_TEX_WIDTH, lightH, THREE.RedFormat, THREE.FloatType)
+  lightTex.minFilter = THREE.NearestFilter
+  lightTex.magFilter = THREE.NearestFilter
+  lightTex.generateMipmaps = false
+  lightTex.needsUpdate = true
+  // Cell centre positions (surface radius), so light glows can be radial around them.
+  const cellPosData = new Float32Array(LIGHT_TEX_WIDTH * lightH * 4)
+  for (let i = 0; i < cellCount; i++) {
+    cellPosData[i * 4] = cellPos[i * 3]
+    cellPosData[i * 4 + 1] = cellPos[i * 3 + 1]
+    cellPosData[i * 4 + 2] = cellPos[i * 3 + 2]
+  }
+  const cellPosTex = new THREE.DataTexture(cellPosData, LIGHT_TEX_WIDTH, lightH, THREE.RGBAFormat, THREE.FloatType)
+  cellPosTex.minFilter = THREE.NearestFilter
+  cellPosTex.magFilter = THREE.NearestFilter
+  cellPosTex.generateMipmaps = false
+  cellPosTex.needsUpdate = true
+
+  // Per-cell land use and degradation of two land snapshots (RGBA8: use0, use1, deg0, deg1).
+  const landData = new Uint8Array(LIGHT_TEX_WIDTH * lightH * 4)
+  const landTex = new THREE.DataTexture(landData, LIGHT_TEX_WIDTH, lightH, THREE.RGBAFormat, THREE.UnsignedByteType)
+  landTex.minFilter = THREE.NearestFilter
+  landTex.magFilter = THREE.NearestFilter
+  landTex.generateMipmaps = false
+  landTex.needsUpdate = true
+  let hasLand = false
+  let farmlandVisible = true
+  // Per-cell reservoir life (built year, lost year, strength); a never-built cell has built = NEVER.
+  const resData = new Float32Array(LIGHT_TEX_WIDTH * lightH * 4)
+  const clearReservoirs = () => {
+    for (let i = 0; i < resData.length; i += 4) {
+      resData[i] = NEVER
+      resData[i + 1] = NEVER
+      resData[i + 2] = 0
+      resData[i + 3] = 0
+    }
+  }
+  clearReservoirs()
+  const resTex = new THREE.DataTexture(resData, LIGHT_TEX_WIDTH, lightH, THREE.RGBAFormat, THREE.FloatType)
+  resTex.minFilter = THREE.NearestFilter
+  resTex.magFilter = THREE.NearestFilter
+  resTex.generateMipmaps = false
+  resTex.needsUpdate = true
+  let hasReservoirs = false
+  let reservoirsVisible = true
+
+  const modeData: ModeData = { capacity: null, capacityMax: 0 }
+  let currentMode = mode
   const cellColor = new Uint8Array(cellCount * 4)
   const applyColors = (m: ViewMode) => {
+    currentMode = m
     for (let i = 0; i < cellCount; i++) {
-      colorForMode(m, world, i, cellColor, i * 4, 255)
+      colorForMode(m, world, i, cellColor, i * 4, 255, modeData)
       cellColor[i * 4 + 3] = lake !== null && lake[i] === 1 ? 255 : 0
     }
     const arrays = corner.map((a) => a.array as Uint8Array)
@@ -200,6 +280,14 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     }
     for (const a of corner) a.needsUpdate = true
     material.uniforms.uStyle.value = blendStyleFor(m)
+    syncLandUniforms()
+  }
+  const syncLandUniforms = () => {
+    const u = material.uniforms
+    u.uLandView.value = currentMode === ViewMode.LandUse ? 1 : 0
+    u.uFarm.value = hasLand && farmlandVisible && currentMode === ViewMode.Terrain ? 1 : 0
+    u.uLandOn.value = hasLand && (u.uFarm.value > 0 || u.uLandView.value > 0) ? 1 : 0
+    u.uResOn.value = hasReservoirs && reservoirsVisible && currentMode === ViewMode.Terrain ? 1 : 0
   }
 
   const cellSpacing = Math.sqrt((4 * Math.PI) / cellCount)
@@ -211,6 +299,16 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       uSunColor: { value: SUN_COLOR.clone() },
       uCellFreq: { value: 1 / cellSpacing },
       uCityLights: { value: 0 },
+      uLightTex: { value: lightTex },
+      uCellPosTex: { value: cellPosTex },
+      uLandTex: { value: landTex },
+      uLandOn: { value: 0 },
+      uLandFrac: { value: 0 },
+      uFarm: { value: 0 },
+      uLandView: { value: 0 },
+      uResTex: { value: resTex },
+      uResOn: { value: 0 },
+      uYear: { value: 0 },
     },
     vertexShader: PLANET_VERT,
     fragmentShader: PLANET_FRAG,
@@ -225,12 +323,69 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     geometry,
     cellOfVertex,
     setMode: applyColors,
+    setCapacity(capacity: Float32Array | null) {
+      modeData.capacity = capacity && capacity.length === cellCount ? capacity : null
+      let max = 0
+      if (modeData.capacity) for (let i = 0; i < cellCount; i++) max = Math.max(max, modeData.capacity[i])
+      modeData.capacityMax = max
+      if (currentMode === ViewMode.Population) applyColors(currentMode)
+    },
     setCityLights(perCell: Float32Array | null, intensity: number) {
-      const attr = geometry.getAttribute('aSurf') as THREE.BufferAttribute
-      const arr = attr.array as Float32Array
-      for (let v = 0; v < vCount; v++) arr[v * 4 + 3] = perCell ? perCell[cellOfVertex[v]] ?? 0 : 0
-      attr.needsUpdate = true
+      if (perCell) lightData.set(perCell.length > cellCount ? perCell.subarray(0, cellCount) : perCell)
+      else lightData.fill(0)
+      lightTex.needsUpdate = true
       material.uniforms.uCityLights.value = perCell ? intensity : 0
+    },
+    setLandRows(landUse: Uint8Array | null, degradation: Uint8Array | null, row0: number, row1: number) {
+      const n = cellCount
+      if (!landUse || !degradation || landUse.length < (Math.max(row0, row1) + 1) * n || degradation.length < (Math.max(row0, row1) + 1) * n) {
+        if (hasLand) {
+          landData.fill(0)
+          landTex.needsUpdate = true
+        }
+        hasLand = false
+      } else {
+        const a = row0 * n, b = row1 * n
+        for (let i = 0; i < n; i++) {
+          landData[i * 4] = landUse[a + i]
+          landData[i * 4 + 1] = landUse[b + i]
+          landData[i * 4 + 2] = degradation[a + i]
+          landData[i * 4 + 3] = degradation[b + i]
+        }
+        landTex.needsUpdate = true
+        hasLand = true
+      }
+      syncLandUniforms()
+    },
+    setLandFrac(frac: number) {
+      material.uniforms.uLandFrac.value = frac
+    },
+    setFarmlandVisible(show: boolean) {
+      farmlandVisible = show
+      syncLandUniforms()
+    },
+    setReservoirs(cells: ArrayLike<number> | null, built?: ArrayLike<number>, lost?: ArrayLike<number>, strength?: ArrayLike<number>) {
+      clearReservoirs()
+      hasReservoirs = false
+      if (cells && built && lost) {
+        for (let k = 0; k < cells.length; k++) {
+          const c = cells[k]
+          if (c < 0 || c >= cellCount) continue
+          resData[c * 4] = built[k]
+          resData[c * 4 + 1] = lost[k] >= 0 ? lost[k] : NEVER
+          resData[c * 4 + 2] = strength ? strength[k] : 1
+          hasReservoirs = true
+        }
+      }
+      resTex.needsUpdate = true
+      syncLandUniforms()
+    },
+    setReservoirsVisible(show: boolean) {
+      reservoirsVisible = show
+      syncLandUniforms()
+    },
+    setYear(year: number) {
+      material.uniforms.uYear.value = year
     },
     update(camera: THREE.Camera) {
       mesh.updateWorldMatrix(true, false)
@@ -243,9 +398,19 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     dispose() {
       geometry.dispose()
       material.dispose()
+      lightTex.dispose()
+      cellPosTex.dispose()
+      landTex.dispose()
+      resTex.dispose()
     },
   }
 }
+
+const LIGHT_TEX_WIDTH = 512
+const NEVER = 1e9
+/** Years a reservoir takes to fill after its dam is built, and to drain after it is lost. */
+const RESERVOIR_FILL_YEARS = 12
+const RESERVOIR_DRAIN_YEARS = 40
 
 const PLANET_VERT = /* glsl */ `
 attribute vec4 aSurf;
@@ -254,8 +419,25 @@ attribute vec4 aC0;
 attribute vec4 aC1;
 attribute vec4 aC2;
 attribute float aDepth;
+attribute vec3 aCorners;
+uniform sampler2D uLightTex;
+uniform sampler2D uCellPosTex;
+uniform float uCityLights;
+uniform sampler2D uLandTex;
+uniform float uLandOn;
+uniform float uLandFrac;
+uniform sampler2D uResTex;
+uniform float uResOn;
+uniform float uYear;
+flat varying vec3 vLand;
+flat varying vec3 vDeg;
+flat varying vec3 vRes;
 
 varying float vDepth;
+flat varying vec3 vLight;
+flat varying vec3 vLP0;
+flat varying vec3 vLP1;
+flat varying vec3 vLP2;
 varying vec3 vObjPos;
 varying vec3 vNormal;
 varying vec3 vBary;
@@ -278,6 +460,38 @@ void main() {
   vSeed = aSeed.xyz;
   vSlope = aSeed.w * 0.5;
   vDepth = aDepth;
+  vLight = vec3(0.0);
+  vLP0 = vLP1 = vLP2 = vec3(0.0);
+  vLand = vDeg = vRes = vec3(0.0);
+  ivec3 cc = ivec3(aCorners + 0.5);
+  ivec3 cx = cc % ${LIGHT_TEX_WIDTH};
+  ivec3 cy = cc / ${LIGHT_TEX_WIDTH};
+  if (uLandOn > 0.0) {
+    vec4 l0 = texelFetch(uLandTex, ivec2(cx.x, cy.x), 0);
+    vec4 l1 = texelFetch(uLandTex, ivec2(cx.y, cy.y), 0);
+    vec4 l2 = texelFetch(uLandTex, ivec2(cx.z, cy.z), 0);
+    vLand = vec3(mix(l0.r, l0.g, uLandFrac), mix(l1.r, l1.g, uLandFrac), mix(l2.r, l2.g, uLandFrac));
+    vDeg = vec3(mix(l0.b, l0.a, uLandFrac), mix(l1.b, l1.a, uLandFrac), mix(l2.b, l2.a, uLandFrac));
+  }
+  if (uResOn > 0.0) {
+    vec4 r0 = texelFetch(uResTex, ivec2(cx.x, cy.x), 0);
+    vec4 r1 = texelFetch(uResTex, ivec2(cx.y, cy.y), 0);
+    vec4 r2 = texelFetch(uResTex, ivec2(cx.z, cy.z), 0);
+    vec3 built = vec3(r0.x, r1.x, r2.x);
+    vec3 lost = vec3(r0.y, r1.y, r2.y);
+    vRes = vec3(r0.z, r1.z, r2.z)
+      * smoothstep(built, built + ${RESERVOIR_FILL_YEARS.toFixed(1)}, vec3(uYear))
+      * (1.0 - smoothstep(lost, lost + ${RESERVOIR_DRAIN_YEARS.toFixed(1)}, vec3(uYear)));
+  }
+  if (uCityLights > 0.0) {
+    vLight = vec3(
+      texelFetch(uLightTex, ivec2(cx.x, cy.x), 0).r,
+      texelFetch(uLightTex, ivec2(cx.y, cy.y), 0).r,
+      texelFetch(uLightTex, ivec2(cx.z, cy.z), 0).r);
+    if (vLight.x > 0.0) vLP0 = texelFetch(uCellPosTex, ivec2(cx.x, cy.x), 0).xyz;
+    if (vLight.y > 0.0) vLP1 = texelFetch(uCellPosTex, ivec2(cx.y, cy.y), 0).xyz;
+    if (vLight.z > 0.0) vLP2 = texelFetch(uCellPosTex, ivec2(cx.z, cy.z), 0).xyz;
+  }
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
@@ -289,7 +503,13 @@ uniform vec3 uCamObj;
 uniform vec3 uSunColor;
 uniform float uCellFreq;
 uniform float uCityLights;
+uniform float uFarm;
+uniform float uLandView;
+uniform float uResOn;
 
+flat varying vec3 vLand;
+flat varying vec3 vDeg;
+flat varying vec3 vRes;
 varying vec3 vObjPos;
 varying vec3 vNormal;
 varying vec3 vBary;
@@ -300,15 +520,83 @@ flat varying vec4 vC2;
 flat varying vec3 vSeed;
 varying float vSlope;
 varying float vDepth;
+flat varying vec3 vLight;
+flat varying vec3 vLP0;
+flat varying vec3 vLP1;
+flat varying vec3 vLP2;
 
 ${NOISE_GLSL}
 
 const vec3 SHELF = vec3(0.016, 0.150, 0.190);
 const vec3 SHALLOW = vec3(0.007, 0.055, 0.120);
 const vec3 DEEP = vec3(0.002, 0.010, 0.042);
+const vec3 LAKE_SHORE = vec3(0.030, 0.180, 0.200);
+const vec3 LAKE_DEEP = vec3(0.020, 0.140, 0.180);
 const vec3 SEA_ICE = vec3(0.80, 0.86, 0.92);
 const vec3 SNOW = vec3(0.86, 0.89, 0.93);
 const vec3 SKY = vec3(0.30, 0.50, 0.95);
+const vec3 CROP_GRAIN = vec3(0.320, 0.245, 0.080);
+const vec3 CROP_GREEN = vec3(0.105, 0.175, 0.045);
+const vec3 CROP_SOIL = vec3(0.165, 0.105, 0.058);
+const vec3 CROP_HAY = vec3(0.225, 0.205, 0.085);
+const vec3 BARE_SOIL = vec3(0.320, 0.215, 0.115);
+const float FIELD_STRENGTH = 0.6;
+const vec3 CITY = vec3(1.0, 0.56, 0.22);
+const vec3 CITY_CORE = vec3(1.0, 0.82, 0.55);
+
+// Anisotropic Ward-shaped lobe (T, B: tangent axes; ax, ay: RMS slopes along them), times
+// N.L. Deliberately not energy-normalised: the peak stays bounded however calm the water,
+// so the glint is shaped by lobe width and never clips to a flat white patch.
+float glintLobe(vec3 N, vec3 H, vec3 T, vec3 B, float ax, float ay, float nl) {
+  float hn = max(dot(H, N), 1e-3);
+  float ht = dot(H, T) / ax;
+  float hb = dot(H, B) / ay;
+  return exp(-(ht * ht + hb * hb) / (hn * hn)) * nl;
+}
+
+// Cultivated and degraded land over albedo alb. lu and dg are land use and degradation
+// in 0..1 (interpolated over the triangle and between land snapshots), clump a mid-scale
+// noise (~[-0.6, 0.6]) that gathers fields into irregular patches. Fields are Voronoi cells
+// in object space, each cultivated once land use passes its own random threshold, in one of
+// a few crop tones with darker hedgerows between them. They resolve only when zoomed in; at
+// globe scale the patchwork is replaced by its average, a soft warm tint.
+vec3 farmland(vec3 alb, vec3 p, float lu, float dg, float clump, float footprint) {
+  vec3 col = alb;
+  if (lu > 0.002) {
+    float cover = clamp(smoothstep(0.0, 0.8, lu) * (1.0 + 0.9 * clump), 0.0, 1.0);
+    // Each field moves the wild colour part of the way toward its crop (FIELD_STRENGTH on
+    // average), so the patchwork keeps the regional colour and its mean is a soft tint.
+    vec3 cropMean = (CROP_GRAIN + CROP_GREEN + CROP_SOIL + CROP_HAY) * 0.25;
+    vec3 far = mix(alb, cropMean, cover * FIELD_STRENGTH);
+    float fieldFreq = uCellFreq * 7.0;
+    float detail = ws_lod(fieldFreq, footprint);
+    if (detail > 0.0) {
+      vec3 rnd;
+      vec2 F = ws_cells(p * fieldFreq, rnd);
+      float on = smoothstep(rnd.x - 0.06, rnd.x + 0.06, cover);
+      float pick = fract(rnd.y * 7.31 + rnd.z * 3.17);
+      vec3 crop = rnd.y < 0.25 ? CROP_GRAIN : rnd.y < 0.5 ? CROP_GREEN : rnd.y < 0.75 ? CROP_HAY : CROP_SOIL;
+      crop = mix(alb, crop, FIELD_STRENGTH * (0.55 + 0.9 * pick)) * (0.9 + 0.2 * rnd.z);
+      float edgeW = max(0.06, footprint * fieldFreq * 1.5);
+      float hedge = 1.0 - smoothstep(0.0, edgeW, F.y - F.x);
+      crop = mix(crop, alb * 0.85, hedge * 0.4);
+      far = mix(far, mix(alb, crop, on), detail);
+    }
+    col = far;
+  }
+  if (dg > 0.002) {
+    float d = smoothstep(0.08, 0.95, dg);
+    // worn: paler, browner, less green, with patches of bare soil where it is worst
+    float lum = dot(col, vec3(0.30, 0.55, 0.15));
+    vec3 worn = BARE_SOIL * (lum / dot(BARE_SOIL, vec3(0.30, 0.55, 0.15))) * 1.15;
+    col = mix(col, worn, d * 0.5);
+    // bare patches are small (a few per cell): at globe scale they average into a paler tone
+    float patchN = ws_fbm(p + 53.0, uCellFreq * 5.0, 3, footprint);
+    float bare = smoothstep(0.5, 0.95, d + patchN * 0.8);
+    col = mix(col, BARE_SOIL * (0.9 + 0.3 * patchN), bare * 0.6);
+  }
+  return col;
+}
 
 void main() {
   vec3 p = vObjPos;
@@ -353,10 +641,27 @@ void main() {
     if (abs(e) < coastAmp * 1.25) e += ws_fbm(p + 17.0, uCellFreq * 0.6, 5, footprint) * coastAmp;
     float aaE = fwidth(vSurf.x) * 1.2 + 1e-5;
     float seaM = 1.0 - smoothstep(-aaE, aaE, e);
-    // Lakes: flagged land cells, blended with the sharp perturbed corner weights.
-    float lakeW = dot(ws, vec3(vC0.a, vC1.a, vC2.a));
-    float aaL = fwidth(lakeW) * 0.75 + 1e-3;
-    float lakeM = smoothstep(0.5 - aaL, 0.5 + aaL, lakeW);
+    // Lakes: the same contour trick on the linearly interpolated lake flag (continuous
+    // across triangles), so shores are organic curves rather than cell polygons.
+    float lakeLin = dot(b, vec3(vC0.a, vC1.a, vC2.a));
+    float aaLin = fwidth(lakeLin);
+    float lakeF = -1.0;
+    float lakeM = 0.0;
+    if (max(vC0.a, max(vC1.a, vC2.a)) > 0.0) {
+      lakeF = lakeLin - 0.5 + 0.55 * ws_fbm(p + 29.0, uCellFreq * 0.6, 5, footprint);
+      float aaL = aaLin * 1.2 + footprint * uCellFreq * 0.25 + 1e-4;
+      lakeM = smoothstep(-aaL, aaL, lakeF);
+    }
+    // Reservoirs behind dams: the same contour on the interpolated fill, with a finer,
+    // weaker shore noise so the pool stays small and close to its dam.
+    if (uResOn > 0.0 && max(vRes.x, max(vRes.y, vRes.z)) > 0.0) {
+      float resLin = dot(b, vRes);
+      float resF = resLin - 0.6 + 0.16 * ws_fbm(p + 37.0, uCellFreq * 1.6, 4, footprint);
+      float aaR = fwidth(resLin) * 1.2 + footprint * uCellFreq * 0.25 + 1e-4;
+      float resM = smoothstep(-aaR, aaR, resF);
+      lakeF = max(lakeF, resF * 2.0);
+      lakeM = max(lakeM, resM);
+    }
     float water = max(seaM, lakeM);
 
     vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), up) + vec3(1e-5, 0.0, 0.0));
@@ -373,17 +678,37 @@ void main() {
       alb *= 1.0 + 0.22 * m1 + 0.12 * m2;
       alb = mix(alb, alb * vec3(1.10, 1.02, 0.80), clamp(m2 * 1.5, 0.0, 1.0) * 0.5);
 
-      // small-scale bump on land normals, rougher in the mountains
+      // people: cultivated fields and worn-out land (only where the data says so)
+      if (uFarm > 0.0 && max(max(vLand.x, vLand.y), vLand.z) + max(max(vDeg.x, vDeg.y), vDeg.z) > 0.002) {
+        alb = farmland(alb, p, dot(w, vLand), dot(w, vDeg), m2 - 0.4 * m1, footprint);
+      }
+
+      // high or steep ground gets ridged relief below (crisp crests, dark gullies)
       float elev = max(vSurf.x, 0.0);
+      float steep = 1.0 - dot(N, up);
+      float mtn = clamp(smoothstep(0.3, 0.68, elev) + 0.5 * smoothstep(0.06, 0.16, steep) * smoothstep(0.18, 0.4, elev), 0.0, 1.0);
+
+      // small-scale bump on land normals, rougher in the mountains
       vec4 bump = ws_fbmd(p + 7.3, uCellFreq * 2.5, 4, footprint);
       vec3 g = (bump.yzw - dot(bump.yzw, up) * up) / uCellFreq;
-      float rough = 0.012 + 0.09 * smoothstep(0.12, 0.6, elev);
+      float rough = (0.012 + 0.09 * smoothstep(0.12, 0.6, elev)) * (1.0 - 0.55 * mtn);
       N = normalize(N - g * rough);
 
-      // snow line from temperature, broken up by noise and slope
+      float ridge = 0.5;
+      if (mtn > 0.01) {
+        float rf = uCellFreq * 1.5;
+        vec3 warp = ws_noised(p * (rf * 0.35) + 3.7).yzw;
+        vec4 rg = ws_ridged(p + 13.7 + warp * (0.35 / rf), rf, 3, footprint);
+        vec3 gr = (rg.yzw - dot(rg.yzw, up) * up) / rf;
+        N = normalize(N - gr * 0.2 * mtn);
+        ridge = rg.x;
+        alb *= mix(1.0, 0.76 + 0.45 * ridge, mtn);
+      }
+
+      // snow line from temperature, broken up by noise, slope and ridges
       if (vSurf.y > 0.08) {
         float slope = 1.0 - dot(N, up);
-        float sn = vSurf.y + 0.28 * ws_fbm(p + 3.1, 25.0, 4, footprint) - slope * 1.2;
+        float sn = vSurf.y + 0.28 * ws_fbm(p + 3.1, 25.0, 4, footprint) - slope * 1.2 + (ridge - 0.5) * 0.3 * mtn;
         float snow = smoothstep(0.42, 0.58, sn);
         alb = mix(alb, SNOW * (0.94 + 0.08 * m2), snow);
       }
@@ -398,23 +723,47 @@ void main() {
 
     vec3 sea = vec3(0.0);
     if (water > 0.001) {
-      float depth = clamp(-mix(vDepth, vSurf.x, 0.35), 0.0, 1.0) * (1.0 - lakeM);
+      float lakeW = lakeM * (1.0 - seaM);
+      float depth = clamp(-mix(vDepth, vSurf.x, 0.35), 0.0, 1.0) * (1.0 - lakeW);
       float dn = ws_fbm(p + 11.0, 6.0, 3, footprint);
       float dn2 = ws_fbm(p + 13.0, uCellFreq * 0.5, 2, footprint);
       float dd = depth + dn * 0.06 + dn2 * 0.04;
       vec3 wcol = mix(SHELF, SHALLOW, smoothstep(0.0, 0.2, dd));
       wcol = mix(wcol, DEEP, smoothstep(0.15, 0.7, dd));
+      vec3 lakeCol = mix(LAKE_SHORE, LAKE_DEEP, smoothstep(0.12, 0.6, lakeF + dn2 * 0.08));
+      wcol = mix(wcol, lakeCol, lakeW);
 
       float ice = 0.0;
       if (vSurf.z > 0.08) ice = smoothstep(0.45, 0.55, vSurf.z + 0.3 * ws_fbm(p + 5.5, 18.0, 4, footprint));
 
-      vec4 wave = ws_fbmd(p + 2.0, 220.0, 3, footprint);
-      vec3 Nw = normalize(up - 0.0004 * (wave.yzw - dot(wave.yzw, up) * up));
+      // Sun glint: an anisotropic lobe (stretched east-west, like wind-driven seas) whose
+      // width follows a patchy roughness field, so the glint breaks into calm bright
+      // streaks and rough dim patches. Resolved wave slopes tilt the normal; slopes too
+      // fine for this zoom widen the lobe instead. Noise is only evaluated near the glint.
       vec3 H = normalize(L + V);
-      float ndh = max(dot(Nw, H), 0.0);
       float nv = max(dot(up, V), 0.0);
+      float nl0 = max(dot(up, L), 0.0);
+      float fresH = 0.02 + 0.98 * pow(1.0 - max(dot(H, V), 0.0), 5.0);
+      float axBase = mix(0.085, 0.04, ws_lod(240.0, footprint));
+      float sheen = glintLobe(up, H, east, north, axBase * 3.5, axBase * 2.2, nl0);
+      float spec = 0.0;
+      if (sheen * fresH > 2e-4) {
+        vec3 S = vec3(1.0, 3.0, 1.0);
+        float wind = ws_fbm(p * S + 7.0, 9.0, 2, footprint);
+        float streak = ws_fbm(p * S + 4.0, 40.0, 2, footprint);
+        float rough = 0.75 + 0.85 * smoothstep(-0.45, 0.45, wind + 0.6 * streak);
+        vec4 sw = ws_fbmd(p * S + 2.0, 70.0, 2, footprint);
+        vec4 ch = ws_fbmd(p + 9.0, 240.0, 3, footprint);
+        vec3 gsw = sw.yzw * S;
+        vec3 wslope = 0.035 * (gsw - dot(gsw, up) * up) / 70.0 + 0.12 * (ch.yzw - dot(ch.yzw, up) * up) / 240.0;
+        vec3 Nw = normalize(up - wslope);
+        float ax = axBase * rough;
+        float nl = max(dot(Nw, L), 0.0);
+        float glitter = 0.5 + 0.9 * smoothstep(-0.25, 0.35, streak + 0.5 * ch.x);
+        spec = fresH * 15.0 * (glintLobe(Nw, H, east, north, ax, ax * 0.55, nl) * glitter + 0.12 * sheen);
+      }
+      spec *= dayFade * (1.0 - ice);
       float fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
-      float spec = (pow(ndh, 600.0) * 0.45 + pow(ndh, 90.0) * 0.07 + pow(ndh, 16.0) * 0.02) * (0.35 + fres) * dayFade * (1.0 - ice);
       float wdiff = max(mu, 0.0) * dayFade;
       sea = wcol * (uSunColor * wdiff * 0.9 + skyAmb * 1.2);
       sea += uSunColor * spec;
@@ -425,11 +774,40 @@ void main() {
 
     color = mix(land, sea, water);
 
-    // night side: hook for settlement lights (vSurf.w), off until a later milestone
-    color += (1.0 - dayFade) * uCityLights * vSurf.w * vec3(1.0, 0.72, 0.38) * (1.0 - water);
+    // Night side: settlement lights, a radial glow around each lit cell centre (radius
+    // and brightness grow with population), its outline warped by noise into an
+    // irregular sprawl, plus street-level sparkle that only resolves when zoomed in.
+    if (uCityLights > 0.0 && max(vLight.x, max(vLight.y, vLight.z)) > 0.0 && dayFade < 0.995) {
+      float warp = 0.16 * ws_fbm(p + 41.0, uCellFreq * 2.2, 3, footprint);
+      vec3 dist = vec3(length(p - vLP0), length(p - vLP1), length(p - vLP2)) * uCellFreq + warp;
+      vec3 rad = 0.1 + 0.3 * vLight;
+      vec3 x = dist / rad;
+      vec3 core = exp(-x * x * 2.2);
+      vec3 halo = exp(-x * x * 0.45);
+      vec3 per = (core * (0.25 + 1.1 * vLight) + halo * 0.18 * vLight) * vLight * step(0.0001, vLight);
+      float lum = per.x + per.y + per.z;
+      lum *= 0.65 + 0.7 * (ws_fbm(p + 77.0, uCellFreq * 8.0, 2, footprint) + 0.5);
+      vec3 lc = mix(CITY, CITY_CORE, clamp(dot(core, vLight * vLight), 0.0, 1.0));
+      color += (1.0 - dayFade) * uCityLights * lum * lc * (1.0 - water);
+    }
   } else {
     // ---------- data views: flat, legible lighting from the viewer ----------
     vec3 c = c0 * w.x + c1 * w.y + c2 * w.z;
+    if (uLandView > 0.0) {
+      // cultivated intensity green -> yellow, degradation toward red-brown, on land only
+      float lu = dot(b, vLand);
+      float dg = dot(b, vDeg);
+      float landM = smoothstep(-1e-4, 1e-4 + fwidth(vSurf.x), vSurf.x) * (1.0 - dot(b, vec3(vC0.a, vC1.a, vC2.a)));
+      if (lu + dg > 0.002 && landM > 0.0) {
+        vec3 lo = ws_srgbToLinear(vec3(0.16, 0.40, 0.22));
+        vec3 mid = ws_srgbToLinear(vec3(0.50, 0.72, 0.26));
+        vec3 hi = ws_srgbToLinear(vec3(0.96, 0.86, 0.30));
+        vec3 rc = lu < 0.5 ? mix(lo, mid, lu * 2.0) : mix(mid, hi, lu * 2.0 - 1.0);
+        vec3 lc = mix(c, rc, smoothstep(0.0, 0.06, lu));
+        lc = mix(lc, ws_srgbToLinear(vec3(0.62, 0.24, 0.13)), smoothstep(0.12, 0.85, dg) * 0.85);
+        c = mix(c, lc, landM);
+      }
+    }
     vec3 Lv = normalize(V + 0.35 * cross(V, vec3(0.0, 1.0, 0.0)) + vec3(0.0, 0.3, 0.0));
     float lam = max(dot(N, Lv), 0.0);
     color = c * (0.32 + 0.78 * lam);
