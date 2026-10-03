@@ -43,15 +43,30 @@ export interface HistoryState {
   lastFamine: Int32Array
   /** Year before which the settlement sends no new group (after a failed search). */
   nextMigration: Int32Array
+  /** Year before which the settlement sends no new voyage of settlement (voyages.ts). */
+  nextVoyage: Int32Array
   /** Structure id of the settlement's port / dam in use, or -1. */
   port: Int32Array
   dam: Int32Array
   /** Bit 1: became a town, bit 2: became a city (already logged). */
   milestone: Int32Array
+  /** Accumulated trade wealth (>= 0). */
+  wealth: Float64Array
+  /** Food multiplier from wealth and trade (1 = none), set by the trade system, used by the food system next year. */
+  econ: Float64Array
+  /** Smoothed net food imports (people fed a year; negative for exporters). */
+  foodImport: Float64Array
+  /** Share of the settlement's food that is fish and livestock (the rest is grain); recorded by the food system in land years. */
+  fishFrac: Float64Array
+  liveFrac: Float64Array
+  /** Smoothed loads a year on the settlement's routes plus those passing through it. */
+  through: Float64Array
   /** Ids of living settlements, ascending. */
   living: number[]
 
   // Per cell.
+  /** Living settlements per landmass (terrain.landmass ids). */
+  lmLiving: Int32Array
   /** Living settlement on the cell, or -1. */
   occupant: Int32Array
   /** Living settlements within the exclusion radius; a cell can be settled only when 0. */
@@ -65,6 +80,13 @@ export interface HistoryState {
   landTarget: Float64Array
   /** Degradation in [0, 1]. */
   degradation: Float64Array
+  /** Crowding (people / local food) of the settlements farming a cell, weighted by what they take: accumulated by the food system, averaged by the land-use system for degradation. */
+  stressAcc: Float64Array
+  landStress: Float64Array
+  /** Travel cost of entering a cell this year (terrain cost, lowered on roads). */
+  moveCost: Float64Array
+  /** Road level in [0, 1] per cell. */
+  road: Float64Array
   /**
    * Cells with land use, a use target or degradation (the only ones the land
    * systems visit), in insertion order, and a membership flag per cell.
@@ -113,10 +135,18 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     abandoned: new Int32Array(cap),
     lastFamine: new Int32Array(cap),
     nextMigration: new Int32Array(cap),
+    nextVoyage: new Int32Array(cap),
     port: new Int32Array(cap),
     dam: new Int32Array(cap),
     milestone: new Int32Array(cap),
+    wealth: new Float64Array(cap),
+    econ: new Float64Array(cap).fill(1),
+    foodImport: new Float64Array(cap),
+    fishFrac: new Float64Array(cap),
+    liveFrac: new Float64Array(cap),
+    through: new Float64Array(cap),
     living: [],
+    lmLiving: new Int32Array(terrain.landmassSize.length),
     occupant: new Int32Array(N).fill(-1),
     nearCount: new Int32Array(N),
     claim: new Float64Array(N),
@@ -124,6 +154,10 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     landUse: new Float64Array(N),
     landTarget: new Float64Array(N),
     degradation: new Float64Array(N),
+    stressAcc: new Float64Array(N),
+    landStress: new Float64Array(N),
+    moveCost: Float64Array.from(terrain.moveCost),
+    road: new Float64Array(N),
     active: new Int32Array(N),
     activeCount: 0,
     isActive: new Uint8Array(N),
@@ -162,9 +196,16 @@ function ensureCapacity(s: HistoryState, need: number): void {
   s.abandoned = grow(s.abandoned, size)
   s.lastFamine = grow(s.lastFamine, size)
   s.nextMigration = grow(s.nextMigration, size)
+  s.nextVoyage = grow(s.nextVoyage, size)
   s.port = grow(s.port, size)
   s.dam = grow(s.dam, size)
   s.milestone = grow(s.milestone, size)
+  s.wealth = grow(s.wealth, size)
+  s.econ = grow(s.econ, size)
+  s.foodImport = grow(s.foodImport, size)
+  s.fishFrac = grow(s.fishFrac, size)
+  s.liveFrac = grow(s.liveFrac, size)
+  s.through = grow(s.through, size)
 }
 
 export function logEvent(s: HistoryState, type: EventType, settlement: number, other: number, value: number): void {
@@ -200,10 +241,18 @@ export function found(s: HistoryState, cell: number, pop: number, parent: number
   s.abandoned[id] = -1
   s.lastFamine[id] = -1000000
   s.nextMigration[id] = 0
+  s.nextVoyage[id] = 0
   s.port[id] = -1
   s.dam[id] = -1
   s.milestone[id] = 0
+  s.wealth[id] = 0
+  s.econ[id] = 1
+  s.foodImport[id] = 0
+  s.fishFrac[id] = 0
+  s.liveFrac[id] = 0
+  s.through[id] = 0
   s.living.push(id)
+  s.lmLiving[s.terrain.landmass[cell]]++
   s.occupant[cell] = id
   markNear(s, cell, 1)
   logEvent(s, Ev.Founded, id, parent, pop)
@@ -235,7 +284,11 @@ export function abandon(s: HistoryState, id: number): void {
   s.abandoned[id] = s.year
   s.pop[id] = 0
   s.food[id] = 0
+  s.wealth[id] = 0
+  s.through[id] = 0
+  s.foodImport[id] = 0
   s.occupant[s.cell[id]] = -1
+  s.lmLiving[s.terrain.landmass[s.cell[id]]]--
   markNear(s, s.cell[id], -1)
   if (s.port[id] >= 0) loseStructure(s, s.port[id])
   if (s.dam[id] >= 0) loseStructure(s, s.dam[id])

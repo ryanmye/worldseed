@@ -10,6 +10,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
+import { sunUniforms } from './sun.ts'
 
 /** Height of river ribbons above the ground, avoids z-fighting with the terrain. */
 const RIVER_LIFT = 0.0012
@@ -173,6 +174,7 @@ export function buildRiverLines(world: World): RiverLines {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uSunObj: { value: SUN_DIRECTION.clone() },
+      uDaylight: sunUniforms.uDaylight,
       uCamObj: { value: new THREE.Vector3(0, 0, 3) },
       uSunColor: { value: SUN_COLOR.clone() },
       uPixel: { value: 0.001 },
@@ -200,6 +202,7 @@ export function buildRiverLines(world: World): RiverLines {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uSunObj;
+      uniform float uDaylight; // 1: daylight everywhere (sun.ts)
       uniform vec3 uCamObj;
       uniform vec3 uSunColor;
       varying float vAcross;
@@ -211,7 +214,7 @@ export function buildRiverLines(world: World): RiverLines {
         vec3 V = normalize(uCamObj - vObjPos);
         float limb = smoothstep(0.05, 0.35, dot(up, V));
         float edge = 1.0 - smoothstep(1.0 - vSoft, 1.0, abs(vAcross));
-        float mu = dot(up, normalize(uSunObj));
+        float mu = mix(dot(up, normalize(uSunObj)), 0.92, uDaylight);
         float day = smoothstep(-0.12, 0.12, mu);
         vec3 water = vec3(0.022, 0.150, 0.230);
         vec3 col = water * (uSunColor * max(mu, 0.0) * day + vec3(0.02, 0.03, 0.05));

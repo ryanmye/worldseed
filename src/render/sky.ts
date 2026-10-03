@@ -2,7 +2,9 @@
 
 import * as THREE from 'three'
 import { NOISE_GLSL } from './glsl.ts'
-import { PLANET_RADIUS, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
+import { PLANET_RADIUS } from './globe.ts'
+import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
+import { createCubeBake, type CubeBake } from './surfaceBake.ts'
 
 const ATMOSPHERE_RADIUS = PLANET_RADIUS * 1.06
 const SCALE_HEIGHT = 0.011
@@ -10,6 +12,8 @@ const SCALE_HEIGHT = 0.011
 export interface Atmosphere {
   mesh: THREE.Mesh
   setStrength(s: number): void
+  /** Ray-march steps (quality setting; rebuilds the shader when it changes). */
+  setSteps(n: number): void
   dispose(): void
 }
 
@@ -21,12 +25,25 @@ export interface Atmosphere {
  */
 export function buildAtmosphere(): Atmosphere {
   const geometry = new THREE.SphereGeometry(ATMOSPHERE_RADIUS, 96, 64)
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uSun: { value: SUN_DIRECTION.clone() },
-      uSunColor: { value: SUN_COLOR.clone() },
-      uStrength: { value: 1 },
-    },
+  const uniforms = {
+    uSun: { value: SUN_DIRECTION.clone() },
+    uSunColor: { value: SUN_COLOR.clone() },
+    uStrength: { value: 1 },
+  }
+  // one material per step count (switching quality never recompiles back and forth)
+  const materials = new Map<number, THREE.ShaderMaterial>()
+  const materialFor = (steps: number) => {
+    let m = materials.get(steps)
+    if (!m) {
+      m = template.clone()
+      m.uniforms = uniforms
+      m.defines = { STEPS: steps }
+      materials.set(steps, m)
+    }
+    return m
+  }
+  const template = new THREE.ShaderMaterial({
+    uniforms,
     vertexShader: /* glsl */ `
       varying vec3 vWorld;
       void main() {
@@ -73,7 +90,6 @@ export function buildAtmosphere(): Atmosphere {
         bool hitPlanet = tp.x > 0.0 && tp.x < t1;
         if (hitPlanet) t1 = tp.x;
 
-        const int STEPS = 12;
         float ds = (t1 - t0) / float(STEPS);
         vec3 sum = vec3(0.0);
         float odView = 0.0;
@@ -115,16 +131,25 @@ export function buildAtmosphere(): Atmosphere {
     blendSrc: THREE.OneFactor,
     blendDst: THREE.SrcAlphaFactor,
   })
-  const mesh = new THREE.Mesh(geometry, material)
+  const mesh = new THREE.Mesh(geometry, materialFor(12))
   mesh.renderOrder = 10
+  // daylight everywhere: scatter as if the sun were behind the viewer (an even limb glow)
+  mesh.onBeforeRender = (_r, _s, camera) => {
+    if (sunUniforms.uDaylight.value > 0.5) camera.getWorldPosition(uniforms.uSun.value).normalize()
+    else uniforms.uSun.value.copy(SUN_DIRECTION)
+  }
   return {
     mesh,
     setStrength(s: number) {
-      material.uniforms.uStrength.value = s
+      uniforms.uStrength.value = s
+    },
+    setSteps(n: number) {
+      mesh.material = materialFor(n)
     },
     dispose() {
       geometry.dispose()
-      material.dispose()
+      template.dispose()
+      for (const m of materials.values()) m.dispose()
     },
   }
 }
@@ -212,83 +237,169 @@ export function buildStarfield(count = 3200): THREE.Points {
 export interface Clouds {
   mesh: THREE.Mesh
   update(dt: number): void
+  /**
+   * Bake the (static, object-space) cloud cover into a cube map of face size `size`; until
+   * the bake is ready (and with size 0) the procedural shader draws.
+   */
+  setBakeSize(size: number): void
+  /** Draw up to `maxFaces` bake faces; returns true while a bake is in progress. */
+  bakeStep(renderer: THREE.WebGLRenderer, maxFaces: number, sync?: boolean): boolean
+  readonly bakeInfo: { ready: boolean; pending: boolean; count: number; lastMs: number; bytes: number; size: number }
+  /** Debug: false draws the procedural shader even when the bake is ready (A/B timing). */
+  setBakeUse(on: boolean): void
   dispose(): void
 }
+
+/** Cloud cover in 0..0.9 at unit direction p (object space); footprint for the noise level of detail. */
+const CLOUD_COVER_GLSL = /* glsl */ `
+float cloudCover(vec3 p, float footprint) {
+  float lat = abs(p.y);
+  // domain warp for swirly structure; stretched east-west like real weather systems
+  vec3 ps = p * vec3(1.0, 1.9, 1.0);
+  vec3 q = ps + 0.3 * vec3(
+    ws_fbm(ps + uOffset, 1.6, 3, footprint),
+    ws_fbm(ps + uOffset + 5.2, 1.6, 3, footprint),
+    ws_fbm(ps + uOffset + 9.7, 1.6, 3, footprint));
+  float n = ws_fbm(q + uOffset * 1.7, 3.0, 4, footprint);
+  float detail = ws_fbm(q * 1.0 + uOffset * 2.3, 14.0, 4, footprint);
+  // more cloud along the ITCZ and mid-latitude storm tracks, less in the subtropics
+  float band = 0.22 * exp(-lat * lat * 60.0) + 0.14 * smoothstep(0.5, 0.75, lat) - 0.12 * smoothstep(0.85, 1.0, lat) - 0.25 * exp(-pow((lat - 0.4) * 6.0, 2.0));
+  float cov = n + band + 0.2 * detail;
+  float c = smoothstep(0.2, 0.58, cov);
+  return c * smoothstep(-0.2, 0.3, detail + 0.25) * 0.9;
+}
+`
+
+const CLOUD_VERT = /* glsl */ `
+  varying vec3 vObjPos;
+  void main() {
+    vObjPos = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+
+const CLOUD_FRAG = /* glsl */ `
+  uniform vec3 uSunObj;
+  uniform vec3 uSunColor;
+  uniform vec3 uOffset;
+  uniform vec3 uCamObj;
+  uniform float uDaylight;
+  varying vec3 vObjPos;
+#ifdef CLOUD_BAKED
+  uniform samplerCube uCover;
+#else
+  ${NOISE_GLSL}
+  ${CLOUD_COVER_GLSL}
+#endif
+  void main() {
+    vec3 p = normalize(vObjPos);
+#ifdef CLOUD_BAKED
+    float c = textureCube(uCover, vObjPos).r;
+#else
+    float c = cloudCover(p, length(fwidth(vObjPos)));
+#endif
+    if (c < 0.004) discard;
+    vec3 L = normalize(uSunObj);
+    float mu = uDaylight > 0.5 ? 0.9 : dot(p, L);
+    float day = smoothstep(-0.15, 0.15, mu);
+    vec3 V = normalize(uCamObj - vObjPos);
+    float limb = smoothstep(0.0, 0.25, dot(p, V));
+    vec3 col = vec3(0.95) * (uSunColor * max(mu * 0.8 + 0.2, 0.0) * day + vec3(0.015, 0.02, 0.035));
+    gl_FragColor = vec4(col, c * mix(0.6, 1.0, limb));
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+  }
+`
+
+const CLOUD_BAKE_FRAG = /* glsl */ `
+  uniform vec3 uOffset;
+  varying vec3 vObjPos;
+  ${NOISE_GLSL}
+  ${CLOUD_COVER_GLSL}
+  void main() {
+    gl_FragColor = vec4(cloudCover(normalize(vObjPos), length(fwidth(vObjPos))), 0.0, 0.0, 1.0);
+  }
+`
 
 /** Procedural cloud deck on a slightly larger sphere, drifting slowly over the surface. */
 export function buildClouds(seed: number): Clouds {
   const geometry = new THREE.SphereGeometry(PLANET_RADIUS * 1.012, 160, 120)
   const rand = mulberry32(seed ^ 0xc10d)
   const offset = new THREE.Vector3(rand() * 100, rand() * 100, rand() * 100)
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uSunObj: { value: SUN_DIRECTION.clone() },
-      uSunColor: { value: SUN_COLOR.clone() },
-      uOffset: { value: offset },
-      uCamObj: { value: new THREE.Vector3(0, 0, 3) },
-    },
-    vertexShader: /* glsl */ `
-      varying vec3 vObjPos;
-      void main() {
-        vObjPos = position;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: /* glsl */ `
-      uniform vec3 uSunObj;
-      uniform vec3 uSunColor;
-      uniform vec3 uOffset;
-      uniform vec3 uCamObj;
-      varying vec3 vObjPos;
-      ${NOISE_GLSL}
-      void main() {
-        vec3 p = normalize(vObjPos);
-        float footprint = length(fwidth(vObjPos));
-        float lat = abs(p.y);
-        // domain warp for swirly structure; stretched east-west like real weather systems
-        vec3 ps = p * vec3(1.0, 1.9, 1.0);
-        vec3 q = ps + 0.3 * vec3(
-          ws_fbm(ps + uOffset, 1.6, 3, footprint),
-          ws_fbm(ps + uOffset + 5.2, 1.6, 3, footprint),
-          ws_fbm(ps + uOffset + 9.7, 1.6, 3, footprint));
-        float n = ws_fbm(q + uOffset * 1.7, 3.0, 4, footprint);
-        float detail = ws_fbm(q * 1.0 + uOffset * 2.3, 14.0, 4, footprint);
-        // more cloud along the ITCZ and mid-latitude storm tracks, less in the subtropics
-        float band = 0.22 * exp(-lat * lat * 60.0) + 0.14 * smoothstep(0.5, 0.75, lat) - 0.12 * smoothstep(0.85, 1.0, lat) - 0.25 * exp(-pow((lat - 0.4) * 6.0, 2.0));
-        float cov = n + band + 0.2 * detail;
-        float c = smoothstep(0.2, 0.58, cov);
-        c *= smoothstep(-0.2, 0.3, detail + 0.25) * 0.9;
-        if (c < 0.004) discard;
-        vec3 L = normalize(uSunObj);
-        float mu = dot(p, L);
-        float day = smoothstep(-0.15, 0.15, mu);
-        vec3 V = normalize(uCamObj - vObjPos);
-        float limb = smoothstep(0.0, 0.25, dot(p, V));
-        vec3 col = vec3(0.95) * (uSunColor * max(mu * 0.8 + 0.2, 0.0) * day + vec3(0.015, 0.02, 0.035));
-        gl_FragColor = vec4(col, c * mix(0.6, 1.0, limb));
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-  })
+  const uniforms = {
+    uSunObj: { value: SUN_DIRECTION.clone() },
+    uSunColor: { value: SUN_COLOR.clone() },
+    uOffset: { value: offset },
+    uCamObj: { value: new THREE.Vector3(0, 0, 3) },
+    uDaylight: sunUniforms.uDaylight,
+  }
+  const blend = { transparent: true, depthWrite: false }
+  const material = new THREE.ShaderMaterial({ uniforms, vertexShader: CLOUD_VERT, fragmentShader: CLOUD_FRAG, ...blend })
+  let bakedMaterial: THREE.ShaderMaterial | null = null
+  let bake: CubeBake | null = null
+  let bakeSize = 0
+  let bakeCount = 0
+  let useBake = true
   const mesh = new THREE.Mesh(geometry, material)
   mesh.renderOrder = 5
   const tmpQ = new THREE.Quaternion()
   const tmpCam = new THREE.Vector3()
+  const pick = () => {
+    mesh.material = useBake && bake && bake.ready && bakedMaterial ? bakedMaterial : material
+  }
   mesh.onBeforeRender = (_r, _s, camera) => {
     mesh.getWorldQuaternion(tmpQ).invert()
-    ;(material.uniforms.uSunObj.value as THREE.Vector3).copy(SUN_DIRECTION).applyQuaternion(tmpQ)
+    uniforms.uSunObj.value.copy(SUN_DIRECTION).applyQuaternion(tmpQ)
     camera.getWorldPosition(tmpCam)
-    ;(material.uniforms.uCamObj.value as THREE.Vector3).copy(mesh.worldToLocal(tmpCam))
+    uniforms.uCamObj.value.copy(mesh.worldToLocal(tmpCam))
+  }
+  const disposeBake = () => {
+    bake?.dispose()
+    bakedMaterial?.dispose()
+    bake = null
+    bakedMaterial = null
   }
   return {
     mesh,
     update(dt: number) {
       mesh.rotation.y += dt * 0.004
     },
+    setBakeSize(size: number) {
+      if (size === bakeSize && (bake || size <= 0)) return
+      disposeBake()
+      bakeSize = size
+      if (size > 0) {
+        const bakeMat = new THREE.ShaderMaterial({ uniforms: { uOffset: uniforms.uOffset }, vertexShader: CLOUD_VERT, fragmentShader: CLOUD_BAKE_FRAG, side: THREE.BackSide, depthTest: false, depthWrite: false })
+        bake = createCubeBake(geometry, [{ size, format: THREE.RedFormat, material: bakeMat }], 0.2, 4)
+        bakedMaterial = new THREE.ShaderMaterial({
+          uniforms: { ...uniforms, uCover: { value: bake.textures[0] } },
+          defines: { CLOUD_BAKED: '' },
+          vertexShader: CLOUD_VERT,
+          fragmentShader: CLOUD_FRAG,
+          ...blend,
+        })
+        bake.start()
+      }
+      pick()
+    },
+    bakeStep(renderer: THREE.WebGLRenderer, maxFaces: number, sync = false) {
+      if (!bake || !bake.pending) return false
+      const more = bake.step(renderer, maxFaces, sync)
+      if (!more) {
+        bakeCount++
+        pick()
+      }
+      return more
+    },
+    get bakeInfo() {
+      return { ready: bake?.ready ?? false, pending: bake?.pending ?? false, count: bakeCount, lastMs: bake?.lastMs ?? 0, bytes: bake?.bytes ?? 0, size: bakeSize }
+    },
+    setBakeUse(on: boolean) {
+      useBake = on
+      pick()
+    },
     dispose() {
+      disposeBake()
       geometry.dispose()
       material.dispose()
     },

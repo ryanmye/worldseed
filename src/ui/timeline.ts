@@ -30,8 +30,8 @@ export interface Timeline {
   step(dir: number): void
   /** Advance the clock by dt seconds; returns the current year. */
   tick(dt: number): number
-  /** Live stats; towns and cities are counted by population tier. */
-  setStats(alive: number, population: number, towns?: number, cities?: number): void
+  /** Live stats; towns and cities are counted by population tier; `routes` is the number of open trade routes. */
+  setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number): void
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>'
@@ -232,7 +232,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       }
       return year
     },
-    setStats(alive: number, population: number, towns?: number, cities?: number) {
+    setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number) {
       if (alive !== shownAlive) {
         shownAlive = alive
         aliveText.textContent = `${formatInt(alive)} ${alive === 1 ? 'settlement' : 'settlements'}`
@@ -243,10 +243,13 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
         popText.textContent = p
       }
       const plural = (n: number, one: string, many: string) => `${formatInt(n)} ${n === 1 ? one : many}`
-      const t = towns === undefined ? '' : towns + (cities ?? 0) === 0 ? 'no towns yet' : `${plural(towns, 'town', 'towns')} · ${plural(cities ?? 0, 'city', 'cities')}`
+      let t = towns === undefined ? '' : towns + (cities ?? 0) === 0 ? 'no towns yet' : `${plural(towns, 'town', 'towns')} · ${plural(cities ?? 0, 'city', 'cities')}`
+      // (the bar is narrow: "routes" here, the full wording on hover)
+      if (routes !== undefined && routes > 0) t += `${t ? ' · ' : ''}${plural(routes, 'route', 'routes')}`
       if (t !== shownTiers) {
         shownTiers = t
         tierText.textContent = t
+        statLine2.title = routes !== undefined && routes > 0 ? `${t.replace(/routes?$/, '')}trade ${routes === 1 ? 'route' : 'routes'} open` : ''
       }
     },
   }

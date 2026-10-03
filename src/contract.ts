@@ -84,6 +84,8 @@ export interface Settlement {
   parent: number
   /** Year the settlement was abandoned, or -1 if it survives to the end of the run. */
   abandonedYear: number
+  /** Procedurally generated name, unique within a world. */
+  name: string
 }
 
 export const EventType = {
@@ -95,6 +97,8 @@ export const EventType = {
   BecameTown: 5, // population first reached TOWN_POPULATION; `value` is the population
   BecameCity: 6, // population first reached CITY_POPULATION; `value` is the population
   StructureLost: 7, // a structure fell out of use; `other` is the structure id; `value` is the StructureType
+  TradeOpened: 8, // a trade route opened; `settlement` and `other` are its two ends; `value` is the route id
+  TradeClosed: 9, // a trade route closed; `settlement` and `other` are its two ends; `value` is the route id
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -138,6 +142,50 @@ export interface History {
   landUse: Uint8Array
   /** Soil exhaustion and erosion from over-use, 0 (pristine) to 255 (ruined), same layout as `landUse`. Recovers when land is left alone. */
   degradation: Uint8Array
+  /** Roads worn by overland trade, 0 (none) to 255 (major highway), same layout as `landUse`. Fades when traffic stops. */
+  road: Uint8Array
+  /** Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. */
+  wealth: Float32Array
+  trade: TradeRoutes
+  /** Years between trade snapshots; trade snapshot s is year s * tradeInterval. */
+  tradeInterval: number
+  tradeSnapshotCount: number
+  /**
+   * Goods moved per year on each route per trade snapshot, row-major: tradeVolume[s * trade.count + route].
+   * In value-weighted loads (one load is about a person-year of grain), both directions summed. 0 while the route is not open.
+   */
+  tradeVolume: Float32Array
+}
+
+export const Good = {
+  Grain: 0,
+  Fish: 1,
+  Livestock: 2,
+  Timber: 3,
+  Ore: 4,
+  Salt: 5,
+} as const
+export type Good = (typeof Good)[keyof typeof Good]
+export const GOOD_COUNT = 6
+
+/**
+ * Trade routes between pairs of settlements, struct-of-arrays, in order of first opening.
+ * A route keeps its id for the whole run; a pair that stops and later resumes trading reuses its route.
+ * Route r follows cells path[pathOffsets[r] .. pathOffsets[r + 1]) from settlement a to settlement b.
+ */
+export interface TradeRoutes {
+  count: number
+  /** The two ends, lower settlement id first. */
+  a: Int32Array
+  b: Int32Array
+  /** Year the route first opened. */
+  openedYear: Float32Array
+  /** Main good carried from a to b, and from b to a (see `Good`). */
+  goodAB: Uint8Array
+  goodBA: Uint8Array
+  pathOffsets: Uint32Array
+  /** Cell ids along each route, a's cell first, b's cell last; consecutive cells are neighbours. May include water cells. */
+  path: Uint32Array
 }
 
 /** Population at which a settlement counts as a town, and as a city. */

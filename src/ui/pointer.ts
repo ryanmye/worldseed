@@ -1,6 +1,9 @@
 // Pointer input on the globe canvas: the terrain readout follows the cursor, the
 // settlement marker under it is highlighted, and a click (press and release without
 // dragging) selects the nearest marker near the pointer or deselects when there is none.
+// Shift-drag or right-drag places the sun over the point under the pointer.
+// Hover work (terrain pick, marker pick, readout) runs at most once per animation frame,
+// and the readout is rewritten only when the cell under the pointer changes.
 //
 // Terrain picking: ray vs. the unit sphere in planet space, then a greedy walk over
 // the cell graph to the nearest cell centre (cheap even at 100k+ cells).
@@ -20,6 +23,8 @@ export interface PointerDeps {
   pickSettlement(x: number, y: number): number
   hoverSettlement(id: number): void
   selectSettlement(id: number): void
+  /** Sun drag: the world-space direction under the pointer (the sun goes overhead there). */
+  dragSun?(dirWorld: THREE.Vector3): void
 }
 
 export interface PointerInput {
@@ -58,26 +63,54 @@ export function attachPointer(deps: PointerDeps): PointerInput {
   const localRay = new THREE.Ray()
   const hitPoint = new THREE.Vector3()
   let hoverCell = 0
+  /** Cell shown in the readout, -1 = hidden (avoids rewriting identical HTML). */
+  let shownCell = -1
+  let shownWorld: World | null = null
   const press = { x: 0, y: 0, down: false, moved: false }
+  const sunDrag = { active: false }
+  const move = { x: 0, y: 0, scheduled: false, pending: false }
+  const worldSphere = new THREE.Sphere(new THREE.Vector3(), 1)
+
+  const hideReadout = () => {
+    if (shownCell >= 0) deps.setReadout(null)
+    shownCell = -1
+  }
+
+  function setRay(clientX: number, clientY: number) {
+    const rect = canvas.getBoundingClientRect()
+    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, deps.camera)
+  }
+
+  /** Sun overhead at the point under the pointer (or the nearest point of the limb). */
+  function placeSun(clientX: number, clientY: number) {
+    if (!deps.dragSun) return
+    setRay(clientX, clientY)
+    const ray = raycaster.ray
+    if (!ray.intersectSphere(worldSphere, hitPoint)) ray.closestPointToPoint(worldSphere.center, hitPoint)
+    if (hitPoint.lengthSq() < 1e-8) return
+    deps.dragSun(hitPoint.normalize())
+  }
 
   function updateReadout(clientX: number, clientY: number) {
     const globe = deps.getGlobe()
     const w = deps.getWorld()
     if (!globe || !w) return
-    const rect = canvas.getBoundingClientRect()
-    pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
-    pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
-    raycaster.setFromCamera(pointer, deps.camera)
+    setRay(clientX, clientY)
     globe.mesh.updateWorldMatrix(true, false)
     invMatrix.copy(globe.mesh.matrixWorld).invert()
     localRay.copy(raycaster.ray).applyMatrix4(invMatrix)
     if (!localRay.intersectSphere(planetSphere, hitPoint)) {
-      deps.setReadout(null)
+      hideReadout()
       return
     }
     hitPoint.normalize()
     const cell = nearestCell(w, hitPoint.x, hitPoint.y, hitPoint.z, hoverCell)
     hoverCell = cell
+    if (cell === shownCell && w === shownWorld) return
+    shownCell = cell
+    shownWorld = w
     const lake = lakeArray(w)
     deps.setReadout({
       biome: w.biome[cell] as Readout['biome'],
@@ -93,24 +126,51 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     return [e.clientX - rect.left, e.clientY - rect.top]
   }
 
+  /** Coalesced hover: the latest pointer position, processed once per animation frame. */
+  function processMove() {
+    move.scheduled = false
+    if (!move.pending) return
+    move.pending = false
+    updateReadout(move.x, move.y)
+    if (press.down) return
+    const rect = canvas.getBoundingClientRect()
+    deps.hoverSettlement(deps.pickSettlement(move.x - rect.left, move.y - rect.top))
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
     press.x = e.clientX
     press.y = e.clientY
     press.down = true
     press.moved = false
+    if (deps.dragSun && (e.shiftKey || e.button === 2)) {
+      sunDrag.active = true
+      canvas.setPointerCapture(e.pointerId)
+      placeSun(e.clientX, e.clientY)
+    }
   })
   canvas.addEventListener('pointermove', (e) => {
-    updateReadout(e.clientX, e.clientY)
-    if (press.down) {
-      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP_PX) press.moved = true
+    if (press.down && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP_PX) press.moved = true
+    if (sunDrag.active) {
+      placeSun(e.clientX, e.clientY)
       return
     }
-    const [x, y] = local(e)
-    deps.hoverSettlement(deps.pickSettlement(x, y))
+    move.x = e.clientX
+    move.y = e.clientY
+    move.pending = true
+    if (!move.scheduled) {
+      move.scheduled = true
+      requestAnimationFrame(processMove)
+    }
   })
-  window.addEventListener('pointerup', () => {
+  const endPress = (e: PointerEvent) => {
     press.down = false
-  })
+    if (sunDrag.active) {
+      sunDrag.active = false
+      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
+    }
+  }
+  window.addEventListener('pointerup', endPress)
+  window.addEventListener('pointercancel', endPress)
   canvas.addEventListener('click', (e) => {
     updateReadout(e.clientX, e.clientY)
     if (press.moved) return
@@ -118,13 +178,16 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     deps.selectSettlement(deps.pickSettlement(x, y))
   })
   canvas.addEventListener('pointerleave', () => {
-    deps.setReadout(null)
+    move.pending = false
+    hideReadout()
     deps.hoverSettlement(-1)
   })
 
   return {
     reset() {
       hoverCell = 0
+      shownCell = -1
+      shownWorld = null
     },
   }
 }

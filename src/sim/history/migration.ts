@@ -6,11 +6,18 @@
 // cheaper and more often go on long voyages; coastal sites within reach of a
 // port attract founders. Sites are judged on their effective (degraded,
 // irrigated) capacity, so exhausted land is avoided until it recovers.
+// Roads make overland travel cheaper. Trade shapes migration too: pressure is
+// measured against the food a settlement gets including its net imports, rich
+// settlements keep their people and draw migrants, and colonists may join a
+// rich settlement instead of founding a new one. Founders value uncrowded
+// land: a site's score rises with the share of its land nobody else works,
+// so groups reaching a new, empty land spread out over it.
 
 import { EventType, JourneyKind } from '../../contract.ts'
 import { clamp, MinHeap, smoothstep } from '../util.ts'
-import { MIGRATION, PORT } from './params.ts'
+import { MIGRATION, PORT, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
+import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
 import { canSettle, found, logEvent, logJourney } from './state.ts'
 
@@ -63,14 +70,38 @@ function travelYears(dist: number, budget: number): number {
 export function settlerFood(s: HistoryState, cell: number, g: number): number {
   const T = s.terrain
   const st = claimStrength(g)
-  let v = 0
+  let v = 0, a = 0
   for (let k = T.catchOff[cell]; k < T.catchBase[cell]; k++) {
     const j = T.catchCell[k]
     const w = T.catchW[k]
     const wg = w * st
-    v += (s.effCap[j] * w * wg) / (s.claim[j] + wg)
+    const cw = s.effCap[j] * w
+    v += (cw * wg) / (s.claim[j] + wg)
+    a += cw
   }
+  settlerAlone = a * s.productivity
   return v * s.productivity
+}
+
+/** What the group of the last settlerFood call would get at that cell with nobody else around (set by settlerFood). */
+let settlerAlone = 0
+
+/** Prosperity f = max(w / (w + half), x / (1 + x)) of a settlement, w = wealth per head, x = hub size (0 for none). */
+export function prosperity(s: HistoryState, id: number): number {
+  const p = s.pop[id]
+  if (p <= 0) return 0
+  const w = s.wealth[id] / p
+  const f = w / (w + WEALTH.half)
+  const x = hubSize(s, id)
+  const h = x / (1 + x)
+  return f > h ? f : h
+}
+
+/** Food a settlement can count on: expected local food plus smoothed net imports, if it imports (at least 1). */
+export function foodBase(s: HistoryState, id: number): number {
+  const imp = s.foodImport[id]
+  const f = s.expected[id] + (imp > 0 ? imp : 0)
+  return f > 1 ? f : 1
 }
 
 /**
@@ -96,7 +127,7 @@ export function migrationSystem(s: HistoryState, search: Search): void {
       }
       continue
     }
-    const colonise = M.pressureChance * smoothstep(M.pressureLow, M.pressureHigh, p / s.expected[id])
+    const colonise = (M.pressureChance * smoothstep(M.pressureLow, M.pressureHigh, p / foodBase(s, id))) / (1 + WEALTH.stay * prosperity(s, id))
     if (roll >= colonise + flee || s.year < s.nextMigration[id]) continue
     const g = Math.floor(p * rng.range(M.groupMin, M.groupMax))
     if (g < M.minGroup || p - g < M.minGroup) continue
@@ -146,17 +177,22 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     if (c !== origin) {
       const occ = s.occupant[c]
       if (occ >= 0) {
-        const spare = M.joinRoom * s.expected[occ] - s.pop[occ]
-        if (mayJoin && spare >= g && s.food[occ] >= M.joinFood) {
-          const pop = s.pop[occ]
-          const draw = 1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)
+        const pop = s.pop[occ]
+        const wf = prosperity(s, occ)
+        const rich = wf >= WEALTH.joinMin
+        let spare = M.joinRoom * foodBase(s, occ) - pop
+        if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
+        if ((mayJoin || rich) && spare >= g && s.food[occ] >= M.joinFood) {
+          const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
           const score = (M.joinBias * spare * draw * rng.range(0.75, 1.25)) / penalty
           if (score > bestScore) { bestScore = score; bestDist = d; bestCell = -1; bestJoin = occ }
         }
       } else if (canSettle(s, c) && T.potential[c] * prod >= minFood) {
         const food = settlerFood(s, c, g)
         if (food >= minFood) {
-          let score = (food * rng.range(0.75, 1.25)) / penalty
+          // Empty land pulls: the larger the share of the land nobody else works, the better.
+          const free = settlerAlone > 0 ? food / settlerAlone : 0
+          let score = (food * (1 + M.emptyPull * free * free) * rng.range(0.75, 1.25)) / penalty
           if (s.portReach[c]) score *= sitePref
           if (score > bestScore) { bestScore = score; bestDist = d; bestCell = c; bestJoin = -1 }
         }
@@ -164,7 +200,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     }
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
-      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : T.moveCost[j])
+      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j])
       if (nd > budget) continue
       if (stamp[j] === run && nd >= dist[j]) continue
       stamp[j] = run

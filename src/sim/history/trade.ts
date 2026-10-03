@@ -1,0 +1,898 @@
+// Trade: goods, links, routes, the yearly market, wealth and roads.
+//
+// Goods. Each settlement's food (from the food system) is split into Grain,
+// Fish and Livestock by where it comes from (fields, sea / lake / river and
+// port, pasture); Timber, Ore and Salt come from its catchment's uncleared
+// forest, ore-rich highlands and arid shores, worked by its people. Every
+// good has a per-capita need. A settlement's price for a good is its worth
+// times 2 / (1 + stock / need), and for food also rises steeply with hunger
+// (food / people below 1) and falls when food is plentiful, so a farming
+// village sells grain cheaply, a port sells fish, and a crowded or hungry
+// town pays well for anything edible.
+//
+// Links. Every TRADE.linkStep years a bounded multi-source travel-cost search
+// from all trading settlements (the migration cost field: rivers and coasts
+// cheap, mountains and desert dear, sea cheap for ports and dear without,
+// roads cheaper) splits the land into regions (a port's region reaches
+// TRADE.portSeaRadius times further over water, so overseas colonies are
+// not cut off); settlements whose regions touch are linked. Each trading settlement then searches that settlement
+// graph for partners within reach and keeps the TRADE.nearest cheapest plus
+// the TRADE.gravity with the best size / cost^2 (big markets pull trade from
+// further away); ports search TRADE.portReach times further. A partner reached through other settlements is traded with
+// directly, along the chained path, and those settlements take a toll; so
+// does the trader whose region holds a shore where the goods change between
+// land and sea (transshipment), which makes ports, river mouths and straits hubs.
+// Pairs that have never traded are only re-examined every TRADE.probeStep years.
+//
+// Market. Each year, after the harvest, goods flow along the candidate pairs
+// (cheapest first, TRADE.passes sweeps): wherever the price gap for a good
+// beats its transport cost (falling with technology), a damped step moves
+// goods from cheap to dear. A pair that is not yet trading needs a larger gap
+// (TRADE.openHurdle) to start. Food that arrives feeds people this year;
+// food that leaves does not. The first flow on a pair opens its route
+// (TradeOpened; the route keeps its id for good); a route closes after
+// TRADE.closeYears years of next to nothing, or when an end is abandoned.
+//
+// Wealth. Exporters earn half the price gap they close plus a margin; places
+// a route passes through take a toll. Wealth decays slowly; per head it
+// raises a settlement's food multiplier (econ), together with being a hub
+// (loads on and through it), and keeps and draws people (migration.ts).
+// Prosperous settlements also outbid others for food (their food prices are
+// scaled up), so trade hubs feed themselves from further afield.
+//
+// Roads. Route volume wears roads into the land cells of its path; roads fade
+// without traffic, and lower travel cost for trade and migration.
+//
+// Everything is deterministic: fixed iteration orders, Maps used only for
+// lookup, no randomness.
+
+import { EventType, GOOD_COUNT } from '../../contract.ts'
+import { MinHeap } from '../util.ts'
+import { GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
+import { prosperity } from './migration.ts'
+import { reachOf } from './population.ts'
+import type { HistoryState } from './state.ts'
+import { logEvent } from './state.ts'
+
+const G = GOOD_COUNT
+/** Goods [0, FOOD) are food. */
+const FOOD = 3
+/** Pair keys: a * KEY + b, a < b. */
+const KEY = 1 << 20
+
+export interface TradeState {
+  // Cell search (link graph).
+  dist: Float64Array
+  label: Int32Array
+  prev: Int32Array
+  stamp: Int32Array
+  run: number
+  heap: MinHeap
+  visited: Int32Array
+  /** Link graph edges between settlements whose regions touch; boundary cells per edge. */
+  edgeA: number[]
+  edgeB: number[]
+  edgeCost: number[]
+  edgeCellA: number[]
+  edgeCellB: number[]
+  /** CSR adjacency over settlement ids [0, adjCount). */
+  adjCount: number
+  adjOff: Int32Array
+  adjNode: Int32Array
+  adjEdge: Int32Array
+  /** Year of the last link rebuild (the prev / label fields are from it), or -1. */
+  linkYear: number
+
+  // Candidate pairs, sorted by cost (cheapest first).
+  pairCount: number
+  pairA: Int32Array
+  pairB: Int32Array
+  pairCost: Float64Array
+  pairRoute: Int32Array
+  /** Settlement chain from pairA to pairB through the link graph (for building the route path when it opens). */
+  pairChain: number[][]
+  /** Goods moved this year per pair: [(p * G + g) * 2 + dir], dir 0 = a to b. */
+  pairFlow: Float64Array
+
+  // Routes.
+  routeCount: number
+  routeIndex: Map<number, number>
+  rA: number[]
+  rB: number[]
+  rOpened: number[]
+  rPath: number[][]
+  rTransit: number[][]
+  rOpen: Uint8Array
+  rIdle: Int32Array
+  /** Loads this year. */
+  rVol: Float64Array
+  /** Loads since the last road update. */
+  rRoadAcc: Float64Array
+  /** Cumulative goods moved: [(r * G + g) * 2 + dir]. */
+  rGood: Float64Array
+  /** Open route ids, in order of (re)opening. */
+  openList: number[]
+
+  // Market, per settlement (index id * G + g).
+  stock: Float64Array
+  demand: Float64Array
+  price: Float64Array
+  deriv: Float64Array
+  income: Float64Array
+  throughYear: Float64Array
+  food0: Float64Array
+  /** Resource potential per settlement: timber, ore, salt (units a year at productivity 1 and full labour). */
+  res: Float64Array
+  trader: Uint8Array
+  /** Food price multiplier this year: prosperous settlements outbid others for food (1 + WEALTH.bid * prosperity). */
+  bid: Float64Array
+
+  // Settlement-graph search.
+  gDist: Float64Array
+  gPrev: Int32Array
+  gStamp: Int32Array
+  gRun: number
+  gHeap: MinHeap
+
+  // Roads.
+  roadCells: Int32Array
+  roadCount: number
+  isRoad: Uint8Array
+  traffic: Float64Array
+
+  /** Loads this year per good (diagnostics). */
+  goodYear: Float64Array
+  /** Scratch for path assembly. */
+  pathPos: Int32Array
+  pathStamp: Int32Array
+  pathRun: number
+}
+
+export function createTrade(cellCount: number): TradeState {
+  const S = 256
+  return {
+    dist: new Float64Array(cellCount),
+    label: new Int32Array(cellCount),
+    prev: new Int32Array(cellCount),
+    stamp: new Int32Array(cellCount),
+    run: 0,
+    heap: new MinHeap(1024),
+    visited: new Int32Array(cellCount),
+    edgeA: [], edgeB: [], edgeCost: [], edgeCellA: [], edgeCellB: [],
+    adjCount: 0,
+    adjOff: new Int32Array(1),
+    adjNode: new Int32Array(0),
+    adjEdge: new Int32Array(0),
+    linkYear: -1,
+    pairCount: 0,
+    pairA: new Int32Array(0),
+    pairB: new Int32Array(0),
+    pairCost: new Float64Array(0),
+    pairRoute: new Int32Array(0),
+    pairChain: [],
+    pairFlow: new Float64Array(0),
+    routeCount: 0,
+    routeIndex: new Map(),
+    rA: [], rB: [], rOpened: [], rPath: [], rTransit: [],
+    rOpen: new Uint8Array(256),
+    rIdle: new Int32Array(256),
+    rVol: new Float64Array(256),
+    rRoadAcc: new Float64Array(256),
+    rGood: new Float64Array(256 * G * 2),
+    openList: [],
+    stock: new Float64Array(S * G),
+    demand: new Float64Array(S * G),
+    price: new Float64Array(S * G),
+    deriv: new Float64Array(S * G),
+    income: new Float64Array(S),
+    throughYear: new Float64Array(S),
+    food0: new Float64Array(S),
+    res: new Float64Array(S * 3),
+    trader: new Uint8Array(S),
+    bid: new Float64Array(S),
+    gDist: new Float64Array(S),
+    gPrev: new Int32Array(S),
+    gStamp: new Int32Array(S),
+    gRun: 0,
+    gHeap: new MinHeap(256),
+    roadCells: new Int32Array(cellCount),
+    roadCount: 0,
+    isRoad: new Uint8Array(cellCount),
+    traffic: new Float64Array(cellCount),
+    goodYear: new Float64Array(G),
+    pathPos: new Int32Array(cellCount),
+    pathStamp: new Int32Array(cellCount),
+    pathRun: 0,
+  }
+}
+
+function growF(a: Float64Array, size: number): Float64Array {
+  const b = new Float64Array(size)
+  b.set(a)
+  return b
+}
+function growI(a: Int32Array, size: number): Int32Array {
+  const b = new Int32Array(size)
+  b.set(a)
+  return b
+}
+function growU(a: Uint8Array, size: number): Uint8Array {
+  const b = new Uint8Array(size)
+  b.set(a)
+  return b
+}
+
+/** Grows the per-settlement buffers to cover `count` settlements. */
+function ensureSettlements(ts: TradeState, count: number): void {
+  if (count <= ts.trader.length) return
+  let size = ts.trader.length
+  while (size < count) size *= 2
+  ts.stock = growF(ts.stock, size * G)
+  ts.demand = growF(ts.demand, size * G)
+  ts.price = growF(ts.price, size * G)
+  ts.deriv = growF(ts.deriv, size * G)
+  ts.income = growF(ts.income, size)
+  ts.throughYear = growF(ts.throughYear, size)
+  ts.food0 = growF(ts.food0, size)
+  ts.res = growF(ts.res, size * 3)
+  ts.trader = growU(ts.trader, size)
+  ts.bid = growF(ts.bid, size)
+  ts.gDist = growF(ts.gDist, size)
+  ts.gPrev = growI(ts.gPrev, size)
+  ts.gStamp = growI(ts.gStamp, size)
+}
+
+function ensureRoutes(ts: TradeState, count: number): void {
+  if (count <= ts.rOpen.length) return
+  let size = ts.rOpen.length
+  while (size < count) size *= 2
+  ts.rOpen = growU(ts.rOpen, size)
+  ts.rIdle = growI(ts.rIdle, size)
+  ts.rVol = growF(ts.rVol, size)
+  ts.rRoadAcc = growF(ts.rRoadAcc, size)
+  ts.rGood = growF(ts.rGood, size * G * 2)
+}
+
+/** Deep-ocean cost of one cell for trade this year, with or without a port. */
+function oceanCost(s: HistoryState, port: boolean): number {
+  return ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(s.productivity)) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+}
+
+/**
+ * Rebuilds the link graph: a multi-source search from every trading
+ * settlement over the travel-cost field (each region with its own sea costs,
+ * by whether its settlement has a port), out to TRADE.radius; settlements
+ * whose regions touch are linked, at the cost of the cheapest crossing.
+ */
+function rebuildLinks(s: HistoryState, ts: TradeState): void {
+  const T = s.terrain
+  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  const { dist, label, prev, stamp, heap, visited } = ts
+  const run = ++ts.run
+  heap.size = 0
+  const living = s.living
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    if (!ts.trader[id]) continue
+    const c = s.cell[id]
+    stamp[c] = run
+    dist[c] = 0
+    label[c] = id
+    prev[c] = -1
+    heap.push(0, c)
+  }
+  const oceanP = oceanCost(s, true), oceanN = oceanCost(s, false)
+  const radius = TRADE.radius
+  const radiusSea = TRADE.radius * TRADE.portSeaRadius
+  let nv = 0
+  while (heap.size > 0) {
+    const d = heap.topKey()
+    const c = heap.pop()
+    if (d > dist[c]) continue
+    visited[nv++] = c
+    const a = label[c]
+    const port = s.port[a] >= 0
+    const seaMul = port ? TRADE.seaPort : TRADE.seaNoPort
+    const ocean = port ? oceanP : oceanN
+    for (let k = off[c]; k < off[c + 1]; k++) {
+      const j = nb[k]
+      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j])
+      if (nd > (port && T.sea[j] ? radiusSea : radius)) continue // ports' regions reach further over water
+      if (stamp[j] === run && nd >= dist[j]) continue
+      stamp[j] = run
+      dist[j] = nd
+      label[j] = a
+      prev[j] = c
+      heap.push(nd, j)
+    }
+  }
+  // Region boundaries: one edge per touching pair, at its cheapest crossing.
+  const edgeA: number[] = [], edgeB: number[] = [], edgeCost: number[] = [], edgeCellA: number[] = [], edgeCellB: number[] = []
+  const index = new Map<number, number>()
+  for (let t = 0; t < nv; t++) {
+    const c = visited[t]
+    const la = label[c]
+    for (let k = off[c]; k < off[c + 1]; k++) {
+      const j = nb[k]
+      if (stamp[j] !== run) continue
+      const lb = label[j]
+      if (lb <= la) continue
+      const cost = dist[c] + dist[j] + 0.5 * (s.moveCost[s.cell[la]] + s.moveCost[s.cell[lb]])
+      const key = la * KEY + lb
+      const e = index.get(key)
+      if (e === undefined) {
+        index.set(key, edgeA.length)
+        edgeA.push(la); edgeB.push(lb); edgeCost.push(cost); edgeCellA.push(c); edgeCellB.push(j)
+      } else if (cost < edgeCost[e]) {
+        edgeCost[e] = cost; edgeCellA[e] = c; edgeCellB[e] = j
+      }
+    }
+  }
+  ts.edgeA = edgeA; ts.edgeB = edgeB; ts.edgeCost = edgeCost; ts.edgeCellA = edgeCellA; ts.edgeCellB = edgeCellB
+  // CSR adjacency.
+  const S = s.count
+  const adjOff = new Int32Array(S + 1)
+  for (let e = 0; e < edgeA.length; e++) { adjOff[edgeA[e] + 1]++; adjOff[edgeB[e] + 1]++ }
+  for (let i = 0; i < S; i++) adjOff[i + 1] += adjOff[i]
+  const fill = adjOff.slice(0, S)
+  const adjNode = new Int32Array(adjOff[S])
+  const adjEdge = new Int32Array(adjOff[S])
+  for (let e = 0; e < edgeA.length; e++) {
+    const a = edgeA[e], b = edgeB[e]
+    adjNode[fill[a]] = b; adjEdge[fill[a]++] = e
+    adjNode[fill[b]] = a; adjEdge[fill[b]++] = e
+  }
+  ts.adjCount = S
+  ts.adjOff = adjOff
+  ts.adjNode = adjNode
+  ts.adjEdge = adjEdge
+  ts.linkYear = s.year
+}
+
+/** Cell path of link edge e from settlement u's cell to the other end's (valid until the next rebuild). */
+function edgePath(ts: TradeState, e: number, u: number): number[] {
+  const prev = ts.prev
+  const fromA: number[] = []
+  for (let c = ts.edgeCellA[e]; c >= 0; c = prev[c]) fromA.push(c)
+  fromA.reverse() // a's cell ... boundary cell on a's side
+  for (let c = ts.edgeCellB[e]; c >= 0; c = prev[c]) fromA.push(c) // ... b's cell
+  if (ts.edgeA[e] !== u) fromA.reverse()
+  return fromA
+}
+
+/** Link edge between settlements u and v, or -1. */
+function findEdge(ts: TradeState, u: number, v: number): number {
+  if (u >= ts.adjCount) return -1
+  for (let k = ts.adjOff[u]; k < ts.adjOff[u + 1]; k++) if (ts.adjNode[k] === v) return ts.adjEdge[k]
+  return -1
+}
+
+/** Cell path along a settlement chain (consecutive cells adjacent, loops cut out). */
+function chainPath(s: HistoryState, ts: TradeState, chain: number[]): number[] {
+  const { pathStamp, pathPos } = ts
+  const run = ++ts.pathRun
+  const out: number[] = []
+  const add = (c: number): void => {
+    if (pathStamp[c] === run) {
+      // Back on a cell already on the path: cut the loop out.
+      const keep = pathPos[c]
+      for (let k = keep + 1; k < out.length; k++) pathStamp[out[k]] = 0
+      out.length = keep + 1
+      return
+    }
+    pathStamp[c] = run
+    pathPos[c] = out.length
+    out.push(c)
+  }
+  add(s.cell[chain[0]])
+  for (let i = 0; i + 1 < chain.length; i++) {
+    const seg = edgePath(ts, findEdge(ts, chain[i], chain[i + 1]), chain[i])
+    for (let k = 1; k < seg.length; k++) add(seg[k])
+  }
+  return out
+}
+
+/** Trade travel cost along a route's recorded path this year. */
+function routeCost(s: HistoryState, ts: TradeState, r: number): number {
+  const T = s.terrain
+  const path = ts.rPath[r]
+  const pa = s.port[ts.rA[r]] >= 0, pb = s.port[ts.rB[r]] >= 0
+  const seaMul = 0.5 * ((pa ? TRADE.seaPort : TRADE.seaNoPort) + (pb ? TRADE.seaPort : TRADE.seaNoPort))
+  const ocean = 0.5 * (oceanCost(s, pa) + oceanCost(s, pb))
+  let cost = 0
+  for (let k = 1; k < path.length; k++) {
+    const j = path[k]
+    cost += T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j]
+  }
+  return cost
+}
+
+/** Resource potential (timber, ore, salt) per living settlement, over its catchment. */
+function rebuildResources(s: HistoryState, ts: TradeState): void {
+  const T = s.terrain
+  const { catchOff, catchBase, catchCell, catchW, catchDist, timber, ore, salt } = T
+  const u = s.landUse
+  const living = s.living
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    const c = s.cell[id]
+    const r1 = reachOf(s.pop[id]) + 1
+    const base = catchBase[c]
+    let tb = 0, or = 0, sa = 0
+    for (let k = catchOff[c]; k < catchOff[c + 1]; k++) {
+      let w = catchW[k]
+      if (k >= base) {
+        const f = r1 - catchDist[k]
+        if (f <= 0) break
+        if (f < 1) w *= f
+      }
+      const j = catchCell[k]
+      tb += w * timber[j] * (1 - u[j])
+      or += w * ore[j]
+      sa += w * salt[j]
+    }
+    ts.res[id * 3] = tb
+    ts.res[id * 3 + 1] = or
+    ts.res[id * 3 + 2] = sa
+  }
+}
+
+/**
+ * Candidate pairs: from every trader, a search over the link graph within
+ * reach; keep the nearest few and the strongest gravity partners. Open routes
+ * stay candidates while both ends live; pairs with a route trade along its path.
+ */
+function rebuildPairs(s: HistoryState, ts: TradeState): void {
+  const prod = s.productivity
+  const reach = TRADE.reach * (1 + GOODS.transportTech * (prod - 1))
+  const living = s.living
+  const pairA: number[] = [], pairB: number[] = [], pairCost: number[] = [], pairRoute: number[] = []
+  const pairChain: number[][] = []
+  const index = new Map<number, number>()
+  const { gDist, gPrev, gStamp, gHeap: heap, adjOff, adjNode, adjEdge, edgeCost } = ts
+  const candId: number[] = [], candCost: number[] = []
+  const chosen: number[] = []
+  const addPair = (a: number, b: number, cost: number, chain: number[] | null, route: number): void => {
+    const lo = a < b ? a : b, hi = a < b ? b : a
+    const key = lo * KEY + hi
+    if (index.get(key) !== undefined) return
+    index.set(key, pairA.length)
+    pairA.push(lo); pairB.push(hi); pairCost.push(cost)
+    const r = route >= 0 ? route : ts.routeIndex.get(key) ?? -1
+    pairRoute.push(r)
+    if (chain && a > b) chain.reverse()
+    pairChain.push(chain ?? [])
+  }
+  for (let t = 0; t < living.length; t++) {
+    const src = living[t]
+    if (!ts.trader[src] || src >= ts.adjCount) continue
+    const reachSrc = s.port[src] >= 0 ? reach * TRADE.portReach : reach // shipping lines from ports
+    const run = ++ts.gRun
+    heap.size = 0
+    gStamp[src] = run
+    gDist[src] = 0
+    gPrev[src] = -1
+    heap.push(0, src)
+    candId.length = 0
+    candCost.length = 0
+    let visits = 0
+    while (heap.size > 0 && visits < TRADE.maxNodes) {
+      const d = heap.topKey()
+      const u = heap.pop()
+      if (d > gDist[u]) continue
+      visits++
+      if (u !== src && ts.trader[u]) { candId.push(u); candCost.push(d) }
+      for (let k = adjOff[u]; k < adjOff[u + 1]; k++) {
+        const v = adjNode[k]
+        const nd = d + edgeCost[adjEdge[k]]
+        if (nd > reachSrc) continue
+        if (gStamp[v] === run && nd >= gDist[v]) continue
+        gStamp[v] = run
+        gDist[v] = nd
+        gPrev[v] = u
+        heap.push(nd, v)
+      }
+    }
+    // Nearest few, then the strongest pulls (size / cost^2) among the rest.
+    chosen.length = 0
+    for (let i = 0; i < candId.length && i < TRADE.nearest; i++) chosen.push(i)
+    for (let m = 0; m < TRADE.gravity; m++) {
+      let best = -1, bestScore = 0
+      for (let i = TRADE.nearest; i < candId.length; i++) {
+        if (chosen.indexOf(i) >= 0) continue
+        const c = candCost[i] > 1 ? candCost[i] : 1
+        const score = s.pop[candId[i]] / (c * c)
+        if (score > bestScore) { bestScore = score; best = i }
+      }
+      if (best < 0) break
+      chosen.push(best)
+    }
+    for (const i of chosen) {
+      const v = candId[i]
+      const chain: number[] = []
+      for (let u = v; u >= 0; u = gPrev[u]) chain.push(u)
+      chain.reverse() // src ... v
+      addPair(src, v, candCost[i], chain, -1)
+    }
+  }
+  // Open routes stay candidates while both ends live.
+  for (const r of ts.openList) {
+    const a = ts.rA[r], b = ts.rB[r]
+    if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0) continue
+    addPair(a, b, 0, null, r)
+  }
+  // Pairs that have a route trade along its recorded path.
+  for (let p = 0; p < pairA.length; p++) if (pairRoute[p] >= 0) pairCost[p] = routeCost(s, ts, pairRoute[p])
+  // Cheapest first.
+  const order = pairA.map((_, i) => i)
+  order.sort((x, y) => pairCost[x] - pairCost[y] || pairA[x] - pairA[y] || pairB[x] - pairB[y])
+  const P = order.length
+  ts.pairCount = P
+  ts.pairA = new Int32Array(P)
+  ts.pairB = new Int32Array(P)
+  ts.pairCost = new Float64Array(P)
+  ts.pairRoute = new Int32Array(P)
+  ts.pairChain = []
+  for (let i = 0; i < P; i++) {
+    const p = order[i]
+    ts.pairA[i] = pairA[p]
+    ts.pairB[i] = pairB[p]
+    ts.pairCost[i] = pairCost[p]
+    ts.pairRoute[i] = pairRoute[p]
+    ts.pairChain.push(pairChain[p])
+  }
+  ts.pairFlow = new Float64Array(P * G * 2)
+}
+
+/** Prices of the food goods at settlement i (they share the hunger term). */
+function setFoodPrices(s: HistoryState, ts: TradeState, i: number): void {
+  const o = i * G
+  const p = s.pop[i]
+  const { stock, demand, price, deriv } = ts
+  const V = GOODS.value
+  const dw = GOODS.dietWeight
+  const F = stock[o] + stock[o + 1] + stock[o + 2]
+  const y = F / p
+  const bid = ts.bid[i]
+  let h: number, hd: number
+  if (y < 1) {
+    h = 1 + GOODS.hungerSlope * (1 - y)
+    hd = GOODS.hungerSlope / p
+    if (h > GOODS.hungerMax) { h = GOODS.hungerMax; hd = 0 }
+  } else {
+    h = 1 - GOODS.surplusSlope * (y - 1)
+    hd = GOODS.surplusSlope / p
+    if (h < GOODS.hungerMin) { h = GOODS.hungerMin; hd = 0 }
+  }
+  for (let g = 0; g < FOOD; g++) {
+    const D = demand[o + g]
+    const inv = 1 / (1 + stock[o + g] / D)
+    price[o + g] = bid * V[g] * (dw * 2 * inv + (1 - dw) * h)
+    deriv[o + g] = bid * V[g] * ((dw * 2 * inv * inv) / D + (1 - dw) * hd)
+  }
+}
+
+/** Price of non-food good g at settlement i. */
+function setGoodPrice(ts: TradeState, i: number, g: number): void {
+  const k = i * G + g
+  const D = ts.demand[k]
+  const inv = 1 / (1 + ts.stock[k] / D)
+  const V = GOODS.value[g]
+  ts.price[k] = V * 2 * inv
+  ts.deriv[k] = (V * 2 * inv * inv) / D
+}
+
+/** Creates the route for pair p (first opening): records its path and transit settlements. */
+function createRoute(s: HistoryState, ts: TradeState, p: number): number {
+  const a = ts.pairA[p], b = ts.pairB[p]
+  const chain = ts.pairChain[p]
+  const r = ts.routeCount++
+  ensureRoutes(ts, r + 1)
+  ts.routeIndex.set(a * KEY + b, r)
+  ts.rA.push(a)
+  ts.rB.push(b)
+  ts.rOpened.push(s.year)
+  const path = chainPath(s, ts, chain)
+  ts.rPath.push(path)
+  // Transit: the settlements the chain passes through, and where goods change between land and
+  // sea, the trading settlement whose region holds that shore (transshipment: ports, river mouths, straits).
+  const transit = chain.slice(1, chain.length - 1)
+  const T = s.terrain
+  for (let k = 1; k < path.length; k++) {
+    const c0 = path[k - 1], c1 = path[k]
+    if (T.sea[c0] === T.sea[c1]) continue
+    const shore = T.sea[c0] ? c1 : c0
+    if (ts.stamp[shore] !== ts.run) continue
+    const x = ts.label[shore]
+    if (x !== a && x !== b && transit.indexOf(x) < 0) transit.push(x)
+  }
+  ts.rTransit.push(transit)
+  return r
+}
+
+function closeRoute(s: HistoryState, ts: TradeState, r: number): void {
+  ts.rOpen[r] = 0
+  ts.rVol[r] = 0
+  ts.rIdle[r] = 0
+  logEvent(s, EventType.TradeClosed, ts.rA[r], ts.rB[r], r)
+}
+
+/**
+ * System: the yearly market. Runs after the food system (this year's
+ * harvest) and before the population system (which eats what is left).
+ */
+export function tradeSystem(s: HistoryState, ts: TradeState): void {
+  ensureSettlements(ts, s.count)
+  const living = s.living
+  const prod = s.productivity
+  const { stock, demand, income, throughYear, food0, trader, res } = ts
+  const need = GOODS.need
+  const demTech = 1 + GOODS.demandTech * (prod - 1)
+  const workHalf = GOODS.workHalf
+  let traders = 0
+  trader.fill(0, 0, s.count) // (abandoned settlements never trade)
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    const on = s.pop[id] >= TRADE.minPop ? 1 : 0
+    trader[id] = on
+    traders += on
+    income[id] = 0
+    throughYear[id] = 0
+  }
+  // Links, partners and resources every linkStep years (as soon as two settlements can trade).
+  if (traders >= 2 && (ts.linkYear < 0 || s.year - ts.linkYear >= TRADE.linkStep)) {
+    rebuildLinks(s, ts)
+    rebuildResources(s, ts)
+    rebuildPairs(s, ts)
+  }
+  ts.goodYear.fill(0)
+  for (const r of ts.openList) ts.rVol[r] = 0
+  if (ts.pairCount === 0) { settle(s, ts); return }
+
+  // Stocks, needs and prices of the traders.
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    if (!trader[id]) continue
+    const o = id * G
+    const p = s.pop[id]
+    const F = s.supply[id]
+    const ff = s.fishFrac[id], lf = s.liveFrac[id]
+    stock[o] = F * (1 - ff - lf)
+    stock[o + 1] = F * ff
+    stock[o + 2] = F * lf
+    const lab = (prod * p) / (p + workHalf)
+    stock[o + 3] = res[id * 3] * lab
+    stock[o + 4] = res[id * 3 + 1] * lab
+    stock[o + 5] = res[id * 3 + 2] * lab
+    for (let g = 0; g < G; g++) demand[o + g] = need[g] * p * (g < FOOD ? 1 : demTech)
+    food0[id] = F
+    ts.bid[id] = 1 + WEALTH.bid * prosperity(s, id)
+    setFoodPrices(s, ts, id)
+    for (let g = FOOD; g < G; g++) setGoodPrice(ts, id, g)
+  }
+
+  // Market sweeps.
+  const { pairA, pairB, pairCost, pairRoute, pairFlow, price, deriv, rOpen } = ts
+  const V = GOODS.value
+  const techT = 1 / (1 + GOODS.transportTech * (prod - 1))
+  const tUnit = new Float64Array(G)
+  const minGap = new Float64Array(G)
+  for (let g = 0; g < G; g++) { tUnit[g] = GOODS.transport[g] * techT; minGap[g] = TRADE.minGap * V[g] }
+  const P = ts.pairCount
+  pairFlow.fill(0)
+  const damping = TRADE.damping, maxShare = TRADE.maxShare, margin = TRADE.margin
+  const probeOff = s.year % TRADE.probeStep !== 0
+  for (let pass = 0; pass < TRADE.passes; pass++) {
+    for (let p = 0; p < P; p++) {
+      const a = pairA[p], b = pairB[p]
+      if (!trader[a] || !trader[b]) continue
+      const r = pairRoute[p]
+      if (r < 0 && probeOff) continue
+      const c = pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle)
+      const oa = a * G, ob = b * G
+      for (let g = 0; g < G; g++) {
+        const tr = tUnit[g] * c
+        const gap = price[ob + g] - price[oa + g]
+        let from: number, to: number, net: number, dir: number
+        const tm = tr + minGap[g]
+        if (gap > tm) { from = a; to = b; net = gap - tr; dir = 0 }
+        else if (-gap > tm) { from = b; to = a; net = -gap - tr; dir = 1 }
+        else continue
+        const kf = from * G + g, kt = to * G + g
+        let q = (damping * net) / (deriv[kf] + deriv[kt])
+        const cap = maxShare * stock[kf]
+        if (q > cap) q = cap
+        if (!(q > 1e-6)) continue
+        stock[kf] -= q
+        stock[kt] += q
+        income[from] += q * (0.5 * net + margin * V[g])
+        pairFlow[(p * G + g) * 2 + dir] += q
+        if (g < FOOD) { setFoodPrices(s, ts, from); setFoodPrices(s, ts, to) }
+        else { setGoodPrice(ts, from, g); setGoodPrice(ts, to, g) }
+      }
+    }
+  }
+
+  // Routes: open on first flow, record volume and goods.
+  for (let p = 0; p < P; p++) {
+    const a = pairA[p], b = pairB[p]
+    if (!trader[a] || !trader[b]) continue
+    let vol = 0
+    const o = p * G * 2
+    for (let g = 0; g < G; g++) vol += (pairFlow[o + g * 2] + pairFlow[o + g * 2 + 1]) * V[g]
+    if (!(vol > 0)) continue
+    let r = pairRoute[p]
+    if (r < 0) { r = createRoute(s, ts, p); pairRoute[p] = r } // (may grow the route buffers: use ts.* below)
+    if (!ts.rOpen[r]) {
+      ts.rOpen[r] = 1
+      ts.rIdle[r] = 0
+      ts.openList.push(r)
+      logEvent(s, EventType.TradeOpened, a, b, r)
+    }
+    ts.rVol[r] = vol
+    const og = r * G * 2
+    for (let g = 0; g < G; g++) {
+      const ab = pairFlow[o + g * 2], ba = pairFlow[o + g * 2 + 1]
+      ts.rGood[og + g * 2] += ab
+      ts.rGood[og + g * 2 + 1] += ba
+      ts.goodYear[g] += (ab + ba) * V[g]
+    }
+    throughYear[a] += TRADE.ownWeight * vol
+    throughYear[b] += TRADE.ownWeight * vol
+    const transit = ts.rTransit[r]
+    for (let k = 0; k < transit.length; k++) {
+      const x = transit[k]
+      if (s.abandoned[x] >= 0) continue
+      throughYear[x] += vol
+      income[x] += TRADE.toll * vol
+    }
+  }
+
+  // Fed by what is left after trade.
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    if (!trader[id]) continue
+    const o = id * G
+    const F = stock[o] + stock[o + 1] + stock[o + 2]
+    const p = s.pop[id]
+    s.supply[id] = F
+    s.food[id] = F >= p ? 1 : F / p
+    s.foodImport[id] += WEALTH.importSmoothing * (F - food0[id] - s.foodImport[id])
+  }
+  settle(s, ts)
+}
+
+/** Hub size x = sqrt(t / hubRef) of settlement `id`, t = smoothed loads passing through it plus ownWeight times those on its own routes. */
+export function hubSize(s: HistoryState, id: number): number {
+  return Math.sqrt(s.through[id] / WEALTH.hubRef)
+}
+
+/** Idle routes close; wealth, hub status and the food multiplier update; non-traders' imports fade. */
+function settle(s: HistoryState, ts: TradeState): void {
+  // Routes without trade this year idle, and close after closeYears.
+  const list = ts.openList
+  let w = 0
+  for (let t = 0; t < list.length; t++) {
+    const r = list[t]
+    ts.rRoadAcc[r] += ts.rVol[r]
+    if (ts.rVol[r] < TRADE.closeMin) ts.rIdle[r]++
+    else ts.rIdle[r] = 0
+    if (ts.rIdle[r] >= TRADE.closeYears) { closeRoute(s, ts, r); continue }
+    list[w++] = r
+  }
+  list.length = w
+  const living = s.living
+  const W = WEALTH
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    const p = s.pop[id]
+    const wealth = s.wealth[id] * (1 - W.decay) + ts.income[id]
+    s.wealth[id] = wealth
+    s.through[id] += 0.2 * (ts.throughYear[id] - s.through[id])
+    if (!ts.trader[id]) s.foodImport[id] *= 1 - W.importSmoothing
+    const pw = p > 0 ? wealth / p : 0
+    const hub = W.hubK * hubSize(s, id)
+    s.econ[id] = 1 + (W.cap * pw) / (pw + W.half) + (hub < W.hubCap ? hub : W.hubCap)
+    ts.income[id] = 0
+    ts.throughYear[id] = 0
+  }
+}
+
+/** System (after abandonment): routes with an abandoned end close this year. */
+export function tradeAbandonSystem(s: HistoryState, ts: TradeState): void {
+  const list = ts.openList
+  let w = 0
+  for (let t = 0; t < list.length; t++) {
+    const r = list[t]
+    if (s.abandoned[ts.rA[r]] >= 0 || s.abandoned[ts.rB[r]] >= 0) { closeRoute(s, ts, r); continue }
+    list[w++] = r
+  }
+  list.length = w
+}
+
+/** System (every ROAD.step years): route traffic wears roads into land cells; roads fade without it; travel costs follow. */
+export function roadSystem(s: HistoryState, ts: TradeState): void {
+  const T = s.terrain
+  const lake = s.world.lake
+  const dt = ROAD.step
+  const { traffic, isRoad, roadCells } = ts
+  let count = ts.roadCount
+  for (let r = 0; r < ts.routeCount; r++) {
+    const acc = ts.rRoadAcc[r]
+    if (!(acc > 0)) continue
+    ts.rRoadAcc[r] = 0
+    const per = acc / dt
+    const path = ts.rPath[r]
+    for (let k = 0; k < path.length; k++) {
+      const c = path[k]
+      if (T.sea[c] || lake[c]) continue
+      traffic[c] += per
+      if (!isRoad[c]) { isRoad[c] = 1; roadCells[count++] = c }
+    }
+  }
+  const road = s.road
+  const R = ROAD
+  const up = R.riseRate * dt, down = R.fadeRate * dt
+  let w = 0
+  for (let t = 0; t < count; t++) {
+    const c = roadCells[t]
+    const tr = traffic[c]
+    traffic[c] = 0
+    const tg = tr / (tr + R.half)
+    let x = road[c]
+    x += (tg - x) * (tg > x ? up : down)
+    if (tr === 0 && x < R.epsilon) {
+      road[c] = 0
+      s.moveCost[c] = T.moveCost[c]
+      isRoad[c] = 0
+      continue
+    }
+    road[c] = x
+    s.moveCost[c] = T.moveCost[c] * (1 - R.discount * x)
+    roadCells[w++] = c
+  }
+  ts.roadCount = w
+}
+
+/** Flattens the routes into the contract shape (each array with its own buffer). Main goods: most carried each way over the run. */
+export function assembleTrade(ts: TradeState): {
+  count: number
+  a: Int32Array
+  b: Int32Array
+  openedYear: Float32Array
+  goodAB: Uint8Array
+  goodBA: Uint8Array
+  pathOffsets: Uint32Array
+  path: Uint32Array
+} {
+  const R = ts.routeCount
+  const a = Int32Array.from(ts.rA)
+  const b = Int32Array.from(ts.rB)
+  const openedYear = Float32Array.from(ts.rOpened)
+  const goodAB = new Uint8Array(R)
+  const goodBA = new Uint8Array(R)
+  const pathOffsets = new Uint32Array(R + 1)
+  let total = 0
+  for (let r = 0; r < R; r++) total += ts.rPath[r].length
+  const path = new Uint32Array(total)
+  let off = 0
+  for (let r = 0; r < R; r++) {
+    let bestAB = 0, bestBA = 0
+    const o = r * G * 2
+    for (let g = 1; g < G; g++) {
+      if (ts.rGood[o + g * 2] * GOODS.value[g] > ts.rGood[o + bestAB * 2] * GOODS.value[bestAB]) bestAB = g
+      if (ts.rGood[o + g * 2 + 1] * GOODS.value[g] > ts.rGood[o + bestBA * 2 + 1] * GOODS.value[bestBA]) bestBA = g
+    }
+    // A direction that never carried anything takes the other direction's good.
+    if (!(ts.rGood[o + bestAB * 2] > 0)) bestAB = bestBA
+    if (!(ts.rGood[o + bestBA * 2 + 1] > 0)) bestBA = bestAB
+    goodAB[r] = bestAB
+    goodBA[r] = bestBA
+    pathOffsets[r] = off
+    const p = ts.rPath[r]
+    for (let k = 0; k < p.length; k++) path[off + k] = p[k]
+    off += p.length
+  }
+  pathOffsets[R] = off
+  return { count: R, a, b, openedYear, goodAB, goodBA, pathOffsets, path }
+}

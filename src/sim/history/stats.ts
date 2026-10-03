@@ -1,16 +1,20 @@
 // Headless tuning harness for the settlement history. Run with:
 //   node src/sim/history/stats.ts [seed ...]          (Node >= 23, native type stripping)
-//   node src/sim/history/stats.ts --map 42           (also print ASCII maps for the seeds)
+//   node src/sim/history/stats.ts --map 42           (also print ASCII maps for the seeds, and a road / route map at the end)
+// Reports population, towns and cities, land use and degradation (overall and of farmed cells), trade
+// (open routes, volume, sea share, route length, share of each good), roads (cells, connected corridors),
+// famine rates with and without trade, how city size correlates with trade, and where the largest cities sit.
 
-import { Biome, CITY_POPULATION, EventType, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, Good, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { generateWorld } from '../index.ts'
 import { LANDMASS_MIN_FRACTION } from '../stats.ts'
 import { runHistory } from './index.ts'
+import type { HistoryDiagnostics } from './index.ts'
 import { productivityAt } from './state.ts'
 import type { Terrain } from './terrain.ts'
 
-export const STAT_YEARS = [0, 100, 250, 500, 1000, 1500, 2000]
+export const STAT_YEARS = [0, 100, 250, 500, 750, 1000, 1500, 2000]
 export const HISTORY_STATS_SEEDS = [1, 2, 3, 42, 1337, 2024, 31337, 77, 99999, 123456, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 
 export interface YearStats {
@@ -36,7 +40,25 @@ export interface YearStats {
   /** Ports and dams in use. */
   ports: number
   dams: number
+  /** Trade routes open (by TradeOpened / TradeClosed events), total volume on them, share of it on routes crossing >= 2 sea cells, mean path length (cells) of open routes. */
+  routes: number
+  volume: number
+  seaShare: number
+  routeLen: number
+  /** Share of total volume per good (internal diagnostics; zeros when unavailable). */
+  goodShare: number[]
+  /** Land cells with road >= ROAD_STAT (of 255). */
+  roadCells: number
+  /** Farmed cells (land use >= FARMED of 255): count, mean degradation and 90th percentile (0..1), share degraded >= 0.3. */
+  farmed: number
+  farmDegMean: number
+  farmDegP90: number
+  farmDeg30: number
 }
+
+/** Road level (of 255) that counts as a road in the stats, and land use (of 255) that counts as farmed. */
+export const ROAD_STAT = 32
+export const FARMED = 51
 
 export interface HistoryStats {
   seed: number
@@ -113,6 +135,273 @@ export interface HistoryStats {
   portHas: number
   /** Mean aridity over habitable cells, for comparison with dam sites. */
   landAridity: number
+  /** Trade: routes ever, and the bytes of the trade volume, wealth and road matrices. */
+  routesEver: number
+  tradeBytes: number
+  /** Famine events per 100 settlement-decades for settlements >= 300 after year 500, with / without an open route at the start of the decade. */
+  famineConnected: number
+  famineUnconnected: number
+  /** Spearman rank correlation at the end, over living settlements >= 300, of population with open route count and with through-volume. */
+  rhoRoutes: number
+  rhoThrough: number
+  /** Top-5 settlements at the end by site: river mouth, port (coastal with a port), other coast, inland river, inland. */
+  top5Sites: number[]
+  /** Road network at the end (cells >= ROAD_STAT): connected components, share of road cells in the largest, share in components of >= 10 cells. */
+  roadComponents: number
+  roadLargest: number
+  roadInBig: number
+  /** Living settlements at the end that are not trading (no open route) / with >= 1 route, and the wealth share of the top 10. */
+  wealthTop10: number
+  /** Overseas settlement and the spread over landmasses (see overseasStats). */
+  sea: OverseasStats
+}
+
+/** Years at which the landmass-level figures are taken. */
+export const SEA_YEARS = [250, 500, 750, 1000, 1500, 2000]
+/** A landmass counts as continent-sized at >= LANDMASS_MIN_FRACTION of the planet's cells and with at least this many habitable cells; any other with habitable land is a small island. */
+export const CONTINENT_HABITABLE = 50
+
+export interface OverseasStats {
+  /** Continent-sized landmasses other than the cradle (the founders' landmass), and small habitable islands. */
+  continents: number
+  islands: number
+  /** Continents other than the cradle with a living settlement, per SEA_YEARS. */
+  continentsSettled: number[]
+  /** Share of habitable cells on continent-sized landmasses (cradle included) inside a living settlement's catchment (full reach), per SEA_YEARS; and the same for the cradle alone and for the other continents. */
+  claimAll: number[]
+  claimCradle: number[]
+  claimOther: number[]
+  /** Share of small habitable islands settled (a living settlement) at the end, and ever. */
+  islandsEnd: number
+  islandsEver: number
+  /** Share of the total population living off the cradle, per SEA_YEARS. */
+  popOffCradle: number[]
+  /** First founding on another continent / on any other landmass (-1 if none). */
+  firstContinent: number
+  firstLandmass: number
+  /** Founding journeys (settlers with a parent) and those crossing >= 2 sea cells (seaborne). */
+  foundings: number
+  seaFoundings: number
+  /** Seaborne foundings per era (0-500, 500-1000, 1000-1500, 1500-2000): count, median and max sea cells crossed. */
+  eraCount: number[]
+  eraMedian: number[]
+  eraMax: number[]
+  /** Seaborne foundings whose sender had a port in use; median sender population (at the nearest earlier snapshot). */
+  seaFromPort: number
+  seaSenderPop: number
+  /** Seaborne colonies later abandoned (share). */
+  seaAbandoned: number
+  /** Voyages from the sim's internal records (-1 when unavailable): attempted (launched with a landfall chosen), founded, lost at sea, found no landfall. */
+  voyLaunched: number
+  voyFounded: number
+  voyLost: number
+  voyNothing: number
+  /** Of launched voyages: share from a port, median sender population. */
+  voyPortShare: number
+  voySenderPop: number
+  /** Population share per landmass at SEA_YEARS for the largest landmasses (label = habitable cells; c marks the cradle). */
+  lmShares: string
+  /** At the end: traders (>= 400) off the cradle, and the share of them joined by open routes (through any chain) to a cradle settlement; seaborne colonies that ever traded directly with their mother settlement / eligible pairs (both reached 400 by the end). */
+  offTraders: number
+  offLinked: number
+  motherRoutes: number
+  motherPairs: number
+}
+
+/** Settlement spread over landmasses, seaborne foundings and voyages. */
+export function overseasStats(world: World, h: History, terrain: Terrain, diag?: HistoryDiagnostics): OverseasStats {
+  const N = world.grid.cellCount
+  const S = h.settlements.length
+  const M = terrain.landmassSize.length
+  const lmHab = new Int32Array(M)
+  for (let i = 0; i < N; i++) if (terrain.habitable[i]) lmHab[terrain.landmass[i]]++
+  const cradle = S > 0 ? terrain.landmass[h.settlements[0].cell] : -1
+  const isCont = (m: number) => terrain.landmassSize[m] >= LANDMASS_MIN_FRACTION * N && lmHab[m] >= CONTINENT_HABITABLE
+  let continents = 0, islands = 0
+  for (let m = 0; m < M; m++) {
+    if (lmHab[m] === 0) continue
+    if (isCont(m)) { if (m !== cradle) continents++ } else if (m !== cradle) islands++
+  }
+  const continentsSettled: number[] = [], claimAll: number[] = [], claimCradle: number[] = [], claimOther: number[] = [], popOffCradle: number[] = []
+  const claimed = new Int32Array(N).fill(-1)
+  const lmPop = new Float64Array(M)
+  const shareRows: number[][] = []
+  const topLm = [...Array(M).keys()].filter((m) => lmHab[m] > 0).sort((a, b) => lmHab[b] - lmHab[a] || a - b).slice(0, 6)
+  for (const year of SEA_YEARS) {
+    if (year > h.years) continue
+    const q = Math.floor(year / h.snapshotInterval)
+    lmPop.fill(0)
+    const alive = new Uint8Array(M)
+    let total = 0
+    for (let id = 0; id < S; id++) {
+      const p = h.population[q * S + id]
+      if (p <= 0) continue
+      const c = h.settlements[id].cell
+      const m = terrain.landmass[c]
+      lmPop[m] += p
+      total += p
+      alive[m] = 1
+      for (let k = terrain.catchOff[c]; k < terrain.catchOff[c + 1]; k++) claimed[terrain.catchCell[k]] = q
+    }
+    let cs = 0
+    for (let m = 0; m < M; m++) if (m !== cradle && isCont(m) && alive[m]) cs++
+    continentsSettled.push(cs)
+    let ha = 0, ca = 0, hc = 0, cc = 0, ho = 0, co = 0
+    for (let i = 0; i < N; i++) {
+      if (!terrain.habitable[i]) continue
+      const m = terrain.landmass[i]
+      if (!isCont(m)) continue
+      const yes = claimed[i] === q ? 1 : 0
+      ha++; ca += yes
+      if (m === cradle) { hc++; cc += yes } else { ho++; co += yes }
+    }
+    claimAll.push(ha > 0 ? ca / ha : 0)
+    claimCradle.push(hc > 0 ? cc / hc : 0)
+    claimOther.push(ho > 0 ? co / ho : 0)
+    popOffCradle.push(total > 0 ? 1 - lmPop[cradle] / total : 0)
+    shareRows.push(topLm.map((m) => (total > 0 ? lmPop[m] / total : 0)))
+  }
+  const last = h.snapshotCount - 1
+  const everLm = new Uint8Array(M), endLm = new Uint8Array(M)
+  let firstContinent = -1, firstLandmass = -1
+  for (let id = 0; id < S; id++) {
+    const st = h.settlements[id]
+    const m = terrain.landmass[st.cell]
+    everLm[m] = 1
+    if (h.population[last * S + id] > 0) endLm[m] = 1
+    if (m !== cradle) {
+      if (firstLandmass < 0) firstLandmass = st.foundedYear
+      if (firstContinent < 0 && isCont(m)) firstContinent = st.foundedYear
+    }
+  }
+  let ie = 0, iv = 0
+  for (let m = 0; m < M; m++) if (lmHab[m] > 0 && m !== cradle && !isCont(m)) { ie += endLm[m]; iv += everLm[m] }
+  // Seaborne foundings from the journeys.
+  const J = h.journeys
+  let foundings = 0, seaFoundings = 0, seaFromPort = 0, seaAband = 0
+  const eras: number[][] = [[], [], [], []]
+  const senderPops: number[] = []
+  for (let j = 0; j < J.count; j++) {
+    if (J.kind[j] !== 0) continue
+    foundings++
+    let sea = 0
+    for (let k = J.pathOffsets[j]; k < J.pathOffsets[j + 1]; k++) if (world.elevation[J.path[k]] < 0) sea++
+    if (sea < 2) continue
+    seaFoundings++
+    const year = J.arriveYear[j], from = J.from[j]
+    eras[Math.min(3, Math.floor(year / 500))].push(sea)
+    if (h.structures.some((x) => x.type === StructureType.Port && x.settlement === from && x.builtYear <= year && (x.lostYear < 0 || x.lostYear > year))) seaFromPort++
+    senderPops.push(h.population[Math.floor(year / h.snapshotInterval) * S + from])
+    if (h.settlements[J.to[j]].abandonedYear >= 0) seaAband++
+  }
+  const median = (xs: number[]) => { if (xs.length === 0) return 0; const a = [...xs].sort((x, y) => x - y); return a[Math.floor(a.length / 2)] }
+  const v = diag?.voyages
+  let voyLaunched = -1, voyFounded = -1, voyLost = -1, voyNothing = -1, voyPortShare = 0, voySenderPop = 0
+  if (v) {
+    voyLaunched = 0; voyFounded = 0; voyLost = 0; voyNothing = 0
+    let port = 0
+    const pops: number[] = []
+    for (let k = 0; k < v.outcome.length; k++) {
+      const o = v.outcome[k]
+      if (o === 0) { voyNothing++; continue }
+      voyLaunched++
+      if (o === 1) voyFounded++
+      else voyLost++
+      if (v.port[k]) port++
+      pops.push(v.senderPop[k])
+    }
+    voyPortShare = voyLaunched > 0 ? port / voyLaunched : 0
+    voySenderPop = median(pops)
+  }
+  // Trade reach: route components at the end.
+  const tr = h.trade
+  const parentOf = new Int32Array(S).fill(-1)
+  for (let id = 0; id < S; id++) parentOf[id] = id
+  const findRoot = (x: number): number => { while (parentOf[x] !== x) { parentOf[x] = parentOf[parentOf[x]]; x = parentOf[x] } return x }
+  const isOpenEnd = new Uint8Array(tr.count)
+  for (const e of h.events) {
+    if (e.type === EventType.TradeOpened) isOpenEnd[e.value] = 1
+    else if (e.type === EventType.TradeClosed) isOpenEnd[e.value] = 0
+  }
+  const pairKey = new Set<number>()
+  for (let r = 0; r < tr.count; r++) {
+    pairKey.add(tr.a[r] * S + tr.b[r])
+    if (isOpenEnd[r]) { const ra = findRoot(tr.a[r]), rb = findRoot(tr.b[r]); if (ra !== rb) parentOf[ra] = rb }
+  }
+  const cradleRoot = new Uint8Array(S)
+  for (let id = 0; id < S; id++) if (h.population[last * S + id] > 0 && terrain.landmass[h.settlements[id].cell] === cradle) cradleRoot[findRoot(id)] = 1
+  let offTraders = 0, offLinked = 0
+  for (let id = 0; id < S; id++) {
+    if (h.population[last * S + id] < 400 || terrain.landmass[h.settlements[id].cell] === cradle) continue
+    offTraders++
+    if (cradleRoot[findRoot(id)]) offLinked++
+  }
+  let motherRoutes = 0, motherPairs = 0
+  for (let j = 0; j < J.count; j++) {
+    if (J.kind[j] !== 0) continue
+    const a = J.from[j], b = J.to[j]
+    let sea = 0
+    for (let k = J.pathOffsets[j]; k < J.pathOffsets[j + 1]; k++) if (world.elevation[J.path[k]] < 0) sea++
+    if (sea < 2) continue
+    let ra = false, rb = false
+    for (let q = 0; q <= last; q++) { if (h.population[q * S + a] >= 400) ra = true; if (h.population[q * S + b] >= 400) rb = true }
+    if (!ra || !rb) continue
+    motherPairs++
+    if (pairKey.has(Math.min(a, b) * S + Math.max(a, b))) motherRoutes++
+  }
+  const lmShares = topLm.map((m, i) => `${m === cradle ? 'c' : ''}${lmHab[m]}h:${shareRows.map((r) => (100 * r[i]).toFixed(0)).join('/')}`).join('  ')
+  return {
+    continents, islands, continentsSettled, claimAll, claimCradle, claimOther,
+    islandsEnd: islands > 0 ? ie / islands : 0, islandsEver: islands > 0 ? iv / islands : 0, popOffCradle,
+    firstContinent, firstLandmass, foundings, seaFoundings,
+    eraCount: eras.map((e) => e.length), eraMedian: eras.map(median), eraMax: eras.map((e) => (e.length > 0 ? Math.max(...e) : 0)),
+    seaFromPort, seaSenderPop: median(senderPops), seaAbandoned: seaFoundings > 0 ? seaAband / seaFoundings : 0,
+    voyLaunched, voyFounded, voyLost, voyNothing, voyPortShare, voySenderPop, lmShares,
+    offTraders, offLinked: offTraders > 0 ? offLinked / offTraders : 0, motherRoutes, motherPairs,
+  }
+}
+
+export function formatOverseasStats(rows: HistoryStats[]): string {
+  const L: string[] = []
+  const pc = (x: number) => (100 * x).toFixed(0)
+  const yrs = SEA_YEARS.join('/')
+  L.push(`overseas, per seed: other continents settled at ${yrs} of total; claim% of continent habitable land (all / cradle / others) at ${yrs}; islands settled end (ever); pop% off the cradle at ${yrs}`)
+  for (const r of rows) {
+    const o = r.sea
+    L.push(
+      `  seed ${pad(r.seed, 6)}: cont ${o.continentsSettled.join('/')} of ${o.continents}; claim all ${o.claimAll.map(pc).join('/')} cradle ${o.claimCradle.map(pc).join('/')} other ${o.claimOther.map(pc).join('/')}; ` +
+        `islands ${pc(o.islandsEnd)}% (${pc(o.islandsEver)}%) of ${o.islands}; off-cradle pop ${o.popOffCradle.map(pc).join('/')}%; first other landmass ${o.firstLandmass}, continent ${o.firstContinent}`,
+    )
+    L.push(
+      `      sea foundings ${o.seaFoundings} of ${o.foundings} (${o.foundings > 0 ? pc(o.seaFoundings / o.foundings) : 0}%), per era count ${o.eraCount.join('/')} median sea cells ${o.eraMedian.join('/')} max ${o.eraMax.join('/')}; from a port ${o.seaFromPort}, median sender pop ${o.seaSenderPop.toFixed(0)}, later abandoned ${pc(o.seaAbandoned)}%` +
+        (o.voyLaunched >= 0 ? `; voyages launched ${o.voyLaunched} founded ${o.voyFounded} lost ${o.voyLost} (no landfall found ${o.voyNothing}), from ports ${pc(o.voyPortShare)}%, median sender pop ${o.voySenderPop.toFixed(0)}` : ''),
+    )
+    L.push(`      pop share % by landmass (habitable cells) at ${yrs}: ${o.lmShares}; traders off the cradle ${o.offTraders}, ${pc(o.offLinked)}% linked to the cradle by routes; colony-mother routes ${o.motherRoutes} of ${o.motherPairs} eligible`)
+  }
+  const med = (xs: number[]) => { const a = [...xs].sort((x, y) => x - y); return a.length > 0 ? a[Math.floor(a.length / 2)] : 0 }
+  const withCont = rows.filter((r) => r.sea.continents > 0)
+  const second = withCont.filter((r) => r.sea.continentsSettled[r.sea.continentsSettled.length - 1] > 0).length
+  const firsts = withCont.map((r) => r.sea.firstContinent)
+  const firstSorted = firsts.map((x) => (x < 0 ? 1e9 : x))
+  L.push(
+    `overseas summary: seeds with another continent ${withCont.length}/${rows.length}, of which a second continent settled by the end ${second}; ` +
+      `first other continent per seed ${firsts.map((x) => (x < 0 ? '-' : x)).join(' ')} (median ${med(firstSorted) >= 1e9 ? 'never' : med(firstSorted)}); first other landmass median ${med(rows.map((r) => (r.sea.firstLandmass < 0 ? 1e9 : r.sea.firstLandmass)))}`,
+  )
+  const endClaim = rows.map((r) => r.sea.claimAll[r.sea.claimAll.length - 1])
+  L.push(
+    `  continent claim% at 2000 per seed: ${endClaim.map(pc).join(' ')} (median ${pc(med(endClaim))}, seeds >= 80%: ${endClaim.filter((x) => x >= 0.8).length}/${rows.length}); ` +
+      `other-continent claim% at 1000 / 1500 / 2000 median ${pc(med(withCont.map((r) => r.sea.claimOther[3])))} / ${pc(med(withCont.map((r) => r.sea.claimOther[4])))} / ${pc(med(withCont.map((r) => r.sea.claimOther[5])))}; ` +
+      `small islands settled at end median ${pc(med(rows.map((r) => r.sea.islandsEnd)))}% (ever ${pc(med(rows.map((r) => r.sea.islandsEver)))}%)`,
+  )
+  const tot = (f: (o: OverseasStats) => number) => rows.reduce((a, r) => a + f(r.sea), 0)
+  L.push(
+    `  seaborne foundings per seed median ${med(rows.map((r) => r.sea.seaFoundings))} (share of foundings ${pc(tot((o) => o.seaFoundings) / Math.max(1, tot((o) => o.foundings)))}%), per era (all seeds) ${[0, 1, 2, 3].map((e) => tot((o) => o.eraCount[e])).join('/')}, ` +
+      `median sea cells per era (median over seeds) ${[0, 1, 2, 3].map((e) => med(rows.filter((r) => r.sea.eraCount[e] > 0).map((r) => r.sea.eraMedian[e]))).join('/')}, max ${[0, 1, 2, 3].map((e) => Math.max(0, ...rows.map((r) => r.sea.eraMax[e]))).join('/')}; ` +
+      `from ports ${pc(tot((o) => o.seaFromPort) / Math.max(1, tot((o) => o.seaFoundings)))}%, later abandoned ${pc(med(rows.map((r) => r.sea.seaAbandoned)))}% (median)` +
+      `; off-cradle traders linked to the cradle (median) ${pc(med(rows.filter((r) => r.sea.offTraders > 0).map((r) => r.sea.offLinked)))}%, colony-mother routes ${tot((o) => o.motherRoutes)} of ${tot((o) => o.motherPairs)} eligible pairs` +
+      (rows[0]?.sea.voyLaunched >= 0 ? `; voyages per seed launched ${med(rows.map((r) => r.sea.voyLaunched))} founded ${med(rows.map((r) => r.sea.voyFounded))} lost ${med(rows.map((r) => r.sea.voyLost))} no landfall ${med(rows.map((r) => r.sea.voyNothing))}, from ports ${pc(med(rows.map((r) => r.sea.voyPortShare)))}%` : ''),
+  )
+  return L.join('\n')
 }
 
 function smooth01(e0: number, e1: number, x: number): number {
@@ -127,9 +416,56 @@ export function snapshotTotal(h: History, snap: number): number {
   return t
 }
 
-export function historyStats(world: World, h: History, terrain: Terrain, ms: number, worldMs: number): HistoryStats {
+/** Open-route count per settlement after replaying trade events up to and including `year`. */
+function openRoutesAt(h: History, year: number, out: Int32Array): void {
+  out.fill(0)
+  for (const e of h.events) {
+    if (e.year > year) break
+    if (e.type === EventType.TradeOpened) { out[e.settlement]++; out[e.other]++ }
+    else if (e.type === EventType.TradeClosed) { out[e.settlement]--; out[e.other]-- }
+  }
+}
+
+/** Ranks with ties averaged. */
+function ranks(xs: number[]): number[] {
+  const idx = xs.map((_, i) => i).sort((a, b) => xs[a] - xs[b] || a - b)
+  const r = new Array<number>(xs.length)
+  for (let i = 0; i < idx.length; ) {
+    let j = i
+    while (j + 1 < idx.length && xs[idx[j + 1]] === xs[idx[i]]) j++
+    for (let k = i; k <= j; k++) r[idx[k]] = (i + j) / 2
+    i = j + 1
+  }
+  return r
+}
+
+export function spearman(xs: number[], ys: number[]): number {
+  if (xs.length < 3) return 0
+  const a = ranks(xs), b = ranks(ys)
+  const n = a.length
+  let ma = 0, mb = 0
+  for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i] }
+  ma /= n; mb /= n
+  let sab = 0, saa = 0, sbb = 0
+  for (let i = 0; i < n; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2 }
+  return saa > 0 && sbb > 0 ? sab / Math.sqrt(saa * sbb) : 0
+}
+
+export function historyStats(world: World, h: History, terrain: Terrain, ms: number, worldMs: number, diag?: HistoryDiagnostics): HistoryStats {
   const S = h.settlements.length
   const N = world.grid.cellCount
+  const tr = h.trade
+  const R = tr ? tr.count : 0
+  // Route geometry: sea cells per route and path length.
+  const routeSea = new Uint8Array(R)
+  const routeLenA = new Int32Array(R)
+  for (let r = 0; r < R; r++) {
+    let sea = 0
+    for (let k = tr.pathOffsets[r]; k < tr.pathOffsets[r + 1]; k++) if (world.elevation[tr.path[k]] < 0) sea++
+    routeSea[r] = sea >= 2 ? 1 : 0
+    routeLenA[r] = tr.pathOffsets[r + 1] - tr.pathOffsets[r]
+  }
+  const openNow = new Int32Array(S)
   let habitable = 0, habCap = 0
   for (let i = 0; i < N; i++) if (terrain.habitable[i]) { habitable++; habCap += terrain.capacity[i] }
   const claimed = new Int32Array(N).fill(-1)
@@ -164,6 +500,36 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     pops.sort((a, b) => b - a)
     let total = 0
     for (const p of pops) total += p
+    // Trade at this year.
+    let routes = 0, volume = 0, seaVol = 0, lenSum = 0
+    const goodShare = new Array<number>(GOOD_COUNT).fill(0)
+    if (tr && h.tradeSnapshotCount > 0) {
+      const tq = Math.min(h.tradeSnapshotCount - 1, Math.round(year / h.tradeInterval))
+      const isOpen = new Uint8Array(R)
+      for (const e of h.events) {
+        if (e.year > year) break
+        if (e.type === EventType.TradeOpened) isOpen[e.value] = 1
+        else if (e.type === EventType.TradeClosed) isOpen[e.value] = 0
+      }
+      for (let r = 0; r < R; r++) {
+        if (isOpen[r]) { routes++; lenSum += routeLenA[r] }
+        const v = h.tradeVolume[tq * R + r]
+        volume += v
+        if (routeSea[r]) seaVol += v
+      }
+      if (diag) {
+        let gt = 0
+        for (let g = 0; g < GOOD_COUNT; g++) gt += diag.goodVolume[tq * GOOD_COUNT + g]
+        for (let g = 0; g < GOOD_COUNT; g++) goodShare[g] = gt > 0 ? diag.goodVolume[tq * GOOD_COUNT + g] / gt : 0
+      }
+    }
+    let roadCells = 0
+    if (h.road) for (let i = 0; i < N; i++) if (h.road[lq * N + i] >= ROAD_STAT) roadCells++
+    const fdeg: number[] = []
+    for (let i = 0; i < N; i++) if (h.landUse[lq * N + i] >= FARMED) fdeg.push(h.degradation[lq * N + i] / 255)
+    fdeg.sort((a, b) => a - b)
+    let fsum = 0, f30 = 0
+    for (const d of fdeg) { fsum += d; if (d >= 0.3) f30++ }
     let top = 0
     for (let i = 0; i < Math.min(10, pops.length); i++) top += pops[i]
     byYear.push({
@@ -179,9 +545,12 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
       landUse: lu / (255 * habitable),
       degradation: dg / (255 * habitable),
       towns, cities, ports, dams,
+      routes, volume, seaShare: volume > 0 ? seaVol / volume : 0, routeLen: routes > 0 ? lenSum / routes : 0, goodShare, roadCells,
+      farmed: fdeg.length, farmDegMean: fdeg.length > 0 ? fsum / fdeg.length : 0, farmDegP90: fdeg.length > 0 ? fdeg[Math.floor(0.9 * (fdeg.length - 1))] : 0,
+      farmDeg30: fdeg.length > 0 ? f30 / fdeg.length : 0,
     })
   }
-  const events = [0, 0, 0, 0, 0, 0, 0, 0]
+  const events = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   for (const e of h.events) events[e.type]++
 
   const lmEver = new Uint8Array(terrain.landmassSize.length)
@@ -364,15 +733,15 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
   }
   const sec = new Int32Array(S)
   for (let id = 0; id < S; id++) sec[id] = sector(h.settlements[id].cell)
-  const R = 288
-  const regPop = new Float64Array(R * h.snapshotCount)
-  for (let q = 0; q < h.snapshotCount; q++) for (let id = 0; id < S; id++) regPop[q * R + sec[id]] += h.population[q * S + id]
+  const RG = 288
+  const regPop = new Float64Array(RG * h.snapshotCount)
+  for (let q = 0; q < h.snapshotCount; q++) for (let id = 0; id < S; id++) regPop[q * RG + sec[id]] += h.population[q * S + id]
   let worldPeak = 0
   for (let q = 0; q < h.snapshotCount; q++) worldPeak = Math.max(worldPeak, snapshotTotal(h, q))
   let regions = 0, regionsDeclined = 0, regionsRecovered = 0
   const q300 = Math.ceil(300 / h.snapshotInterval)
-  for (let r = 0; r < R; r++) {
-    const sm = smooth((q) => regPop[q * R + r])
+  for (let r = 0; r < RG; r++) {
+    const sm = smooth((q) => regPop[q * RG + r])
     let peak = 0
     for (let q = 0; q < h.snapshotCount; q++) peak = Math.max(peak, sm[q])
     if (peak < 0.01 * worldPeak) continue
@@ -389,7 +758,111 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     if (recovered) regionsRecovered++
   }
 
+  // Famine and trade: per decade from year 500, settlements >= 300 at the decade start, by whether they had an open route then.
+  let famC = 0, famU = 0, expC = 0, expU = 0
+  {
+    const open = new Int32Array(S)
+    const famineAt = new Int32Array(S).fill(-1)
+    let ei = 0
+    const evs = h.events
+    for (let y0 = 0; y0 + 10 <= h.years; y0 += 10) {
+      while (ei < evs.length && evs[ei].year < y0) {
+        const e = evs[ei++]
+        if (e.type === EventType.TradeOpened) { open[e.settlement]++; open[e.other]++ }
+        else if (e.type === EventType.TradeClosed) { open[e.settlement]--; open[e.other]-- }
+      }
+      if (y0 < 500) continue
+      const q = Math.floor(y0 / h.snapshotInterval)
+      const conn = new Int8Array(S).fill(-1)
+      for (let id = 0; id < S; id++) {
+        if (h.population[q * S + id] < 300) continue
+        conn[id] = open[id] > 0 ? 1 : 0
+        if (conn[id]) expC++
+        else expU++
+      }
+      for (let k = ei; k < evs.length && evs[k].year < y0 + 10; k++) {
+        const e = evs[k]
+        if (e.type !== EventType.Famine || famineAt[e.settlement] === y0) continue
+        famineAt[e.settlement] = y0
+        if (conn[e.settlement] === 1) famC++
+        else if (conn[e.settlement] === 0) famU++
+      }
+    }
+  }
+  // Pop vs routes / through-volume at the end.
+  openRoutesAt(h, h.years, openNow)
+  const xs: number[] = [], yr: number[] = [], yt: number[] = []
+  for (let id = 0; id < S; id++) {
+    const p = h.population[last * S + id]
+    if (p < 300) continue
+    xs.push(p)
+    yr.push(openNow[id])
+    yt.push(diag ? diag.through[id] : 0)
+  }
+  // Top-5 sites.
+  const top5Sites = [0, 0, 0, 0, 0]
+  {
+    const { neighborOffsets: off, neighbors: nb } = world.grid
+    const ids: number[] = []
+    for (let id = 0; id < S; id++) if (h.population[last * S + id] > 0) ids.push(id)
+    ids.sort((a, b) => h.population[last * S + b] - h.population[last * S + a] || a - b)
+    for (const id of ids.slice(0, 5)) {
+      const c = h.settlements[id].cell
+      let seaAdj = false, riverNear = world.flow[c] >= RIVER_FLOW_THRESHOLD
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const j = nb[k]
+        if (world.elevation[j] < 0 && world.biome[j] !== Biome.Ice) seaAdj = true
+        else if (world.flow[j] >= RIVER_FLOW_THRESHOLD) riverNear = true
+      }
+      const port = h.structures.some((x) => x.type === StructureType.Port && x.settlement === id && x.lostYear < 0)
+      top5Sites[seaAdj && riverNear ? 0 : seaAdj && port ? 1 : seaAdj ? 2 : riverNear ? 3 : 4]++
+    }
+  }
+  // Road components at the end.
+  let roadComponents = 0, roadLargest = 0, roadInBig = 0
+  if (h.road) {
+    const lq = h.landSnapshotCount - 1
+    const comp = new Int32Array(N).fill(-1)
+    const stack: number[] = []
+    let total = 0, largest = 0, inBig = 0
+    const { neighborOffsets: off, neighbors: nb } = world.grid
+    for (let i = 0; i < N; i++) {
+      if (h.road[lq * N + i] < ROAD_STAT || comp[i] >= 0) continue
+      let size = 0
+      comp[i] = roadComponents
+      stack.push(i)
+      while (stack.length > 0) {
+        const c = stack.pop() as number
+        size++
+        for (let k = off[c]; k < off[c + 1]; k++) {
+          const j = nb[k]
+          if (comp[j] < 0 && h.road[lq * N + j] >= ROAD_STAT) { comp[j] = roadComponents; stack.push(j) }
+        }
+      }
+      roadComponents++
+      total += size
+      if (size > largest) largest = size
+      if (size >= 10) inBig += size
+    }
+    roadLargest = total > 0 ? largest / total : 0
+    roadInBig = total > 0 ? inBig / total : 0
+  }
+  let wealthTop10 = 0
+  if (h.wealth) {
+    const ws: number[] = []
+    for (let id = 0; id < S; id++) if (h.wealth[last * S + id] > 0) ws.push(h.wealth[last * S + id])
+    ws.sort((a, b) => b - a)
+    let t = 0, t10 = 0
+    for (let i = 0; i < ws.length; i++) { t += ws[i]; if (i < 10) t10 += ws[i] }
+    wealthTop10 = t > 0 ? t10 / t : 0
+  }
+
   return {
+    routesEver: R,
+    tradeBytes: (h.tradeVolume ? h.tradeVolume.byteLength : 0) + (h.wealth ? h.wealth.byteLength : 0) + (h.road ? h.road.byteLength : 0),
+    famineConnected: expC > 0 ? (100 * famC) / expC : 0,
+    famineUnconnected: expU > 0 ? (100 * famU) / expU : 0,
+    rhoRoutes: spearman(xs, yr), rhoThrough: spearman(xs, yt), top5Sites, roadComponents, roadLargest, roadInBig, wealthTop10,
     regions, regionsDeclined, regionsRecovered, declinedDegraded, recycled, overseas, overseasFromPort,
     damAridity, damFlow, damsAtOwner, portEligible, portHas, landAridity,
     seed: world.seed, worldMs, ms, settlementsEver: S, byYear, events,
@@ -403,6 +876,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     resettled, recovered, degradedEver, declined, declinedAbandoned,
     townsEver: events[EventType.BecameTown], citiesEver: events[EventType.BecameCity], top3,
     abandonedLife: abandonedCount > 0 ? life / abandonedCount : 0,
+    sea: overseasStats(world, h, terrain, diag),
   }
 }
 
@@ -415,7 +889,7 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
   for (const r of rows) {
     L.push(
       `seed ${r.seed}: ${r.ms.toFixed(0)} ms (world ${r.worldMs.toFixed(0)} ms), ${r.settlementsEver} settlements ever, ` +
-        `events F/A/Fam/Mig/Built/Town/City/Lost ${r.events.join('/')}, landmasses settled ever/end/habitable ${r.landmassesEver}/${r.landmassesEnd}/${r.landmassesHabitable} (continents ${r.bigSettled}/${r.bigTotal}), ` +
+        `events F/A/Fam/Mig/Built/Town/City/Lost/TradeOpened/TradeClosed ${r.events.join('/')}, landmasses settled ever/end/habitable ${r.landmassesEver}/${r.landmassesEnd}/${r.landmassesHabitable} (continents ${r.bigSettled}/${r.bigTotal}), ` +
         `dips>=3% ${r.dips} (worst ${(100 * r.worstDip).toFixed(1)}%), end sizes <300/<3k/<30k/30k+ ${r.sizeBins.join('/')}, ` +
         `end pop river/coast/inland ${r.popSite.map((x) => x.toFixed(0)).join('/')}% (of habitable area ${r.areaSite.map((x) => x.toFixed(0)).join('/')}%), ` +
         `first overseas continent ${r.firstOverseas}, matrices ${(r.matrixBytes / 1048576).toFixed(2)} MB + land ${(r.landBytes / 1048576).toFixed(2)} MB`,
@@ -428,10 +902,16 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
         `declines on >=40%-degraded own land ${r.declinedDegraded}, cells degraded-recovered-degraded again ${r.recycled}; ` +
         `sea crossings (settlers, >=2 sea cells) ${r.overseas} (from a port ${r.overseasFromPort}); dams: mean aridity ${r.damAridity.toFixed(2)}, mean flow ${r.damFlow.toFixed(1)}x, on owner cell ${r.damsAtOwner}; coastal settlements >=600 at end ${r.portEligible}, with a port ${r.portHas}`,
     )
-    L.push('   year  living    total  largest   median  top10  settl%  claim%  fill%   use%   deg%  towns cities ports dams')
+    L.push(
+      `   trade: routes ever ${r.routesEver}, famines per 100 settlement-decades (>=300, after 500) with route ${r.famineConnected.toFixed(1)} / without ${r.famineUnconnected.toFixed(1)}, ` +
+        `spearman(pop, routes) ${r.rhoRoutes.toFixed(2)}, (pop, through-volume) ${r.rhoThrough.toFixed(2)}, top5 sites mouth/port/coast/river/inland ${r.top5Sites.join('/')}, ` +
+        `road components ${r.roadComponents} (largest ${(100 * r.roadLargest).toFixed(0)}%, in >=10-cell ${(100 * r.roadInBig).toFixed(0)}%), wealth top10 ${(100 * r.wealthTop10).toFixed(0)}%, trade+wealth+road ${(r.tradeBytes / 1048576).toFixed(2)} MB`,
+    )
+    L.push('   year  living    total  largest   median  top10  settl%  claim%  fill%   use%   deg%  towns cities ports dams | routes  volume sea%  len | farmed fdeg% p90% >=30% | roads  goods G/F/L/T/O/S %')
     for (const y of r.byYear) {
       L.push(
-        `  ${pad(y.year, 5)} ${pad(y.living, 7)} ${pad(fmtPop(y.total), 8)} ${pad(fmtPop(y.largest), 8)} ${pad(fmtPop(y.median), 8)} ${pad((100 * y.top10).toFixed(0) + '%', 6)} ${pad((100 * y.settledFrac).toFixed(1), 7)} ${pad((100 * y.claimedFrac).toFixed(1), 7)} ${pad((100 * y.fill).toFixed(0), 6)} ${pad((100 * y.landUse).toFixed(1), 6)} ${pad((100 * y.degradation).toFixed(1), 6)} ${pad(y.towns, 6)} ${pad(y.cities, 6)} ${pad(y.ports, 5)} ${pad(y.dams, 4)}`,
+        `  ${pad(y.year, 5)} ${pad(y.living, 7)} ${pad(fmtPop(y.total), 8)} ${pad(fmtPop(y.largest), 8)} ${pad(fmtPop(y.median), 8)} ${pad((100 * y.top10).toFixed(0) + '%', 6)} ${pad((100 * y.settledFrac).toFixed(1), 7)} ${pad((100 * y.claimedFrac).toFixed(1), 7)} ${pad((100 * y.fill).toFixed(0), 6)} ${pad((100 * y.landUse).toFixed(1), 6)} ${pad((100 * y.degradation).toFixed(1), 6)} ${pad(y.towns, 6)} ${pad(y.cities, 6)} ${pad(y.ports, 5)} ${pad(y.dams, 4)}` +
+          ` | ${pad(y.routes, 6)} ${pad(fmtPop(y.volume), 7)} ${pad((100 * y.seaShare).toFixed(0), 4)} ${pad(y.routeLen.toFixed(1), 4)} | ${pad(y.farmed, 6)} ${pad((100 * y.farmDegMean).toFixed(1), 5)} ${pad((100 * y.farmDegP90).toFixed(0), 4)} ${pad((100 * y.farmDeg30).toFixed(0), 5)} | ${pad(y.roadCells, 5)}  ${y.goodShare.map((x) => (100 * x).toFixed(0)).join('/')}`,
       )
     }
   }
@@ -461,7 +941,36 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
       `  ${pad(STAT_YEARS[yi], 5)}  ${pad(range(ys.map((y) => 100 * y.landUse), f1), 14)}  ${pad(range(ys.map((y) => 100 * y.degradation), f1), 14)}  ${pad(range(ys.map((y) => y.towns), f0), 11)}  ${pad(range(ys.map((y) => y.cities), f0), 11)}  ${pad(range(ys.map((y) => y.ports), f0), 12)}  ${pad(range(ys.map((y) => y.dams), f0), 12)}`,
     )
   }
+  L.push('   year         routes             volume       sea%        len      farmed deg%      p90 deg%      >=30% deg      road cells')
+  for (let yi = 0; yi < STAT_YEARS.length; yi++) {
+    const ys = rows.map((r) => r.byYear[yi]).filter((y) => y !== undefined)
+    if (ys.length === 0) continue
+    const f1 = (x: number) => x.toFixed(1)
+    const f0 = (x: number) => x.toFixed(0)
+    L.push(
+      `  ${pad(STAT_YEARS[yi], 5)}  ${pad(range(ys.map((y) => y.routes), f0), 14)}  ${pad(range(ys.map((y) => y.volume), fmtPop), 18)}  ${pad(range(ys.map((y) => 100 * y.seaShare), f0), 12)}  ${pad(range(ys.map((y) => y.routeLen), f1), 16)}  ${pad(range(ys.map((y) => 100 * y.farmDegMean), f1), 16)}  ${pad(range(ys.map((y) => 100 * y.farmDegP90), f0), 12)}  ${pad(range(ys.map((y) => 100 * y.farmDeg30), f0), 12)}  ${pad(range(ys.map((y) => y.roadCells), f0), 14)}`,
+    )
+  }
+  const goodNames = Object.keys(Good)
+  L.push('   year   share of trade volume by good, mean % across seeds')
+  for (let yi = 0; yi < STAT_YEARS.length; yi++) {
+    const ys = rows.map((r) => r.byYear[yi]).filter((y) => y !== undefined && y.volume > 0)
+    if (ys.length === 0) continue
+    const sh = goodNames.map((_, g) => ys.reduce((a, y) => a + y.goodShare[g], 0) / ys.length)
+    const maxShare = Math.max(...ys.map((y) => Math.max(...y.goodShare)))
+    L.push(`  ${pad(STAT_YEARS[yi], 5)}   ${goodNames.map((n, g) => `${n} ${(100 * sh[g]).toFixed(0)}`).join(', ')}   (largest single-good share in any seed ${(100 * maxShare).toFixed(0)}%)`)
+  }
   const f0 = (x: number) => x.toFixed(0)
+  const f2 = (x: number) => x.toFixed(2)
+  const sites = [0, 0, 0, 0, 0]
+  for (const r of rows) for (let k = 0; k < 5; k++) sites[k] += r.top5Sites[k]
+  L.push(
+    `trade per seed (median [min..max]): routes ever ${range(rows.map((r) => r.routesEver), f0)}; famines per 100 settlement-decades with a route ${range(rows.map((r) => r.famineConnected), (x) => x.toFixed(1))} vs without ${range(rows.map((r) => r.famineUnconnected), (x) => x.toFixed(1))}; ` +
+      `spearman(pop, routes) ${range(rows.map((r) => r.rhoRoutes), f2)}, (pop, through-volume) ${range(rows.map((r) => r.rhoThrough), f2)}; ` +
+      `road components ${range(rows.map((r) => r.roadComponents), f0)}, largest share ${range(rows.map((r) => 100 * r.roadLargest), f0)}%, in >=10-cell components ${range(rows.map((r) => 100 * r.roadInBig), f0)}%; wealth top-10 share ${range(rows.map((r) => 100 * r.wealthTop10), f0)}%; ` +
+      `trade+wealth+road matrices max ${(Math.max(...rows.map((r) => r.tradeBytes)) / 1048576).toFixed(2)} MB`,
+  )
+  L.push(`top-5 settlements at the end, all seeds: river mouth ${sites[0]}, port ${sites[1]}, coast (no port) ${sites[2]}, inland river ${sites[3]}, inland ${sites[4]}`)
   L.push(
     `per seed (median [min..max]): ports built ${range(rows.map((r) => r.portsBuilt), f0)} lost ${range(rows.map((r) => r.portsLost), f0)}; dams built ${range(rows.map((r) => r.damsBuilt), f0)} lost ${range(rows.map((r) => r.damsLost), f0)}; ` +
       `abandoned % of foundings ${range(rows.map((r) => 100 * r.abandonShare), (x) => x.toFixed(1))}; sites resettled ${range(rows.map((r) => r.resettled), f0)}; ` +
@@ -477,7 +986,7 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
       `dam cell aridity mean ${range(rows.filter((r) => r.damsBuilt > 0).map((r) => r.damAridity), (x) => x.toFixed(2))} (habitable land mean ${range(rows.map((r) => r.landAridity), (x) => x.toFixed(2))}), dam flow ${range(rows.filter((r) => r.damsBuilt > 0).map((r) => r.damFlow), (x) => x.toFixed(0))}x threshold`,
   )
   L.push(`largest 3 at end per seed: ${rows.map((r) => r.top3.map(fmtPop).join('/')).join('  ')}`)
-  L.push(`seeds with a settlement >= 30k at end: ${rows.filter((r) => (r.top3[0] ?? 0) >= 30000).length}/${rows.length}, >= 20k: ${rows.filter((r) => (r.top3[0] ?? 0) >= 20000).length}/${rows.length}, with >= 2 cities: ${rows.filter((r) => (r.top3[1] ?? 0) >= CITY_POPULATION).length}/${rows.length}`)
+  L.push(`seeds with a settlement >= 30k at end: ${rows.filter((r) => (r.top3[0] ?? 0) >= 30000).length}/${rows.length}, >= 20k: ${rows.filter((r) => (r.top3[0] ?? 0) >= 20000).length}/${rows.length}, > 80k: ${rows.filter((r) => (r.top3[0] ?? 0) > 80000).length}/${rows.length}, with >= 2 cities: ${rows.filter((r) => (r.top3[1] ?? 0) >= CITY_POPULATION).length}/${rows.length}; end settlements >= 30k per seed: ${rows.map((r) => r.sizeBins[3]).join(' ')}`)
   const extinct = rows.filter((r) => r.byYear[r.byYear.length - 1].living === 0).length
   const colonised = rows.filter((r) => r.landmassesEnd > 1).length
   const continents = rows.filter((r) => r.bigSettled > 1).length
@@ -496,10 +1005,12 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
   L.push(`end population on river / coastal / other cells (mean %): ${site.map((x) => x.toFixed(0)).join(' / ')}  vs share of habitable cells ${area.map((x) => x.toFixed(0)).join(' / ')}`)
   const ov = rows.map((r) => r.firstOverseas)
   L.push(`first settlement on another continent-sized landmass, per seed: ${ov.map((y) => (y < 0 ? '-' : String(y))).join(' ')}`)
-  const ev = [0, 0, 0, 0, 0, 0, 0, 0]
-  for (const r of rows) for (let t = 0; t < 8; t++) ev[t] += r.events[t]
   const names8 = Object.keys(EventType)
+  const ev = new Array<number>(names8.length).fill(0)
+  for (const r of rows) for (let t = 0; t < names8.length; t++) ev[t] += r.events[t] ?? 0
   L.push(`events per seed (mean): ${names8.map((n, t) => `${n} ${(ev[t] / rows.length).toFixed(1)}`).join(', ')}`)
+  L.push('')
+  L.push(formatOverseasStats(rows))
   return L.join('\n')
 }
 
@@ -553,6 +1064,53 @@ export function asciiMap(world: World, h: History, year: number, W = 120, H = 40
   return lines.join('\n')
 }
 
+/** Equirectangular ASCII map of roads and trade routes at `year`. */
+export function asciiTradeMap(world: World, h: History, year: number, W = 120, H = 40): string {
+  const N = world.grid.cellCount
+  const P = world.grid.positions
+  const grid: string[] = new Array(W * H).fill(' ')
+  const rank = new Float64Array(W * H).fill(-1)
+  const at = (i: number): number => {
+    const x = P[i * 3], y = P[i * 3 + 1], z = P[i * 3 + 2]
+    const lon = Math.atan2(z, x), lat = Math.asin(Math.max(-1, Math.min(1, y)))
+    const col = Math.min(W - 1, Math.floor(((lon / Math.PI + 1) / 2) * W))
+    const row = Math.min(H - 1, Math.floor((1 - (lat / (Math.PI / 2) + 1) / 2) * H))
+    return row * W + col
+  }
+  const put = (p: number, ch: string, r: number) => { if (r > rank[p]) { rank[p] = r; grid[p] = ch } }
+  const lq = Math.min(h.landSnapshotCount - 1, Math.round(year / h.landInterval))
+  for (let i = 0; i < N; i++) {
+    const e = world.elevation[i], b = world.biome[i]
+    if (e < 0) put(at(i), ' ', 0)
+    else if (b === Biome.Ice) put(at(i), '#', 1)
+    else if (b === Biome.Mountain) put(at(i), '^', 1.2)
+    else put(at(i), '.', 1)
+    const rd = h.road ? h.road[lq * N + i] : 0
+    if (rd >= ROAD_STAT) put(at(i), rd >= 150 ? 'H' : rd >= 80 ? '=' : '-', 3 + rd / 255)
+  }
+  const tr = h.trade
+  if (tr && h.tradeSnapshotCount > 0) {
+    const tq = Math.min(h.tradeSnapshotCount - 1, Math.round(year / h.tradeInterval))
+    for (let r = 0; r < tr.count; r++) {
+      if (h.tradeVolume[tq * tr.count + r] <= 0) continue
+      for (let k = tr.pathOffsets[r]; k < tr.pathOffsets[r + 1]; k++) {
+        const c = tr.path[k]
+        if (world.elevation[c] < 0) put(at(c), '~', 2)
+      }
+    }
+  }
+  const S = h.settlements.length
+  const snap = Math.floor(year / h.snapshotInterval)
+  for (let id = 0; id < S; id++) {
+    const pop = h.population[snap * S + id]
+    if (pop < 300) continue
+    put(at(h.settlements[id].cell), pop >= 30000 ? '@' : pop >= 10000 ? '0' : pop >= 3000 ? 'O' : 'o', 10 + pop)
+  }
+  const lines: string[] = [`year ${year} roads and routes: - road  = busy road  H highway  ~ sea lane in use   o 300+  O 3k+  0 10k+  @ 30k+   (. land  ^ mountain)`]
+  for (let row = 0; row < H; row++) lines.push(grid.slice(row * W, row * W + W).join(''))
+  return lines.join('\n')
+}
+
 export function runHistoryStats(seeds: number[] = HISTORY_STATS_SEEDS, maps = false): { rows: HistoryStats[]; text: string } {
   const rows: HistoryStats[] = []
   const extra: string[] = []
@@ -562,11 +1120,15 @@ export function runHistoryStats(seeds: number[] = HISTORY_STATS_SEEDS, maps = fa
     const t0 = performance.now()
     const w = generateWorld(seed)
     const t1 = performance.now()
-    const { history, terrain } = runHistory(w)
+    const run = runHistory(w)
+    const { history, terrain } = run
     const t2 = performance.now()
-    rows.push(historyStats(w, history, terrain, t2 - t1, t1 - t0))
+    rows.push(historyStats(w, history, terrain, t2 - t1, t1 - t0, run.diag))
     extra.push(`seed ${pad(seed, 6)} total pop curve 0..${history.years}: |${sparkline(history)}|`)
-    if (maps) for (const y of [250, 1000, 2000]) if (y <= history.years) extra.push(asciiMap(w, history, y))
+    if (maps) {
+      for (const y of [500, 1000, 1500, 2000]) if (y <= history.years) extra.push(asciiMap(w, history, y))
+      if (history.road) extra.push(asciiTradeMap(w, history, history.years))
+    }
   }
   return { rows, text: formatHistoryStats(rows) + '\n\n' + extra.join('\n') }
 }

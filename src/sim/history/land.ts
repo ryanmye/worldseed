@@ -10,11 +10,16 @@
 // decades when they go wild. A village farms part of its own cell; a city
 // farms its whole reach.
 //
-// Degradation: intensive use (beyond an onset, squared) slowly exhausts the soil, faster on
-// fragile land (steep, arid, rainforest, taiga) and slowly on floodplains;
-// land recovers when left alone. Degraded farmland yields less, which feeds
-// back into food, migration and abandonment.
+// Degradation: intensive use (beyond an onset, squared) times the land's
+// fragility (steep, arid, rainforest, taiga high; floodplains low) and the
+// crowding of the people farming it makes a load; only load beyond a
+// tolerance exhausts the soil. So sturdy farmland under moderate use stays
+// healthy, while fragile land and over-crowded heartlands (including cities
+// living beyond their land) wear out. Land recovers when left alone.
+// Degraded farmland yields less, which feeds back into food, migration and
+// abandonment.
 
+import { smoothstep } from '../util.ts'
 import { DEGRADATION, LAND } from './params.ts'
 import type { HistoryState } from './state.ts'
 
@@ -35,6 +40,8 @@ export function landUseSystem(s: HistoryState): void {
   const count = s.activeCount
   // Move use toward the target; consume the target (all non-zero targets are on active cells).
   const u = s.landUse
+  const stressAcc = s.stressAcc
+  const stress = s.landStress
   const L = LAND
   const up = L.clearRate * L.step
   const down = L.wildRate * L.step
@@ -42,6 +49,8 @@ export function landUseSystem(s: HistoryState): void {
     const j = active[t]
     const x = u[j]
     let tg = target[j]
+    stress[j] = tg > 0 ? stressAcc[j] / tg : 0
+    stressAcc[j] = 0
     target[j] = 0
     if (tg > 1) tg = 1
     if (tg === x) continue
@@ -55,6 +64,7 @@ export function landUseSystem(s: HistoryState): void {
 export function degradationSystem(s: HistoryState): void {
   const T = s.terrain
   const { fragility, capFarm, capFish } = T
+  const stress = s.landStress
   const u = s.landUse
   const deg = s.degradation
   const farmMul = s.farmMul
@@ -72,7 +82,12 @@ export function degradationSystem(s: HistoryState): void {
     if (x === 0 && d === 0) { s.isActive[j] = 0; continue }
     let e = (x - D.onset) * onsetScale
     if (e < 0) e = 0
-    d += dt * (D.rate * fragility[j] * e * e * (1 - d) - d * (D.recovery * (1 - x) + D.renewal))
+    let wear = 0
+    if (e > 0) {
+      const load = e * e * fragility[j] * (D.stressBase + (1 - D.stressBase) * smoothstep(D.crowdLow, D.crowdHigh, stress[j]))
+      if (load > D.tolerance) wear = D.rate * (load - D.tolerance)
+    }
+    d += dt * (wear * (1 - d) - d * (D.recovery * (1 - x) + D.renewal))
     if (x === 0 && d < LAND.epsilon) d = 0
     deg[j] = d
     effCap[j] = capFarm[j] * (1 - D.yieldLoss * d) * farmMul[j] + capFish[j]

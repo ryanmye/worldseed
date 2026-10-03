@@ -4,7 +4,8 @@
 // members up to the current year. What is shown is a pure function of the year
 // (binary searches into the index), so scrubbing backwards is exact.
 
-import { describeEvent, describeFamineBurst, describeFoundings, eventKind } from './format.ts'
+import { EventType } from '../contract.ts'
+import { describeEvent, describeFamineBurst, describeFoundings, describeMigrations, describeTradeBurst, eventKind } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, type HistoryIndex } from './historyIndex.ts'
 
 const ROWS = 40
@@ -110,6 +111,35 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeFoundings(h, h.events[ev], m, sameParent)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ev].other
+    } else if (kind === EntryKind.Migrations && m > 1) {
+      let people = 0
+      for (let q = lo; q < lo + m; q++) {
+        const e = h.events[ix.notableMembers[q]]
+        people += e.value
+        if (e.value > h.events[ev].value) ev = ix.notableMembers[q]
+      }
+      text = describeMigrations(h, h.events[ev], m, people)
+      yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ev].other
+    } else if ((kind === EntryKind.TradeOpenings || kind === EntryKind.TradeClosings) && m > 1) {
+      // name the route between the largest pair of settlements
+      const N = ix.count
+      const weight = (i: number) => {
+        const e = h.events[i]
+        const s = Math.min(h.snapshotCount - 1, Math.max(0, Math.round(e.year / h.snapshotInterval)))
+        return (h.population[s * N + e.settlement] ?? 0) + (e.other >= 0 ? h.population[s * N + e.other] ?? 0 : 0)
+      }
+      let best = weight(ev)
+      for (let q = lo + 1; q < lo + m; q++) {
+        const w = weight(ix.notableMembers[q])
+        if (w > best) {
+          best = w
+          ev = ix.notableMembers[q]
+        }
+      }
+      text = describeTradeBurst(h, h.events[ev], m, h.events[ev].type === EventType.TradeOpened)
+      yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ev].settlement
     } else {
       text = describeEvent(h, h.events[ev])
       yearText = String(h.events[ev].year)
@@ -120,7 +150,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     r.li.className = ek === 'town' || ek === 'city' ? `ev-${ek} notable` : `ev-${ek}`
     r.year.textContent = yearText
     r.text.textContent = text
-    r.li.title = `${kind === EntryKind.Foundings && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`
+    r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`
   }
 
   const api: Chronicle = {

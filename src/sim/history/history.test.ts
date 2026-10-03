@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../index.ts'
 
@@ -28,8 +28,16 @@ function hashHistory(hi: History): string {
   h = fnv(h, hi.capacity)
   h = fnv(h, hi.landUse)
   h = fnv(h, hi.degradation)
-  const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount]
-  for (const s of hi.settlements) ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear)
+  h = fnv(h, hi.road)
+  h = fnv(h, hi.wealth)
+  h = fnv(h, hi.tradeVolume)
+  const t = hi.trade
+  for (const a of [t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]) h = fnv(h, a)
+  const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount, hi.tradeInterval, hi.tradeSnapshotCount, t.count]
+  for (const s of hi.settlements) {
+    ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear)
+    for (let i = 0; i < s.name.length; i++) ints.push(s.name.charCodeAt(i))
+  }
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
   h = fnv(h, Int32Array.from(ints))
   const ev = new Float64Array(hi.events.length * 5)
@@ -44,7 +52,7 @@ function hashHistory(hi: History): string {
   h = fnv(h, j.kind)
   h = fnv(h, j.pathOffsets)
   h = fnv(h, j.path)
-  return (h >>> 0).toString(16) + ':' + hi.settlements.length + ':' + hi.events.length + ':' + j.count + ':' + hi.structures.length
+  return (h >>> 0).toString(16) + ':' + hi.settlements.length + ':' + hi.events.length + ':' + j.count + ':' + hi.structures.length + ':' + t.count
 }
 
 const worlds = new Map<number, World>()
@@ -72,6 +80,16 @@ function checkInvariants(w: World, h: History): void {
   expect(h.landSnapshotCount).toBe(Math.floor(h.years / h.landInterval) + 1)
   expect(h.landUse.length).toBe(h.landSnapshotCount * N)
   expect(h.degradation.length).toBe(h.landSnapshotCount * N)
+  expect(h.road.length).toBe(h.landSnapshotCount * N)
+  expect(h.wealth.length).toBe(h.snapshotCount * S)
+  expect(h.tradeInterval).toBeGreaterThanOrEqual(1)
+  expect(h.tradeSnapshotCount).toBe(Math.floor(h.years / h.tradeInterval) + 1)
+  const R = h.trade.count
+  expect(h.tradeVolume.length).toBe(h.tradeSnapshotCount * R)
+  for (const a of [h.trade.a, h.trade.b, h.trade.openedYear, h.trade.goodAB, h.trade.goodBA]) expect(a.length).toBe(R)
+  expect(h.trade.pathOffsets.length).toBe(R + 1)
+  expect(h.trade.pathOffsets[0]).toBe(0)
+  expect(h.trade.pathOffsets[R]).toBe(h.trade.path.length)
 
   for (let i = 0; i < N; i++) {
     const c = h.capacity[i]
@@ -83,13 +101,22 @@ function checkInvariants(w: World, h: History): void {
         if (h.landUse[q * N + i] !== 0 || h.degradation[q * N + i] !== 0) throw new Error(`cell ${i} without capacity has land use / degradation at land snapshot ${q}`)
       }
     }
+    // Roads are worn into land only: never on sea or lake cells.
+    if (w.elevation[i] < 0 || w.lake[i]) {
+      for (let q = 0; q < h.landSnapshotCount; q++) if (h.road[q * N + i] !== 0) throw new Error(`road on water cell ${i} at land snapshot ${q}`)
+    }
   }
-  // Year 0: nothing farmed yet.
-  for (let i = 0; i < N; i++) if (h.landUse[i] !== 0 || h.degradation[i] !== 0) throw new Error(`cell ${i} farmed at year 0`)
+  // Year 0: nothing farmed yet, no roads.
+  for (let i = 0; i < N; i++) if (h.landUse[i] !== 0 || h.degradation[i] !== 0 || h.road[i] !== 0) throw new Error(`cell ${i} farmed or roaded at year 0`)
 
+  const seenNames = new Set<string>()
   for (let id = 0; id < S; id++) {
     const st = h.settlements[id]
     expect(st.id).toBe(id)
+    expect(st.name.length).toBeGreaterThan(0)
+    const nameKey = st.name.toLowerCase()
+    expect(seenNames.has(nameKey)).toBe(false)
+    seenNames.add(nameKey)
     if (w.elevation[st.cell] < 0 || w.lake[st.cell]) throw new Error(`settlement ${id} on water cell ${st.cell}`)
     expect(h.capacity[st.cell]).toBeGreaterThan(0)
     expect(st.foundedYear).toBeGreaterThanOrEqual(0)
@@ -112,10 +139,12 @@ function checkInvariants(w: World, h: History): void {
       const food = h.food[s * S + id]
       if (!(food >= 0 && food <= 1)) throw new Error(`food ${food} of ${id} at year ${year}`)
       const alive = year >= st.foundedYear && (st.abandonedYear < 0 || year < st.abandonedYear)
+      const wealth = h.wealth[s * S + id]
+      if (!(wealth >= 0 && Number.isFinite(wealth))) throw new Error(`wealth ${wealth} of ${id} at year ${year}`)
       if (alive) {
         if (!(pop > 0 && Number.isFinite(pop))) throw new Error(`settlement ${id} alive at ${year} with population ${pop}`)
-      } else if (pop !== 0 || food !== 0) {
-        throw new Error(`settlement ${id} not alive at ${year} but population ${pop}, food ${food}`)
+      } else if (pop !== 0 || food !== 0 || wealth !== 0) {
+        throw new Error(`settlement ${id} not alive at ${year} but population ${pop}, food ${food}, wealth ${wealth}`)
       }
     }
   }
@@ -195,6 +224,17 @@ function checkInvariants(w: World, h: History): void {
         townYear[e.settlement] = e.year
         expect(e.value).toBeGreaterThanOrEqual(TOWN_POPULATION)
         break
+      case EventType.TradeOpened:
+      case EventType.TradeClosed: {
+        // Checked against the routes below.
+        expect(e.other).toBeGreaterThanOrEqual(0)
+        expect(e.other).not.toBe(e.settlement)
+        expect(Number.isInteger(e.value) && e.value >= 0 && e.value < h.trade.count).toBe(true)
+        const o = h.settlements[e.other]
+        expect(e.year).toBeGreaterThanOrEqual(o.foundedYear)
+        if (o.abandonedYear >= 0) expect(e.year).toBeLessThanOrEqual(o.abandonedYear)
+        break
+      }
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -301,6 +341,72 @@ function checkInvariants(w: World, h: History): void {
       expect(isNeighbor(J.path[k - 1], J.path[k])).toBe(true)
     }
   }
+
+  // Trade routes: distinct, valid ends; one route per pair; paths from a's cell to b's cell through neighbours.
+  const tr = h.trade
+  const pairs = new Set<number>()
+  const alive = (id: number, year: number): boolean => {
+    const st = h.settlements[id]
+    return year >= st.foundedYear && (st.abandonedYear < 0 || year < st.abandonedYear)
+  }
+  for (let r = 0; r < R; r++) {
+    const a = tr.a[r], b = tr.b[r]
+    if (!(a >= 0 && a < S && b >= 0 && b < S && a !== b)) throw new Error(`route ${r} has ends ${a}, ${b}`)
+    const key = Math.min(a, b) * S + Math.max(a, b)
+    if (pairs.has(key)) throw new Error(`two routes between ${a} and ${b}`)
+    pairs.add(key)
+    expect(tr.goodAB[r]).toBeLessThan(GOOD_COUNT)
+    expect(tr.goodBA[r]).toBeLessThan(GOOD_COUNT)
+    expect(tr.openedYear[r]).toBeGreaterThanOrEqual(1)
+    expect(tr.openedYear[r]).toBeLessThanOrEqual(h.years)
+    if (r > 0) expect(tr.openedYear[r]).toBeGreaterThanOrEqual(tr.openedYear[r - 1]) // ids in order of first opening
+    const p0 = tr.pathOffsets[r], p1 = tr.pathOffsets[r + 1]
+    expect(p1 - p0).toBeGreaterThanOrEqual(2)
+    if (tr.path[p0] !== h.settlements[a].cell || tr.path[p1 - 1] !== h.settlements[b].cell) throw new Error(`route ${r} path does not run from ${a}'s cell to ${b}'s`)
+    for (let k = p0 + 1; k < p1; k++) if (!isNeighbor(tr.path[k - 1], tr.path[k])) throw new Error(`route ${r} path jumps between ${tr.path[k - 1]} and ${tr.path[k]}`)
+  }
+  // Events open and close each route alternately, first opening at openedYear; volume only while open, with both ends alive.
+  const open = new Uint8Array(R)
+  const opens = new Int32Array(R)
+  const evs = h.events
+  let ei = 0
+  for (let q = 0; q < h.tradeSnapshotCount; q++) {
+    const year = q * h.tradeInterval
+    for (; ei < evs.length && evs[ei].year <= year; ei++) {
+      const e = evs[ei]
+      if (e.type !== EventType.TradeOpened && e.type !== EventType.TradeClosed) continue
+      const r = e.value
+      if (!((e.settlement === tr.a[r] && e.other === tr.b[r]) || (e.settlement === tr.b[r] && e.other === tr.a[r]))) throw new Error(`trade event for route ${r} names ${e.settlement}, ${e.other}`)
+      if (e.type === EventType.TradeOpened) {
+        if (open[r]) throw new Error(`route ${r} opened twice in a row (year ${e.year})`)
+        if (opens[r] === 0) expect(e.year).toBe(tr.openedYear[r])
+        open[r] = 1
+        opens[r]++
+      } else {
+        if (!open[r]) throw new Error(`route ${r} closed while not open (year ${e.year})`)
+        open[r] = 0
+      }
+    }
+    for (let r = 0; r < R; r++) {
+      const v = h.tradeVolume[q * R + r]
+      if (!(v >= 0 && Number.isFinite(v))) throw new Error(`route ${r} volume ${v} at year ${year}`)
+      if (year < tr.openedYear[r] && v !== 0) throw new Error(`route ${r} has volume ${v} at ${year}, before it opened in ${tr.openedYear[r]}`)
+      if (v > 0) {
+        if (!open[r]) throw new Error(`route ${r} has volume ${v} at ${year} while closed`)
+        if (!alive(tr.a[r], year) || !alive(tr.b[r], year)) throw new Error(`route ${r} has volume at ${year} but an end is not alive`)
+      }
+    }
+  }
+  for (; ei < evs.length; ei++) {
+    const e = evs[ei]
+    if (e.type === EventType.TradeOpened) { if (open[e.value]) throw new Error(`route ${e.value} opened twice`); open[e.value] = 1; opens[e.value]++ }
+    else if (e.type === EventType.TradeClosed) { if (!open[e.value]) throw new Error(`route ${e.value} closed while not open`); open[e.value] = 0 }
+  }
+  for (let r = 0; r < R; r++) {
+    expect(opens[r]).toBeGreaterThanOrEqual(1)
+    // A route still open at the end has both ends alive at the end.
+    if (open[r]) expect(h.settlements[tr.a[r]].abandonedYear < 0 && h.settlements[tr.b[r]].abandonedYear < 0).toBe(true)
+  }
 }
 
 describe('simulateHistory', () => {
@@ -310,7 +416,7 @@ describe('simulateHistory', () => {
     expect(b).toBe(a)
     expect(hashHistory(history(1))).not.toBe(a)
     expect(hashHistory(history(2))).not.toBe(hashHistory(history(1)))
-  })
+  }, 60_000)
 
   it('does not mutate the world', () => {
     const w = generateWorld(77)
@@ -329,9 +435,16 @@ describe('simulateHistory', () => {
     expect(h.landInterval).toBe(20)
     expect(h.landSnapshotCount).toBe(101)
     expect(h.landUse.length).toBe(101 * h.capacity.length)
-    // Both land matrices together stay under 6 MB at the default grid.
-    expect(h.landUse.byteLength + h.degradation.byteLength).toBeLessThan(6 * 1024 * 1024)
-    const arrays = [h.population, h.food, h.capacity, h.landUse, h.degradation, J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path]
+    // The three land matrices together stay under 8 MB at the default grid; trade volumes under 4 MB.
+    expect(h.road.length).toBe(101 * h.capacity.length)
+    expect(h.landUse.byteLength + h.degradation.byteLength + h.road.byteLength).toBeLessThan(8 * 1024 * 1024)
+    expect(h.tradeInterval).toBe(10)
+    expect(h.tradeSnapshotCount).toBe(201)
+    expect(h.tradeVolume.byteLength).toBeLessThan(4 * 1024 * 1024)
+    expect(h.wealth.length).toBe(401 * h.settlements.length)
+    const t = h.trade
+    const arrays = [h.population, h.food, h.capacity, h.landUse, h.degradation, h.road, h.wealth, h.tradeVolume, J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path,
+      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]
     const buffers = new Set<ArrayBufferLike>()
     for (const a of arrays) {
       expect(a.byteOffset).toBe(0)
@@ -362,9 +475,28 @@ describe('simulateHistory', () => {
         if (short.landUse[q * N + i] !== full.landUse[q * N + i] || short.degradation[q * N + i] !== full.degradation[q * N + i]) throw new Error(`land snapshot ${q} differs at cell ${i}`)
       }
     }
+    // Trade, wealth and roads of the short run match the full run's.
+    const R0 = short.trade.count
+    expect(R0).toBeLessThanOrEqual(full.trade.count)
+    for (let r = 0; r < R0; r++) {
+      expect(short.trade.a[r]).toBe(full.trade.a[r])
+      expect(short.trade.b[r]).toBe(full.trade.b[r])
+      expect(short.trade.openedYear[r]).toBe(full.trade.openedYear[r])
+    }
+    for (let q = 0; q < short.tradeSnapshotCount; q++) {
+      for (let r = 0; r < R0; r++) expect(short.tradeVolume[q * R0 + r]).toBe(full.tradeVolume[q * full.trade.count + r])
+    }
+    for (let s = 0; s < short.snapshotCount; s++) {
+      for (let id = 0; id < S0; id++) expect(short.wealth[s * S0 + id]).toBe(full.wealth[s * full.settlements.length + id])
+    }
+    for (let q = 0; q < short.landSnapshotCount; q++) {
+      for (let i = 0; i < N; i++) if (short.road[q * N + i] !== full.road[q * N + i]) throw new Error(`road snapshot ${q} differs at cell ${i}`)
+    }
     const zero = simulateHistory(w, { years: 0 })
     expect(zero.snapshotCount).toBe(1)
     expect(zero.landSnapshotCount).toBe(1)
+    expect(zero.tradeSnapshotCount).toBe(1)
+    expect(zero.trade.count).toBe(0)
     expect(zero.structures.length).toBe(0)
     checkInvariants(w, zero)
   })
@@ -414,6 +546,87 @@ describe('simulateHistory', () => {
     }
     expect(heavy).toBeGreaterThanOrEqual(SEEDS.length - 1)
     expect(joined).toBe(SEEDS.length)
+  }, 60_000)
+
+  it('trade emerges late, grows into networks, feeds hubs that become the big cities, and wears roads', () => {
+    let hubTop = 0, bigCity = 0, mixed = 0
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const h = history(seed)
+      const S = h.settlements.length
+      const N = w.grid.cellCount
+      const R = h.trade.count
+      const last = h.snapshotCount - 1
+      const tq = h.tradeSnapshotCount - 1
+      const at = (year: number) => Math.floor(year / h.tradeInterval)
+      const openAt = (year: number): number => {
+        let n = 0
+        for (const e of h.events) {
+          if (e.year > year) break
+          if (e.type === EventType.TradeOpened) n++
+          else if (e.type === EventType.TradeClosed) n--
+        }
+        return n
+      }
+      // Negligible early, networks by the end: hundreds of routes, not tens of thousands.
+      expect(openAt(250)).toBeLessThanOrEqual(10)
+      expect(openAt(h.years)).toBeGreaterThan(50)
+      expect(openAt(h.years)).toBeLessThan(2000)
+      expect(R).toBeLessThan(5000)
+      let vol500 = 0, volEnd = 0
+      for (let r = 0; r < R; r++) { vol500 += h.tradeVolume[at(500) * R + r]; volEnd += h.tradeVolume[tq * R + r] }
+      expect(volEnd).toBeGreaterThan(10 * vol500)
+      // Several goods carry the trade (by each route's main goods, weighted by volume).
+      const byGood = new Float64Array(GOOD_COUNT)
+      for (let r = 0; r < R; r++) { const v = h.tradeVolume[tq * R + r]; byGood[h.trade.goodAB[r]] += v / 2; byGood[h.trade.goodBA[r]] += v / 2 }
+      let big = 0
+      for (let g = 0; g < GOOD_COUNT; g++) if (byGood[g] > 0.08 * volEnd) big++
+      if (big >= 3 && Math.max(...byGood) < 0.6 * volEnd) mixed++
+      // The largest settlement at the end trades widely.
+      let top = 0
+      for (let id = 1; id < S; id++) if (h.population[last * S + id] > h.population[last * S + top]) top = id
+      let topRoutes = 0, topVol = 0
+      const vol = new Float64Array(S)
+      for (let r = 0; r < R; r++) {
+        const v = h.tradeVolume[tq * R + r]
+        vol[h.trade.a[r]] += v
+        vol[h.trade.b[r]] += v
+        if (v > 0 && (h.trade.a[r] === top || h.trade.b[r] === top)) topRoutes++
+      }
+      topVol = vol[top]
+      let rank = 0
+      for (let id = 0; id < S; id++) if (vol[id] > topVol) rank++
+      if (topRoutes >= 3 && rank < 10) hubTop++
+      if (h.population[last * S + top] >= 15000) bigCity++
+      // Wealth accrues to traders.
+      expect(h.wealth[last * S + top]).toBeGreaterThan(0)
+      // Roads: worn along busy routes, forming connected corridors.
+      const lq = h.landSnapshotCount - 1
+      const comp = new Int32Array(N).fill(-1)
+      let roads = 0, largest = 0
+      for (let i = 0; i < N; i++) {
+        if (h.road[lq * N + i] < 32 || comp[i] >= 0) continue
+        let size = 0
+        const stack = [i]
+        comp[i] = i
+        while (stack.length > 0) {
+          const c = stack.pop() as number
+          size++
+          for (let k = w.grid.neighborOffsets[c]; k < w.grid.neighborOffsets[c + 1]; k++) {
+            const j = w.grid.neighbors[k]
+            if (comp[j] < 0 && h.road[lq * N + j] >= 32) { comp[j] = i; stack.push(j) }
+          }
+        }
+        roads += size
+        largest = Math.max(largest, size)
+      }
+      expect(roads).toBeGreaterThan(50)
+      expect(largest).toBeGreaterThanOrEqual(20)
+    }
+    expect(mixed).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    expect(hubTop).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    // Most worlds grow a trade city well beyond what the best land alone feeds (~2-8k without trade).
+    expect(bigCity).toBeGreaterThanOrEqual(SEEDS.length - 3)
   }, 60_000)
 
   it('people change the land: farming, exhaustion and recovery, abandonment and resettlement, ports, dams, cities', () => {

@@ -11,6 +11,7 @@
 import * as THREE from 'three'
 import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { sunUniforms } from './sun.ts'
 
 /** Height of marker centres above the ground. */
 const LIFT = 0.004
@@ -46,6 +47,11 @@ export interface SettlementLayer {
   centerLocal(id: number, out: THREE.Vector3): THREE.Vector3
   /** Interpolated population at the current time (0 if not alive). */
   displayedPopulation(id: number): number
+  /**
+   * Within camera distance near..far the markers step back for the 3D models: bodies shrink
+   * and fade (selection and hover rings stay); far <= 0 turns it off.
+   */
+  setYield(near: number, far: number): void
   dispose(): void
 }
 
@@ -101,7 +107,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     uHovered: { value: -1 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
+    uDaylight: sunUniforms.uDaylight,
     uStyle: { value: 0 },
+    uYield: { value: new THREE.Vector2(0, 0) },
   }
 
   const material = new THREE.ShaderMaterial({
@@ -124,9 +132,12 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       uniform float uHovered;
       uniform vec3 uCamObj;
       uniform vec3 uSunObj;
+      uniform float uDaylight; // 1: daylight everywhere (sun.ts)
+      uniform vec2 uYield;
       varying vec2 vPx;
       varying float vR;
       varying float vSel;
+      varying float vYield;
       varying float vHov;
       varying float vPulse;
       varying float vAlpha;
@@ -151,6 +162,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         else if (vTier > 0.5) r0 = max(r0, ${TOWN_MIN_RADIUS.toFixed(2)});
         // foreshortened toward the limb, like the ground they sit on
         float r = r0 * uSizeScale * grow * mix(0.55, 1.0, sqrt(facing));
+        // up close the buildings take over: 1 = marker fully yielded
+        vYield = uYield.y > 0.0 ? 1.0 - smoothstep(uYield.x, uYield.y, length(uCamObj - aCenter)) : 0.0;
+        r *= mix(1.0, 0.55, vYield);
         vSel = abs(aId - uSelected) < 0.5 ? 1.0 : 0.0;
         vHov = abs(aId - uHovered) < 0.5 ? 1.0 : 0.0;
         vPulse = age < uPulseYears ? age / uPulseYears : -1.0;
@@ -165,7 +179,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         vR = r;
         vFood = aFood;
         vAlpha = smoothstep(0.0, 0.3, facing);
-        vNight = 1.0 - smoothstep(-0.15, 0.1, dot(up, normalize(uSunObj)));
+        vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,
     fragmentShader: /* glsl */ `
@@ -179,6 +193,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       varying float vFood;
       varying float vNight;
       varying float vTier;
+      varying float vYield;
       void main() {
         float d = length(vPx);
         vec3 fed = uStyle == 0 ? vec3(1.0, 0.74, 0.30) : vec3(0.97, 0.98, 1.0);
@@ -201,7 +216,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         }
         // on the night side markers step back so the city lights carry the picture
         float night = uStyle == 0 ? vNight : 0.0; // data views are lit from the viewer
-        float bodyA = (1.0 - smoothstep(0.3, 1.3, sd)) * mix(1.0, max(0.28, max(vSel, vHov)), night);
+        float bodyA = (1.0 - smoothstep(0.3, 1.3, sd)) * mix(1.0, max(0.28, max(vSel, vHov)), night) * (1.0 - 0.85 * vYield);
         vec3 bodyC = mix(rim, fill * (1.1 - 0.25 * d / max(vR, 1.0)), inner);
 
         float ringA = max(vSel, vHov * 0.45) * (1.0 - smoothstep(0.55, 1.45, abs(d - (vR + 4.5))));
@@ -211,7 +226,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
           pulseA = (1.0 - smoothstep(0.5, 1.8, abs(d - pr))) * pow(1.0 - vPulse, 1.5) * 0.85;
         }
         // premultiplied "over": body over selection ring over founding pulse (over a city's glow)
-        float glowA = vTier > 1.5 ? exp(-max(sd, 0.0) * 0.4) * 0.38 * (1.0 - 0.6 * night) : 0.0;
+        float glowA = vTier > 1.5 ? exp(-max(sd, 0.0) * 0.4) * 0.38 * (1.0 - 0.6 * night) * (1.0 - vYield) : 0.0;
         vec3 c = fed * glowA;
         float a = glowA;
         c = fed * pulseA + c * (1.0 - pulseA);
@@ -339,6 +354,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     displayedPopulation(id: number) {
       if (!aliveAt(id)) return 0
       return popA[id] + (popB[id] - popA[id]) * frac
+    },
+    setYield(near: number, far: number) {
+      uniforms.uYield.value.set(near, far)
     },
     dispose() {
       quad.dispose()

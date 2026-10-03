@@ -1,22 +1,26 @@
 // Glue between a History and everything that shows it: the timeline clock, the
 // settlement markers, travelling groups, ports and dams, farmland, night-side city
-// lights, the inspector and the chronicle.
+// lights, trade routes and merchants, roads and bridges, the inspector and the chronicle.
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
 
 import * as THREE from 'three'
 import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
-import type { GlobeMesh } from '../render/globe.ts'
+import { isWaterCell, lakeArray, type GlobeMesh } from '../render/globe.ts'
 import { ViewMode } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
 import type { CameraFly } from '../render/cameraFly.ts'
 import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
 import { buildStructureLayer, type StructureLayer } from '../render/structures.ts'
+import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
 import { buildHistoryIndex, landSnapshotAt, logScaled, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
 import { createTimeline, YEARS_PER_SECOND } from './timeline.ts'
+import { requestRender } from '../render/invalidate.ts'
+import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
+import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -53,7 +57,15 @@ export interface HistoryView {
   setJourneysVisible(show: boolean): void
   /** Ports, dams and reservoirs. */
   setStructuresVisible(show: boolean): void
+  /** 3D buildings, farms, docks and ships when zoomed in. */
+  setBuildingsVisible(show: boolean): void
+  /** Trade routes and merchants. */
+  setTradeVisible(show: boolean): void
+  /** Roads and bridges. */
+  setRoadsVisible(show: boolean): void
   tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number): void
+  /** The timeline is playing (the picture changes every frame). */
+  isPlaying(): boolean
 }
 
 const FLY_DIST = 2.3
@@ -71,6 +83,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let journeysVisible = true
   let structures: StructureLayer | null = null
   let structuresVisible = true
+  let dioramas: DioramaLayer | null = null
+  let buildingsVisible = true
+  let trade: TradeLayer | null = null
+  let tradeVisible = true
+  let roads: RoadLayer | null = null
+  let roadsVisible = true
   let shownL0 = -1
   let shownL1 = -1
   const landPos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
@@ -116,6 +134,21 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       deps.planetGroup.remove(structures.mesh)
       structures.dispose()
       structures = null
+    }
+    if (dioramas) {
+      deps.planetGroup.remove(dioramas.object)
+      dioramas.dispose()
+      dioramas = null
+    }
+    if (trade) {
+      deps.planetGroup.remove(trade.object)
+      trade.dispose()
+      trade = null
+    }
+    if (roads) {
+      deps.planetGroup.remove(roads.object)
+      roads.dispose()
+      roads = null
     }
   }
 
@@ -196,7 +229,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     setHistory(h: History) {
       if (!world) return
-      index = buildHistoryIndex(h)
+      const lake = lakeArray(world)
+      const w = world
+      index = buildHistoryIndex(h, (c) => isWaterCell(w, lake, c))
       clearLayer()
       layer = buildSettlementLayer(world, h, index.maxPopulation)
       deps.planetGroup.add(layer.mesh)
@@ -209,6 +244,26 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         structures = buildStructureLayer(world, index.structures, h.settlements)
         structures.mesh.visible = structuresVisible
         deps.planetGroup.add(structures.mesh)
+      }
+      dioramas = createDioramaLayer({
+        world,
+        history: h,
+        land: index.land ? { interval: index.land.interval, count: index.land.count, landUse: index.land.landUse } : null,
+        structures: structures ? structures.placements : null,
+      })
+      dioramas.setVisible(buildingsVisible)
+      deps.planetGroup.add(dioramas.object)
+      const td = index.trade
+      if (td) {
+        trade = buildTradeLayer(world, { routes: td.routes, interval: td.interval, snapshots: td.count, volume: td.volume })
+        trade.object.visible = tradeVisible
+        deps.planetGroup.add(trade.object)
+        if (index.roads) {
+          roads = buildRoadLayer(world, { road: index.roads.road, interval: index.roads.interval, snapshots: index.roads.count, routes: td.routes })
+          roads.object.visible = roadsVisible
+          deps.planetGroup.add(roads.object)
+          dioramas.setBridges(roads.placements, roadsVisible)
+        }
       }
       const globe = deps.getGlobe()
       const res = structures?.reservoirs
@@ -233,13 +288,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     pickAt(x: number, y: number) {
       if (!layer || !layer.mesh.visible) return -1
       const rect = deps.canvas.getBoundingClientRect()
-      return layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
+      const id = layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
+      // up close a settlement's whole cluster of buildings is clickable too
+      return id >= 0 || !dioramas ? id : dioramas.pick(deps.camera, x, y, rect.width, rect.height)
     },
     select(id: number, fly: boolean) {
       if (!index || !world) return
+      requestRender()
       selected = id >= 0 && id < index.count ? id : -1
       layer?.setSelected(selected)
       journeys?.setHighlight(selected >= 0 ? index.foundingJourney[selected] : -1)
+      trade?.setSelected(selected)
       deps.setUrlParam('select', selected >= 0 ? String(selected) : null)
       if (selected < 0) {
         inspector.hide()
@@ -259,25 +318,45 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setHover(id: number) {
       if (id === hovered) return
       hovered = id
+      requestRender()
       layer?.setHovered(id)
       deps.canvas.style.cursor = id >= 0 ? 'pointer' : ''
     },
     setViewMode(mode: ViewMode) {
       viewMode = mode
+      requestRender()
       applyMarkerStyle()
     },
     setMarkersVisible(show: boolean) {
       markersVisible = show
+      requestRender()
       applyMarkerStyle()
       if (!show) api.setHover(-1)
     },
     setJourneysVisible(show: boolean) {
       journeysVisible = show
+      requestRender()
       if (journeys) journeys.object.visible = show
     },
     setStructuresVisible(show: boolean) {
       structuresVisible = show
+      requestRender()
       if (structures) structures.mesh.visible = show
+    },
+    setBuildingsVisible(show: boolean) {
+      buildingsVisible = show
+      requestRender()
+      dioramas?.setVisible(show)
+    },
+    setTradeVisible(show: boolean) {
+      tradeVisible = show
+      requestRender()
+      if (trade) trade.object.visible = show
+    },
+    setRoadsVisible(show: boolean) {
+      roadsVisible = show
+      requestRender()
+      if (roads) roads.object.visible = show
     },
     tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number) {
       const year = timeline.tick(dt)
@@ -288,7 +367,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (snapshotChanged) {
         layer.setSnapshot(pos.s0, pos.s1)
         updateCityLights(pos.s0)
-        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0])
+        const td = index.trade
+        const routesOpen = td ? td.openCount[Math.min(td.count - 1, Math.round((pos.s0 * h.snapshotInterval) / td.interval))] : undefined
+        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], routesOpen)
         shownS0 = pos.s0
         shownS1 = pos.s1
       }
@@ -307,8 +388,36 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         journeys.setTime(year, Math.min(HEAD_MAX_YEARS, pulseYears), Math.min(THREAD_MAX_YEARS, Math.max(THREAD_MIN_YEARS, 2 * pulseYears)))
         journeys.update(deps.camera, drawSize, pixelRatio)
       }
+      if (roads && roadsVisible) {
+        roads.setTime(year)
+        roads.update(deps.camera, drawSize, pixelRatio)
+      }
+      if (trade && tradeVisible) {
+        trade.setRoadsShown(roads !== null && roadsVisible)
+        trade.update(deps.camera, drawSize, pixelRatio)
+        trade.setTime(year, timeline.playing, timeline.speed)
+      }
+      if (dioramas) {
+        dioramas.setStructuresVisible(structuresVisible)
+        dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible)
+        dioramas.setTraders(trade ? trade.merchants : null, tradeVisible)
+        dioramas.setBridges(roads ? roads.placements : null, roadsVisible)
+        dioramas.setTime(year, pulseYears * 0.6)
+        dioramas.update(deps.camera)
+        // up close the flat markers and icons step back for the models
+        const near = dioramas.active ? DIORAMA_NEAR : 0
+        const far = dioramas.active ? DIORAMA_FAR : 0
+        layer.setYield(near, far)
+        structures?.setYield(near, far)
+        journeys?.setYield(near, far)
+        trade?.setYield(near, far)
+        roads?.setYield(near, far)
+      }
       chronicle.update(year)
       if (selected >= 0) inspector.update(year, pos.s0, layer.displayedPopulation(selected))
+    },
+    isPlaying() {
+      return timeline.playing
     },
   }
   return api

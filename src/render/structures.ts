@@ -15,6 +15,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, StructureType, type Settlement, type Structure, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, PLANET_RADIUS, SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { sunUniforms } from './sun.ts'
 
 /** Height of icon anchors above the ground (settlement markers sit at 0.004). */
 const LIFT = 0.0036
@@ -42,6 +43,10 @@ export interface StructureLayer {
   setTime(year: number, animYears: number): void
   /** Per frame: camera/sun in object space and viewport size. */
   update(camera: THREE.PerspectiveCamera, drawSize: THREE.Vector2, pixelRatio: number): void
+  /** Where each drawn structure sits (xyz per entry of `list`) and its seaward / downstream tangent, for the diorama layer. */
+  placements: { list: Structure[]; pos: Float32Array; dir: Float32Array }
+  /** Fade icons out within camera distance near..far (where models take over); far <= 0 turns it off. */
+  setYield(near: number, far: number): void
   dispose(): void
 }
 
@@ -180,10 +185,12 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
     uAnimYears: { value: 20 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
+    uDaylight: sunUniforms.uDaylight,
     uPixel: { value: 0.001 },
     uPixelRatio: { value: 1 },
     uViewport: { value: new THREE.Vector2(1, 1) },
     uCellSpacing: { value: cellSpacing },
+    uYield: { value: new THREE.Vector2(0, 0) },
   }
 
   const material = new THREE.ShaderMaterial({
@@ -196,10 +203,12 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       uniform float uAnimYears;
       uniform vec3 uCamObj;
       uniform vec3 uSunObj;
+      uniform float uDaylight; // 1: daylight everywhere (sun.ts)
       uniform float uPixel;
       uniform float uPixelRatio;
       uniform vec2 uViewport;
       uniform float uCellSpacing;
+      uniform vec2 uYield;
       varying vec2 vPx;
       varying vec2 vSize;
       varying float vType;
@@ -257,7 +266,9 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         gl_Position = clip;
         vPx = position.xy * ext;
         vAlpha = zoomA * smoothstep(0.0, 0.3, facing) * (1.0 - vRuin);
-        vNight = 1.0 - smoothstep(-0.15, 0.1, dot(up, normalize(uSunObj)));
+        // up close the dock or dam model stands in for the icon
+        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,
     fragmentShader: /* glsl */ `
@@ -354,6 +365,10 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       built: Float32Array.from(resBuilt),
       lost: Float32Array.from(resLost),
       strength: Float32Array.from(resStrength),
+    },
+    placements: { list, pos: aPos, dir: aDir },
+    setYield(near: number, far: number) {
+      uniforms.uYield.value.set(near, far)
     },
     setTime(year: number, animYears: number) {
       uniforms.uYear.value = year

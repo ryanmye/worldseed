@@ -6,6 +6,7 @@ import { EventType, StructureType, type World } from '../contract.ts'
 import { BIOME_NAMES } from '../render/palette.ts'
 import { describeEventFor, eventKind, formatInt, settlementName } from './format.ts'
 import { countUpTo, isAlive, landSnapshotAt, Tier, TIER_NAMES, tierOf, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
+import { createTradeSection } from './tradePanel.ts'
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -44,7 +45,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
     <div class="readout-row">Food <span class="insp-food-val"></span></div>
-    <div class="insp-bar"><div class="insp-bar-fill"></div></div>
+    <div class="insp-bar"><div class="insp-bar-fill insp-food-fill"></div></div>
+    <div class="insp-wealth hidden"></div>
     <div class="readout-row">Capacity <span class="insp-cap"></span></div>
     <div class="readout-row">Biome <span class="insp-biome"></span></div>
     <div class="insp-land hidden">
@@ -52,6 +54,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       <div class="readout-row">Soil worn <span class="insp-deg"></span></div>
     </div>
     <div class="insp-structures hidden"></div>
+    <div class="insp-trade hidden"></div>
     <div class="insp-children hidden"></div>
     <div class="insp-migrants hidden"></div>
     <div class="insp-spark-cap"><span>Population, year 0–<span class="insp-years"></span></span><span class="insp-spark-peak"></span></div>
@@ -74,7 +77,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const statusEl = q<HTMLDivElement>('.insp-status')
   const popEl = q<HTMLSpanElement>('.insp-pop')
   const foodValEl = q<HTMLSpanElement>('.insp-food-val')
-  const barFill = q<HTMLDivElement>('.insp-bar-fill')
+  const barFill = q<HTMLDivElement>('.insp-food-fill')
   const capEl = q<HTMLSpanElement>('.insp-cap')
   const biomeEl = q<HTMLSpanElement>('.insp-biome')
   const canvas = q<HTMLCanvasElement>('canvas')
@@ -115,6 +118,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     a.textContent = settlementName(index!.history, id)
     return a
   }
+  const trade = createTradeSection(q<HTMLDivElement>('.insp-wealth'), q<HTMLDivElement>('.insp-trade'), link)
 
   function drawSparkline(ix: HistoryIndex, id: number) {
     const h = ix.history
@@ -180,6 +184,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       shownStructures = -1
       cell = s.cell
       landEl.classList.toggle('hidden', ix.land === null)
+      trade.show(ix, id)
       root.classList.remove('hidden')
     },
     hide() {
@@ -257,6 +262,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
         }
         structuresEl.classList.toggle('hidden', shown === 0)
       }
+
+      trade.update(year, s0)
 
       const c = Math.round((year / Math.max(1, h.years)) * SPARK_W)
       if (c !== shownCursor) {

@@ -1,0 +1,105 @@
+/* Trade: inspector section, goods legend, chronicle markers. */
+
+.good-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin: 0 3px 0 1px;
+  vertical-align: 0;
+  box-shadow: 0 0 0 1px rgba(10, 8, 6, 0.75);
+}
+
+.insp-wealth-fill {
+  background: #e8c35a;
+}
+
+.insp-trade {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #a7b2c5;
+}
+.insp-trade-head {
+  color: #c4ccda;
+}
+.insp-trade-summary {
+  margin-top: 1px;
+}
+.insp-trade .insp-events-title {
+  margin-top: 6px;
+}
+.insp-partners {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.insp-partners li {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 1px 0;
+  color: #c4ccda;
+}
+.insp-partner-bar {
+  flex: none;
+  width: 26px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  align-self: center;
+}
+.insp-partner-bar > span {
+  display: block;
+  height: 100%;
+  background: #e0a656;
+  border-radius: 2px;
+}
+.insp-partner-text {
+  min-width: 0;
+}
+.insp-trade-more {
+  margin-top: 1px;
+  color: #6f7d96;
+}
+
+/* chronicle and inspector event markers */
+.ev-trade .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.9);
+  background: #e0a656;
+}
+.ev-tradeEnd .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.9);
+  background: #6f7d96;
+  box-shadow: inset 0 0 0 1px #c9a46a;
+}
+
+/* goods legend under the Trade toggle */
+.goods-legend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 8px;
+  margin: -1px 0 2px 20px;
+  font-size: 11px;
+  color: #a7b2c5;
+}
+.goods-legend.off {
+  /* keep its width so the panel does not jump when Trade is toggled */
+  visibility: hidden;
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.goods-legend span {
+  white-space: nowrap;
+}
+
+.inspector {
+  overflow-x: hidden;
+}
+.insp-partners .insp-link {
+  white-space: nowrap;
+}

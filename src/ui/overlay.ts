@@ -3,6 +3,9 @@
 
 import { VIEW_MODES, BIOME_NAMES, type ViewMode } from '../render/palette.ts'
 import type { Biome } from '../contract.ts'
+import { GOOD_COLORS } from '../render/trade.ts'
+import { GOOD_NAMES } from './format.ts'
+import './trade.css'
 
 export interface Readout {
   biome: Biome
@@ -22,6 +25,12 @@ export interface OverlayCallbacks {
   onJourneysToggle(show: boolean): void
   onFarmlandToggle(show: boolean): void
   onStructuresToggle(show: boolean): void
+  /** 3D buildings, farms, docks and ships up close. */
+  onBuildingsToggle?(show: boolean): void
+  /** Trade routes and merchants. */
+  onTradeToggle?(show: boolean): void
+  /** Roads and bridges. */
+  onRoadsToggle?(show: boolean): void
 }
 
 export interface OverlayOptions {
@@ -32,6 +41,9 @@ export interface OverlayOptions {
   journeys: boolean
   farmland: boolean
   structures: boolean
+  buildings?: boolean
+  trade?: boolean
+  roads?: boolean
 }
 
 const MODE_LABELS: Record<ViewMode, string> = {
@@ -114,8 +126,25 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const cloudCheckbox = makeToggle('Clouds', initial.clouds, false)
   const markerCheckbox = makeToggle('Settlements', initial.markers, false)
   const journeyCheckbox = makeToggle('Journeys', initial.journeys, false)
+  const tradeCheckbox = makeToggle('Trade', initial.trade ?? true, false)
+  // what the merchants carry, under the Trade toggle
+  const legend = document.createElement('div')
+  legend.className = 'goods-legend'
+  legend.title = 'Goods carried by merchants'
+  GOOD_NAMES.forEach((name, g) => {
+    const item = document.createElement('span')
+    const dot = document.createElement('span')
+    dot.className = 'good-dot'
+    dot.style.background = GOOD_COLORS[g]
+    item.append(dot, name)
+    legend.appendChild(item)
+  })
+  legend.classList.toggle('off', !tradeCheckbox.checked)
+  modePanel.appendChild(legend)
+  const roadCheckbox = makeToggle('Roads', initial.roads ?? true, false)
   const farmCheckbox = makeToggle('Farmland', initial.farmland, false)
   const structureCheckbox = makeToggle('Structures', initial.structures, false)
+  const buildingCheckbox = makeToggle('Buildings', initial.buildings ?? true, false)
 
   const readoutPanel = document.createElement('div')
   readoutPanel.className = 'panel readout-panel hidden'
@@ -161,6 +190,12 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   journeyCheckbox.addEventListener('change', () => callbacks.onJourneysToggle(journeyCheckbox.checked))
   farmCheckbox.addEventListener('change', () => callbacks.onFarmlandToggle(farmCheckbox.checked))
   structureCheckbox.addEventListener('change', () => callbacks.onStructuresToggle(structureCheckbox.checked))
+  buildingCheckbox.addEventListener('change', () => callbacks.onBuildingsToggle?.(buildingCheckbox.checked))
+  tradeCheckbox.addEventListener('change', () => {
+    legend.classList.toggle('off', !tradeCheckbox.checked)
+    callbacks.onTradeToggle?.(tradeCheckbox.checked)
+  })
+  roadCheckbox.addEventListener('change', () => callbacks.onRoadsToggle?.(roadCheckbox.checked))
 
   function setActiveModeButton(mode: ViewMode) {
     for (const [m, btn] of modeButtons) {

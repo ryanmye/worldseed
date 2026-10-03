@@ -21,6 +21,7 @@
 import * as THREE from 'three'
 import type { Journeys, World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { sunUniforms } from './sun.ts'
 
 /** Height of the routes above the ground (settlement markers sit at 0.004). */
 const LIFT = 0.0032
@@ -45,6 +46,14 @@ export interface JourneyLayer {
   setHighlight(journey: number): void
   /** Per frame: camera/sun in object space and viewport size. */
   update(camera: THREE.PerspectiveCamera, drawSize: THREE.Vector2, pixelRatio: number): void
+  /**
+   * Groups under way as last written by setTime (live views of preallocated buffers, valid
+   * until the next setTime): count, then per group xyz, unit direction, and info
+   * (kind, size 0..1, at sea 0|1, opacity). Used by the diorama layer for ships and carts.
+   */
+  groups(): { count: number; pos: Float32Array; dir: Float32Array; info: Float32Array }
+  /** Fade group markers out within camera distance near..far (where models take over); far <= 0 turns it off. */
+  setYield(near: number, far: number): void
   dispose(): void
 }
 
@@ -341,6 +350,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
   const shared = {
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
+    uDaylight: sunUniforms.uDaylight,
     uPixel: { value: 0.001 },
     uPixelRatio: { value: 1 },
   }
@@ -375,6 +385,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
     uniform float uPixelRatio;
     uniform vec3 uCamObj;
     uniform vec3 uSunObj;
+      uniform float uDaylight; // 1: daylight everywhere (sun.ts)
     varying float vAcross;
     varying float vSoft;
     varying float vCore;
@@ -407,7 +418,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       vec3 up = normalize(position);
       vFacing = dot(up, normalize(uCamObj - position));
-      vNight = 1.0 - smoothstep(-0.15, 0.1, dot(up, normalize(uSunObj)));
+      vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       vFrac = aTime.z;
       vArc = aTime.w;
       vKindV = aKind.x;
@@ -499,6 +510,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
     ...shared,
     uViewport: { value: new THREE.Vector2(1, 1) },
     uSizeScale: { value: 1 },
+    uYield: { value: new THREE.Vector2(0, 0) },
   }
   const groupMaterial = new THREE.ShaderMaterial({
     uniforms: groupUniforms,
@@ -511,6 +523,8 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       uniform vec2 uViewport;
       uniform vec3 uCamObj;
       uniform vec3 uSunObj;
+      uniform float uDaylight; // 1: daylight everywhere (sun.ts)
+      uniform vec2 uYield;
       varying vec2 vPx;
       varying float vR;
       varying float vKindV;
@@ -540,7 +554,9 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
         vKindV = aInfo.x;
         vSea = aInfo.z;
         vAlpha = aInfo.w * smoothstep(0.0, 0.3, facing);
-        vNight = 1.0 - smoothstep(-0.15, 0.1, dot(up, normalize(uSunObj)));
+        // up close a ship or cart model stands in for the marker
+        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,
     fragmentShader: /* glsl */ `
@@ -613,6 +629,7 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
   }
 
   const tmpQ = new THREE.Quaternion()
+  const groupView = { count: 0, pos: gPos, dir: gDir, info: gInfo }
 
   function setTimeUniforms(m: THREE.ShaderMaterial, year: number, headYears: number, threadYears: number) {
     m.uniforms.uYear.value = year
@@ -679,6 +696,13 @@ export function buildJourneyLayer(world: World, J: Journeys): JourneyLayer {
       const lo = Math.min(hi, lowerBound(maxArrive, year - threadYears))
       trailGeom.setDrawRange(indexOffsets[lo], indexOffsets[hi] - indexOffsets[lo])
       writeGroups(year)
+    },
+    groups() {
+      groupView.count = quad.instanceCount
+      return groupView
+    },
+    setYield(near: number, far: number) {
+      groupUniforms.uYield.value.set(near, far)
     },
     setHighlight(j: number) {
       const ok = j >= 0 && j < count && indexOffsets[j + 1] > indexOffsets[j]

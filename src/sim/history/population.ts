@@ -6,17 +6,21 @@
 // settlements compete for shared fields and larger ones take the larger share;
 // a claimant gets capacity * w of its share (distant fields are worked less
 // efficiently), so a settlement alone on its land expects sum(w * capacity)
-// over its catchment, times productivity and its urban factor. Capacity here
+// over its catchment, times productivity and its trade factor (wealth and
+// being a hub let a settlement get more from its land; see trade.ts). Capacity here
 // is the effective one (degradation, irrigation, reservoirs; see land.ts);
 // a port adds fishing on coastal cells and a dam damps the owner's bad harvests.
 // In land years the same pass records which fields feed each settlement
-// (nearest first), the target the land-use system moves cultivation toward.
+// (nearest first), the target the land-use system moves cultivation toward,
+// how crowded the people working them are (for degradation), and what the
+// food is made of (grain, fish, livestock; for trade).
 
 import { CITY_POPULATION, EventType, TOWN_POPULATION } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
-import { CATCHMENT, DAM, PORT, POPULATION, URBAN } from './params.ts'
+import { CATCHMENT, DAM, PORT, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { abandon, logEvent, productivityAt } from './state.ts'
+import { foodBase } from './migration.ts'
 
 /** System: productivity for this year. */
 export function productivitySystem(s: HistoryState): void {
@@ -78,9 +82,11 @@ export function foodSystem(s: HistoryState): void {
   const prod = s.productivity
   const portFish = PORT.fish
   const target = s.landTarget
+  const stressAcc = s.stressAcc
   const recordFields = s.landYear
   const active = s.active
   const isActive = s.isActive
+  const { liveFrac, riverFishFrac } = T
   let activeCount = s.activeCount
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
@@ -88,15 +94,18 @@ export function foodSystem(s: HistoryState): void {
     const p = s.pop[id]
     const fish = s.port[id] >= 0 ? portFish : 0
     const st = claimStrength(p)
-    const urban = 1 + (URBAN.bonus * p) / (p + URBAN.half)
-    const mul = prod * urban
+    const mul = prod * s.econ[id]
     const stm = st * mul
     const big = p > smallPop
     const r1 = big ? reachOf(p) + 1 : 0
     const base = catchBase[c]
     const end = big ? catchOff[c + 1] : base
     let need = recordFields ? p : 0
+    // Crowding of the people working these fields: people per unit of the food they can count on
+    // (last year's local food plus smoothed imports; exports do not count against it).
+    const crowd = recordFields ? p / foodBase(s, id) : 0
     let perStrength = 0 // food per unit of claim strength
+    let perFish = 0, perLive = 0 // the fish and livestock parts of it (land years only)
     for (let k = catchOff[c]; k < end; k++) {
       let w = catchW[k]
       if (k >= base) {
@@ -107,23 +116,31 @@ export function foodSystem(s: HistoryState): void {
       }
       const j = catchCell[k]
       const ic = 1 / claim[j]
-      const cj = fish > 0 ? capacity[j] + fish * capFish[j] : capacity[j]
-      const term = cj * w * w * ic
+      const cf = fish > 0 ? (1 + fish) * capFish[j] : capFish[j]
+      const cj = capacity[j] - capFish[j] + cf
+      const ww = w * w * ic
+      const term = cj * ww
       perStrength += term
+      if (recordFields) {
+        const farm = cj - cf
+        perFish += (cf + farm * riverFishFrac[j]) * ww
+        perLive += farm * liveFrac[j] * ww
+      }
       if (need > 0) {
         // Fields worked this year: up to this settlement's share of the cell.
         const avail = term * stm
         if (avail <= 0) continue
         if (isActive[j] === 0) { isActive[j] = 1; active[activeCount++] = j }
         const share = w * st * ic
-        if (need >= avail) {
-          target[j] += share
-          need -= avail
-        } else {
-          target[j] += (share * need) / avail
-          need = 0
-        }
+        const used = need >= avail ? share : (share * need) / avail
+        target[j] += used
+        stressAcc[j] += used * crowd
+        need = need >= avail ? need - avail : 0
       }
+    }
+    if (recordFields && perStrength > 0) {
+      s.fishFrac[id] = perFish / perStrength
+      s.liveFrac[id] = perLive / perStrength
     }
     const expected = perStrength * stm
     let h = s.harvest[s.weatherRegion[c]]

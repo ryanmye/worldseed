@@ -3,8 +3,10 @@
 
 import { Biome, RIVER_FLOW_THRESHOLD } from '../../contract.ts'
 import type { World } from '../../contract.ts'
+import { createRng } from '../rng.ts'
+import { createSimplex3, fbm } from '../noise.ts'
 import { MinHeap, smoothstep } from '../util.ts'
-import { CAPACITY, CATCHMENT, DEGRADATION, MOVE_COST } from './params.ts'
+import { CAPACITY, CATCHMENT, DEGRADATION, GOODS, MOVE_COST } from './params.ts'
 
 export interface Terrain {
   cellCount: number
@@ -53,6 +55,13 @@ export interface Terrain {
   /** Landmass label per land cell (lakes included), -1 for sea. */
   landmass: Int32Array
   landmassSize: number[]
+  /** Goods: share of a cell's food (farm part) that is livestock, and share that is river fishing (static). */
+  liveFrac: Float64Array
+  riverFishFrac: Float64Array
+  /** Non-food resources per cell (units a year at productivity 1, scaled by cell area): timber of the uncleared cell, ore, salt. */
+  timber: Float64Array
+  ore: Float64Array
+  salt: Float64Array
 }
 
 export function buildTerrain(world: World): Terrain {
@@ -73,7 +82,16 @@ export function buildTerrain(world: World): Terrain {
   const aridity = new Float64Array(N)
   const seaCoast = new Uint8Array(N)
   const D = DEGRADATION
+  const G = GOODS
   const habMin = C.habitableMin * area
+  const liveFrac = new Float64Array(N)
+  const riverFishFrac = new Float64Array(N)
+  const timber = new Float64Array(N)
+  const ore = new Float64Array(N)
+  const salt = new Float64Array(N)
+  // Ore richness: seeded noise, so only some highlands are rich (own stream: never shifts other draws).
+  const oreNoise = createSimplex3(createRng(world.seed, 'history-ore'))
+  const P = world.grid.positions
   for (let i = 0; i < N; i++) {
     const e = elev[i]
     const b = biome[i]
@@ -111,6 +129,22 @@ export function buildTerrain(world: World): Terrain {
     capacity[i] = cap
     capFarm[i] = C.base * area * (farm + river)
     capFish[i] = C.base * area * fish
+    // Goods from this cell.
+    const farmPart = farm + river
+    riverFishFrac[i] = farmPart > 0 ? (G.riverFish * river) / farmPart : 0
+    const high = b === Biome.Mountain ? 1 : smoothstep(0.2, 0.45, e)
+    liveFrac[i] = (1 - riverFishFrac[i]) * (G.livestock[b] + (1 - G.livestock[b]) * 0.5 * high)
+    timber[i] = G.timber[b] * area * (0.3 + 0.7 * moist)
+    if (high > 0) {
+      const nz = 0.5 + 0.5 * fbm(oreNoise, P[i * 3], P[i * 3 + 1], P[i * 3 + 2], { octaves: 3, frequency: 3.5 })
+      ore[i] = G.ore * area * high * smoothstep(G.oreLow, G.oreHigh, nz)
+    }
+    const arid = 1 - smoothstep(0.08, 0.3, r)
+    if (arid > 0) {
+      const sink = world.riverTo[i] < 0 && !(seaAdj || shallowAdj)
+      const shore = seaAdj || shallowAdj ? 1 : lakeAdj ? 0.8 : sink ? 0.6 : b === Biome.Desert ? 0.15 : 0
+      salt[i] = G.salt * area * arid * shore
+    }
     if (cap >= habMin) habitable[i] = 1
     if (seaAdj || shallowAdj) seaCoast[i] = 1
     aridity[i] = 1 - smoothstep(0.1, 0.45, r)
@@ -275,5 +309,6 @@ export function buildTerrain(world: World): Terrain {
     river: isRiver, seaCoast, sea,
     catchOff, catchBase, catchCell, catchW, catchDist, exclOff, exclCell, potential,
     moveCost, deep, landmass, landmassSize,
+    liveFrac, riverFishFrac, timber, ore, salt,
   }
 }

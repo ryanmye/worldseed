@@ -7,6 +7,12 @@
  * Returns vec4(value, d/dx, d/dy, d/dz); value is roughly in [-0.6, 0.6].
  */
 export const NOISE_GLSL = /* glsl */ `
+#ifdef WS_COUNT_NOISE
+// debug instrumentation (perf=1, window.__worldseed.noiseCount()): calls per pixel
+int ws_noiseCount = 0;
+int ws_cellCount = 0;
+#endif
+
 vec3 ws_hash33(vec3 p) {
   p = fract(p * vec3(0.1031, 0.1030, 0.0973));
   p += dot(p, p.yxz + 33.33);
@@ -14,6 +20,9 @@ vec3 ws_hash33(vec3 p) {
 }
 
 vec4 ws_noised(vec3 x) {
+#ifdef WS_COUNT_NOISE
+  ws_noiseCount++;
+#endif
   vec3 i = floor(x);
   vec3 f = fract(x);
   vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
@@ -108,10 +117,71 @@ vec4 ws_ridged(vec3 p, float freq, int octaves, float footprint) {
   return sum / max(norm, 1e-4);
 }
 
+// Band-limited variants: only the octaves with fmin <= freq < fmax, with the same
+// amplitudes and footprint weights as the full versions, so splitting a field into a
+// low band (baked into a texture, see surfaceBake.ts) and a high band (evaluated per
+// frame) sums to the original. Pass footprint 0 for full weight.
+float ws_fbm_band(vec3 p, float freq, int octaves, float footprint, float fmin, float fmax) {
+  float sum = 0.0;
+  float amp = 0.5;
+  for (int o = 0; o < 6; o++) {
+    if (o >= octaves || freq >= fmax) break;
+    float w = ws_lod(freq, footprint);
+    if (w <= 0.0) break;
+    if (freq >= fmin) sum += amp * w * ws_noised(p * freq).x;
+    freq *= 2.03;
+    amp *= 0.5;
+  }
+  return sum * 2.0;
+}
+
+vec4 ws_fbmd_band(vec3 p, float freq, int octaves, float footprint, float fmin, float fmax) {
+  vec4 sum = vec4(0.0);
+  float amp = 0.5;
+  for (int o = 0; o < 6; o++) {
+    if (o >= octaves || freq >= fmax) break;
+    float w = ws_lod(freq, footprint);
+    if (w <= 0.0) break;
+    if (freq >= fmin) {
+      vec4 n = ws_noised(p * freq);
+      sum += amp * w * vec4(n.x, n.yzw * freq);
+    }
+    freq *= 2.03;
+    amp *= 0.5;
+  }
+  return sum * 2.0;
+}
+
+// Ridged band: the unnormalised sum (value, gradient) and, in norm, the summed octave
+// weights; ws_ridged is (sum of all bands) / (sum of all norms).
+vec4 ws_ridged_band(vec3 p, float freq, int octaves, float footprint, float fmin, float fmax, out float norm) {
+  vec4 sum = vec4(0.0);
+  float amp = 0.5;
+  norm = 0.0;
+  for (int o = 0; o < 6; o++) {
+    if (o >= octaves || freq >= fmax) break;
+    float w = ws_lod(freq, footprint);
+    if (w <= 0.0) break;
+    if (freq >= fmin) {
+      vec4 n = ws_noised(p * freq);
+      float r = 1.0 - min(abs(n.x) * 1.6, 1.0);
+      vec3 dr = -sign(n.x) * 1.6 * n.yzw * freq;
+      sum += amp * w * vec4(r * r, 2.0 * r * dr);
+      norm += amp * w;
+    }
+    freq *= 2.03;
+    amp *= 0.5;
+  }
+  return sum;
+}
+
 // Cellular (Voronoi) noise with jittered feature points: returns vec2(F1, F2), the
 // distances to the nearest and second-nearest feature point, and an independent
 // 0..1 random vec3 for the nearest one (its "cell id"). 27 hashes: use sparingly.
 vec2 ws_cells(vec3 x, out vec3 cellRand) {
+#ifdef WS_COUNT_NOISE
+  ws_cellCount++;
+#endif
   vec3 i = floor(x);
   vec3 f = fract(x);
   float d1 = 9.0;

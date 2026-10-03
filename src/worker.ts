@@ -48,8 +48,11 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     if (J) {
       for (const a of [J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path]) transfer.add(a.buffer as ArrayBuffer)
     }
-    // land snapshots arrive with the sim; either may be missing while it is being extended
-    for (const a of [partial.landUse, partial.degradation]) if (a && a.buffer instanceof ArrayBuffer) transfer.add(a.buffer)
+    // land snapshots, roads, wealth and trade arrive with the sim; any may be missing while it is being extended
+    const T = partial.trade
+    const extra: (ArrayBufferView | undefined)[] = [partial.landUse, partial.degradation, partial.road, partial.wealth, partial.tradeVolume]
+    if (T) extra.push(T.a, T.b, T.openedYear, T.goodAB, T.goodBA, T.pathOffsets, T.path)
+    for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
     post({ type: 'history', requestId, history, ms }, [...transfer])
   } catch (err) {
     post({ type: 'error', requestId, stage: 'history', message: errorMessage(err) })

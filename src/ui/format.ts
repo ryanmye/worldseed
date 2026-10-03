@@ -2,13 +2,10 @@
 
 import { EventType, StructureType, type History, type HistoryEvent } from '../contract.ts'
 
-/**
- * Display name of a settlement. Procedural names arrive in a later milestone: when
- * Settlement gains a `name`, it is picked up here and everywhere else follows.
- */
+/** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
   const s = history.settlements[id] as { name?: string } | undefined
-  return s?.name ?? `Settlement #${id}`
+  return s?.name || `Settlement #${id}`
 }
 
 /** 812, 4.3k, 56k, 1.2M */
@@ -25,7 +22,33 @@ export function formatInt(n: number): string {
   return Math.round(n).toLocaleString('en-US')
 }
 
-export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost'
+export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd'
+
+/** Good names (lower case), indexed by Good. */
+export const GOOD_NAMES: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt']
+
+export function goodName(g: number): string {
+  return GOOD_NAMES[g] ?? 'goods'
+}
+
+/** Goods of route r: what its end a sends to b, and what b sends back (null without trade data). */
+function routeGoods(h: History, r: number): [number, number] | null {
+  const T = (h as Partial<History>).trade
+  if (!T || !(r >= 0 && r < T.count)) return null
+  return [T.goodAB[r], T.goodBA[r]]
+}
+
+/** "fish for timber" from the point of view of `from` (the settlement sending the first good). */
+function exchange(h: History, e: HistoryEvent, from: number): string {
+  const g = routeGoods(h, e.value)
+  if (!g) return ''
+  const T = h.trade
+  // the event's ends are the route's ends; goodAB goes from the lower id (a) to b
+  const sendsFirst = T.a[e.value] === from
+  const out = sendsFirst ? g[0] : g[1]
+  const back = sendsFirst ? g[1] : g[0]
+  return out === back ? goodName(out) : `${goodName(out)} for ${goodName(back)}`
+}
 
 export function eventKind(e: HistoryEvent): EventKind {
   switch (e.type) {
@@ -36,6 +59,8 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.BecameTown: return 'town'
     case EventType.BecameCity: return 'city'
     case EventType.StructureLost: return 'lost'
+    case EventType.TradeOpened: return 'trade'
+    case EventType.TradeClosed: return 'tradeEnd'
     default: return 'migration'
   }
 }
@@ -68,9 +93,28 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       return `${name} becomes a city`
     case EventType.StructureLost:
       return structureTypeOf(h, e) === StructureType.Dam ? `The dam of ${name} falls into ruin` : `The port of ${name} falls into ruin`
+    case EventType.TradeOpened: {
+      const x = exchange(h, e, e.settlement)
+      return `${name} and ${settlementName(h, e.other)} begin trading` + (x ? ` ${x}` : '')
+    }
+    case EventType.TradeClosed:
+      return `${name} and ${settlementName(h, e.other)} stop trading`
     default:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
+}
+
+/** Chronicle line for `count` large migrations in one decade (`people` in all), `largest` being the biggest group. */
+export function describeMigrations(h: History, largest: HistoryEvent, count: number, people: number): string {
+  return `${count} large migrations (${formatInt(people)} people), the largest from ${settlementName(h, largest.settlement)} to ${settlementName(h, largest.other)}`
+}
+
+/** Chronicle line for `count` trade routes opened (or closed) in one decade, naming one of them. */
+export function describeTradeBurst(h: History, example: HistoryEvent, count: number, opened: boolean): string {
+  const pair = `${settlementName(h, example.settlement)} and ${settlementName(h, example.other)}`
+  if (!opened) return `${count} trade routes close, among them ${pair}`
+  const x = exchange(h, example, example.settlement)
+  return `${count} new trade routes, among them ${pair}` + (x ? ` (${x})` : '')
 }
 
 /** Chronicle line for `count` famines in one year, `worst` being the most severe. */
@@ -85,6 +129,11 @@ export function describeFamineBurst(h: History, worst: HistoryEvent, count: numb
 export function describeFoundings(h: History, largest: HistoryEvent, count: number, sameParent: boolean): string {
   const parent = settlementName(h, largest.other)
   return sameParent ? `${parent} founded ${count} new settlements` : `${count} new settlements founded, largest from ${parent}`
+}
+
+/** "exports fish, imports timber" (or "trades grain both ways"). */
+export function describeExchange(exports: number, imports: number): string {
+  return exports === imports ? `${goodName(exports)} both ways` : `exports ${goodName(exports)}, imports ${goodName(imports)}`
 }
 
 /** Description of an event from the point of view of settlement `id` (inspector). */
@@ -105,6 +154,15 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       return `Became a city (${formatInt(e.value)} people)`
     case EventType.StructureLost:
       return `Its ${structureName(structureTypeOf(h, e))} fell into ruin`
+    case EventType.TradeOpened: {
+      const partner = e.settlement === id ? e.other : e.settlement
+      const g = routeGoods(h, e.value)
+      if (!g) return `Began trading with ${settlementName(h, partner)}`
+      const isA = h.trade.a[e.value] === id
+      return `Began trading with ${settlementName(h, partner)}: ${describeExchange(isA ? g[0] : g[1], isA ? g[1] : g[0])}`
+    }
+    case EventType.TradeClosed:
+      return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
       return e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
