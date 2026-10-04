@@ -111,6 +111,7 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
   for (const k of g.lanes) {
     if (!g.legOpen[k]) continue
     const a = g.legA[k], pa = polityOf(s, a), lb = T.landmass[s.cell[g.legB[k]]]
+    if (chord(s, s.cell[a], s.cell[g.legB[k]]) / hop < LANE.farNear * LANE.farCells) continue // (a short hop to a neighbouring land is no far way)
     farBy.push(pa >= 0 ? pa : -1 - s.people[a]); farLm.push(lb)
     if (lb >= 0 && lb !== T.landmass[s.cell[a]]) farN[lb]++
   }

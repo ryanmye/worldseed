@@ -352,6 +352,8 @@ export const LANE = {
   farCells: 40,
   /** A far landmass already reached by farRivals open lanes from overseas draws no new venture by exotic demand. */
   farRivals: 2,
+  /** Only lanes whose ends lie at least farNear * farCells hops apart count as reaching a far land (a hop to a neighbouring island does not). */
+  farNear: 0.8,
 }
 
 /** Trading posts (4.4). */
