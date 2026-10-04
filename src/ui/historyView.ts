@@ -36,7 +36,7 @@ import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, DIORAMA_YIELD_FAR, DIORA
 import { createChronicle } from './chronicle.ts'
 import { buildHistoryIndex, HISTORY_CHUNK_YEARS, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
-import { createTimeline, More, YEARS_PER_SECOND } from './timeline.ts'
+import { createTimeline, More } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
 import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
@@ -45,7 +45,7 @@ import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { setNamesYear } from './renamingData.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
-import { describePlaces, formatPopulation } from './format.ts'
+import { describePlaces, formatInt, formatPopulation } from './format.ts'
 import { ANYONE, buildPeoplesData } from './peoplesData.ts'
 import { createPeoplesView } from './peoplesPanel.ts'
 import { buildExpeditionData, discoveryNote } from './expeditionsData.ts'
@@ -158,6 +158,8 @@ export interface HistoryView {
   extendHistory(history: History, ms: number): void
   /** The requested longer run failed: keep the current history and stop asking. */
   extendFailed(message: string): void
+  /** Progress of the history now simulating in the worker (the initial run or an extension): `years` simulated so far of `target`. */
+  setSimProgress(years: number, target: number): void
   /** Length of the current history in years (0 while there is none). */
   readonly years: number
   /** Timing of the last swap (null before the first). */
@@ -275,6 +277,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let deferred: { h: History; ms: number } | null = null
   /** The staged rebuild in progress (cancel() drops it), or null. */
   let staging: { cancel(): void } | null = null
+  /** Timer of the deferred initial build (setHistory), 0 for none: lets "Drawing the map…" paint before the (synchronous) build runs. */
+  let initialBuildTimer = 0
   /** Simulation milliseconds per simulated year (for the prefetch lead), from the last run. */
   let simMsPerYear = 0.6
   let lastSwap: SwapStats | null = null
@@ -303,6 +307,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     }
     requested = next
     timeline.setMore(More.Pending)
+    timeline.setProgress(`Extending to year ${next}…`, null) // determinate once the worker's first progress message arrives
     deps.requestYears(next)
   }
 
@@ -850,6 +855,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     let timer = 0
     let total = 0
     let maxStep = 0
+    timeline.setProgress('Drawing the map…', 0)
     const cancel = () => {
       cancelled = true
       window.clearTimeout(timer)
@@ -873,6 +879,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         times[step.name] = dt
         total += dt
         maxStep = Math.max(maxStep, dt)
+        timeline.setProgress('Drawing the map…', k / steps.length) // one real step per task: cheap, true progress
         timer = window.setTimeout(next, 0)
         return
       }
@@ -882,6 +889,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       commit(w, h, b, true)
       timeline.extendRange(h.years)
       timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
+      timeline.setProgress(null, null)
       syncPrefetchLead()
       const commitMs = performance.now() - t0
       times.commit = commitMs
@@ -1055,6 +1063,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       deferred = null
       requested = 0
       failed = false
+      window.clearTimeout(initialBuildTimer)
+      initialBuildTimer = 0
       clearLayer()
       selected = -1
       hovered = -1
@@ -1069,6 +1079,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
       timeline.setRange(null, 1, 'simulating history…')
+      timeline.setProgress('Simulating history…', null) // real progress once the worker's first chunk arrives (setSimProgress)
       lights = new Float32Array(w.grid.cellCount)
       cellPop = new Float32Array(w.grid.cellCount)
       shownS0 = shownS1 = -1
@@ -1081,28 +1092,42 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       staging = null
       deferred = null
       requested = 0
-      const b: Built = {}
-      for (const step of buildSteps(world, h, b)) step.run()
-      commit(world, h, b, false)
-      timeline.setRange(h.years, h.snapshotInterval)
-      timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
-      syncPrefetchLead()
-      shownS0 = shownS1 = -1
-      const init = pending
-      pending = null
-      if (init && init.year !== null) timeline.setYear(init.year)
-      // the initial animation stops at the end of the initial history (from there Play goes on)
-      if (!init || init.play) {
-        timeline.setSoftStop(h.years)
-        timeline.play()
-      } else timeline.setSoftStop(null)
-      if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
-      if (init?.knownAll) peoples.select(ANYONE)
-      else if (init && typeof init.people === 'number') peoples.select(init.people)
-      if (init && typeof init.species === 'number') speciesView.select(init.species)
+      window.clearTimeout(initialBuildTimer)
+      const w = world
+      // one step per task, same as stage() (extending), would delay a fresh world's first paint by
+      // little and complicate the pending-URL-state handling below for no benefit; this build runs
+      // in one synchronous task, but is deferred by a task so "Drawing the map…" gets to paint first.
+      timeline.setProgress('Drawing the map…', null)
+      initialBuildTimer = window.setTimeout(() => {
+        initialBuildTimer = 0
+        if (world !== w) return // superseded by a new seed while this was pending
+        const b: Built = {}
+        for (const step of buildSteps(w, h, b)) step.run()
+        commit(w, h, b, false)
+        timeline.setRange(h.years, h.snapshotInterval)
+        timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
+        timeline.setProgress(null, null)
+        syncPrefetchLead()
+        shownS0 = shownS1 = -1
+        const init = pending
+        pending = null
+        if (init && init.year !== null) timeline.setYear(init.year)
+        // the initial animation stops at the end of the initial history (from there Play goes on)
+        if (!init || init.play) {
+          timeline.setSoftStop(h.years)
+          timeline.play()
+        } else timeline.setSoftStop(null)
+        if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
+        if (init?.knownAll) peoples.select(ANYONE)
+        else if (init && typeof init.people === 'number') peoples.select(init.people)
+        if (init && typeof init.species === 'number') speciesView.select(init.species)
+        requestRender()
+        deps.wake()
+      }, 0)
     },
     setHistoryError(message: string) {
       timeline.setRange(null, 1, 'history unavailable')
+      timeline.setProgress(null, null)
       console.error('history simulation failed:', message)
     },
     extendHistory(h: History, ms: number) {
@@ -1115,6 +1140,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       simMsPerYear = ms / Math.max(1, h.years)
       if (timeline.intro) deferred = { h, ms } // swapped in when the initial animation ends (tick)
       else stage(h, ms)
+    },
+    setSimProgress(years: number, target: number) {
+      const frac = target > 0 ? Math.min(1, years / target) : null
+      timeline.setProgress(index ? `Extending to year ${target}…` : `Simulating ${formatInt(target)} years…`, frac)
     },
     extendFailed(message: string) {
       requested = 0
@@ -1313,8 +1342,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         shownPopS0 = pos.s0
         updatePopulationDensity(pos.s0)
       }
-      // pulses last about a second of real time at any speed, and 20 years when paused
-      const pulseYears = YEARS_PER_SECOND * (timeline.playing ? timeline.speed : 1)
+      // pulses last about a second of real time at any speed, and YEARS_PER_SECOND years when paused
+      const pulseYears = timeline.yearsPerSecond
       layer.setTime(year, pos.frac, pulseYears)
       layer.update(deps.camera, drawSize, pixelRatio)
       updateLand(year)

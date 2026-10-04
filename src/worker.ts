@@ -45,6 +45,8 @@ export type WorkerResponse =
   | { type: 'world'; requestId: number; world: World }
   | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean }
   | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend'; message: string }
+  /** Progress of a run in chunks (resumable runs only, see `simulate`): `years` simulated so far of `target`. */
+  | { type: 'progress'; requestId: number; years: number; target: number }
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer)
 const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
@@ -53,12 +55,29 @@ const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n
 interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null }
 let kept: Kept | null = null
 
-/** History `years` long (undefined: the requested default length) of the kept world: from its resumable run when there is one. */
-function simulate(k: Kept, years: number | undefined): History {
+/** Progress is posted at least this often (simulated years) while a resumable run advances toward its target. */
+const PROGRESS_CHUNK_YEARS = 150
+
+/**
+ * History `years` long (undefined: the requested default length) of the kept world: from its
+ * resumable run when there is one, advancing it in chunks and posting a 'progress' response after
+ * each one short of the target, so the UI can show real progress for the simulation (the run
+ * reaching the same target in one call or several costs the same, per its contract).
+ */
+function simulate(k: Kept, years: number | undefined, requestId: number): History {
   if (createHistoryRun && !k.run) k.run = createHistoryRun(k.world, k.historyOptions)
+  const target = years ?? k.historyOptions?.years ?? 2000
   if (!k.run) return simulateHistory(k.world, years === undefined ? k.historyOptions : { ...k.historyOptions, years })
   try {
-    return k.run.advanceTo(years ?? k.historyOptions?.years ?? 2000)
+    const run = k.run
+    let upTo = Math.min(target, run.year + PROGRESS_CHUNK_YEARS)
+    let h = run.advanceTo(upTo)
+    while (upTo < target) {
+      post({ type: 'progress', requestId, years: h.years, target })
+      upTo = Math.min(target, run.year + PROGRESS_CHUNK_YEARS)
+      h = run.advanceTo(upTo)
+    }
+    return h
   } catch (err) {
     k.run = null // its state is suspect: a later request starts from scratch
     throw err
@@ -67,7 +86,7 @@ function simulate(k: Kept, years: number | undefined): History {
 
 function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean) {
   const t0 = performance.now()
-  const history = simulate(k, years)
+  const history = simulate(k, years, requestId)
   const ms = performance.now() - t0
   // A Set: the sim may pack several arrays into one buffer, and listing a buffer twice throws.
   const transfer = new Set<Transferable>([history.population.buffer, history.food.buffer, history.capacity.buffer] as ArrayBuffer[])

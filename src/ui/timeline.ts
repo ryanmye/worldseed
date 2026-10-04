@@ -13,8 +13,12 @@
 import { formatPopulation, formatInt } from './format.ts'
 import { addShortcut } from './shortcuts.ts'
 
-/** Simulated years per real second at 1x. */
-export const YEARS_PER_SECOND = 20
+/** Simulated years per real second at 1x: a third of the original 20 (the owner's request), the
+ * ¼×/4×/16× buttons keeping the same ratios to it. */
+export const YEARS_PER_SECOND = 20 / 3
+/** Years per real second of the initial 0→BASE_YEARS animation (intro): kept at the original 20
+ * regardless of YEARS_PER_SECOND above, so slowing down normal playback does not stretch the intro. */
+const INTRO_YEARS_PER_SECOND = 20
 export const SPEEDS = [0.25, 1, 4, 16] as const
 const DEFAULT_SPEED = 1
 /** While playing this close to the end of the history (years), more is requested. */
@@ -56,6 +60,8 @@ export interface Timeline {
   /** Playing but held at the end until a longer history arrives. */
   readonly waiting: boolean
   readonly speed: number
+  /** Years advanced per second of real time at the current speed (accounts for the intro's own, unscaled rate); YEARS_PER_SECOND while paused. */
+  readonly yearsPerSecond: number
   /** True while the user drags the slider. */
   readonly scrubbing: boolean
   /** The initial animation is under way (playing toward its soft stop). */
@@ -91,6 +97,13 @@ export interface Timeline {
   setMarks(marks: readonly TimelineMark[] | null): void
   /** A faint sparkline behind the slider: one value per snapshot from year 0 (the world's people), or null for none. */
   setSparkline(values: ArrayLike<number> | null, interval: number): void
+  /**
+   * A thin progress strip along the top edge of the bar, with a short label in the status line:
+   * `label` null hides it; `frac` (0..1) shows that much filled, or null for an indeterminate
+   * animation. Shown (and legible) even while the bar is `disabled`, for the world-generation,
+   * history-simulation and layer-build waits.
+   */
+  setProgress(label: string | null, frac: number | null): void
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>'
@@ -101,6 +114,16 @@ const CONTINUE_ICON = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidd
 export function createTimeline(container: HTMLElement, callbacks: TimelineCallbacks): Timeline {
   const root = document.createElement('div')
   root.className = 'panel timeline disabled'
+
+  // thin progress strip along the top edge (world generation, history simulation, layer build,
+  // history extension): a CSS animation only, so it costs nothing while idle and never drives a
+  // WebGL frame (render/invalidate.ts)
+  const progress = document.createElement('div')
+  progress.className = 'tl-progress hidden'
+  progress.setAttribute('aria-hidden', 'true')
+  const progressFill = document.createElement('div')
+  progressFill.className = 'tl-progress-fill'
+  progress.appendChild(progressFill)
 
   const row = document.createElement('div')
   row.className = 'tl-row'
@@ -147,8 +170,8 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     b.type = 'button'
     b.className = 'btn tl-speed-btn'
     b.textContent = s === 0.25 ? '¼×' : `${s}×`
-    b.title = `${s * YEARS_PER_SECOND} years per second (${SPEEDS.indexOf(s) + 1})`
-    b.setAttribute('aria-label', `Speed ${s === 0.25 ? 'one quarter' : s}×, ${s * YEARS_PER_SECOND} years per second`)
+    b.title = `${Math.round(s * YEARS_PER_SECOND)} years per second (${SPEEDS.indexOf(s) + 1})`
+    b.setAttribute('aria-label', `Speed ${s === 0.25 ? 'one quarter' : s}×, ${Math.round(s * YEARS_PER_SECOND)} years per second`)
     b.addEventListener('click', () => {
       speed = s
       syncSpeed()
@@ -181,7 +204,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   note.className = 'tl-note hidden'
   note.setAttribute('role', 'status')
 
-  root.append(hint, note, row, slider, ticks)
+  root.append(progress, hint, note, row, slider, ticks)
   container.appendChild(root)
 
   let years = 0
@@ -204,6 +227,8 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   /** What to do once the history has grown (step or End pressed at the end). */
   let afterExtend: 'step' | 'end' | null = null
   let baseStatus = ''
+  /** Label of the progress strip (setProgress), shown instead of baseStatus / "simulating…" while set. */
+  let progressLabel: string | null = null
   let shownYear = -1
   let shownAlive = -1
   let shownPop = ''
@@ -239,7 +264,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   }
 
   function syncStatus() {
-    const s = baseStatus !== '' ? baseStatus : waiting ? 'simulating…' : ''
+    const s = progressLabel ?? (baseStatus !== '' ? baseStatus : waiting ? 'simulating…' : '')
     if (statusText.textContent !== s) statusText.textContent = s
     stats.classList.toggle('has-status', s !== '')
   }
@@ -522,9 +547,15 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       speed = s
       syncSpeed()
     },
+    get yearsPerSecond() {
+      if (!playing) return YEARS_PER_SECOND
+      const introNow = softStop !== null && year < softStop
+      return speed * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
+    },
     tick(dt: number) {
       if (playing && !waiting && !scrubbing && enabled) {
-        const next = year + dt * speed * YEARS_PER_SECOND
+        const introNow = softStop !== null && year < softStop
+        const next = year + dt * speed * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
         if (softStop !== null && year < softStop && next >= softStop) {
           // the end of the initial animation
           const at = Math.min(softStop, years)
@@ -560,6 +591,14 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     setSparkline(values: ArrayLike<number> | null, iv: number) {
       spark = values && values.length > 1 ? { values, interval: Math.max(1, iv) } : null
       buildTicks()
+    },
+    setProgress(label: string | null, frac: number | null) {
+      progressLabel = label
+      const shown = label !== null
+      progress.classList.toggle('hidden', !shown)
+      progress.classList.toggle('indeterminate', shown && frac === null)
+      progressFill.style.width = shown && frac !== null ? `${Math.max(0, Math.min(1, frac)) * 100}%` : ''
+      syncStatus()
     },
     setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string) {
       if (alive !== shownAlive) {

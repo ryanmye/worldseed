@@ -489,6 +489,45 @@ kbd {
 
 .timeline {
   padding: 10px 14px 6px;
+  /* .panel already sets position: absolute, which anchors .tl-progress to the bar's own top edge */
+}
+/* thin progress strip along the top edge of the bar: world generation, history simulation,
+   layer build, history extension (ui/timeline.ts setProgress). Visible even while .disabled. */
+.tl-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 10px 10px 0 0;
+  background: rgba(255, 255, 255, 0.08);
+}
+.tl-progress-fill {
+  height: 100%;
+  width: 0;
+  background: #ffc45c;
+  transition: width 0.25s ease;
+}
+.tl-progress.indeterminate .tl-progress-fill {
+  width: 35% !important;
+  transition: none;
+  animation: tl-progress-sweep 1.3s ease-in-out infinite;
+}
+@keyframes tl-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(285%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-progress.indeterminate .tl-progress-fill {
+    animation: none;
+    width: 100% !important;
+    opacity: 0.35;
+  }
 }
 .tl-row {
   display: flex;

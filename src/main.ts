@@ -310,6 +310,8 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
   if (msg.type === 'world') {
     overlay.setGenerating(false)
     showWorld(msg.world)
+  } else if (msg.type === 'progress') {
+    historyView.setSimProgress(msg.years, msg.target)
   } else if (msg.type === 'history') {
     console.info(`history: ${msg.history.years} years, ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
     // towns and fields flatten the ground (terrainHeight.ts) before any layer is placed on it
