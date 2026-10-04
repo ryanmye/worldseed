@@ -2325,7 +2325,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     let patch = lmSlot.get(salt) ?? -1
     const smax = spec.great ? 1.5 : 1.05
     // (taller than its footprint alone would make it: a landmark rises over the roofs; the more so in a city of tall houses)
-    const lift = (kind === LK.Castle ? 1.2 : spec.great ? 1.45 : 1.25) * (isCity ? 1.12 : 1)
+    const lift = kind === LK.Monument ? 1 : (kind === LK.Castle ? 1.2 : spec.great ? 1.45 : 1.25) * (isCity ? 1.12 : 1)
     const inPatch = (i: number, m = 0.14) => {
       const pa = patches[i]
       x = pa.cx; y = pa.cy

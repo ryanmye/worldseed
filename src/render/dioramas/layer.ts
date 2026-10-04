@@ -1021,12 +1021,19 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           stats.landmarkPieces++
         }
       } else {
-        // the works stand from the completion, broken down while the building is a ruin (its first ruin)
+        // the works (a citadel's wall, a tower) stand from the completion until the building first falls into ruin (its own
+        // broken walls and the rubble stand for them then), and again once it is restored
         if (done < 0 || done > hi) continue
-        let ra = 0, rb = 0
-        for (let o = o0; o < o1; o++) if (landmarkRuined(d.spanState[o]) && d.spanFrom[o] >= done) { ra = d.spanFrom[o]; rb = d.spanTo[o]; break }
-        pushSlots(set, k, done, LANDMARK_NEVER, 0, true, ra, rb)
-        stats.landmarkPieces++
+        let from = done
+        for (let o = o0; o < o1; o++) {
+          const st = d.spanState[o]
+          if (d.spanFrom[o] < done) continue
+          if (landmarkRuined(st)) {
+            if (from >= 0 && d.spanFrom[o] > from && !(d.spanFrom[o] < lo || from > hi)) { pushSlots(set, k, from, d.spanFrom[o]); stats.landmarkPieces++ }
+            from = -1
+          } else if (from < 0 && landmarkInUse(st)) from = d.spanFrom[o]
+        }
+        if (from >= 0 && from <= hi) { pushSlots(set, k, from, LANDMARK_NEVER); stats.landmarkPieces++ }
       }
     }
   }

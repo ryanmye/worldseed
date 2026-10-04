@@ -524,7 +524,11 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           }
         }
         // a burnt-out shell: soot over everything, blackest high up and inside
-        if (vRuin > 0.5) {
+        // (a landmark's ruin is weathered stone, grey-green with lichen; one going up is new stone, as it is)
+        if (vRuin > 0.5 && vInfo.x < -0.5) {
+          if (mod(floor(floor(vInfo.w) / 16.0), 2.0) < 0.5) alb = mix(vec3(dot(alb, vec3(0.2126, 0.7152, 0.0722))), alb, 0.55) * vec3(0.76, 0.79, 0.72) * (gl_FrontFacing ? 1.0 : 0.55);
+          winMask = 0.0;
+        } else if (vRuin > 0.5) {
           alb = mix(alb, vec3(0.05, 0.045, 0.04), 0.5 + 0.3 * smoothstep(0.0, 0.35, vLocal.y)) * (gl_FrontFacing ? 1.0 : 0.45);
           winMask = 0.0;
         }
