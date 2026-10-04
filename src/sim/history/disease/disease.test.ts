@@ -165,6 +165,12 @@ function checkDisease(w: World, h: History): void {
       if (!ok) throw new Error(`row ${i}: no journey between ${src} and ${id} in ${y} (via ${via})`)
     } else if (via === DiseaseVia.Contact) {
       expect(h.events.some((ev) => ev.type === EventType.FirstContact && ev.year === y && ((ev.settlement === src && ev.other === id) || (ev.settlement === id && ev.other === src)))).toBe(true)
+    } else if (via === DiseaseVia.Visitors) {
+      // (tourism: leisure travellers between their home town and the place they visited)
+      const F = h.visitorFlows
+      let ok = false
+      for (let k = 0; k < F.count && !ok; k++) if (F.firstYear[k] <= y && ((F.from[k] === src && F.to[k] === id) || (F.from[k] === id && F.to[k] === src))) ok = true
+      if (!ok) throw new Error(`row ${i}: no visitors between ${src} and ${id} by ${y}`)
     } else throw new Error(`row ${i}: via ${via}`)
   }
   // Epidemics agree with their rows.

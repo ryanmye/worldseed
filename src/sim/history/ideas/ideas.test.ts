@@ -134,6 +134,7 @@ function checkIdeas(h: History): void {
       const c = h.contactYear[q * P + from]
       if (!(c >= 0 && c <= y)) throw new Error(`idea ${h.ideas[i].key} came to ${q} in ${y} from ${from}, not met (${c})`)
       if (A.source[k] >= 0) expect(h.settlements[A.source[k]].people).toBe(from)
+      expect(h.settlements[A.via[k]].people).toBe(q)
       expect(evKey.get(`${y}:${EventType.IdeaAdopted}:${i}:${h.settlements[A.via[k]].people}`) ?? 0).toBeGreaterThan(0)
     }
     held[q * I + i] = 1

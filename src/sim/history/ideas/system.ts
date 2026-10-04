@@ -473,7 +473,7 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
           const isPulse = pulse[o] > 0 && pulse[o] >= rate[o] * dt
           let via = isPulse ? ix.pgQ[o] : ix.gwQ[o], src = isPulse ? ix.pgH[o] : ix.gwH[o]
           if (fv <= 0) { via = ix.largest[q]; src = ix.largest[from] }
-          if (via < 0 || s.abandoned[via] >= 0) via = ix.largest[q]
+          if (via < 0 || s.abandoned[via] >= 0 || s.people[via] !== q) via = ix.largest[q] // (a settlement of its own: an imperial capital or a conquered town of another people is not)
           if (src < 0 || s.abandoned[src] >= 0 || s.people[src] !== from) src = ix.largest[from]
           record(s, ix, i, q, how, from, via, src)
         } else if (x < chance && r > 0 && !ix.refused[qi]) {

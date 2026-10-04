@@ -37,7 +37,8 @@ import { K, M, MIXED, MIX_OF, addPost, ensureGoods, logGoods, losePost } from '.
 import { openLeg, pathCost } from './longhaul.ts'
 import { Heap } from '../heap.ts'
 import { grantHold, newSecret } from './secrets.ts'
-import { expeditionFinds } from './deposits.ts'
+import { expeditionFinds, minesAbandoned } from './deposits.ts'
+import { loseFort, loseWalls } from '../polity/danger.ts'
 
 const G = GOOD_COUNT
 
@@ -631,6 +632,12 @@ function failPost(s: HistoryState, g: GoodsState, i: number): void {
   if (idx < 0) return
   abandon(s, x)
   s.living.splice(idx, 1)
+  // (ideas: its walls, fort and mines fall with it this year, as a resort's do, not the next; kept as before with ideas off, for the off switch)
+  if (s.ideas !== null) {
+    const ps = s.pol
+    if (ps !== null && x < ps.seen) { if (ps.walls[x] > 0) loseWalls(s, ps, x); if (ps.fort[x] >= 0) loseFort(s, ps, x) }
+    minesAbandoned(s, g, x)
+  }
 }
 
 /** A post's settlement or host was conquered by a state other than its owner's: lost (cause 1). */

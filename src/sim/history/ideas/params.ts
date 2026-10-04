@@ -423,7 +423,7 @@ export function easeOf(d: IdeaDef): number {
  *   Pulses (events): Migration (migrants of h joining a town of q: size / (size + migHalf)), Conquest (a town of one taken by an army of
  *   the other: both ways), Marriage (a royal marriage between their houses: both ways).
  * The adoption's how is a channel drawn in proportion to the progress each carried; from the holder met that carries most on it
- * then (else the strongest source); via the settlement of q through which that channel ran (its largest if none is known).
+ * then (else the strongest source); via the settlement of q through which that channel ran (its largest if none of its own is known).
  *
  * Resistance (ideas with resist flags): faith = faithResist * zeal of q's universal faith; ruler = rulerResist * (1 - tolerance) *
  * (warlike ideas: 1 - warlike; others: piety) of the ruler of q's largest settlement's polity; guild = guildResist * n / (n + 1), n the

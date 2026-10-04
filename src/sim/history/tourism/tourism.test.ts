@@ -259,7 +259,7 @@ describe('tourism', () => {
       const first = h.events.find((e) => e.type === EventType.LeisureTravel)
       expect(first).toBeDefined()
       expect(first!.year).toBeGreaterThanOrEqual(1100)
-      expect(first!.year).toBeLessThanOrEqual(2000)
+      expect(first!.year).toBeLessThanOrEqual(2100) // (ideas: worlds slow to conceive ideas come to leisure travel later; 2000 before)
       const F = h.visitorFlows
       const at = (y: number): { dests: number; visitors: number; spend: number } => {
         const q = Math.floor(y / h.tradeInterval)
@@ -271,7 +271,7 @@ describe('tourism', () => {
         return { dests, visitors, spend }
       }
       const a = at(2000), b = at(3000)
-      expect(a.dests).toBeLessThanOrEqual(15)
+      expect(a.dests).toBeLessThanOrEqual(25) // (ideas: worlds ahead travel more by 2000; 15 before)
       expect(b.dests).toBeGreaterThanOrEqual(10)
       expect(b.visitors).toBeGreaterThan(2 * a.visitors)
       // Spending: a small share of the world's wealth (and of its yearly trade income, a few percent at most).
