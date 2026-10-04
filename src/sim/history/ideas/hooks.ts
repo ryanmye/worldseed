@@ -85,7 +85,7 @@ export function recompute(s: HistoryState, ix: IdeasState): void {
       if (u < ix.useMax[pi]) u = ix.useMax[pi]
       else ix.useMax[pi] = u
       const m = uf + (1 - uf) * u
-      const cm = m * X.capMul
+      const cm = m * X.capMul * X.capEra[d.era]
       score += m * X.eraWeight[d.era] * (d.weight ?? 1)
       const lm = m * X.lever
       for (let f = 0; f < 4; f++) fx.cap[o + f] += d.caps[f] * cm

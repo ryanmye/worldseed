@@ -295,13 +295,13 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'lateen', name: 'the lateen sail', kind: IdeaKind.Seafaring, pre: ['sail'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(100, 600, c.trade[p]), teach: 8, fragile: 0.1, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.15, 0, 0], seaCost: 0.05, effect: 'sailing into the wind: sea costs',
+    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.25, 0, 0], seaCost: 0.05, effect: 'sailing into the wind: sea costs',
     history: 'Rigged in the Indian Ocean and the eastern Mediterranean by late antiquity, taken up by every Mediterranean shipwright.',
   },
   {
     key: 'rudder', name: 'the stern rudder', kind: IdeaKind.Seafaring, pre: ['keel'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(1.5, 1.8, c.sea[p]), teach: 15, fragile: 0.1, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.15, 0, 0], seaCost: 0.05, range: 0.05,
+    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.25, 0, 0], seaCost: 0.05, range: 0.05,
     effect: 'bigger ships: sea costs, range',
     history: 'Han Chinese junks steered by stern rudders in the 1st century CE; they appear in Europe c. 1180.',
   },
@@ -357,7 +357,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'navigation', name: 'celestial navigation', kind: IdeaKind.Seafaring, pre: ['keel', 'mathematics'], technique: -1, era: 4, chance: 0.25,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(2.0, 2.5, c.sea[p]), teach: 100, fragile: 0.2, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.6, 0, 0], range: 0.2, effect: 'ocean range (+20%); Seafaring',
+    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.9, 0, 0], range: 0.2, effect: 'ocean range (+20%); Seafaring',
     history: 'Polynesian wayfinders read stars and swells; the astrolabe and quadrant let 15th-century Portuguese pilots find their latitude, a skill taught in schools for years.',
   },
   {
@@ -445,18 +445,20 @@ export const IDEA = {
    * of eraWeight[era] over the ideas held (a people that knows more can do more, with diminishing returns; the first ideas weigh most).
    */
   capMul: 0.5,
-  general: 0.22,
-  eraWeight: [2.4, 1, 0.6, 0.7, 0.7],
+  /** The field caps of an idea by era, times capMul (the early ideas made the most difference). */
+  capEra: [2, 1.4, 0.6, 0.9, 2],
+  general: 0.15,
+  eraWeight: [3.2, 1, 0.6, 0.8, 1],
   /** Share of the general part per field (Farming, Seafaring, Metalworking, Crafts). */
-  generalField: [1, 1, 1, 1],
+  generalField: [1, 0.95, 0.85, 0.95],
   /** Multiplier of the levers (land, seaCost, range, war, defence, admin, craft; not toll or farm). */
   lever: 0.2,
-  conceive: 0.045,
+  conceive: 0.05,
   /** Growth from practice (technology.ts) times this while ideas are on: the caps, not practice, set the pace; below the cap a level
    * also closes catchUp of the distance a year (the practice of ideas newly held). */
   practice: 1.5,
-  catchUp: 0.04,
-  capBase: 0.15,
+  catchUp: 0.05,
+  capBase: 0.05,
   soft: 0.12,
   slack: 0.05,
   decay: 0.004,
@@ -467,14 +469,14 @@ export const IDEA = {
   cardwell: 0.25,
   cardDecay: 0.004,
   /** Recombination: conception chance * (1 + combo * ideas held); scale: * sqrt(pop / popRef) within [scaleMin, scaleMax]. */
-  combo: 0.45,
+  combo: 0.3,
   /** Scale linear in population (else its square root). */
   scaleLinear: true,
   popRef: 10000,
   scaleMin: 0.2,
   scaleMax: 2.5,
   /** Backwardness: learning from a people whose summed technology is x times one's own, times 1 + backward * (x - 1) (x > 1). */
-  backward: 7,
+  backward: 8,
   forget: 0.01,
   adopt: 0.6,
   /** Channel knobs, by IdeaHow (Invented and Lost unused). */
