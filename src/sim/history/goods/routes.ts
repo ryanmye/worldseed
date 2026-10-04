@@ -113,7 +113,6 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       if (mi < 0) continue
       const o = g.vOrigin[v]
       if (o < 0 || o === h || s.abandoned[o] >= 0 || !ts.trader[o]) continue
-      if (laneFor(s, g, h, v)) continue
       // Share of v at h, and what h takes of the class a year.
       const S = g.held[h * G + gd]
       let share = 0
@@ -126,7 +125,7 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       const tGuess = (CLASS.transport[gd] * cells * LANE.guess * (byLand ? 1.5 : ocean) * tf) / g.vRel[v]
       const save = Q * (ts.price[h * G + gd] - (1 + mu1) * (ts.price[o * G + gd] + tGuess))
       const pi = (save / CLASS.worth[gd]) * LANE.classWeight[gd]
-      if (pi > best && save > LANE.minSave * CLASS.worth[gd]) { best = pi; bv = v }
+      if (pi > best && save > LANE.minSave * CLASS.worth[gd] && !laneFor(s, g, h, v)) { best = pi; bv = v }
     }
     if (bv >= 0) {
       const gd = g.vGood[bv]

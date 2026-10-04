@@ -234,7 +234,7 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
     const pOut = (worth[o + out] * (1 + STOCK.k)) / (STOCK.k + stock[o + out] / Dd)
     const margin = pOut - cost
     let want = smoothstep(0, 1, margin / (W[out] * X2.marginRef)) * smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
-    if (r === 1 && !(dyeIn(g, id) > 0)) want = 0 // (no dye in stock)
+    if (r === 1 && want > 0 && !(dyeIn(g, id) > 0)) want = 0 // (no dye in stock)
     TGT[r] = want
     sum += want
   }
@@ -495,12 +495,14 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
     if (!trader[id]) {
       // Non-traders keep nothing but what a mine they work brings up (held by the deposit system).
       g.wOut[id * 3] = 0; g.wOut[id * 3 + 1] = 0; g.wOut[id * 3 + 2] = 0
-      g.tools[id] *= 1 - METAL.toolWear
-      g.arms[id] *= 1 - METAL.armsWear
-      const p0 = s.pop[id]
-      const pt = p0 > 0 ? g.tools[id] / p0 : 0
-      g.toolMul[id] = 1 + METAL.toolFarm * (pt / (pt + METAL.toolHalf))
-      for (let c = 7; c < G; c++) if (c !== Good.Treasure && c !== Good.Luxury) { g.held[ho + c] = 0; const m = MIX_OF[c]; if (m >= 0) mixScale(g, id, m, 0) }
+      if (g.tools[id] > 0 || g.arms[id] > 0) {
+        g.tools[id] *= 1 - METAL.toolWear
+        g.arms[id] *= 1 - METAL.armsWear
+        const p0 = s.pop[id]
+        const pt = p0 > 0 ? g.tools[id] / p0 : 0
+        g.toolMul[id] = 1 + METAL.toolFarm * (pt / (pt + METAL.toolHalf))
+      }
+      for (let c = 7; c < G; c++) if (c !== Good.Treasure && c !== Good.Luxury && g.held[ho + c] !== 0) { g.held[ho + c] = 0; const m = MIX_OF[c]; if (m >= 0) mixScale(g, id, m, 0) }
       continue
     }
     const o = id * G

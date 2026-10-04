@@ -231,8 +231,8 @@ export const TRADITION = {
   practice: 0.2,
   birthPop: 2000,
   birthShare: [0.004, 0.004, 0.005, 0.011], // (per craft: Silk, Dyeing, FineCloth, Blades)
-  birth: 0.1,
-  spacing: 18,
+  birth: 0.25,
+  spacing: 12,
   up: 0.15,
   down: 0.03,
   capField: 0.4,
@@ -291,7 +291,7 @@ export const LANE = {
   /** A mart of people p hears of a variety at share >= hear of a class in its stock. */
   hear: 0.05,
   /** Urge: U += 10 * urge * Pi / (Pi + half * worth) * smoothstep(0.3, 0.7, prosperity) * (1 + tech * (driveTech - 1)). */
-  urge: 0.08,
+  urge: 0.06,
   half: 12,
   tech: 0.5,
   /** Guess of the direct cost: transport * great-circle cells * guess * ocean factor. */
@@ -305,7 +305,7 @@ export const LANE = {
   polityMul: 2,
   /** Range: rangeMul times the exploration range; the search stops after maxVisits cells. */
   rangeMul: 1.5,
-  maxVisits: 6000,
+  maxVisits: 4000,
   /** Targets: cells within targetHops of the source, or of a mart holding the variety at >= martShare. */
   targetHops: 2,
   martShare: 0.2,
@@ -385,7 +385,7 @@ export const SECRET = {
   rent: 0.3,
   contact: 0.02,
   /** Craft secrets pass by contact at this share of the rate (tacit skill travels with craftsmen, not goods). */
-  craftContact: 0.25,
+  craftContact: 0.1,
   contactHalf: 200,
   espionage: 0.06,
   spyLow: 0.05,

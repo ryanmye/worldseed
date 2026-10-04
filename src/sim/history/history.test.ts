@@ -1340,7 +1340,7 @@ describe('simulateHistory', () => {
       // Abandonment is a real part of history, not a collapse.
       const abandoned = h.settlements.filter((st) => st.abandonedYear >= 0).length
       expect(abandoned / S).toBeGreaterThan(0.06)
-      expect(abandoned / S).toBeLessThan(0.25)
+      expect(abandoned / S).toBeLessThan(0.27) // (goods: was 0.25; trade towns and posts draw people a little more from villages)
       // Some abandoned site is settled again later.
       const lastFounded = new Int32Array(N).fill(-1)
       for (const st of h.settlements) lastFounded[st.cell] = st.foundedYear

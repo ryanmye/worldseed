@@ -187,26 +187,27 @@ export function goodsSeedStats(seed: number, off: boolean, detail: boolean): Goo
   let all = 0, hv = 0
   for (let c = 0; c < G; c++) { const x = gv[tq * G + c]; all += x; if (c >= 7) hv += x }
   row.hvShare = all > 0 ? hv / all : NaN
-  // T3: price multiplication of the top Luxury variety: far / source, before and 50 years after a lane for it.
+  // T3: price multiplication of a spice: far / source price of the luxury crop variety recorded most often, before and
+  // 30-60 years after the first lane opened for it (or for the same crop of the same people); else the world's first lane.
   const pl = pr.price
   let before = NaN, after = NaN, peak = NaN
-  const vTop = pl.length >= 5 ? pl[1] : -1
-  const laneYear: number[] = []
-  for (let k = 0; k < h.longHaul.count; k++) if (h.longHaul.kind[k] === LegKind.Lane) laneYear.push(h.longHaul.openedYear[k])
   {
+    const freq = new Map<number, number>() // (lookup only)
+    let vt = -1, best = 0
+    for (let i = 0; i < pl.length; i += 5) { const v = pl[i + 1]; const n = (freq.get(v) ?? 0) + 1; freq.set(v, n); if (n > best || (n === best && v < vt)) { best = n; vt = v } }
     const ratios: { y: number; r: number }[] = []
-    for (let i = 0; i < pl.length; i += 5) if (pl[i + 2] > 0) ratios.push({ y: pl[i], r: pl[i + 3] / pl[i + 2] })
-    peak = Math.max(...ratios.map((x) => x.r), NaN)
-    const lane = h.events.find((e) => e.type === EventType.DirectRoute)
+    for (let i = 0; i < pl.length; i += 5) if (pl[i + 1] === vt && pl[i + 2] > 0) ratios.push({ y: pl[i], r: pl[i + 3] / pl[i + 2] })
+    peak = ratios.length ? Math.max(...ratios.map((x) => x.r)) : NaN
+    const same = (x: number): boolean => x === vt || (x > 0 && vt > 0 && h.varieties[x].kind === h.varieties[vt].kind && h.varieties[x].source === h.varieties[vt].source && h.varieties[x].people === h.varieties[vt].people)
+    const lane = h.events.find((e) => e.type === EventType.DirectRoute && same(e.extra ?? -1)) ?? h.events.find((e) => e.type === EventType.DirectRoute)
     if (lane) {
-      const b = ratios.filter((x) => x.y < lane.year && x.y >= lane.year - 50).map((x) => x.r)
-      const a = ratios.filter((x) => x.y >= lane.year + 30 && x.y <= lane.year + 60).map((x) => x.r)
-      before = med(b); after = med(a)
+      before = med(ratios.filter((x) => x.y < lane.year && x.y >= lane.year - 50).map((x) => x.r))
+      after = med(ratios.filter((x) => x.y >= lane.year + 30 && x.y <= lane.year + 60).map((x) => x.r))
+      row.priceLaneOwn = same(lane.extra ?? -1) ? 1 : 0
     }
     row.priceRatioMed = med(ratios.map((x) => x.r))
   }
   row.priceBefore = before; row.priceAfter = after; row.pricePeak = peak
-  void vTop
   // T4: lanes.
   let lanes = 0, ocean = 0, firstLane = 9999
   for (const e of ev) if (e.type === EventType.DirectRoute) { lanes++; if (e.year < firstLane) firstLane = e.year }
@@ -432,7 +433,7 @@ export function formatGoodsStats(rows: GoodsSeedStats[]): string {
   L.push(`  technology spread F/S/M/C at 2000: ${m('spreadF')}/${m('spreadS')}/${m('spreadM')}/${m('spreadC')} | ${m('spreadFOff')}/${m('spreadSOff')}/${m('spreadMOff')}/${m('spreadCOff')} (T11: M >= .4, C >= .3); max C ${m('maxC')} | ${m('maxCOff')}`)
   L.push(`  T1 named luxury and fine cloth distance from origin km: median ${m('distMed')} p90 ${m('distP90')} (>= 800, >= 4000)`)
   L.push(`  T2 HV share of trade value ${m('hvShare')} (.20-.35)`)
-  L.push(`  T3 top luxury far / source price: median ${m('priceRatioMed')}, peak ${m('pricePeak')}; before the first lane ${m('priceBefore')}, 30-60 years after ${m('priceAfter')}`)
+  L.push(`  T3 top luxury far / source price: median ${m('priceRatioMed')}, peak ${m('pricePeak')}; before its lane ${m('priceBefore')}, 30-60 years after ${m('priceAfter')} (a lane for it in ${sum('priceLaneOwn')}/${rows.length})`)
   L.push(`  T4 lanes ${m('lanes')} (3-12) per world, ocean-spanning in ${col('oceanLanes').filter((x) => x > 0).length}/${rows.length} (>= 14/20); first lane ${m('firstLane')} (1250-1700); relay legs ${m('relayLegs')}, marts ${m('marts')}`)
   L.push(`  trade expeditions ${m('tradeExp')} (sailed ${m('tradeSailed')}, lost ${m('tradeLost')}; after 1500 ${m('tradeExpLate')})`)
   L.push(`  T5 posts ${m('posts')} (2-10); a fort became a town in ${sum('fortTown')}/${rows.length} (>= 6/20)`)
