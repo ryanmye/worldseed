@@ -680,7 +680,8 @@ function foundStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   }
   if (cand.length === 0) return
   const rng = rel.rng
-  const chance = (X.found * (1 + X.crisis * (woeSum / popSum))) / (1 + X.crowd * (n > 1 ? n - 1 : 0)) // (a second faith rises as readily as the first: rivals to the first are the rule)
+  // (a lone faith invites a rival: the second rises lone times as readily; after that each crowds out the next)
+  const chance = (X.found * (1 + X.crisis * (woeSum / popSum)) * (n === 1 ? X.lone : 1)) / (1 + X.crowd * (n > 1 ? n - 1 : 0))
   if (rng.next() >= chance) return
   let x = rng.next() * sum
   let at = cand[cand.length - 1]
@@ -771,7 +772,11 @@ export function faithGrievance(s: HistoryState, rel: ReligionState, i: number, p
   const X = EFFECTS
   const off = 1 - shareOf(rel, i, rf)
   if (!(off > 0.001)) return 0
-  let g = X.grievance * off * (1 - X.sync * ps.assim[i])
+  // (rival universal faiths weigh in full; folk practice, which lives beside the ruler's faith, at `folk`)
+  const o = i * K
+  let rival = 0
+  for (let k = 0; k < rel.fN[i]; k++) { const f = rel.fId[o + k]; if (f !== rf && rel.kind[f] === FaithKind.Universal) rival += rel.fSh[o + k] }
+  let g = X.grievance * (rival + X.folk * (off - rival)) * (1 - X.sync * ps.assim[i])
   if (p < rel.pcap) {
     if (rel.state[p] === rf) g *= X.stateChurch
     if (rel.persUntil[p] > s.year) g += X.persecute * off

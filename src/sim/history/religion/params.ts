@@ -55,9 +55,11 @@ export const RELIGION = {
 }
 
 export const FOUNDING = {
-  /** A universal faith arises (every RELIGION.slowStep years) with chance found * (1 + crisis * crisis share) / (1 + crowd * max(0, n - 1)), n the universal faiths founded so far (not schisms), at a town picked by people * (1 + crisis [woe]). */
+  /** A universal faith arises (every RELIGION.slowStep years) with chance found * (1 + crisis * crisis share) * (lone if n = 1) / (1 + crowd * max(0, n - 1)), n the universal faiths founded so far (not schisms), at a town picked by people * (1 + crisis [woe]). */
   found: 0.065,
   crowd: 1.5,
+  /** While a world has one founded universal faith, a new one rises lone times as readily (a rival to the first). */
+  lone: 2,
   crisis: 1.5,
   /** Candidate towns: people >= pop (or the world's largest few, >= popMin), the people's Crafts >= crafts, at least `routes` open routes; woe: famine, sack, conquest or plague within woeYears. */
   pop: 2500,
@@ -88,6 +90,8 @@ export const CONVERT = {
 export const EFFECTS = {
   /** Grievance of a member under a ruler of a universal faith (folk faiths are not exclusive; foreign rule is the ethnic grievance): grievance * (1 - share of the ruler's faith) * (1 - sync * assimilation) (* stateChurch under a state church); persecution adds persecute * (1 - share). */
   grievance: 0.05,
+  /** The folk share of a member's people weighs folk times a rival universal faith's in that grievance (folk practice lives beside the ruler's faith). */
+  folk: 0.3,
   sync: 0.7,
   stateChurch: 1.15,
   persecute: 0.25,
