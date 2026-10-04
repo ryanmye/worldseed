@@ -130,6 +130,64 @@ describe('gradual knowledge after contact', () => {
   }, 120_000)
 })
 
+describe('frontier settlement', () => {
+  it('land settlers mostly found near, contiguous sites; a few still go far', () => {
+    const len: number[] = []
+    let land = 0, contig3 = 0, contig5 = 0
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const h = run(seed).history
+      const N = w.grid.cellCount, P = h.peoples.length
+      const { neighborOffsets: off, neighbors: nb } = w.grid
+      // Settlements ever on each cell, to tell who lived near a site in a given year.
+      const onCell = new Map<number, number[]>()
+      for (const st of h.settlements) { if (st.outpost) continue; const l = onCell.get(st.cell); if (l) l.push(st.id); else onCell.set(st.cell, [st.id]) }
+      const J = h.journeys
+      const stamp = new Int32Array(N).fill(-1)
+      for (let j = 0; j < J.count; j++) {
+        if (J.kind[j] !== JourneyKind.Settlers) continue
+        const o0 = J.pathOffsets[j], o1 = J.pathOffsets[j + 1]
+        let sea = 0
+        for (let k = o0; k < o1; k++) if (w.elevation[J.path[k]] < 0) sea++
+        if (sea >= 2) continue // (voyages are unchanged)
+        land++
+        len.push(o1 - o0 - 1)
+        const to = J.to[j], Y = J.arriveYear[j], p = h.settlements[to].people
+        // Same people, or a people met by then, within 3 / 5 plain hops of the site.
+        const kin = (q: number) => q === p || (h.contactYear[p * P + q] >= 0 && h.contactYear[p * P + q] <= Y)
+        const site = h.settlements[to].cell
+        let ring = [site], near = -1
+        stamp[site] = j
+        for (let d = 0; d <= 5 && near < 0; d++) {
+          const next: number[] = []
+          for (const c of ring) {
+            for (const id of onCell.get(c) ?? []) {
+              const st = h.settlements[id]
+              if (id !== to && st.foundedYear <= Y && (st.abandonedYear < 0 || st.abandonedYear >= Y) && kin(st.people)) near = d
+            }
+            for (let e = off[c]; e < off[c + 1]; e++) if (stamp[nb[e]] !== j) { stamp[nb[e]] = j; next.push(nb[e]) }
+          }
+          ring = next
+        }
+        if (near >= 0 && near <= 3) contig3++
+        if (near >= 0) contig5++
+      }
+    }
+    len.sort((a, b) => a - b)
+    const share = (f: (x: number) => boolean) => len.filter(f).length / len.length
+    expect(land).toBeGreaterThan(5000)
+    // Shorter journeys than the old leapfrogging (median 7 cells, a seventh within 3): the first good land reached.
+    expect(len[len.length >> 1]).toBeLessThanOrEqual(6)
+    expect(share((x) => x <= 3)).toBeGreaterThan(0.18)
+    // Some still go far.
+    expect(share((x) => x >= 10)).toBeGreaterThan(0.03)
+    expect(share((x) => x >= 10)).toBeLessThan(0.2)
+    // Foundings contiguous with the settled land of their people or its contacts.
+    expect(contig3 / land).toBeGreaterThan(0.83)
+    expect(contig5 / land).toBeGreaterThan(0.97)
+  }, 120_000)
+})
+
 describe('discoveries', () => {
   it('carry the cell reached, on or beside the way of the expedition that made them', () => {
     let total = 0

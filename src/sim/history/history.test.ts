@@ -1160,7 +1160,7 @@ describe('simulateHistory', () => {
       const ports = h.structures.filter((x) => x.type === StructureType.Port).length
       const nd = h.structures.filter((x) => x.type === StructureType.Dam).length
       expect(ports).toBeGreaterThan(5)
-      expect(nd).toBeLessThanOrEqual(40)
+      expect(nd).toBeLessThanOrEqual(45) // (was 40; frontier settlement fills arid river valleys a little more densely: seed 1337 has 41)
       dams += nd
       if (h.events.some((e) => e.type === EventType.BecameCity)) withCity++
       for (let id = 0; id < S; id++) biggest = Math.max(biggest, h.population[last * S + id])

@@ -754,3 +754,22 @@ export const KNOW_SPREAD = {
   craftsTech: 0.25,
   maxHops: 20,
 }
+
+/**
+ * frontier: land migration advances as a front (frontier.ts, migration.ts). Unless a group goes far (a long voyage, or
+ * leapChance), a site's score is divided by (1 + d / distHalf)^2 (d its travel cost from the origin, n = 48 cell units)
+ * and multiplied by 1 + contigBonus when contiguous: within contigDist (catchment distance, n = 48 hops) of a living
+ * settlement of the group's people or a people it has met, or on a road of level >= roadMin; joins count as contiguous.
+ * The empty-land pull is multiplied by farPull on sites neither contiguous nor on another landmass. A group bound for a
+ * new site stops at a town it passes (at least passMinPop people) that would take it in with chance passJoin (each such town).
+ */
+export const FRONTIER = {
+  distHalf: 5,
+  contigBonus: 1,
+  contigDist: 4,
+  roadMin: 0.15,
+  farPull: 0.1,
+  leapChance: 0.05,
+  passJoin: 0.4,
+  passMinPop: 300,
+}
