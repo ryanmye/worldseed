@@ -52,9 +52,12 @@ export interface Search {
   dist: Float64Array
   /** Predecessor cell on the shortest path found so far, valid for the cells reached in the last run. */
   prev: Int32Array
-  /** Cost at which each cell was settled this run; Infinity if not settled (reset with dist). */
-  doneDist: Float64Array
-  /** Cells reached this run, to reset dist and doneDist. */
+  /**
+   * 1 for a cell settled at its current dist this run (reset with dist); a later improvement clears it, so the
+   * cell is settled again (as a settled cost above dist would allow), and a stale entry never settles a cell twice.
+   */
+  done: Uint8Array
+  /** Cells reached this run, to reset dist and done. */
   reached: Int32Array
   buckets: Int32Array[]
   bucketLen: Int32Array
@@ -72,7 +75,7 @@ export function createSearch(cellCount: number, cellScale: number): Search {
   return {
     dist: new Float64Array(cellCount).fill(Infinity),
     prev: new Int32Array(cellCount),
-    doneDist: new Float64Array(cellCount).fill(Infinity),
+    done: new Uint8Array(cellCount),
     reached: new Int32Array(cellCount),
     buckets,
     bucketLen: new Int32Array(64),
@@ -212,7 +215,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   const cBase = people * k.P
   const contact = k.contact
 
-  const { dist, prev, doneDist, reached } = search
+  const { dist, prev, done, reached } = search
   search.bucketLen.fill(0, 0, search.used)
   const origin = s.cell[from]
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
@@ -263,9 +266,9 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
     }
     const c = buckets[b][i++]
     const d = dist[c]
-    if (Math.floor(d * inv) !== b || doneDist[c] <= d) continue // stale entry
+    if (Math.floor(d * inv) !== b || done[c] !== 0) continue // stale entry
     if (visits >= maxVisits) break
-    doneDist[c] = d
+    done[c] = 1
     visits++
     if (c !== origin) {
       const occ = occupant[c]
@@ -330,6 +333,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
       if (nd > budget) continue
       if (nd >= dj) continue
       if (dj === Infinity) reached[nReached++] = j
+      else done[j] = 0
       dist[j] = nd
       prev[j] = c
       // Queue it in bucket floor(nd * inv), growing the buckets as needed.
@@ -349,7 +353,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   }
   search.used = used
   // Unreached again for the next run.
-  for (let t = 0; t < nReached; t++) { const j = reached[t]; dist[j] = Infinity; doneDist[j] = Infinity }
+  for (let t = 0; t < nReached; t++) { const j = reached[t]; dist[j] = Infinity; done[j] = 0 }
   foundCell = bestCell
   foundJoin = bestJoin
   foundFrontier = frontier
