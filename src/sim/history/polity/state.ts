@@ -17,6 +17,7 @@ import { prosperity } from '../migration.ts'
 import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, FORT, POLITY, UNREST } from './params.ts'
+import { armsQuality } from '../goods/hooks.ts' // goods:
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -189,6 +190,13 @@ export interface PolityState {
   relIndex: Map<number, number>
   /** v2: 1 while the pair embargoes trade short of war (policy.ts). */
   relEmb: number[]
+  /** v2: the embargo record (embA..) of each relation's embargo in force, -1. */
+  relEmbRec: number[]
+  /** v2: embargoes, in order of declaration (History.embargoes). */
+  embA: number[]
+  embB: number[]
+  embStart: number[]
+  embEnd: number[]
   /** Border edges of each pair this step: flat (u, v, cost) triples, u < v. */
   relEdges: number[][]
   /** Contested cells per pair (recounted every map pass). */
@@ -254,6 +262,10 @@ export interface PolityState {
   lossRoutes: number[]
   /** Coastal settlements near each route's sea cells (map pass): CSR over route ids [0, nearRoutes). */
   nearRoutes: number
+  /** People of the world at the last control pass (living settlements, outposts excepted), for tierOf. */
+  worldPop: number
+  /** goods: the long-haul legs' legal and smuggled loads, plunder by pirates and by bandits since the last flush (outlaw.ts flushAccounts). */
+  legAcc: Float64Array
   nearOff: Int32Array
   nearId: Int32Array
   /** Per cell: outlaw danger (pirates on coasts, bandits on roads) and the cells set, to clear; static sea-cell neighbourhoods of coasts (lazily). */
@@ -345,7 +357,7 @@ export function createPolityState(s: HistoryState): PolityState {
     gNb: [], gCost: [], linkA: [], linkB: [], linkCost: [],
     tOwner: new Int32Array(N).fill(-1), tDist: new Float64Array(N), borderCell: [], borderOther: [],
     cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), taxPayers: [], evSeen: 0, mapYear: -1,
-    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEmb: [], relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
+    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEmb: [], relEmbRec: [], embA: [], embB: [], embStart: [], embEnd: [], relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
     wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [], warEpoch: 0,
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],
     heap: new Heap(256), aDist: new Float64Array(N), aPrev: new Int32Array(N), aStamp: new Int32Array(N), aRun: 0, aHeap: new Heap(256),
@@ -361,7 +373,7 @@ export function createPolityState(s: HistoryState): PolityState {
     pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
     bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
-    nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0),
+    nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
   }
   return Object.assign(base, v2) as PolityState
@@ -512,6 +524,7 @@ export function horseOf(s: HistoryState, id: number): number {
 /** Military quality q from the settlement's people's Metalworking and Crafts (and horses). */
 export function qualityOf(s: HistoryState, id: number): number {
   const o = s.people[id] * TECH_FIELD_COUNT
+  if (s.goods !== null) return armsQuality(s.goods, s.tech, o, horseOf(s, id), s.pop[id], id) // goods: arms stocks carry part of Metalworking's weight
   return 1 + POLITY.qMetal * (s.tech[o + TechField.Metalworking] - 1) + POLITY.qCrafts * (s.tech[o + TechField.Crafts] - 1) + 0.3 * horseOf(s, id)
 }
 
@@ -673,10 +686,16 @@ export function endPolity(s: HistoryState, ps: PolityState, p: number, cause: Po
 /** Tiers (derived, never stored; design 1.1). */
 export const Tier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
 
-/** Tier of a polity of `pop` people in `members` settlements; `multi` when two peoples each hold >= multiShare of its people. */
-export function tierOf(pop: number, members: number, multi: boolean): number {
-  if (pop >= POLITY.empirePop || (multi && members >= POLITY.multiMembers)) return Tier.Empire
-  if (members >= POLITY.kingdomMembers && pop >= POLITY.kingdomPop) return Tier.Kingdom
+/**
+ * Tier of a polity of `pop` people in `members` settlements in a world of `world` people (living settlements, outposts
+ * excepted: PolityState.worldPop); `multi` when two peoples each hold >= multiShare of its people.
+ */
+export function tierOf(pop: number, members: number, multi: boolean, world: number): number {
+  const X = POLITY
+  const e = X.empireShare * world
+  if (pop >= (e > X.empirePop ? e : X.empirePop) || (multi && members >= X.multiMembers && pop >= X.empirePop)) return Tier.Empire
+  const k = X.kingdomShare * world
+  if (members >= X.kingdomMembers && pop >= (k > X.kingdomPop ? k : X.kingdomPop)) return Tier.Kingdom
   return Tier.Chiefdom
 }
 

@@ -4,7 +4,7 @@
 // its buffers and a longer run reproduces a shorter one exactly (raids are summarised only for
 // complete decades, so that the last, partial one never differs).
 
-import type { Bonds, Polity, PolityEnd, PolityOrigin, PolityQualifier, RaidSummary, World, Wars } from '../../../contract.ts'
+import type { Bonds, Embargoes, Polity, PolityEnd, PolityOrigin, PolityQualifier, RaidSummary, World, Wars } from '../../../contract.ts'
 import type { TradeState } from '../trade.ts'
 import { mix32, seedToU32 } from '../../rng.ts'
 import type { SettlementNaming } from '../../names/index.ts'
@@ -172,12 +172,14 @@ export interface PolityHistory {
   contraband: Uint8Array
   piracy: Uint8Array
   bonds: Bonds
+  embargoes: Embargoes
 }
 
 export function emptyPolityHistory(): PolityHistory {
   return {
     tariff: new Uint8Array(0), tariffRevenue: new Float32Array(0), smuggleVolume: new Float32Array(0), tradeLoss: new Uint8Array(0), contraband: new Uint8Array(0), piracy: new Uint8Array(0),
     bonds: { count: 0, kind: new Uint8Array(0), a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), end: new Uint8Array(0) },
+    embargoes: { count: 0, a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0) },
     polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), danger: new Uint8Array(0),
     wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0) },
     raids: { count: 0, decade: new Int16Array(0), settlement: new Int32Array(0), raids: new Uint16Array(0), wealth: new Float32Array(0) },
@@ -226,6 +228,14 @@ export function assemblePolityHistory(world: World, s: HistoryState, ps: PolityS
     count: B, kind: Uint8Array.from(ps.bKind), a: Int16Array.from(ps.bA), b: Int16Array.from(ps.bB), startYear: Int16Array.from(ps.bStart),
     endYear: Int16Array.from(ps.bEnd), end: Uint8Array.from(ps.bCause),
   }
+  // (an embargo whose polity ended since the last tariff step ends with it, as the next step records)
+  const embEnd = Int16Array.from(ps.embEnd)
+  for (let k = 0; k < embEnd.length; k++) {
+    if (embEnd[k] >= 0) continue
+    const ea = ps.pEnded[ps.embA[k]], eb = ps.pEnded[ps.embB[k]]
+    if (ea >= 0 || eb >= 0) embEnd[k] = ea >= 0 && (eb < 0 || ea <= eb) ? ea : eb
+  }
+  const embargoes: Embargoes = { count: ps.embA.length, a: Int16Array.from(ps.embA), b: Int16Array.from(ps.embB), startYear: Int16Array.from(ps.embStart), endYear: embEnd }
   const L = ps.landCells.length
   const territory = sn.terr.slice(0, landSnapshotCount * L)
   const danger = sn.dang.slice(0, landSnapshotCount * L)
@@ -266,5 +276,5 @@ export function assemblePolityHistory(world: World, s: HistoryState, ps: PolityS
     raids.raids[k] = ps.raidCount[i] > 65535 ? 65535 : ps.raidCount[i]
     raids.wealth[k] = ps.raidWealth[i]
   }
-  return { polities, polity, landCells, territory, danger, wars, raids, tariff, tariffRevenue, smuggleVolume, tradeLoss, contraband, piracy, bonds }
+  return { polities, polity, landCells, territory, danger, wars, raids, tariff, tariffRevenue, smuggleVolume, tradeLoss, contraband, piracy, bonds, embargoes }
 }

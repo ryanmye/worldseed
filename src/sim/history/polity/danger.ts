@@ -36,6 +36,9 @@ export function raiderType(s: HistoryState, ps: PolityState, v: number): boolean
   return ps.polity[v] < 0 && s.liveFrac[v] > 0.4
 }
 
+/** dangerStep's lawless factor per polity (valid where lawAt is the current call). */
+let lawAt = new Int32Array(0), lawF = new Float64Array(0), lawCalls = 0
+
 /** System part (every step): danger decays and is held up by its ongoing sources. */
 export function dangerStep(s: HistoryState, ps: PolityState): void {
   const D = DANGER
@@ -44,24 +47,31 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
   const avg = step * D.avgRate
   const living = s.living
   const { danger, dangerAvg, gNb, polity } = ps
+  const { abandoned, outpost, people } = s
+  if (lawAt.length < ps.P) { lawAt = new Int32Array(2 * ps.P); lawF = new Float64Array(2 * ps.P) }
+  const lawRun = ++lawCalls
   for (let t = 0; t < living.length; t++) {
     const i = living[t]
     let z = danger[i] * keep
     const pi = polity[i]
+    const qi = people[i]
     let on = 0
     // Also the frontier flags for cohesion (unrest.ts): 1 a frontier, 2 a steppe frontier (a raider-type neighbour of another people).
     let front = 0, margin = false
     const nb = gNb[i]
     if (nb) {
+      // (War and relation with the last foreign polity looked at, kept for its further members: nothing changes them here.)
+      let lastPv = -1, lastWar = false, lastR = 0
       for (let k = 0; k < nb.length; k++) {
         const v = nb[k]
-        if (s.abandoned[v] >= 0 || s.outpost[v]) continue
+        if (abandoned[v] >= 0 || outpost[v]) continue
         const pv = polity[v]
-        const other = s.people[v] !== s.people[i]
+        const other = people[v] !== qi
         if (pi >= 0 && pv >= 0 && pi !== pv) {
-          if (atWar(ps, pi, pv)) { if (on < D.enemy) on = D.enemy; front |= 1 }
+          if (pv !== lastPv) { lastPv = pv; lastWar = atWar(ps, pi, pv); if (!lastWar) lastR = relationOf(ps, pi, pv) }
+          if (lastWar) { if (on < D.enemy) on = D.enemy; front |= 1 }
           else {
-            const R = relationOf(ps, pi, pv)
+            const R = lastR
             if (R >= 0.5 && on < D.rival) on = D.rival
             if (R >= COHESION.frontierR) front |= 1
           }
@@ -79,8 +89,9 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
     ps.scratchI[i] = front
     let lw = 0
     if (pi >= 0) {
-      const A = ps.pAsab[pi] * (inCrisis(s, ps, pi) ? POLITY.crisisMass : 1)
-      lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * smoothstep(D.lawlessHigh, D.lawlessLow, A)
+      // (the polity's factor, once per polity and step: nothing it reads changes here)
+      if (lawAt[pi] !== lawRun) { lawAt[pi] = lawRun; lawF[pi] = smoothstep(D.lawlessHigh, D.lawlessLow, ps.pAsab[pi] * (inCrisis(s, ps, pi) ? POLITY.crisisMass : 1)) }
+      lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * lawF[pi]
       if (lw > on) on = lw
     } else if (margin) lw = BANDIT.stateless // (v2: the shatter zone at a state's margin: bandits on its roads)
     ps.lawless[i] = lw
@@ -164,7 +175,7 @@ export function wallStep(s: HistoryState, ps: PolityState): void {
     if (ps.fort[id] >= 0 && p < FORT.keep) loseFort(s, ps, id)
     else if (ps.fort[id] < 0 && mark[id] === ps.run && p >= FORT.minPop && ps.dangerAvg[id] >= FORT.danger) {
       const q = ps.polity[id]
-      if (q >= 0 && tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1) >= Tier.Kingdom && rng.next() < FORT.step * FORT.chance * buildSkill(s, id)) {
+      if (q >= 0 && tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1, ps.worldPop) >= Tier.Kingdom && rng.next() < FORT.step * FORT.chance * buildSkill(s, id)) {
         const sid = s.structures.length
         s.structures.push({ id: sid, type: StructureType.Fort, cell: site[id], settlement: id, builtYear: s.year, lostYear: -1 })
         logEvent(s, EventType.Built, id, sid, StructureType.Fort)

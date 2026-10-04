@@ -13,6 +13,7 @@ import { createKnowledge, onFounded } from './knowledge.ts'
 import type { SpeciesState } from './species.ts'
 import { speciesOnFounded } from './species.ts'
 import type { PolityState } from './polity/state.ts' // polities:
+import type { GoodsState } from './goods/state.ts' // goods:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -102,11 +103,6 @@ export interface HistoryState {
   nearCount: Int32Array
   /** Sum over living settlements of catchment weight * claim strength (population^0.75) on this cell. */
   claim: Float64Array
-  /** 1 / claim on the cells claimed this year (stale elsewhere: read it only for cells in a living settlement's catchment), set by the food system after the claims pass. */
-  invClaim: Float64Array
-  /** Cells with a claim this year (claimedCount of them), in the order first claimed. */
-  claimed: Int32Array
-  claimedCount: number
   /** Effective capacity this year at productivity 1: capFarm * (1 - yieldLoss * degradation) * farmMul + capFish. */
   effCap: Float64Array
   /** Cultivated fraction in [0, 1], and the target the food system set this year (consumed by the land-use system). */
@@ -150,6 +146,8 @@ export interface HistoryState {
 
   // polities: the polity system's state (polity/state.ts), or null when it is switched off (every hook is then a no-op).
   pol: PolityState | null
+  // goods: the goods system's state (goods/state.ts), or null when it is switched off (every hook is then a no-op).
+  goods: GoodsState | null
 }
 
 /**
@@ -218,9 +216,6 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     occupant: new Int32Array(N).fill(-1),
     nearCount: new Int32Array(N),
     claim: new Float64Array(N),
-    invClaim: new Float64Array(N),
-    claimed: new Int32Array(N),
-    claimedCount: 0,
     effCap: Float64Array.from(terrain.capacity),
     landUse: new Float64Array(N),
     landTarget: new Float64Array(N),
@@ -245,6 +240,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     rngMigration,
     rngStructures,
     pol: null, // polities: (set by index.ts when the system is on)
+    goods: null, // goods: (set by index.ts when the system is on)
   }
 }
 

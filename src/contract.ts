@@ -90,6 +90,8 @@ export interface Settlement {
   people: number
   /** True for an expedition base: a small supplied outpost in land that cannot feed it, kept up by its parent. */
   outpost: boolean
+  /** goods: true for a trading post's own settlement (a fort or a victualling station founded for a long-haul lane; see TradingPost). */
+  post: boolean
 }
 
 export const EventType = {
@@ -146,6 +148,23 @@ export const EventType = {
   PiratesRise: 41, // pirates based at `settlement` (a pirate haven) began to prey on the sea lanes nearby; `other` is -1; `value` is the route id of the busiest lane they strike (-1 if none)
   PiratesSuppressed: 42, // the pirates of `settlement` were put down by the fleets of the polity ruled from `other`; `value` is -1
   Blockade: 43, // the fleets of the polity ruled from `other` blockaded the ports of an enemy in war; `settlement` is the enemy's main port; `value` is the war id
+  // goods: worked goods, specialities, state secrets and long-distance trade (50-65; 35-43 are polities, 44-49 species).
+  DepositFound: 50, // a rare deposit was found by prospectors of `settlement` (or an expedition it sent); `other` -1; `value` the deposit id (History.deposits); `extra` 1 if by an expedition
+  MineExhausted: 51, // the deposit worked by `settlement` gave out; `other` -1; `value` the deposit id
+  Boom: 52, // the deposit worked by `settlement` floods the world's markets; `other` -1; `value` the deposit id; `extra` its share of the world's Treasure output
+  TraditionBorn: 53, // a named craft tradition was born at its seat `settlement`; `other` -1; `value` the tradition id (History.traditions)
+  TraditionRenowned: 54, // the tradition became renowned; `settlement` its largest seat; `other` -1; `value` the tradition id; `extra` its quality
+  TraditionMoved: 55, // craftsmen carried a tradition from `other` to the new seat `settlement`; `value` the tradition id (the daughter's when a new one); `extra` the cause: 0 migration, 1 deportation, 2 defection
+  TraditionLost: 56, // a tradition lost its last seat `settlement`; `other` -1; `value` the tradition id
+  SecretGuarded: 57, // the state ruled from `settlement` began to guard a secret held at its producer `other`; `value` the secret id (History.secrets); `extra` its guard 0..1
+  SecretLeaked: 58, // a secret passed to the people of `settlement` from the source settlement `other`; `value` the secret id; `extra` the LeakChannel
+  MonopolyBroken: 59, // the first holders' hold on a secret's trade is broken; `settlement` the largest new producer; `other` the old holder's capital (or largest settlement); `value` the secret id; `extra` years held
+  DirectRoute: 60, // a trade expedition from the mart `settlement` opened a direct lane to the far mart `other`; `value` the leg id (History.longHaul); `extra` the variety sought
+  PostFounded: 61, // a trading post was founded: `settlement` is the post's own settlement, or the host of a factory; `other` its owner; `value` the post id (History.posts); `extra` the PostKind
+  PostLost: 62, // a trading post was lost: `settlement` its settlement or host; `other` its owner; `value` the post id; `extra` the cause: 0 upkeep, 1 conquest, 2 expelled
+  Bypassed: 63, // the mart `settlement`, which lived on the relay trade, lost it to a lane from the home mart `other`; `value` the leg id; `extra` the share of its relay income lost
+  FleetLost: 64, // a fleet on the lane from the home mart `settlement` to the far mart `other` was lost; `value` the leg id; `extra` the cargo value
+  SecretSmuggled: 65, // contraband in a secret's goods (duties or an embargo evaded, or its monopoly rent: smuggling is polities v2's, SmugglingRing 40) first reached the people of `settlement` (its largest settlement) in earnest; `other` the settlement where the secret began; `value` the secret id; `extra` the contraband value a year. The smuggled seeds' leak channel (LeakChannel.Smuggling) grows with it
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -304,6 +323,213 @@ export interface History {
   piracy: Uint8Array
   /** Vassalage, tribute and alliances between polities. */
   bonds: Bonds
+  /** Embargoes between polities short of war. */
+  embargoes: Embargoes
+
+  // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
+  /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
+  varieties: Variety[]
+  /** Rare deposits placed by geology (Deposit.id is the index). */
+  deposits: Deposit[]
+  /** Output per trade snapshot per deposit, in class units a year: depositOutput[q * deposits.length + d]. */
+  depositOutput: Float32Array
+  /** Named craft traditions in order of birth (Tradition.id is the index). */
+  traditions: Tradition[]
+  /** Quality per trade snapshot per tradition, 0 when not alive, else round(Q * 64): traditionQuality[q * traditions.length + t]. */
+  traditionQuality: Uint8Array
+  /** Industries per trade snapshot per settlement (bits, see IndustryBit): industry[q * settlements.length + id]. */
+  industry: Uint16Array
+  /**
+   * Tools and arms per head per trade snapshot, log-coded (byte b > 0 means 2^((b - 160) / 16) units a head; 0 none):
+   * metal[(q * settlements.length + id) * 2 + k], k 0 tools, 1 arms.
+   */
+  metal: Uint8Array
+  /** Mart-to-mart legs of the long-haul trade. */
+  longHaul: LongHaul
+  /** Class units a year per leg per trade snapshot (both ways): longHaulVolume[q * longHaul.count + leg]. */
+  longHaulVolume: Float32Array
+  /**
+   * Price index of the classes Luxury, Stimulant, Metalware, Finery, Treasure (PRICE_INDEX_GOODS order) per trade snapshot per
+   * settlement, log-coded: byte b > 0 means price / worth = 2^((b - 128) / 16); 0 where it does not trade.
+   * priceIndex[(q * settlements.length + id) * 5 + k].
+   */
+  priceIndex: Uint8Array
+  /** 1 where a settlement is a mart (an entrepot of the long-haul trade) at a trade snapshot: mart[q * settlements.length + id]. */
+  mart: Uint8Array
+  /** State secrets and monopolies (Secret.id is the index). */
+  secrets: Secret[]
+  /** Who held which secret when. */
+  secretHolds: SecretHolds
+  /** Guard 0..255 of each secret by its main holder per trade snapshot: secretGuard[q * secrets.length + k]. */
+  secretGuard: Uint8Array
+  /** Trading posts in order of founding (TradingPost.id is the index). */
+  posts: TradingPost[]
+}
+
+// ---------------------------------------------------------------------------
+// goods: worked goods, specialities, state secrets and long-distance trade.
+
+/** The classes whose prices History.priceIndex records, in its order (Luxury, Stimulant, Metalware, Finery, Treasure). */
+export const PRICE_INDEX_GOODS = [7, 8, 9, 10, 11] as const
+
+export const VarietyKind = { Common: 0, Crop: 1, Deposit: 2, Tradition: 3, Wild: 4 } as const
+export type VarietyKind = (typeof VarietyKind)[keyof typeof VarietyKind]
+
+/** A named kind of goods within a class: what a flow says about where it was grown, dug or made ("Kepian silk"). */
+export interface Variety {
+  /** Index into History.varieties; 0 is the Common (unnamed) variety of every class. */
+  id: number
+  good: Good
+  kind: VarietyKind
+  /** Species id (Crop), Deposit id (Deposit), Tradition id (Tradition), or -1. */
+  source: number
+  /** Grower or maker people, or -1 (Common). */
+  people: number
+  /** Name root from the world's languages (a people's or a settlement's name); the UI adds the English noun ("pepper", "silver", "silk"). */
+  maker: string
+  /** Worth per unit relative to grain (traditions: at quality 1). */
+  value: number
+  /** Year it first came to market. */
+  firstYear: number
+}
+
+export const DepositKind = { Gold: 0, Silver: 1, Gems: 2, Amber: 3, Pearls: 4, Murex: 5, Copper: 6, Tin: 7, FineIron: 8, Kaolin: 9 } as const
+export type DepositKind = (typeof DepositKind)[keyof typeof DepositKind]
+
+export interface Deposit {
+  /** Index into History.deposits. */
+  id: number
+  kind: DepositKind
+  cell: number
+  /** 1 typical; a bonanza about 5. */
+  richness: number
+  /** Year found, -1 never. */
+  foundYear: number
+  /** Settlement whose prospectors (or expedition) found it, -1. */
+  foundBy: number
+  /** Year it gave out, -1 while yielding (or inexhaustible). */
+  exhaustedYear: number
+  /** Its variety (History.varieties), -1 until found. */
+  variety: number
+}
+
+export const CraftKind = { Silk: 0, Dyeing: 1, FineCloth: 2, Blades: 3, Bronze: 4, Glass: 5, Porcelain: 6, Paper: 7, Carpets: 8, Shawls: 9, Sugar: 10, Wine: 11 } as const
+export type CraftKind = (typeof CraftKind)[keyof typeof CraftKind]
+
+/** A named workshop culture: a craft of one people at its seats, with a quality that grows with practice. */
+export interface Tradition {
+  /** Index into History.traditions. */
+  id: number
+  craft: CraftKind
+  good: Good
+  /** Its variety (History.varieties). */
+  variety: number
+  people: number
+  /** Name root: the seat settlement's name at birth; the UI forms the adjective and adds the craft noun ("Kepian silk"). */
+  maker: string
+  bornYear: number
+  /** First seat. */
+  bornAt: number
+  /** Year it lost its last seat, -1 if alive at the end. */
+  endYear: number
+  /** Tradition it was carried from (a daughter), -1. */
+  parent: number
+  /** Seat history: seats[k] joined at seatFrom[k] and was lost at seatTo[k] (-1 still a seat). */
+  seats: number[]
+  seatFrom: number[]
+  seatTo: number[]
+}
+
+/** Industry bits (History.industry). */
+export const IndustryBit = {
+  Mine: 1, Forge: 2, Weaving: 4, Dyeworks: 8, Bladesmiths: 16, Kilns: 32, Glasshouse: 64, Paper: 128,
+  Warehouses: 256, // a mart with merchant stock
+  GuildHall: 512, // a renowned tradition's seat
+  Mint: 1024, // Treasure of at least twice the desired holding at a capital
+  Factory: 2048, // hosts a foreign factory
+  Shipyard: 4096, // a lane's home port
+} as const
+export type IndustryBit = (typeof IndustryBit)[keyof typeof IndustryBit]
+
+export const LegKind = { Relay: 0, Lane: 1 } as const
+export type LegKind = (typeof LegKind)[keyof typeof LegKind]
+
+/**
+ * Mart-to-mart legs of the long-haul trade, struct-of-arrays, in order of first opening. A relay leg follows the
+ * settlement links between two marts; a lane is a direct way opened by a trade expedition.
+ * Leg k follows cells path[pathOffsets[k] .. pathOffsets[k + 1]) from mart a to mart b.
+ */
+export interface LongHaul {
+  count: number
+  /** The two ends; for a lane, a is its home (sponsor) mart. */
+  a: Int32Array
+  b: Int32Array
+  kind: Uint8Array
+  openedYear: Int16Array
+  /** -1 while open at the end. */
+  closedYear: Int16Array
+  /** Lanes: the secret id of its chart (History.secrets), else -1. */
+  chart: Int16Array
+  /** Main class carried a to b and b to a over the run. */
+  goodAB: Uint8Array
+  goodBA: Uint8Array
+  pathOffsets: Uint32Array
+  path: Uint32Array
+}
+
+export const SecretKind = { Species: 0, Craft: 1, Chart: 2, Arms: 3 } as const
+export type SecretKind = (typeof SecretKind)[keyof typeof SecretKind]
+export const LeakChannel = { Founded: 0, Contact: 1, Espionage: 2, Defection: 3, Smuggling: 4, Conquest: 5, Rediscovery: 6, Chart: 7 } as const
+export type LeakChannel = (typeof LeakChannel)[keyof typeof LeakChannel]
+
+/** A state secret or monopoly: a secret species, a craft secret, or the chart of a lane. */
+export interface Secret {
+  /** Index into History.secrets. */
+  id: number
+  kind: SecretKind
+  /** Species id (Species), CraftKind (Craft), or LongHaul leg id (Chart). */
+  subject: number
+  foundYear: number
+  /** Settlement where it began (a founding people's founder for a species held from the start). */
+  foundAt: number
+  /** Year the last holder lost it (a lost art), -1. */
+  lostYear: number
+}
+
+/** Who held which secret when, struct-of-arrays sorted by from-year: a holding by a people and the polity it was gained in (-1 stateless). */
+export interface SecretHolds {
+  count: number
+  secret: Uint16Array
+  people: Int8Array
+  polity: Int16Array
+  from: Int16Array
+  /** -1: still held at the end. */
+  to: Int16Array
+  /** LeakChannel by which it was gained. */
+  channel: Uint8Array
+  /** Settlement it came through, -1. */
+  via: Int32Array
+}
+
+export const PostKind = { Factory: 0, Fort: 1, Station: 2, Camp: 3 } as const
+export type PostKind = (typeof PostKind)[keyof typeof PostKind]
+
+/** A trading post: a factory (a quarter in a foreign host town), a fort, a victualling station or a mining camp. */
+export interface TradingPost {
+  /** Index into History.posts. */
+  id: number
+  kind: PostKind
+  /** Sponsor settlement. */
+  owner: number
+  /** Factory: the foreign host settlement; else -1. */
+  host: number
+  /** Fort, Station, Camp: its own settlement; else -1. */
+  settlement: number
+  /** Lane served (History.longHaul leg), -1 (Camp). */
+  leg: number
+  foundedYear: number
+  /** -1 while it lasts. */
+  endedYear: number
 }
 
 // ---------------------------------------------------------------------------
@@ -339,8 +565,10 @@ export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3 }
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
- * Tier is derived, not stored (see polityTier in the sim): Empire at >= 60,000 people (or two peoples each >= 15% of
- * its people with >= 25 members), Kingdom at >= 6 members and >= 5,000 people, else Chiefdom.
+ * Tier is derived, not stored (see tierOf in the sim), relative to the world's people W at the same time: the sum of
+ * History.population over living settlements that are not outposts. Empire at >= max(20,000, 0.08 W) people, or at
+ * >= 20,000 people with >= 25 members where two peoples each hold >= 15% of its people; Kingdom at >= 6 members and
+ * >= max(2,000, 0.008 W) people; else Chiefdom. A polity's people and members are those of its living member settlements (History.polity).
  */
 export interface Polity {
   /** Index into History.polities; ids in founding order. */
@@ -410,6 +638,23 @@ export const BondEnd = {
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
 
 /**
+ * Embargoes short of war, struct-of-arrays in order of declaration (one entry per embargo; the same pair may embargo
+ * each other again later as a new entry). An embargo is declared when the rivalry of two polities reaches
+ * TARIFF.embargoOn (never between a vassal or tributary and its overlord) and lifted when it falls below embargoOff;
+ * while it is in force all goods but food stop between the two states' members (only contraband moves; food pays a
+ * duty), and if they go to war all trade stops anyway. It also ends when either polity ends (endYear its end year).
+ */
+export interface Embargoes {
+  count: number
+  /** Polity ids, a < b. */
+  a: Int16Array
+  b: Int16Array
+  startYear: Int16Array
+  /** -1 while still in force at the end of the run. */
+  endYear: Int16Array
+}
+
+/**
  * Bonds between polities, struct-of-arrays in order of making (one entry per bond; the same pair may bond again
  * later as a new entry). At any year a polity is the `a` of at most one ongoing Vassal or Tribute bond, and an
  * overlord is never itself a vassal (no chains), so "overlord of p at year y" is unique.
@@ -445,11 +690,16 @@ export const Good = {
   Ore: 4,
   Salt: 5,
   Cloth: 6, // from fibre plants and wool
-  Luxury: 7, // spices, dyes, wine, sugar and the like
+  Luxury: 7, // spices, dyes, wine, sugar and the like (goods: raw luxuries only: spices, sugar, wine, incense, dyes, furs, amber, pearls)
   Stimulant: 8, // habit-forming plants: mild ones such as tea, and harmful ones such as tobacco and poppy
+  // goods: worked goods and treasure (empty when HistoryOptions.goods is false).
+  Metalware: 9, // tools and arms
+  Finery: 10, // fine textiles: silk, dyed and fine cloth
+  Treasure: 11, // gold, silver, gems
+  Wares: 12, // glass, porcelain, paper, lacquer (later versions; empty until then)
 } as const
 export type Good = (typeof Good)[keyof typeof Good]
-export const GOOD_COUNT = 9
+export const GOOD_COUNT = 13
 
 /**
  * Trade routes between pairs of settlements, struct-of-arrays, in order of first opening.
@@ -480,6 +730,8 @@ export const StructureType = {
   Dam: 1, // on a river cell near its settlement; irrigates land downstream and forms a reservoir
   Walls: 2, // polities: town walls on the settlement's cell, raised against danger; a town may have several rings in use (one Structure per ring, oldest first)
   Fort: 3, // polities v2: a fort on a land cell of the settlement's territory at a hostile border (a pass or the most defensible border cell); one in use per settlement
+  Mine: 4, // goods: on a worked deposit's cell; `settlement` works it; lost when the deposit gives out or its settlement is abandoned
+  Factory: 5, // goods: a foreign merchants' quarter on its host's cell; `settlement` is the sponsor (see TradingPost)
 } as const
 export type StructureType = (typeof StructureType)[keyof typeof StructureType]
 
@@ -502,6 +754,8 @@ export interface HistoryOptions {
   snapshotInterval?: number
   /** polities: simulate states, war and danger. Default true; false gives the history without them (the new History fields empty). */
   polities?: boolean
+  /** goods: simulate worked goods, rare deposits, craft traditions, stocks and merchants, long-haul lanes, trading posts, secrets and smuggling. Default true; false gives the history without them (the goods fields empty). */
+  goods?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
@@ -528,6 +782,7 @@ export const JourneyKind = {
   Migrants: 1, // joined existing settlement `to`
   Expedition: 2, // explorers; `to` is the outpost founded, or `from` again if they came home, or -1 if lost
   Army: 3, // polities: a campaign's army marching from the staging settlement `from` on the target `to` (arriving the year of the battle); size is men
+  Fleet: 4, // goods (later versions): a merchant fleet on a lane from its home mart `from` to the far mart `to`
 } as const
 export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
 

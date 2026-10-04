@@ -91,6 +91,8 @@ export interface PairPolicy {
   nbBA: Float64Array
   /** War epoch of the last embargo refresh. */
   epoch: number
+  /** How hidden the way is (pairs under a duty or an embargo; goods: the smuggled share of a secret's monopoly rent). */
+  hide: Float64Array
 }
 
 export function makePolicy(n: number): PairPolicy {
@@ -102,6 +104,7 @@ export function makePolicy(n: number): PairPolicy {
     revAB: new Float64Array(n), revBA: new Float64Array(n), cutAB: new Float64Array(n), cutBA: new Float64Array(n), bestAB: new Float64Array(n), bestBA: new Float64Array(n),
     gAB: new Int32Array(n), gBA: new Int32Array(n), epoch: -1, route: new Int32Array(n).fill(-1), lossV: new Float64Array(n), legal: new Float64Array(n),
     vAB: new Float64Array(n), vBA: new Float64Array(n), pvAB: new Float64Array(n), pvBA: new Float64Array(n), dbAB: new Float64Array(n), dbBA: new Float64Array(n), nbAB: new Float64Array(n), nbBA: new Float64Array(n),
+    hide: new Float64Array(n),
   }
 }
 
@@ -130,16 +133,30 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
   const R = ps.relA.length
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
-    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
+    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) {
+      // (an embargo in force ends with either polity: History.embargoes)
+      const k = ps.relEmbRec[r]
+      if (k >= 0) { const ea = ps.pEnded[a], eb = ps.pEnded[b]; ps.embEnd[k] = ea >= 0 && (eb < 0 || ea <= eb) ? ea : eb; ps.relEmbRec[r] = -1 }
+      continue
+    }
     const x = ps.relR[r]
     if (ps.relEdges[r].length > 0) { if (x > maxR[a]) maxR[a] = x; if (x > maxR[b]) maxR[b] = x }
-    // Embargo short of war (with hysteresis); never between a vassal and its overlord.
-    if (ps.relEmb[r] === 0) { if (x >= X.embargoOn && !bound(ps, a, b)) ps.relEmb[r] = 1 }
-    else if (x < X.embargoOff || bound(ps, a, b)) ps.relEmb[r] = 0
+    // Embargo short of war (with hysteresis); never between a vassal and its overlord. Recorded in History.embargoes.
+    if (ps.relEmb[r] === 0) {
+      if (x >= X.embargoOn && !bound(ps, a, b)) {
+        ps.relEmb[r] = 1
+        ps.relEmbRec[r] = ps.embA.length
+        ps.embA.push(a); ps.embB.push(b); ps.embStart.push(s.year); ps.embEnd.push(-1)
+      }
+    } else if (x < X.embargoOff || bound(ps, a, b)) {
+      ps.relEmb[r] = 0
+      const k = ps.relEmbRec[r]
+      if (k >= 0) { ps.embEnd[k] = s.year; ps.relEmbRec[r] = -1 }
+    }
   }
   const k = step * X.rate < 1 ? step * X.rate : 1
   for (const p of ps.alive) {
-    const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1)
+    const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
     const w = s.wealth[ps.pCapital[p]] / (X.needRef * ps.pMass[p] + 1e-9)
     let mr = maxR[p]
     if (mr > 1) mr = 1
@@ -170,7 +187,7 @@ export function routeSea(s: HistoryState, ps: PolityState, ts: TradeState, r: nu
 }
 
 /** Per polity this year: the capital of an enemy at war raiding its sea routes with privateers (-1 none). */
-function privateers(s: HistoryState, ps: PolityState, out: Int32Array): void {
+export function privateers(s: HistoryState, ps: PolityState, out: Int32Array): void {
   for (const p of ps.alive) out[p] = -1
   for (const w of ps.activeWars) {
     const p = ps.wAtt[w], q = ps.wDef[w]
@@ -297,6 +314,7 @@ function pairOne(s: HistoryState, ps: PolityState, ts: TradeState, pc: PairPolic
     if (e < hubE) { hubE = e; hub = x }
   }
   const hide = X.hideBase + (coastal ? X.hideSea : 0) + X.hideRough * 0.5 * (defenseD[ca] + defenseD[cb]) + (outlaw ? X.hideTransit : 0)
+  pc.hide[i] = hide
   const ea = pa >= 0 ? enforcement(s, ps, a, pa) : 0, eb = pb >= 0 ? enforcement(s, ps, b, pb) : 0
   if (block) {
     const e = ea > eb ? ea : eb

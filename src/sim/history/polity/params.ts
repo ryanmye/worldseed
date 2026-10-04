@@ -66,10 +66,16 @@ export const POLITY = {
   /** Below minState people a rump or a rebel cluster is no state; a polity below dwindlePop ends. */
   minState: 1500,
   dwindlePop: 300,
-  /** Tiers (derived, see tierOf): Kingdom >= kingdomMembers and kingdomPop; Empire >= empirePop, or multiPeoples peoples each >= multiShare with >= multiMembers members. */
+  /**
+   * Tiers (derived, see tierOf), relative to the world's people W (living settlements, outposts excepted): Kingdom >= kingdomMembers
+   * members and max(kingdomPop, kingdomShare * W) people; Empire >= max(empirePop, empireShare * W) people, or two peoples each >=
+   * multiShare of its people with >= multiMembers members and >= empirePop people.
+   */
   kingdomMembers: 6,
-  kingdomPop: 5000,
-  empirePop: 60000,
+  kingdomPop: 2000,
+  kingdomShare: 0.008,
+  empirePop: 20000,
+  empireShare: 0.08,
   multiShare: 0.15,
   multiMembers: 25,
   /** Overseas colonies of a member join its polity if the sender has a port and the polity is at least a Kingdom; others join when inside its territory or within newReach * lambda of its capital. */
@@ -323,6 +329,8 @@ export const TARIFF = {
   food: 0.2,
   /** Merchants pass most of a duty on to the buyers: only this share of it enters the price gap a flow must beat. */
   wedge: 0.3,
+  /** goods: the high-value classes (Luxury to Wares, and the long-haul legs) pay this share of the rate (with the goods system off, Luxury and Stimulant pay it all). */
+  hv: 0.5,
   /** The rate moves this share of the way to its target a year; at most max. */
   rate: 0.1,
   max: 0.6,
@@ -361,8 +369,8 @@ export const SMUGGLE = {
   corruptRate: 0.05,
   corruptUnrest: 0.15,
   /** A hub: contraband at least ringShare of its smoothed income and ringMin wealth a year (logged once per settlement: SmugglingRing). */
-  ringShare: 0.6,
-  ringMin: 20,
+  ringShare: 0.7,
+  ringMin: 150,
   /** Smoothing of incomes for the hub measure, a year. */
   smooth: 0.2,
 }
@@ -384,7 +392,7 @@ export const PIRACY = {
   rate: 0.03,
   /** A nest that took no lane at the last outlaw step aims at rival times pi*. */
   rival: 0.4,
-  laneHalf: 1500,
+  laneHalf: 2500,
   poorFood: 0.95,
   poorWealth: 0.25,
   rich: 0.5,

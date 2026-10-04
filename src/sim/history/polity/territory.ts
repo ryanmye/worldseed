@@ -70,12 +70,56 @@ export function addEdge(ps: PolityState, a: number, b: number, cost: number): vo
   ps.gNb[b].push(a); ps.gCost[b].push(cost)
 }
 
+/**
+ * mapPass's edge between a and b (added, or cheapened to `cost`): returns b's slot in a's list, and a's slot in b's in
+ * pairQ (-1 if missing).
+ */
+let pairQ = -1
+function linkPair(gNb: number[][], gCost: number[][], a: number, b: number, cost: number): number {
+  const na = gNb[a], nbb = gNb[b]
+  for (let k = 0; k < na.length; k++) {
+    if (na[k] !== b) continue
+    let q = 0
+    while (q < nbb.length && nbb[q] !== a) q++
+    pairQ = q < nbb.length ? q : -1
+    if (cost < gCost[a][k]) { gCost[a][k] = cost; if (pairQ >= 0) gCost[b][q] = cost }
+    return k
+  }
+  const k = na.length
+  pairQ = nbb.length
+  na.push(b); gCost[a].push(cost)
+  nbb.push(a); gCost[b].push(cost)
+  return k
+}
+
+/** Land neighbours of every cell: the grid's neighbours less the sea cells, in grid order (per terrain, read only). */
+interface LandAdj { off: Int32Array; nb: Int32Array }
+const LAND_ADJ = new WeakMap<object, LandAdj>()
+function landAdj(s: HistoryState): LandAdj {
+  const T = s.terrain
+  const got = LAND_ADJ.get(T)
+  if (got) return got
+  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  const N = T.cellCount, sea = T.sea
+  const lo = new Int32Array(N + 1)
+  let n = 0
+  for (let c = 0; c < N; c++) { for (let k = off[c]; k < off[c + 1]; k++) if (!sea[nb[k]]) n++; lo[c + 1] = n }
+  const ln = new Int32Array(n)
+  n = 0
+  for (let c = 0; c < N; c++) for (let k = off[c]; k < off[c + 1]; k++) if (!sea[nb[k]]) ln[n++] = nb[k]
+  const a = { off: lo, nb: ln }
+  LAND_ADJ.set(T, a)
+  return a
+}
+
 /** The map pass: territory per cell, the settlement graph and the border cells. */
 export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: Heap): void {
   const T = s.terrain
-  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  // (The search never enters the sea: it walks the land neighbours only.)
+  const { off: lOff, nb: lNb } = landAdj(s)
   const { tOwner, tDist } = ps
   const moveCost = s.moveCost
+  const sea = T.sea
   tOwner.fill(-1)
   void heap
   // Multi-source Dijkstra with a bucket queue (Dial): buckets narrower than the cheapest step, so a cell is
@@ -96,15 +140,16 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
     arr[n] = c
     bucketLen[b] = n + 1
   }
+  let seaOwned = false
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     radius[id] = r0 + r1 * smoothstep(POLITY.mapPopLow, POLITY.mapPopHigh, s.pop[id])
     const c = s.cell[id]
+    if (sea[c]) seaOwned = true
     tOwner[c] = id
     tDist[c] = 0
     push(c, 0)
   }
-  const sea = T.sea
   for (let b = 0; b < nB; b++) {
     for (let i = 0; i < bucketLen[b]; i++) {
       const c = buckets[b][i]
@@ -112,36 +157,33 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
       if (Math.floor(d * inv) !== b) continue // (improved since: queued again further down)
       const a = tOwner[c]
       const r = radius[a]
-      for (let k = off[c]; k < off[c + 1]; k++) {
-        const j = nb[k]
-        if (sea[j]) continue
+      for (let k = lOff[c], e = lOff[c + 1]; k < e; k++) {
+        const j = lNb[k]
         const nd = d + moveCost[j]
         if (nd > r) continue
         if (tOwner[j] >= 0 && nd >= tDist[j]) continue
         tOwner[j] = a
         tDist[j] = nd
-        push(j, nd)
+        // (push, inline)
+        const bj = Math.floor(nd * inv)
+        let arr = buckets[bj]
+        const n = bucketLen[bj]
+        if (n === arr.length) { const x = new Int32Array(n * 2); x.set(arr); buckets[bj] = arr = x }
+        arr[n] = j
+        bucketLen[bj] = n + 1
       }
     }
   }
   // Land edges between owners of neighbouring cells, at the cheapest crossing; border cells (one entry per cell and other owner).
+  // (Sea cells are nobody's, so the land neighbours do, unless a settlement stands on one.)
+  const grid = s.world.grid
+  const off = seaOwned ? grid.neighborOffsets : lOff, nb = seaOwned ? grid.neighbors : lNb
   const S = s.count
   const gNb: number[][] = [], gCost: number[][] = []
   for (let id = 0; id < S; id++) { gNb.push([]); gCost.push([]) }
-  const add = (a: number, b: number, cost: number): void => {
-    const na = gNb[a]
-    for (let k = 0; k < na.length; k++) {
-      if (na[k] !== b) continue
-      if (cost < gCost[a][k]) {
-        gCost[a][k] = cost
-        const nbb = gNb[b]
-        for (let q = 0; q < nbb.length; q++) if (nbb[q] === a) { gCost[b][q] = cost; break }
-      }
-      return
-    }
-    na.push(b); gCost[a].push(cost)
-    gNb[b].push(a); gCost[b].push(cost)
-  }
+  // (the last pair linked by a border cell and its slots: a border runs over many cells between the same two owners)
+  let lastA = -1, lastB = -1, lastKa = 0, lastKb = 0
+  let lastCa: number[] = [], lastCb: number[] = []
   const bc: number[] = [], bo: number[] = []
   const cells = ps.landCells
   // (one pass: borders of owned cells; for unowned ones, the wilderness fringe that takes its owners' danger)
@@ -172,7 +214,10 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
       for (let q = start; q < bo.length; q++) if (bo[q] === b) { dup = true; break }
       if (!dup) { bc.push(c); bo.push(b) }
       if (b < a) continue
-      add(a, b, tDist[c] + tDist[j] + 0.5 * (moveCost[c] + moveCost[j]))
+      const cost = tDist[c] + tDist[j] + 0.5 * (moveCost[c] + moveCost[j])
+      if (a === lastA && b === lastB) {
+        if (cost < lastCa[lastKa]) { lastCa[lastKa] = cost; if (lastKb >= 0) lastCb[lastKb] = cost }
+      } else { lastKa = linkPair(gNb, gCost, a, b, cost); lastKb = pairQ; lastA = a; lastB = b; lastCa = gCost[a]; lastCb = gCost[b] }
     }
   }
   ps.borderCell = bc
@@ -185,13 +230,13 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
     const a = ts.rA[r], b = ts.rB[r]
     if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0) continue
     const cost = armyPathCost(s, ts.rPath[r], a, b)
-    if (seaCount >= 2) add(a, b, cost)
+    if (seaCount >= 2) linkPair(gNb, gCost, a, b, cost)
   }
   // Colonies' links to their mother towns.
   for (let k = 0; k < ps.linkA.length; k++) {
     const a = ps.linkA[k], b = ps.linkB[k]
     if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0) continue
-    add(a, b, ps.linkCost[k])
+    linkPair(gNb, gCost, a, b, ps.linkCost[k])
   }
   ps.gNb = gNb
   ps.gCost = gCost

@@ -98,6 +98,11 @@ import { POLITY } from './polity/params.ts'
 import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
 import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot, polTradeSnapshot } from './polity/assemble.ts'
 import type { PolityDiag } from './polity/state.ts'
+// goods: worked goods, specialities, stocks and merchants, long-haul trade, posts, secrets, smuggling (goods/).
+import { GOODS_ON } from './goods/params.ts'
+import { createGoodsSystem, goodsProduce, goodsYear } from './goods/system.ts'
+import { assembleGoods, emptyGoodsHistory, goodsSnapshot } from './goods/assemble.ts'
+import type { GoodsDiag } from './goods/state.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -149,6 +154,15 @@ export interface HistoryDiagnostics {
   speciesV2?: SpeciesV2Diag
   /** polities: counters of the polity system (absent when it is off). */
   polity?: PolityDiag
+  /** goods: records of the goods system (absent when it is off). */
+  goods?: GoodsDiag
+}
+
+/** goods: a copy of the goods records (the run goes on). */
+function copyGoodsDiag(d: GoodsDiag): GoodsDiag {
+  const out = {} as Record<string, number[]>
+  for (const k of Object.keys(d) as (keyof GoodsDiag)[]) out[k] = d[k].slice()
+  return out as unknown as GoodsDiag
 }
 
 function copyLog(l: ExpeditionLog): ExpeditionLog {
@@ -311,6 +325,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const pol = (options?.polities ?? POLITY.enabled) ? createPolitySystem(s, trade) : null
   s.pol = pol
   const polSnaps = pol ? createSnaps(pol) : null
+  // goods: the goods system, unless switched off.
+  const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
+  s.goods = gx
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -394,6 +411,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     volUsed += n
     for (let g = 0; g < GOOD_COUNT; g++) goodVolume.push(trade.goodYear[g])
     if (pol && polSnaps) polTradeSnapshot(pol, trade, polSnaps) // polities: (v2) contraband and losses per route
+    if (gx) goodsSnapshot(s, gx, trade) // goods:
   }
 
   snapshot()
@@ -404,6 +422,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     s.landYear = year % LAND.step === 0
     weatherSystem(s, weather)
     foodSystem(s)
+    if (gx) goodsProduce(s, gx, explore) // goods: mines and furs, before the market
     tradeSystem(s, trade)
     if (pol) taxSystem(s, pol) // polities: grain tax to capitals
     populationSystem(s)
@@ -425,6 +444,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     knowledgeSpreadSystem(s, techState) // gradual-knowledge: fronts of knowledge between peoples in contact
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
+    if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -453,7 +473,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let id = 0; id < S; id++) through[id] = s.through[id]
     const settlements: Settlement[] = []
     for (let id = 0; id < S; id++) {
-      settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id], outpost: s.outpost[id] === 1 })
+      settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id], outpost: s.outpost[id] === 1, post: false })
     }
     // Settlement names and named geography, in the order things are founded and reached (names/featureNames.ts).
     const featureMap = detectFeatures(world)
@@ -470,6 +490,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const log = voyages.log
     // polities: states, borders, wars and danger (empty when the system is off).
     const polHist = pol && polSnaps ? assemblePolityHistory(world, s, pol, polSnaps, years, snapshotCount, landSnapshotCount, tradeSnapshotCount, RC, naming, peoples.map((p) => p.name)) : emptyPolityHistory()
+    // goods: (empty when the system is off); forts and stations are flagged on their settlements.
+    const goodsHist = gx ? assembleGoods(gx, years, tradeSnapshotCount, S, names, peoples.map((p) => p.name)) : emptyGoodsHistory()
+    for (const x of goodsHist.posts) if (x.settlement >= 0 && (x.kind === 1 || x.kind === 2)) settlements[x.settlement].post = true
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -486,6 +509,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         crop: crop.slice(0, landSnapshotCount * N), herd: herd.slice(0, landSnapshotCount * N),
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
+        ...goodsHist, // goods:
       },
       terrain,
       diag: {
@@ -500,6 +524,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
           ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice(), foundFromZ: pol.diag.foundFromZ.slice(), foundHome: pol.diag.foundHome.slice(), foundCell: pol.diag.foundCell.slice(),
           yRev: pol.diag.yRev.slice(), yCapInc: pol.diag.yCapInc.slice(), yLegal: pol.diag.yLegal.slice(), ySmug: pol.diag.ySmug.slice(), yPir: pol.diag.yPir.slice(), yBand: pol.diag.yBand.slice(), yPirates: pol.diag.yPirates.slice(),
         } : undefined, // polities:
+        goods: gx ? copyGoodsDiag(gx.diag) : undefined, // goods:
       },
     }
   }

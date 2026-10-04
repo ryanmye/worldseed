@@ -239,7 +239,7 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
     for (let p = 0; p < P; p++) {
       if (a.mem[p] >= 2) n++
       if (a.mem[p] > peakMem[p]) peakMem[p] = a.mem[p]
-      const t = tierOf(a.pop[p], a.mem[p], false)
+      const t = tierOf(a.pop[p], a.mem[p], false, a.total)
       if (t > tierEver[p]) tierEver[p] = t
       sh[p] = a.total > 0 ? a.pop[p] / a.total : 0
       if (a.living > 0 && a.mem[p] / a.living > maxSettleShare) maxSettleShare = a.mem[p] / a.living
@@ -743,7 +743,7 @@ export function polityTimeline(h: History, minPeak = 6): string {
     for (let p = 0; p < P; p++) {
       if (a.mem[p] > peak[p]) { peak[p] = a.mem[p]; peakYear[p] = q * h.snapshotInterval }
       if (a.pop[p] > peakPop[p]) peakPop[p] = a.pop[p]
-      const t = tierOf(a.pop[p], a.mem[p], false)
+      const t = tierOf(a.pop[p], a.mem[p], false, a.total)
       if (t > tier[p]) tier[p] = t
     }
   }

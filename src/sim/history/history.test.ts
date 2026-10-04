@@ -341,6 +341,11 @@ function checkInvariants(w: World, h: History): void {
       case EventType.CivilWar: case EventType.Partitioned: case EventType.Reunified: case EventType.BecameVassal: case EventType.Alliance:
       case EventType.SmugglingRing: case EventType.PiratesRise: case EventType.PiratesSuppressed: case EventType.Blockade:
         break
+      // goods: deposits, traditions, secrets, lanes, posts, smuggling (checked against their tables in goods/goods.test.ts).
+      case EventType.DepositFound: case EventType.MineExhausted: case EventType.Boom: case EventType.TraditionBorn: case EventType.TraditionRenowned:
+      case EventType.TraditionMoved: case EventType.TraditionLost: case EventType.SecretGuarded: case EventType.SecretLeaked: case EventType.MonopolyBroken:
+      case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -408,6 +413,8 @@ function checkInvariants(w: World, h: History): void {
       expect(x.cell).toBe(owner.cell) // polities: walls on their town's cell
     } else if (x.type === StructureType.Fort) {
       if (w.elevation[x.cell] < 0) throw new Error(`fort ${k} at sea (cell ${x.cell})`) // polities v2: on land (polity2.test.ts checks the territory)
+    } else if (x.type === StructureType.Mine || x.type === StructureType.Factory) {
+      // goods: a mine on a worked deposit's cell, a factory on its host's (checked in goods/goods.test.ts)
     } else {
       throw new Error(`unknown structure type ${x.type}`)
     }
@@ -418,7 +425,7 @@ function checkInvariants(w: World, h: History): void {
     for (let b = a + 1; b < portInUse.length; b++) {
       const [ta, sa, ca, ba, la] = portInUse[a]
       const [tb, sb, cb, bb, lb] = portInUse[b]
-      if (ta !== tb || ta === StructureType.Walls || !(ba < lb && bb < la)) continue // (polities: a town may have several rings of walls)
+      if (ta !== tb || ta === StructureType.Walls || ta === StructureType.Mine || ta === StructureType.Factory || !(ba < lb && bb < la)) continue // (polities: a town may have several rings of walls; goods: work several mines, sponsor several factories)
       if (sa === sb) throw new Error(`settlement ${sa} has two structures of type ${ta} in use at once`)
       if (ta === StructureType.Dam && ca === cb) throw new Error(`two dams in use on cell ${ca}`)
     }
@@ -1338,7 +1345,7 @@ describe('simulateHistory', () => {
       // Abandonment is a real part of history, not a collapse.
       const abandoned = h.settlements.filter((st) => st.abandonedYear >= 0).length
       expect(abandoned / S).toBeGreaterThan(0.06)
-      expect(abandoned / S).toBeLessThan(0.25)
+      expect(abandoned / S).toBeLessThan(0.27) // (goods: was 0.25; trade towns and posts draw people a little more from villages)
       // Some abandoned site is settled again later.
       const lastFounded = new Int32Array(N).fill(-1)
       for (const st of h.settlements) lastFounded[st.cell] = st.foundedYear
@@ -1632,7 +1639,7 @@ describe('simulateHistory', () => {
         expect(h.population[q * S + e.settlement]).toBeGreaterThan(0.8 * EXPLORE.minPop)
       }
       const L = diag.expeditions
-      expect(L?.year.length).toBe(sent.length)
+      expect(L?.year.length).toBe(sent.filter((e) => e.extra === undefined).length) // (goods: trade expeditions carry the variety sought in `extra`)
       // More of them as technology grows: the later half of the run sends most.
       if (sent.filter((e) => e.year > 1000).length > 0.6 * sent.length) lateHeavy++
       // Poles.

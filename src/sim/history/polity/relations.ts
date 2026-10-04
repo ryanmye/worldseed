@@ -44,6 +44,7 @@ export function ensureRelation(ps: PolityState, p: number, q: number): number {
   ps.relWar.push(-1)
   ps.relLastWar.push(NEVER)
   ps.relEmb.push(0)
+  ps.relEmbRec.push(-1)
   ps.relEdges.push([])
   ps.relContested.push(0)
   return i

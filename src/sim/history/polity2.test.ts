@@ -1,7 +1,7 @@
 // polities v2: tests of trade policy, the outlaw economy, civil wars, partitions and bonds between states.
 
 import { describe, expect, it } from 'vitest'
-import { BondEnd, BondKind, EventType, PolityEnd, PolityOrigin, StructureType, WarKind, WarOutcome } from '../../contract.ts'
+import { BondEnd, BondKind, EventType, GOOD_COUNT, PolityEnd, PolityOrigin, StructureType, WarKind, WarOutcome } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 
@@ -17,6 +17,8 @@ function hashV2(hi: History): string {
   for (const a of [hi.tariff, hi.tariffRevenue, hi.smuggleVolume, hi.tradeLoss, hi.contraband, hi.piracy]) h = fnv(h, a)
   const b = hi.bonds
   for (const a of [b.kind, b.a, b.b, b.startYear, b.endYear, b.end]) h = fnv(h, a)
+  const em = hi.embargoes
+  for (const a of [em.a, em.b, em.startYear, em.endYear]) h = fnv(h, a)
   const ev: number[] = []
   for (const e of hi.events) if (e.type >= EventType.CivilWar && e.type <= EventType.Blockade) ev.push(e.year, e.type, e.settlement, e.other, e.value, e.extra ?? -1)
   h = fnv(h, Float64Array.from(ev))
@@ -104,6 +106,23 @@ function checkV2(w: World, h: History): void {
     const pa = h.polities[a].people, pb = h.polities[b].people
     if (pa !== pb) { const c = h.contactYear[pa * NP + pb]; expect(c >= 0 && c <= B.startYear[k]).toBe(true) }
   }
+  // Embargoes: between two polities alive when declared, a < b, never between a subject and its overlord; an embargo in
+  // force at the end is between living polities; one pair has at most one in force at a time.
+  const E = h.embargoes
+  for (const a of [E.a, E.b, E.startYear, E.endYear]) expect(a.length).toBe(E.count)
+  for (let k = 0; k < E.count; k++) {
+    const a = E.a[k], b = E.b[k]
+    expect(a < b && a >= 0 && b < P).toBe(true)
+    if (k > 0) expect(E.startYear[k]).toBeGreaterThanOrEqual(E.startYear[k - 1])
+    for (const p of [a, b]) expect(aliveP(h, p, E.startYear[k])).toBe(true)
+    if (E.endYear[k] >= 0) expect(E.endYear[k]).toBeGreaterThanOrEqual(E.startYear[k])
+    else for (const p of [a, b]) expect(h.polities[p].endedYear).toBe(-1)
+    for (let j = 0; j < k; j++) if (E.a[j] === a && E.b[j] === b) expect(E.endYear[j] >= 0 && E.endYear[j] <= E.startYear[k]).toBe(true)
+    for (let j = 0; j < B.count; j++) {
+      if (B.kind[j] === BondKind.Alliance || B.startYear[j] >= E.startYear[k] || (B.endYear[j] >= 0 && B.endYear[j] <= E.startYear[k])) continue
+      if ((B.a[j] === a && B.b[j] === b) || (B.a[j] === b && B.b[j] === a)) throw new Error(`embargo ${k} between a subject and its overlord (bond ${j})`)
+    }
+  }
   for (let y = 0; y <= h.years; y += 25) {
     const over = new Int32Array(P).fill(-1)
     for (let k = 0; k < B.count; k++) {
@@ -190,7 +209,7 @@ function checkV2(w: World, h: History): void {
         const st = h.settlements[e.settlement]
         expect(e.year >= st.foundedYear && (st.abandonedYear < 0 || e.year <= st.abandonedYear)).toBe(true)
         if (e.type !== EventType.SmugglingRing) expect(coastal(st.cell)).toBe(true)
-        if (e.type === EventType.SmugglingRing) expect(e.value >= 0 && e.value < 9).toBe(true)
+        if (e.type === EventType.SmugglingRing) expect(e.value >= 0 && e.value < GOOD_COUNT).toBe(true)
         break
       }
       case EventType.Blockade:
@@ -226,6 +245,14 @@ describe('polities v2', () => {
       if (B0.endYear[k] >= 0) expect([B1.endYear[k], B1.end[k]]).toEqual([B0.endYear[k], B0.end[k]])
       else expect(B1.endYear[k] === -1 || B1.endYear[k] > short.years).toBe(true)
     }
+    const E0 = short.embargoes, E1 = long.embargoes
+    expect(E1.count).toBeGreaterThanOrEqual(E0.count)
+    for (let k = 0; k < E0.count; k++) {
+      expect([E1.a[k], E1.b[k], E1.startYear[k]]).toEqual([E0.a[k], E0.b[k], E0.startYear[k]])
+      if (E0.endYear[k] >= 0) expect(E1.endYear[k]).toBe(E0.endYear[k])
+      else expect(E1.endYear[k] === -1 || E1.endYear[k] > short.years).toBe(true)
+    }
+    for (let k = E0.count; k < E1.count; k++) expect(E1.startYear[k]).toBeGreaterThan(short.years)
     const ev = (h: History, y: number) => h.events.filter((e) => e.year <= y && e.type >= EventType.CivilWar && e.type <= EventType.Blockade).map((e) => [e.year, e.type, e.settlement, e.other, e.value, e.extra ?? -1].join(','))
     expect(ev(long, 1200)).toEqual(ev(short, 1200))
     // Resumable.
@@ -235,7 +262,7 @@ describe('polities v2', () => {
     const y = run.advanceTo(1700)
     expect(hashV2(y)).toBe(hashV2(long))
     expect(hashV2(x)).toBe(hashV2(short))
-    const arrays = (h: History) => [h.tariff, h.tariffRevenue, h.smuggleVolume, h.tradeLoss, h.contraband, h.piracy, h.bonds.kind, h.bonds.a, h.bonds.b, h.bonds.startYear, h.bonds.endYear, h.bonds.end]
+    const arrays = (h: History) => [h.tariff, h.tariffRevenue, h.smuggleVolume, h.tradeLoss, h.contraband, h.piracy, h.bonds.kind, h.bonds.a, h.bonds.b, h.bonds.startYear, h.bonds.endYear, h.bonds.end, h.embargoes.a, h.embargoes.b, h.embargoes.startYear, h.embargoes.endYear]
     const seen = new Set(arrays(x).map((z) => z.buffer))
     for (const z of arrays(y)) {
       expect(seen.has(z.buffer)).toBe(false)
@@ -252,7 +279,7 @@ describe('polities v2', () => {
 
   it('states tax trade and smugglers evade them; pirates rise and fall; realms split and reunite; vassals and allies bind them', () => {
     const seeds = [1, 2, 3, 42, 1337, 7]
-    let civil = 0, partitions = 0, reunified = 0, vassals = 0, alliances = 0, havens = 0, suppressed = 0, rings = 0, blockades = 0, forts = 0, worldsWithPirates = 0
+    let civil = 0, partitions = 0, reunified = 0, vassals = 0, alliances = 0, havens = 0, suppressed = 0, rings = 0, blockades = 0, forts = 0, worldsWithPirates = 0, embargoes = 0
     for (const seed of seeds) {
       const h = history(seed)
       const P = h.polities.length, Q = h.snapshotCount
@@ -271,6 +298,7 @@ describe('polities v2', () => {
       expect(sv / tv).toBeLessThan(0.15)
       const count = (t: number) => h.events.filter((e) => e.type === t).length
       civil += count(EventType.CivilWar); partitions += count(EventType.Partitioned); reunified += count(EventType.Reunified)
+      embargoes += h.embargoes.count
       havens += count(EventType.PiratesRise); suppressed += count(EventType.PiratesSuppressed); rings += count(EventType.SmugglingRing); blockades += count(EventType.Blockade)
       if (count(EventType.PiratesRise) > 0) worldsWithPirates++
       for (let k = 0; k < h.bonds.count; k++) { if (h.bonds.kind[k] === BondKind.Vassal) vassals++; else if (h.bonds.kind[k] === BondKind.Alliance) alliances++ }
@@ -279,6 +307,7 @@ describe('polities v2', () => {
       expect(count(EventType.PiratesRise)).toBeLessThanOrEqual(40)
       expect(count(EventType.SmugglingRing)).toBeLessThanOrEqual(40)
     }
+    expect(embargoes).toBeGreaterThan(0)
     expect(civil).toBeGreaterThan(0)
     expect(partitions).toBeGreaterThan(0)
     expect(reunified).toBeGreaterThan(0)

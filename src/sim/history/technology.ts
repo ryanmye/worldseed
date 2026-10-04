@@ -37,6 +37,7 @@ import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
 import type { TradeState } from './trade.ts'
 import { empireLinks } from './polity/system.ts' // polities:
+import { capGain, goodsTechActivity } from './goods/system.ts' // goods:
 
 const F = TECH_FIELD_COUNT
 
@@ -180,6 +181,8 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
     act[o + TechField.Metalworking] += X.share[2] * x
     act[o + TechField.Crafts] += X.share[3] * x
   }
+  const gx = s.goods // goods: smithing and workshops count as Metalworking and Crafts; the diffusion brake
+  if (gx !== null) goodsTechActivity(gx, act, P, dt)
   // How closely each pair of living peoples that has met is linked (0 if not): the diffusion rate, and the
   // share of the other's activity that counts toward one's own growth (ideas travel with the contact).
   const k = s.know
@@ -214,7 +217,9 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
       const L = tech[o + f]
       const u = (L - 1) * soft
       const u2 = u * u
-      tech[o + f] = L + (dt * X.rate[f] * Math.sqrt(a + X.base[f]) * rich) / ((1 + X.slow * (L - 1)) * (1 + u2 * u2))
+      const inc = (dt * X.rate[f] * Math.sqrt(a + X.base[f]) * rich) / ((1 + X.slow * (L - 1)) * (1 + u2 * u2))
+      tech[o + f] = L + inc
+      if (gx !== null) gx.own[o + f] += inc // goods: own level (growth without diffusion)
     }
   }
 
@@ -240,6 +245,7 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
       if (learned && teacher[p * P + q] < 0) teacher[p * P + q] = s.year
     }
   }
+  if (gx !== null) for (let i = 0; i < P * F; i++) gain[i] = capGain(gx, tech, i, gain[i]) // goods: at most own level + DIFFUSION.cap
   for (let i = 0; i < P * F; i++) tech[i] += gain[i]
 
   // TechAdvance: each new whole level, at the people's largest settlement.
