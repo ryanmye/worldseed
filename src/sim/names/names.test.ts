@@ -50,7 +50,7 @@ describe('nameSettlements', () => {
     expect(c).toEqual(a)
     const other = nameSettlements(world(1), table(1))
     expect(other.slice(0, 20)).not.toEqual(a.slice(0, 20))
-  }, 30_000) // two worlds and histories: slow when the machine is busy
+  }, 180_000) // two worlds and histories: slow when the machine is busy
 
   it('names are unique within a world, across many seeds', () => {
     for (const seed of SEEDS) {
@@ -62,7 +62,7 @@ describe('nameSettlements', () => {
         seen.add(key)
       }
     }
-  }, 30_000)
+  }, 180_000)
 
   it('stays within character set and length bounds', () => {
     for (const seed of SEEDS) {

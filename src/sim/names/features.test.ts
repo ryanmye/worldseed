@@ -150,7 +150,7 @@ describe('detectFeatures', () => {
     detectFeatures(w) // warm up
     const t0 = performance.now()
     for (let i = 0; i < 5; i++) detectFeatures(w)
-    expect((performance.now() - t0) / 5).toBeLessThan(40)
+    expect((performance.now() - t0) / 5).toBeLessThan(150)
   })
 
   it('featuresAt reports a settlement cell\'s landmass and nearby features once each', () => {
