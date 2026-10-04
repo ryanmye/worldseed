@@ -146,7 +146,7 @@ const PALETTE = [
  * Good.Luxury.
  */
 const CASH_GOOD = {
-  silk: 'Finery' in Good ? (Good as unknown as Record<string, number>).Finery : Good.Luxury,
+  silk: Good.Finery,
 } as const
 
 /**
