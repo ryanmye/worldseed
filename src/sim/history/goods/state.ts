@@ -214,6 +214,8 @@ export interface GoodsState {
   /** Lanes: loss rate of the way at opening (it falls with sailing). */
   legRisk0: number[]
   legProfit: number[]
+  /** 1: a non-trader with nothing to keep, wear or clear (goodsSettle skips it until it trades or a mine or base fills its stores). */
+  quiet: Uint8Array
   /** polities v2 on the legs: duties, embargo, smuggling, pirates and bandits (longhaul.ts; null until the first sweep with states). */
   legPol: LegPolicy | null
   /** Lanes opened (leg ids) in order. */
@@ -355,6 +357,7 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     sCount: 0, sKind: [], sSubject: [], sFound: [], sFoundAt: [], sLost: [], sHeld: [], sPsi: [], sOrig: [], sBroken: [], sGuardLogged: [],
     hSecret: [], hPeople: [], hPolity: [], hFrom: [], hTo: [], hChannel: [], hVia: [],
     speciesSecret: i32(speciesCount, -1), purple: -1, steel: -1, sRent: [], sExport: [], sPi: [], relayDec: f64(cap), relayList: [], relayIn: new Uint8Array(cap),
+    quiet: new Uint8Array(cap),
     postCount: 0, pKind: [], pOwner: [], pHost: [], pSettlement: [], pLeg: [], pFounded: [], pEnded: [], pStrikes: [], pCost: [], pHostile: [],
     pairMu: f64(0), pairHv: f64(0), pairFor: null, pairYear: -1000,
     own: f64(P * TECH_FIELD_COUNT, 1), smithAct: f64(P), workAct: f64(P),
@@ -392,7 +395,7 @@ export function ensureGoods(g: GoodsState, count: number): void {
   g.isMart = gu(g.isMart, n); g.fwd = gf(g.fwd, n * G); g.fwdVia = gi(g.fwdVia, n * G, -1); g.fwdBid = gf(g.fwdBid, n * G)
   g.relayYear = gf(g.relayYear, n); g.relaySm = gf(g.relaySm, n); g.relayPeak = gf(g.relayPeak, n); g.relayPeakYear = gi(g.relayPeakYear, n, -1)
   g.relayTopVar = gi(g.relayTopVar, n, -1); g.relayTopShare = gf(g.relayTopShare, n); g.relayVarYear = gi(g.relayVarYear, n, -1); g.relayVarAmt = gf(g.relayVarAmt, n); g.bypassed = gu(g.bypassed, n)
-  g.relayDec = gf(g.relayDec, n); g.relayIn = gu(g.relayIn, n); g.urge = gf(g.urge, n); g.urgeNext = gi(g.urgeNext, n); g.urgeChart = gi(g.urgeChart, n); g.postOf = gi(g.postOf, n, -1); g.factoryAt = gi(g.factoryAt, n, -1); g.sackedYear = gi(g.sackedYear, n, -1000000); g.front = gu(g.front, n); g.frontYear = gi(g.frontYear, n, -1000000); g.mined = gf(g.mined, n); g.heldAmt = gf(g.heldAmt, n * g.NK)
+  g.relayDec = gf(g.relayDec, n); g.relayIn = gu(g.relayIn, n); g.quiet = gu(g.quiet, n); g.urge = gf(g.urge, n); g.urgeNext = gi(g.urgeNext, n); g.urgeChart = gi(g.urgeChart, n); g.postOf = gi(g.postOf, n, -1); g.factoryAt = gi(g.factoryAt, n, -1); g.sackedYear = gi(g.sackedYear, n, -1000000); g.front = gu(g.front, n); g.frontYear = gi(g.frontYear, n, -1000000); g.mined = gf(g.mined, n); g.heldAmt = gf(g.heldAmt, n * g.NK)
   g.cap = n
 }
 

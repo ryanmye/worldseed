@@ -557,6 +557,7 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
     const ho = id * G
     if (!trader[id]) {
       // Non-traders keep nothing but what a mine they work brings up (held by the deposit system).
+      if (g.quiet[id]) continue // (nothing to wear or clear: see below)
       g.wOut[id * 3] = 0; g.wOut[id * 3 + 1] = 0; g.wOut[id * 3 + 2] = 0
       if (g.tools[id] > 0 || g.arms[id] > 0) {
         g.tools[id] *= 1 - METAL.toolWear
@@ -566,8 +567,11 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
         g.toolMul[id] = 1 + METAL.toolFarm * (pt / (pt + METAL.toolHalf))
       }
       for (let c = 7; c < G; c++) if (c !== Good.Treasure && c !== Good.Luxury && g.held[ho + c] !== 0) { g.held[ho + c] = 0; const m = MIX_OF[c]; if (m >= 0) mixScale(g, id, m, 0) }
+      // (Without tools or arms this stays so while it does not trade and no mine or base adds to its stores: they clear the flag.)
+      if (g.tools[id] === 0 && g.arms[id] === 0) g.quiet[id] = 1
       continue
     }
+    g.quiet[id] = 0
     const o = id * G
     const p = s.pop[id]
     const people = s.people[id]

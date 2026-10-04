@@ -67,6 +67,7 @@ export function goodsProduce(s: HistoryState, g: GoodsState, es: ExploreState): 
     let v = g.furVar[p]
     if (v < 0) { v = newVariety(s, g, Good.Luxury, VarietyKind.Wild, -1, p, Maker.People, p, 20, FURS.rel); g.furVar[p] = v }
     g.held[par * G + Good.Luxury] += FURS.perBase
+    g.quiet[par] = 0
     mixAdd(g, par, MIX_OF[Good.Luxury], v, FURS.perBase)
     g.vOut[v] += FURS.perBase
   }

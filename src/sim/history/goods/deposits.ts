@@ -366,6 +366,7 @@ export function mineYear(s: HistoryState, g: GoodsState, es: ExploreState): void
     const gd = DK_GOOD[k]
     ensureGoods(g, s.count)
     g.held[sink * G + gd] += out
+    g.quiet[sink] = 0
     mixAdd(g, sink, MIX_OF[gd], g.dVar[d], out)
     g.mined[sink] += out
     g.vOut[g.dVar[d]] += out
