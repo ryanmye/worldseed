@@ -573,7 +573,7 @@ export const CLAIM = {
   crestDrop: 0.08,
   enclose: 0.85,
   pocket: 1,
-  pocketShape: 0.15,
+  pocketShape: 0.25,
   pocketChief: 4,
   /** Siting (system.ts siteFactor): a state's settlers score a site on its claims * (1 + settle), anyone else's * (1 - deter). */
   settle: 0.15,
