@@ -73,6 +73,8 @@ export interface GoodsState {
   fwd: Float64Array
   /** The neighbouring mart each mart's forward price comes through, per class (-1: its own price): goods never go back that way at the forward price. */
   fwdVia: Int32Array
+  /** The merchants' bid for the season: forward price times their appetite at the start of the year. */
+  fwdBid: Float64Array
   /** Relay income (this year, 20-year smoothed, peak and its year), the variety that made most of it near the peak and its share; Bypassed logged. */
   relayYear: Float64Array
   relaySm: Float64Array
@@ -100,6 +102,9 @@ export interface GoodsState {
   factoryAt: Int32Array
   /** Year of the last famine / sack / revolt (push events, from the event log). */
   sackedYear: Int32Array
+  /** A hostile border in a settlement's fields (arms demand), and the year it was reckoned. */
+  front: Uint8Array
+  frontYear: Int32Array
   /** Mined this year (class units, by the deposits it works). */
   mined: Float64Array
   /** Stimulant kept by species [id * NK + k] (the held part of the habit system's per-species stock). */
@@ -120,6 +125,8 @@ export interface GoodsState {
   vValue: Float64Array
   /** Secret id of the variety (secret species or craft), -1. */
   vSecret: Int32Array
+  /** Varieties tied to a secret (vSecret >= 0): the market looks for monopoly rent only while there are any. */
+  nSecretVars: number
   /** 1 for a dye (indigo, cochineal, murex). */
   vDye: Uint8Array
   /** Output this decade (class units) and the settlement that produced most of it (its origin). */
@@ -151,6 +158,10 @@ export interface GoodsState {
   dWorker: Int32Array
   dCamp: Int32Array
   dMine: Int32Array
+  /** Market town a small working settlement sells a deposit's output at (-1). */
+  dSink: Int32Array
+  /** Sum of the base catchment weights of each cell (static; -1 until reckoned): bog iron. */
+  wsum: Float64Array
   /** Per deposit: cells within DEPOSIT.rushHops hops (discovery and rush); deposit within a hop of each cell (+1, 0 none). */
   dRing: number[][]
   dNear: Int32Array
@@ -189,6 +200,8 @@ export interface GoodsState {
   legPath: number[][]
   /** Route cost of the leg (cell units), refreshed at mart rebuilds. */
   legCost: number[]
+  /** Leg cost times its ends' transport factor this year (forwardPrices), per leg. */
+  legT: number[]
   legOpen: number[]
   /** Leg index by mart pair key (lookup only). */
   legIndex: Map<number, number>
@@ -243,6 +256,11 @@ export interface GoodsState {
   sPi: number[]
   /** Relay income summed this decade per settlement (for the variety share behind it). */
   relayDec: Float64Array
+  /** Settlements that ever had relay income (ascending by first income; the only ones relayYear visits), and those with smuggled income. */
+  relayList: number[]
+  relayIn: Uint8Array
+  smugList: number[]
+  smugIn: Uint8Array
 
   // --- Posts ---
   postCount: number
@@ -322,24 +340,24 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     tools: f64(cap), arms: f64(cap), armsRel: f64(cap, 1), toolMul: f64(cap, 1),
     wShare: f64(cap * 3), wOut: f64(cap * 3), silkOut: f64(cap), pot: f64(cap), cashCoef: f64(cap * cashCount),
     practice: f64(cap * 4), seatOf: i32(cap * 4, -1), seatIdle: i32(cap * 4),
-    isMart: new Uint8Array(cap), fwd: f64(cap * G), fwdVia: i32(cap * G, -1),
+    isMart: new Uint8Array(cap), fwd: f64(cap * G), fwdVia: i32(cap * G, -1), fwdBid: f64(cap * G),
     relayYear: f64(cap), relaySm: f64(cap), relayPeak: f64(cap), relayPeakYear: i32(cap, -1), relayTopVar: i32(cap, -1), relayTopShare: f64(cap),
     relayVarYear: i32(cap, -1), relayVarAmt: f64(cap), bypassed: new Uint8Array(cap),
     smugYear: f64(cap), smugClass: i32(cap, -1), smugCap: i32(cap, -1), smugSm: f64(cap), incSm: f64(cap), ringLogged: new Uint8Array(cap),
-    urge: f64(cap), urgeNext: i32(cap), urgeChart: i32(cap), postOf: i32(cap, -1), factoryAt: i32(cap, -1), sackedYear: i32(cap, -1000000), mined: f64(cap), heldAmt: f64(cap * stimCount), NK: stimCount,
+    urge: f64(cap), urgeNext: i32(cap), urgeChart: i32(cap), postOf: i32(cap, -1), factoryAt: i32(cap, -1), sackedYear: i32(cap, -1000000), front: new Uint8Array(cap), frontYear: i32(cap, -1000000), mined: f64(cap), heldAmt: f64(cap * stimCount), NK: stimCount,
     vCount: 1,
     vGood: i32(VM, -1), vKind: i32(VM), vSource: i32(VM, -1), vPeople: i32(VM, -1), vMakerKind: i32(VM), vMakerId: i32(VM, -1),
-    vRel: f64(VM, 1), vFirst: i32(VM), vValue: f64(VM), vSecret: i32(VM, -1), vDye: new Uint8Array(VM), vOut: f64(VM), vOrigin: i32(VM, -1), vOriginOut: f64(VM),
+    nSecretVars: 0, vRel: f64(VM, 1), vFirst: i32(VM), vValue: f64(VM), vSecret: i32(VM, -1), vDye: new Uint8Array(VM), vOut: f64(VM), vOrigin: i32(VM, -1), vOriginOut: f64(VM),
     cropVar: i32(P * speciesCount, -1), furVar: i32(P, -1),
     rumour: new Int16Array(P * VM).fill(-1), vImp: f64(VM * P),
     dCount: 0, dKind: i32(0), dCell: i32(0), dRich: f64(0), dFound: i32(0), dFoundBy: i32(0), dExh: i32(0), dVar: i32(0), dR: f64(0), dR0: f64(0), dPeak: f64(0), dOut: f64(0),
-    dWorker: i32(0), dCamp: i32(0), dMine: i32(0), dRing: [], dNear: i32(0), rush: f64(N, 1), rushUntil: i32(0), boomLogged: new Uint8Array(0), treasureOut: 0,
+    dWorker: i32(0), dCamp: i32(0), dMine: i32(0), dSink: i32(0), dRing: [], dNear: i32(0), wsum: f64(N, -1), rush: f64(N, 1), rushUntil: i32(0), boomLogged: new Uint8Array(0), treasureOut: 0,
     tCount: 0, tCraft: [], tPeople: [], tVar: [], tQ: [], tBorn: [], tBornAt: [], tEnd: [], tParent: [], tSeats: [], tSeatFrom: [], tSeatTo: [], tRenowned: [], tOut: [],
-    legCount: 0, legA: [], legB: [], legKind: [], legOpened: [], legClosed: [], legChart: [], legPath: [], legCost: [], legOpen: [], legIndex: new Map(), legOrder: [],
+    legCount: 0, legA: [], legB: [], legKind: [], legOpened: [], legClosed: [], legChart: [], legPath: [], legCost: [], legT: [], legOpen: [], legIndex: new Map(), legOrder: [],
     legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], lanes: [],
     sCount: 0, sKind: [], sSubject: [], sFound: [], sFoundAt: [], sLost: [], sHeld: [], sPsi: [], sOrig: [], sBroken: [], sGuardLogged: [],
     hSecret: [], hPeople: [], hPolity: [], hFrom: [], hTo: [], hChannel: [], hVia: [],
-    speciesSecret: i32(speciesCount, -1), purple: -1, steel: -1, sRent: [], sExport: [], sPi: [], relayDec: f64(cap),
+    speciesSecret: i32(speciesCount, -1), purple: -1, steel: -1, sRent: [], sExport: [], sPi: [], relayDec: f64(cap), relayList: [], relayIn: new Uint8Array(cap), smugList: [], smugIn: new Uint8Array(cap),
     postCount: 0, pKind: [], pOwner: [], pHost: [], pSettlement: [], pLeg: [], pFounded: [], pEnded: [], pStrikes: [], pCost: [], pHostile: [],
     pairMu: f64(0), pairHv: f64(0), pairFor: null, pairYear: -1000,
     own: f64(P * TECH_FIELD_COUNT, 1), smithAct: f64(P), workAct: f64(P),
@@ -373,11 +391,11 @@ export function ensureGoods(g: GoodsState, count: number): void {
   g.tools = gf(g.tools, n); g.arms = gf(g.arms, n); g.armsRel = gf(g.armsRel, n, 1); g.toolMul = gf(g.toolMul, n, 1)
   g.wShare = gf(g.wShare, n * 3); g.wOut = gf(g.wOut, n * 3); g.silkOut = gf(g.silkOut, n); g.pot = gf(g.pot, n); g.cashCoef = gf(g.cashCoef, n * NC)
   g.practice = gf(g.practice, n * 4); g.seatOf = gi(g.seatOf, n * 4, -1); g.seatIdle = gi(g.seatIdle, n * 4)
-  g.isMart = gu(g.isMart, n); g.fwd = gf(g.fwd, n * G); g.fwdVia = gi(g.fwdVia, n * G, -1)
+  g.isMart = gu(g.isMart, n); g.fwd = gf(g.fwd, n * G); g.fwdVia = gi(g.fwdVia, n * G, -1); g.fwdBid = gf(g.fwdBid, n * G)
   g.relayYear = gf(g.relayYear, n); g.relaySm = gf(g.relaySm, n); g.relayPeak = gf(g.relayPeak, n); g.relayPeakYear = gi(g.relayPeakYear, n, -1)
   g.relayTopVar = gi(g.relayTopVar, n, -1); g.relayTopShare = gf(g.relayTopShare, n); g.relayVarYear = gi(g.relayVarYear, n, -1); g.relayVarAmt = gf(g.relayVarAmt, n); g.bypassed = gu(g.bypassed, n)
   g.smugYear = gf(g.smugYear, n); g.smugClass = gi(g.smugClass, n, -1); g.smugCap = gi(g.smugCap, n, -1); g.smugSm = gf(g.smugSm, n); g.incSm = gf(g.incSm, n); g.ringLogged = gu(g.ringLogged, n)
-  g.relayDec = gf(g.relayDec, n); g.urge = gf(g.urge, n); g.urgeNext = gi(g.urgeNext, n); g.urgeChart = gi(g.urgeChart, n); g.postOf = gi(g.postOf, n, -1); g.factoryAt = gi(g.factoryAt, n, -1); g.sackedYear = gi(g.sackedYear, n, -1000000); g.mined = gf(g.mined, n); g.heldAmt = gf(g.heldAmt, n * g.NK)
+  g.relayDec = gf(g.relayDec, n); g.relayIn = gu(g.relayIn, n); g.smugIn = gu(g.smugIn, n); g.urge = gf(g.urge, n); g.urgeNext = gi(g.urgeNext, n); g.urgeChart = gi(g.urgeChart, n); g.postOf = gi(g.postOf, n, -1); g.factoryAt = gi(g.factoryAt, n, -1); g.sackedYear = gi(g.sackedYear, n, -1000000); g.front = gu(g.front, n); g.frontYear = gi(g.frontYear, n, -1000000); g.mined = gf(g.mined, n); g.heldAmt = gf(g.heldAmt, n * g.NK)
   g.cap = n
 }
 
@@ -411,18 +429,31 @@ export function losePost(s: HistoryState, g: GoodsState, i: number, cause: numbe
   logGoods(s, EventTypeC.PostLost, x >= 0 ? x : h, g.pOwner[i], i, cause)
 }
 
-/** Diagnostics: income created this year from source j (see GoodsDiag.income). */
+/** Diagnostics: income created this year from source j (see GoodsDiag.income), summed into INCOME and flushed yearly (flushIncome). */
 export function noteIncome(s: HistoryState, g: GoodsState, j: number, x: number): void {
-  const i = Math.floor(s.year / 10) * 16 + j
+  void s; void g
+  INCOME[j] += x
+}
+export const INCOME = new Float64Array(16)
+/** Adds this year's income by source to the decade's record. */
+export function flushIncome(s: HistoryState, g: GoodsState): void {
+  const i0 = Math.floor(s.year / 10) * 16
   const a = g.diag.income
-  while (a.length <= i) a.push(0)
-  a[i] += x
+  while (a.length < i0 + 16) a.push(0)
+  for (let j = 0; j < 16; j++) { a[i0 + j] += INCOME[j]; INCOME[j] = 0 }
 }
 
 /** Pushes an event with a second number (HistoryEvent.extra). */
 export function logGoods(s: HistoryState, type: HistoryEvent['type'], settlement: number, other: number, value: number, extra?: number): void {
   if (extra === undefined) s.events.push({ year: s.year, type, settlement, other, value })
   else s.events.push({ year: s.year, type, settlement, other, value, extra })
+}
+
+/** Ties variety v to secret k (its goods pay the monopoly rent and count for the secret's leaks). */
+export function setVarSecret(g: GoodsState, v: number, k: number): void {
+  if (v <= 0 || k < 0 || g.vSecret[v] === k) return
+  if (g.vSecret[v] < 0) g.nSecretVars++
+  g.vSecret[v] = k
 }
 
 /** Registers a variety; returns its id (0, the Common variety, when the catalogue is full). */

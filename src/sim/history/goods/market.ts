@@ -20,9 +20,10 @@ import type { TradeState } from '../trade.ts'
 import { CASH, SP, SPECIES_TABLE } from '../species.ts'
 import { stimFlow } from '../cashCrops.ts'
 import { Tier, tierOf } from '../polity/state.ts'
-import { CLASS, DEMAND, FLAGS, FURS, METAL, MIDDLE, STOCK, TRADITION, WORKSHOP } from './params.ts'
+import { CLASS, DEMAND, FLAGS, FURS, METAL, MIDDLE, SECRET, SMUGGLE, STOCK, TRADITION, WORKSHOP } from './params.ts'
+import { SHARE, smuggleShare } from './smuggling.ts'
 import type { GoodsState } from './state.ts'
-import { K, M, MIX_OF, Maker, density, ensureGoods, mixAdd, mixFlow, mixScale, newVariety, noteIncome } from './state.ts'
+import { K, M, MIXED, MIX_OF, Maker, density, ensureGoods, mixAdd, mixFlow, mixScale, newVariety, noteIncome, setVarSecret } from './state.ts'
 
 const G = GOOD_COUNT
 const NC = CASH.length
@@ -54,6 +55,7 @@ function cropVariety(s: HistoryState, g: GoodsState, p: number, x: number): numb
     const d = SPECIES_TABLE[x]
     v = newVariety(s, g, g.spClass[x], VarietyKind.Crop, x, p, Maker.People, p, d.value, g.spRel[x], DYE_SPECIES.indexOf(x) >= 0)
     g.cropVar[i] = v
+    setVarSecret(g, v, g.speciesSecret[x])
   }
   return v
 }
@@ -85,9 +87,17 @@ function armsDemand(s: HistoryState, id: number, p: number): number {
   if (q < 0) return d * X.stateless
   let front = ps.pCapital[q] === id
   if (!front) {
-    const T = s.terrain
-    const c = s.cell[id]
-    for (let k = T.catchOff[c]; k < T.catchBase[c] && !front; k++) if (ps.hostile[T.catchCell[k]]) front = true
+    // (Hostile border fields, reckoned again every 5 years.)
+    const g = s.goods as GoodsState
+    if (s.year - g.frontYear[id] >= 5) {
+      const T = s.terrain
+      const c = s.cell[id]
+      let f = 0
+      for (let k = T.catchOff[c]; k < T.catchBase[c] && f === 0; k++) if (ps.hostile[T.catchCell[k]]) f = 1
+      g.front[id] = f
+      g.frontYear[id] = s.year
+    }
+    front = g.front[id] === 1
   }
   if (front) d *= X.front
   if (ps.pWars[q] > 0) d *= X.war
@@ -116,8 +126,18 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
   const people = s.people[id]
   const held = g.held
   const ho = id * G
-  // Bulk classes: this year's output plus what was kept.
-  for (let c = 3; c <= 6; c++) stock[o + c] += held[ho + c]
+  // Bog iron (ore everywhere, a little).
+  {
+    const cc = s.cell[id]
+    let wsum = g.wsum[cc]
+    if (wsum < 0) {
+      const T = s.terrain
+      wsum = 0
+      for (let k = T.catchOff[cc]; k < T.catchBase[cc]; k++) wsum += T.catchW[k]
+      g.wsum[cc] = wsum
+    }
+    stock[o + Good.Ore] += DEMAND.bogIron * wsum * (p / (p + 500)) * s.tech[people * TECH_FIELD_COUNT + TechField.Metalworking]
+  }
   // Raw luxuries in class units, by grower; silk as Finery.
   const pot = g.pot[id]
   const co = id * NC
@@ -178,6 +198,7 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
   const court = courtOf(s, id)
   const X = CASHCROP
   demand[o + Good.Luxury] *= court
+  demand[o + Good.Ore] *= DEMAND.oreRaw
   demand[o + Good.Finery] = DEMAND.finery * p * (X.luxBase + X.luxTown * smoothstep(X.luxTownLow, X.luxTownHigh, p) + X.luxWealth * wf) * demTech * court
   const dt = DEMAND.tools * p * demTech
   const da = armsDemand(s, id, p)
@@ -208,7 +229,9 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
     const out = X2.out[r]
     let cost = X2.need1[r] * price[o + X2.in1[r]]
     if (X2.in2[r] >= 0) cost += X2.need2[r] * price[o + X2.in2[r]]
-    const pOut = price[o + out] > 0 ? price[o + out] : W[out]
+    // What its output would fetch at home now (unsold output from last year lowers it: the market clears).
+    const Dd = demand[o + out] > 1e-9 ? demand[o + out] : 1e-9
+    const pOut = (worth[o + out] * (1 + STOCK.k)) / (STOCK.k + stock[o + out] / Dd)
     const margin = pOut - cost
     let want = smoothstep(0, 1, margin / (W[out] * X2.marginRef)) * smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
     if (r === 1 && !(dyeIn(g, id) > 0)) want = 0 // (no dye in stock)
@@ -250,7 +273,7 @@ export function hvPrice(ts: TradeState, k: number, D0: number): void {
 }
 
 /** Merchant appetite theta of mart id for class g: 1 / (1 + merchant stock / merchant capital). */
-function theta(s: HistoryState, ts: TradeState, id: number, g: number): number {
+export function theta(s: HistoryState, ts: TradeState, id: number, g: number): number {
   const k = id * G + g
   const ms = ts.stock[k] - STOCK.capYearsHV * ts.demand[k]
   if (!(ms > 0)) return 1
@@ -260,17 +283,21 @@ function theta(s: HistoryState, ts: TradeState, id: number, g: number): number {
 
 /** Buying price of class g at settlement id from `seller`: its price, or at a mart its forward price times its appetite if higher (not from the mart its forward price comes through). */
 export function buyPrice(s: HistoryState, ts: TradeState, g: GoodsState, id: number, gd: number, seller: number): number {
-  const p = ts.price[id * G + gd]
-  if (!g.isMart[id] || g.fwdVia[id * G + gd] === seller) return p
-  const f = g.fwd[id * G + gd] * theta(s, ts, id, gd)
+  const k = id * G + gd
+  const p = ts.price[k]
+  if (!g.isMart[id] || g.fwdVia[k] === seller) return p
+  const f = g.fwdBid[k] // (forward price times the merchants' appetite at the start of the season: forwardPrices)
+  void s
   return f > p ? f : p
 }
 
 /** Reservation price of class gd at settlement id: what its merchants would get for it elsewhere (a mart's forward price times its appetite), or its own price. */
 export function sellPrice(s: HistoryState, ts: TradeState, g: GoodsState, id: number, gd: number): number {
-  const p = ts.price[id * G + gd]
+  const k = id * G + gd
+  const p = ts.price[k]
   if (!g.isMart[id]) return p
-  const f = g.fwd[id * G + gd] * theta(s, ts, id, gd)
+  const f = g.fwdBid[k]
+  void s
   return f > p ? f : p
 }
 
@@ -280,46 +307,138 @@ export function sellPrice(s: HistoryState, ts: TradeState, g: GoodsState, id: nu
  * bids, with value density, middlemen's cuts and the variety mix; buyers of Luxury, Stimulant and Finery pay for them.
  */
 export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: number, a: number, b: number, gd: number, c: number): void {
+  // High-value goods keep in store: local merchants deal in them on each pair every other year (half the pairs a year).
+  if (((s.year + pi) & 1) === 1) return
   const stock = ts.stock, price = ts.price, deriv = ts.deriv
   const oa = a * G + gd, ob = b * G + gd
   const m = MIX_OF[gd]
   const pa = price[oa], pb = price[ob]
-  const Pa = buyPrice(s, ts, g, a, gd, b), Pb = buyPrice(s, ts, g, b, gd, a)
-  // Sellers hold out for what their merchants would get elsewhere: goods move only up the merchants' expectations (no cycles).
-  const ra = sellPrice(s, ts, g, a, gd), rb = sellPrice(s, ts, g, b, gd)
+  // Buying and reservation prices: a mart's merchants bid their forward price (not to the mart it comes through) and hold
+  // out for it when selling, so goods move only up the merchants' expectations (no cycles); elsewhere the local price.
+  const ma = g.isMart[a] === 1, mb = g.isMart[b] === 1
+  const Pa = ma ? buyPrice(s, ts, g, a, gd, b) : pa, Pb = mb ? buyPrice(s, ts, g, b, gd, a) : pb
+  const ra = ma ? sellPrice(s, ts, g, a, gd) : pa, rb = mb ? sellPrice(s, ts, g, b, gd) : pb
   const mu = g.pairMu[pi]
   const tu = CLASS.transport[gd] * c
   const minGap = TRADE.minGap * GOODS.value[gd]
   const sa = stock[oa], sb = stock[ob]
-  const gAB = Pb - ra, gBA = Pa - rb
-  let nAB = -1, nBA = -1
-  if (gAB > minGap && sa > 0) nAB = gAB - tu * (m >= 0 ? density(g, a, m, sa) : 1) - mu * pa - minGap
-  if (gBA > minGap && sb > 0) nBA = gBA - tu * (m >= 0 ? density(g, b, m, sb) : 1) - mu * pb - minGap
+  // (A coarse test first, at the densest value a mix can have, then the sender's density.)
+  let nAB = Pb - ra - mu * pa - minGap, nBA = Pa - rb - mu * pb - minGap
+  let dA = 1, dB = 1
+  if (nAB > 0.25 * tu && sa > 0) { dA = m >= 0 ? density(g, a, m, sa) : 1; nAB -= tu * dA } else nAB = -1
+  if (nBA > 0.25 * tu && sb > 0) { dB = m >= 0 ? density(g, b, m, sb) : 1; nBA -= tu * dB } else nBA = -1
   let from: number, to: number, net: number, dir: number
   if (nAB > 0 && nAB >= nBA) { from = a; to = b; net = nAB + minGap; dir = 0 }
   else if (nBA > 0) { from = b; to = a; net = nBA + minGap; dir = 1 }
   else return
   // Income on the realised gap (to the buyer's own price; a merchant's forward bid earns only when the goods sell on).
-  const real = (dir === 0 ? pb - pa - tu * (m >= 0 ? density(g, a, m, sa) : 1) - mu * pa : pa - pb - tu * (m >= 0 ? density(g, b, m, sb) : 1) - mu * pb)
+  const real = dir === 0 ? pb - pa - tu * dA - mu * pa : pa - pb - tu * dB - mu * pb
   const kf = from * G + gd, kt = to * G + gd
+  // Monopoly rent on the secret varieties leaving their holders' state (smugglers evade part of it).
+  let rent = 0
+  if (m >= 0 && g.nSecretVars > 0) {
+    rent = secretRent(s, g, from, to, m, stock[kf], price[kf])
+    if (rent > 0) { net -= rent; if (!(net > minGap)) return }
+  }
   let q = (TRADE.damping * net) / (deriv[kf] + deriv[kt])
   const cap = CASHCROP.maxShare * stock[kf]
   if (q > cap) q = cap
   if (!(q > 1e-6)) return
   const before = stock[kf]
   const pFrom = price[kf]
+  if (m >= 0 && g.nSecretVars > 0) secretTrade(s, g, from, to, m, q, before, pFrom, rent)
   stock[kf] = before - q
   stock[kt] += q
   if (m >= 0) mixFlow(g, from, to, m, q, before)
   if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, q, before, price[kt])
   const cap1 = STOCK.incomeGap * ts.worth[kt]
-  const earn = q * (0.5 * (real > 0 ? (real < cap1 ? real : cap1) : 0) + TRADE.margin * GOODS.value[gd])
+  const earn = q * (0.5 * (real > 0 ? (real < cap1 ? real : cap1) : 0) + STOCK.hvMargin * TRADE.margin * GOODS.value[gd])
   ts.income[from] += earn
   noteIncome(s, g, gd, earn)
   ts.pairFlow[(pi * G + gd) * 2 + dir] += q
   g.pairHv[pi] += q * pFrom
   hvPrice(ts, kf, ts.demand[kf])
   hvPrice(ts, kt, ts.demand[kt])
+}
+
+/** Secret varieties' share of the sender's mix (and the secret of the largest), from secretRent for secretTrade. */
+const SEC = { share: 0, k: -1, sigma: 0, hub: -1, cap: -1 }
+
+/**
+ * Rent per class unit on a flow of class m from `from` to `to`: SECRET.rent * psi of the sender's price on the secret varieties'
+ * share of its mix, when they leave the holder's state (a people's own secret leaving its polity); the smuggled share evades it.
+ */
+function secretRent(s: HistoryState, g: GoodsState, from: number, to: number, m: number, S: number, pFrom: number): number {
+  SEC.share = 0; SEC.k = -1; SEC.sigma = 0; SEC.hub = -1; SEC.cap = -1
+  const o = (from * M + m) * K
+  let sh = 0, best = 0, bk = -1
+  for (let k = 0; k < K; k++) {
+    const v = g.mixV[o + k]
+    if (v <= 0) continue
+    const sk = g.vSecret[v]
+    if (sk < 0) continue
+    const a = g.mixA[o + k]
+    sh += a
+    if (a > best) { best = a; bk = sk }
+  }
+  if (!(sh > 0) || !(S > 0)) return 0
+  SEC.share = sh / S
+  SEC.k = bk
+  const ps = s.pol
+  if (ps === null) return 0
+  const pf = from < ps.seen ? ps.polity[from] : -1, pt = to < ps.seen ? ps.polity[to] : -1
+  if (pf < 0 || pf === pt || !g.sHeld[bk][s.people[from]]) return 0
+  const rho = SECRET.rent * g.sPsi[bk]
+  smuggleShare(s, g, from, to, null, null, rho / (rho + SMUGGLE.incHalf))
+  SEC.sigma = SHARE.sigma > 1 ? 1 : SHARE.sigma
+  SEC.hub = SHARE.hub
+  SEC.cap = ps.pCapital[pf]
+  return rho * (1 - SEC.sigma) * pFrom * SEC.share
+}
+
+/** Records a flow's secret varieties: imports by another people (espionage, smuggling), exports, the rent to the holder's capital. */
+function secretTrade(s: HistoryState, g: GoodsState, from: number, to: number, m: number, q: number, before: number, pFrom: number, rent: number): void {
+  if (!(SEC.share > 0)) return
+  const pT = s.people[to], pF = s.people[from]
+  if (pT !== pF) {
+    const f = q / before
+    const o = (from * M + m) * K
+    for (let k = 0; k < K; k++) {
+      const v = g.mixV[o + k]
+      if (v <= 0 || g.vSecret[v] < 0) continue
+      const val = g.mixA[o + k] * f * pFrom
+      g.vImp[v * g.P + pT] += val
+      g.sExport[g.vSecret[v]] += val
+    }
+  }
+  if (rent > 0 && SEC.cap >= 0) {
+    s.wealth[SEC.cap] += rent * q
+    g.sRent[SEC.k] += rent * q
+    if (SEC.sigma > 0 && SEC.hub >= 0 && SEC.hub < g.cap) {
+      const sm = (rent / (1 - SEC.sigma)) * SEC.sigma * q * SMUGGLE.hubShare
+      ts_income_add(s, SEC.hub, sm)
+      g.smugYear[SEC.hub] += sm
+      g.smugClass[SEC.hub] = MIXED[m]
+      g.smugCap[SEC.hub] = SEC.cap
+      if (!g.smugIn[SEC.hub]) { g.smugIn[SEC.hub] = 1; g.smugList.push(SEC.hub) }
+    }
+  }
+}
+/** (Smuggler hubs are paid into wealth directly: the market's income array is settled this year anyway.) */
+function ts_income_add(s: HistoryState, id: number, x: number): void { s.wealth[id] += x }
+
+/** Stimulants moved outside the local market (legs, contraband): the species mix moves with them (q of `before` left; `arrive` reach `to`). */
+export function moveAmt(s: HistoryState, from: number, to: number, q: number, arrive: number, before: number): void {
+  if (!(before > 0)) return
+  const v = s.sp.v2
+  const NK = v.NK
+  const f = q / before, fa = arrive / before
+  for (let k = 0; k < NK; k++) {
+    const x = v.amt[from * NK + k]
+    if (x === 0) continue
+    v.amt[from * NK + k] = x - x * f
+    v.amt[to * NK + k] += x * fa
+  }
 }
 
 /** Cut mu_x of transit settlement x (merchant's return on capital for a season plus the toll). */
@@ -381,7 +500,7 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
       const p0 = s.pop[id]
       const pt = p0 > 0 ? g.tools[id] / p0 : 0
       g.toolMul[id] = 1 + METAL.toolFarm * (pt / (pt + METAL.toolHalf))
-      for (let c = 3; c < G; c++) if (c !== Good.Treasure && c !== Good.Luxury) g.held[ho + c] = 0
+      for (let c = 7; c < G; c++) if (c !== Good.Treasure && c !== Good.Luxury) { g.held[ho + c] = 0; const m = MIX_OF[c]; if (m >= 0) mixScale(g, id, m, 0) }
       continue
     }
     const o = id * G
@@ -441,10 +560,10 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
     }
     // Consumption and carry-over.
     const io = id * 4
-    for (let c = 3; c < G; c++) {
+    for (let c = 7; c < G; c++) { // (bulk classes keep nothing from year to year, as before)
       const k = o + c
       const S = stock[k]
-      if (!(S > 0)) { g.held[ho + c] = 0; if (c === Good.Stimulant) for (let j = 0; j < NK; j++) g.heldAmt[id * NK + j] = 0; continue }
+      if (!(S > 0)) { g.held[ho + c] = 0; const m0 = MIX_OF[c]; if (m0 >= 0) mixScale(g, id, m0, 0); if (c === Good.Stimulant) for (let j = 0; j < NK; j++) g.heldAmt[id * NK + j] = 0; continue }
       const ii = IN_INDEX[c]
       let D = demand[k] - (ii >= 0 ? INDEM[io + ii] : 0)
       if (D < 0) D = 0
@@ -475,6 +594,7 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
       if (c === Good.Stimulant) {
         const fh = h / S, fc = C / S
         for (let j = 0; j < NK; j++) { const x = v2.amt[id * NK + j]; g.heldAmt[id * NK + j] = x * fh; v2.amt[id * NK + j] = x * fc }
+        stock[k] = C // (what is used this year; what keeps is held: habit.ts reads the year's consumption by species)
       }
     }
     // Workshop output keeps for next year, its named part in the mix.

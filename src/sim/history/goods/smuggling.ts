@@ -17,8 +17,8 @@ import type { TradeState } from '../trade.ts'
 import { grip } from '../polity/state.ts'
 import { CLASS, SMUGGLE } from './params.ts'
 import type { GoodsState } from './state.ts'
-import { MIX_OF, density, mixFlow } from './state.ts'
-import { hvPrice } from './market.ts'
+import { MIX_OF, density, mixFlow, mixScale } from './state.ts'
+import { hvPrice, moveAmt } from './market.ts'
 
 const G = GOOD_COUNT
 
@@ -122,14 +122,15 @@ export function contraband(s: HistoryState, ts: TradeState, g: GoodsState, p: nu
       const arrive = q - seized
       stock[kf] = S0 - q
       stock[kt] += arrive
-      if (m >= 0) mixFlow(g, from, to, m, arrive, S0)
+      if (m >= 0) { mixFlow(g, from, to, m, arrive, S0); if (seized > 0) mixScale(g, from, m, (S0 - q) / (S0 - arrive)) } // (the seized part leaves the sender's names too)
+      if (gd === 8) moveAmt(s, from, to, q, arrive, S0)
       const pf = price[kf]
       ts.income[from] += q * 0.5 * (1 - X.hubShare) * (gap - tr)
       const hubGain = arrive * X.hubShare * (gap - tr)
       ts.income[hub] += hubGain
       const ps = s.pol
       const capTo = ps !== null && to < ps.seen && ps.polity[to] >= 0 ? ps.pCapital[ps.polity[to]] : -1
-      if (hub < g.cap) { g.smugYear[hub] += hubGain; g.smugClass[hub] = gd; g.smugCap[hub] = capTo }
+      if (hub < g.cap) { g.smugYear[hub] += hubGain; g.smugClass[hub] = gd; g.smugCap[hub] = capTo; if (!g.smugIn[hub]) { g.smugIn[hub] = 1; g.smugList.push(hub) } }
       if (capTo >= 0) s.wealth[capTo] += seized * pf
       ts.pairFlow[(p * G + gd) * 2 + dirAB] += arrive
       record(g, s.year, seized * pf, q * pf)

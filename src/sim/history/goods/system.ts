@@ -18,10 +18,10 @@ import { CASH, STIMULANTS, SPECIES_TABLE, SP, S_COUNT } from '../species.ts'
 import { CASHCROP } from '../params.ts'
 import { CLASS, CROPS, DIFFUSION, FLAGS, FURS, SECRET, SMUGGLE, WORKSHOP } from './params.ts'
 import type { GoodsState } from './state.ts'
-import { MIX_OF, Maker, createGoods, ensureGoods, logGoods, mixAdd, newVariety } from './state.ts'
-import { mineYear, placeDeposits, prospect, rushMap } from './deposits.ts'
+import { MIX_OF, Maker, createGoods, ensureGoods, flushIncome, logGoods, mixAdd, newVariety } from './state.ts'
+import { buildMines, mineYear, minesAbandoned, placeDeposits, prospect, rushMap } from './deposits.ts'
 import { laneYear, rebuildMarts } from './longhaul.ts'
-import { postConquered, postYear, relayYear, routePass } from './routes.ts'
+import { postConquered, postSupply, postYear, relayYear, routePass } from './routes.ts'
 import { carryCraft, seatAbandoned, traditionPass } from './traditions.ts'
 import { conquestAt, domesticated, initSpeciesSecrets, pushAt, secretPass } from './secrets.ts'
 import { VarietyKind } from '../../../contract.ts'
@@ -51,6 +51,7 @@ export function createGoodsSystem(s: HistoryState, ts: TradeState): GoodsState {
 export function goodsProduce(s: HistoryState, g: GoodsState, es: ExploreState): void {
   ensureGoods(g, s.count)
   mineYear(s, g, es)
+  postSupply(s, g)
   const bases = s.outposts
   const pos = s.world.grid.positions
   for (let t = 0; t < bases.length; t++) {
@@ -117,7 +118,7 @@ function scanEvents(s: HistoryState, g: GoodsState): void {
       }
       case EventType.Famine: pushAt(s, g, e.settlement, X.pushFamine, carryDefect); break
       case EventType.Revolt: pushAt(s, g, e.settlement, X.pushRevolt, carryDefect); break
-      case EventType.Abandoned: seatAbandoned(s, g, e.settlement); break
+      case EventType.Abandoned: seatAbandoned(s, g, e.settlement); minesAbandoned(s, g, e.settlement); break
       case EventType.Domesticated: domesticated(s, g, e.settlement, e.value); break
     }
   }
@@ -126,10 +127,11 @@ function scanEvents(s: HistoryState, g: GoodsState): void {
 
 /** Yearly: SmugglingRing when a hub's smuggled income first passes SMUGGLE.ring of its income. */
 function rings(s: HistoryState, g: GoodsState): void {
-  const living = s.living
+  const list = g.smugList
   const X = SMUGGLE
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
+  for (let t = 0; t < list.length; t++) {
+    const id = list[t]
+    if (s.abandoned[id] >= 0) continue
     const y = g.smugYear[id]
     g.smugYear[id] = 0
     g.smugSm[id] += X.smoothing * (y - g.smugSm[id])
@@ -146,7 +148,9 @@ function rings(s: HistoryState, g: GoodsState): void {
 /** System (end of year, after species-v2): see the header. */
 export function goodsYear(s: HistoryState, g: GoodsState, ts: TradeState, tk: TechState, es: ExploreState): void {
   ensureGoods(g, s.count)
+  flushIncome(s, g)
   scanEvents(s, g)
+  buildMines(s, g)
   laneYear(s, g, ts)
   postYear(s, g)
   relayYear(s, g)

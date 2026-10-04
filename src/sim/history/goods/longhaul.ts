@@ -22,7 +22,7 @@ import { embargoed } from '../polity/system.ts'
 import { CLASS, FLAGS, LANE, MART, MIDDLE, STOCK } from './params.ts'
 import type { GoodsState } from './state.ts'
 import { K, M, MIX_OF, density, ensureLegs, logGoods, mixFlow, mixScale, noteIncome } from './state.ts'
-import { buyPrice, hvPrice, sellPrice } from './market.ts'
+import { hvPrice, moveAmt, theta } from './market.ts'
 
 const G = GOOD_COUNT
 const KEY = 1 << 20
@@ -66,7 +66,7 @@ export function openLeg(s: HistoryState, g: GoodsState, a: number, b: number, ki
   const key = kind === LegKind.Relay ? lo * KEY + hi : -1
   let k = key >= 0 ? g.legIndex.get(key) ?? -1 : -1
   if (k >= 0 && g.legKind[k] === LegKind.Relay) {
-    g.legPath[k] = path
+    g.legPath[k] = g.legA[k] === a ? path : path.slice().reverse() // (a relay leg's path runs from its lower end)
     g.legCost[k] = cost
     if (!g.legOpen[k]) { g.legOpen[k] = 1; g.legClosed[k] = -1 }
     return k
@@ -82,6 +82,7 @@ export function openLeg(s: HistoryState, g: GoodsState, a: number, b: number, ki
   g.legChart.push(-1)
   g.legPath.push(kind === LegKind.Relay && a > b ? path.slice().reverse() : path)
   g.legCost.push(cost)
+  g.legT.push(cost)
   g.legOpen.push(1)
   g.legCap.push(0)
   g.legUse.push(0)
@@ -113,6 +114,7 @@ export function rebuildMarts(s: HistoryState, ts: TradeState, g: GoodsState): vo
   const S = s.count
   const isMart = g.isMart
   isMart.fill(0, 0, g.cap)
+  g.fwdBid.fill(0)
   const ps = s.pol
   // Score and the forced members.
   const cand: number[] = [], score: number[] = []
@@ -205,63 +207,90 @@ let FORCED = new Uint8Array(0)
 const SEEN_NEW: number[] = []
 
 /** Adjacency of the open legs per mart (rebuilt with the forward prices each year; CSR over settlement ids). */
-let ADJ_OFF = new Int32Array(0), ADJ_LEG = new Int32Array(0)
+let ADJ_OFF = new Int32Array(0)
 
 /**
  * Market hook (trade.ts, after stocking, before the sweeps): forward prices of the marts for the HV classes, H rounds of
  * F_m = max(p_m, max over legs (F_n / (1 + mu) - t)).
  */
 export function forwardPrices(s: HistoryState, ts: TradeState, g: GoodsState): void {
+  // (Reckoned every other year: merchants' letters bring last season's prices.)
+  if ((s.year & 1) === 1) return
   const order = g.legOrder
+  const price = ts.price
+  const fwd = g.fwd, via = g.fwdVia
+  const living = s.living
+  // The marts trading this year.
+  const marts = MARTS
+  marts.length = 0
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    if (!g.isMart[id]) continue
+    for (let j = 0; j < NLG; j++) { const k = id * G + LEG_GOODS[j]; fwd[k] = price[k]; via[k] = -1; g.fwdBid[k] = 0 }
+    if (ts.trader[id]) marts.push(id)
+  }
+  if (order.length === 0) return
+  // Per open leg end: the other end, the markup and the transport of a class unit per unit of class transport (once a year).
   const S = s.count
   if (ADJ_OFF.length < S + 1) ADJ_OFF = new Int32Array(2 * S + 2)
   ADJ_OFF.fill(0, 0, S + 1)
   let n = 0
-  for (const k of order) { if (!g.legOpen[k]) continue; ADJ_OFF[g.legA[k] + 1]++; ADJ_OFF[g.legB[k] + 1]++; n += 2 }
+  for (let i = 0; i < order.length; i++) { const k = order[i]; if (!g.legOpen[k]) continue; ADJ_OFF[g.legA[k] + 1]++; ADJ_OFF[g.legB[k] + 1]++; n += 2 }
   for (let i = 0; i < S; i++) ADJ_OFF[i + 1] += ADJ_OFF[i]
-  if (ADJ_LEG.length < n) ADJ_LEG = new Int32Array(2 * n)
+  if (ADJ_N.length < n) { ADJ_N = new Int32Array(2 * n); ADJ_MU = new Float64Array(2 * n); ADJ_T = new Float64Array(2 * n) }
   const fill = FILL.length >= S ? FILL : (FILL = new Int32Array(2 * S))
   for (let i = 0; i < S; i++) fill[i] = ADJ_OFF[i]
-  for (const k of order) { if (!g.legOpen[k]) continue; ADJ_LEG[fill[g.legA[k]]++] = k; ADJ_LEG[fill[g.legB[k]]++] = k }
-  const price = ts.price
-  const fwd = g.fwd
-  const living = s.living
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
-    if (!g.isMart[id]) continue
-    for (const gd of LEG_GOODS) { fwd[id * G + gd] = price[id * G + gd]; g.fwdVia[id * G + gd] = -1 }
+  for (let i = 0; i < order.length; i++) {
+    const k = order[i]
+    if (!g.legOpen[k]) continue
+    const a = g.legA[k], b = g.legB[k]
+    const lt = g.legCost[k] * legFactor(s, ts, a, b)
+    g.legT[k] = lt
+    let e = fill[a]++
+    ADJ_N[e] = b; ADJ_MU[e] = rOf(s, b) * MART.legYears + MART.risk + g.legHazard[k]; ADJ_T[e] = lt
+    e = fill[b]++
+    ADJ_N[e] = a; ADJ_MU[e] = rOf(s, a) * MART.legYears + MART.risk + g.legHazard[k]; ADJ_T[e] = lt
   }
-  if (order.length === 0) return
-  const nxt = NXT.length >= S * LEG_GOODS.length ? NXT : (NXT = new Float64Array(2 * S * LEG_GOODS.length))
-  if (NVIA.length < nxt.length) NVIA = new Int32Array(nxt.length)
+  const S5 = S * NLG
+  if (NXT.length < S5) { NXT = new Float64Array(2 * S5); NVIA = new Int32Array(2 * S5) }
+  const nxt = NXT, nvia = NVIA
+  const trader = ts.trader
   for (let h = 0; h < MART.H; h++) {
-    for (let t = 0; t < living.length; t++) {
-      const m = living[t]
-      if (!g.isMart[m] || !ts.trader[m]) continue
-      for (let j = 0; j < LEG_GOODS.length; j++) {
+    for (let t = 0; t < marts.length; t++) {
+      const m = marts[t]
+      const e0 = ADJ_OFF[m], e1 = ADJ_OFF[m + 1]
+      if (e0 === e1) continue
+      for (let j = 0; j < NLG; j++) {
         const gd = LEG_GOODS[j]
-        let best = price[m * G + gd], via = -1
-        for (let e = ADJ_OFF[m]; e < ADJ_OFF[m + 1]; e++) {
-          const k = ADJ_LEG[e]
-          const n2 = g.legA[k] === m ? g.legB[k] : g.legA[k]
-          if (!ts.trader[n2]) continue
-          const mu = rOf(s, n2) * MART.legYears + MART.risk + g.legHazard[k]
-          const tc = CLASS.transport[gd] * g.legCost[k] * legFactor(s, ts, m, n2)
-          if (g.fwdVia[n2 * G + gd] === m) continue // (a price that comes back through m itself)
-          const f = fwd[n2 * G + gd] / (1 + mu) - tc
-          if (f > best) { best = f; via = n2 }
+        const tr = CLASS.transport[gd]
+        let best = price[m * G + gd], bv = -1
+        for (let e = e0; e < e1; e++) {
+          const n2 = ADJ_N[e]
+          if (!trader[n2]) continue
+          const k2 = n2 * G + gd
+          if (via[k2] === m) continue // (a price that comes back through m itself)
+          const f = fwd[k2] / (1 + ADJ_MU[e]) - tr * ADJ_T[e]
+          if (f > best) { best = f; bv = n2 }
         }
-        nxt[m * LEG_GOODS.length + j] = best
-        NVIA[m * LEG_GOODS.length + j] = via
+        nxt[m * NLG + j] = best
+        nvia[m * NLG + j] = bv
       }
     }
-    for (let t = 0; t < living.length; t++) {
-      const m = living[t]
-      if (!g.isMart[m] || !ts.trader[m]) continue
-      for (let j = 0; j < LEG_GOODS.length; j++) { fwd[m * G + LEG_GOODS[j]] = nxt[m * LEG_GOODS.length + j]; g.fwdVia[m * G + LEG_GOODS[j]] = NVIA[m * LEG_GOODS.length + j] }
+    for (let t = 0; t < marts.length; t++) {
+      const m = marts[t]
+      if (ADJ_OFF[m] === ADJ_OFF[m + 1]) continue
+      for (let j = 0; j < NLG; j++) { const k = m * G + LEG_GOODS[j]; fwd[k] = nxt[m * NLG + j]; via[k] = nvia[m * NLG + j] }
     }
   }
+  // The merchants' bids for the season: forward price times their appetite (warehouses with room).
+  for (let t = 0; t < marts.length; t++) {
+    const m = marts[t]
+    for (let j = 0; j < NLG; j++) { const gd = LEG_GOODS[j]; const k = m * G + gd; g.fwdBid[k] = fwd[k] * theta(s, ts, m, gd) }
+  }
 }
+const NLG = LEG_GOODS.length
+const MARTS: number[] = []
+let ADJ_N = new Int32Array(0), ADJ_MU = new Float64Array(0), ADJ_T = new Float64Array(0)
 let FILL = new Int32Array(0), NXT = new Float64Array(0), NVIA = new Int32Array(0)
 
 /**
@@ -279,7 +308,7 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
     if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0 || !ts.trader[a] || !ts.trader[b]) continue
     if (pol !== null && embargoed(pol, a, b)) continue
     const lane = g.legKind[k] === LegKind.Lane
-    const lf = legFactor(s, ts, a, b)
+    const lt = g.legT[k] // (route cost times the ends' transport factor, reckoned with the forward prices)
     const loss = lane ? g.legHazard[k] : 0
     let capLeft = lane ? g.legCap[k] - g.legUse[k] : Infinity
     for (let dir = 0; dir < 2; dir++) {
@@ -290,14 +319,21 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         const kf = from * G + gd, kt = to * G + gd
         const S0 = stock[kf]
         if (!(S0 > 0)) continue
-        const m = MIX_OF[gd]
-        const tc = CLASS.transport[gd] * g.legCost[k] * lf * (m >= 0 ? density(g, from, m, S0) : 1)
         const pf = price[kf]
-        const P = buyPrice(s, ts, g, to, gd, from)
         const pLocal = price[kt]
-        const res = sellPrice(s, ts, g, from, gd) // (the seller's merchants hold out for their own forward price)
+        // The buyer's merchants bid their forward price (not back toward where it comes from); the seller's hold out for theirs.
+        let P = pLocal
+        const fb = g.fwdBid[kt]
+        if (fb > P && g.isMart[to] && g.fwdVia[kt] !== from) P = fb
+        let res = pf
+        const fsl = g.fwdBid[kf]
+        if (fsl > res && g.isMart[from]) res = fsl
+        const minGap = TRADE.minGap * GOODS.value[gd]
+        if (!(P - res * (1 + mu) - minGap > 0)) continue
+        const m = MIX_OF[gd]
+        const tc = CLASS.transport[gd] * lt * (m >= 0 ? density(g, from, m, S0) : 1)
         const cost = (res + tc) * (1 + mu)
-        const net = P - cost - TRADE.minGap * GOODS.value[gd]
+        const net = P - cost - minGap
         if (!(net > 0)) continue
         let q = (TRADE.damping * (P - cost)) / (deriv[kf] + deriv[kt])
         const most = 0.7 * S0
@@ -308,18 +344,20 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         stock[kf] = S0 - q
         stock[kt] += arrive
         if (m >= 0) mixFlow(g, from, to, m, arrive, S0)
+        else if (gd === 8) moveAmt(s, from, to, q, arrive, S0) // (stimulants by species)
         if (m >= 0 && loss > 0) mixScale(g, from, m, (S0 - q) / (S0 - arrive)) // (the cargo lost at sea leaves the sender's names too)
         // Income on what is realised: the season's return on the goods carried, and the gap to the buyer's own price (not
         // to the forward price it bought at, which it earns only when it sells on).
         let real = pLocal - (pf + tc) * (1 + mu) > 0 ? pLocal - (pf + tc) * (1 + mu) : 0
         const cap1 = STOCK.incomeGap * ts.worth[kt]
         if (real > cap1) real = cap1
-        const carrier = real > 0 ? q * (mu * (pf + tc) + MART.carrier * real) : 0
+        const carrier = q * (mu * (pf + tc) + MART.carrier * real)
         const gap = real
         ts.income[to] += carrier
-        ts.income[from] += q * ((1 - MART.carrier) * gap + TRADE.margin * GOODS.value[gd])
+        ts.income[from] += q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * GOODS.value[gd])
         g.relayYear[to] += carrier
-        noteIncome(s, g, 13, carrier + q * ((1 - MART.carrier) * gap + TRADE.margin * GOODS.value[gd]))
+        if (!g.relayIn[to]) { g.relayIn[to] = 1; g.relayList.push(to) }
+        noteIncome(s, g, 13, carrier + q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * GOODS.value[gd]))
         trackVar(g, to, from, m, carrier)
         const loads = q * GOODS.value[gd]
         ts.throughYear[a] += TRADE.ownWeight * loads

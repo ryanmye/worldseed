@@ -15,7 +15,7 @@ import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
 import { TRADITION, WORKSHOP } from './params.ts'
 import type { GoodsState } from './state.ts'
-import { Maker, logGoods, newVariety } from './state.ts'
+import { Maker, logGoods, newVariety, setVarSecret } from './state.ts'
 import { craftHeld, grantCraft, protection, secretKind } from './secrets.ts'
 
 /** Class, field, gate of each craft kind (Silk, Dyeing, FineCloth, Blades). */
@@ -104,7 +104,7 @@ export function traditionPass(s: HistoryState, g: GoodsState): void {
       const k = id * 4 + c
       g.practice[k] += X.practice * (out - g.practice[k])
       if (g.seatOf[k] >= 0 || p < X.birthPop) continue
-      const thr = X.birthShare * p
+      const thr = X.birthShare[c] * p
       const pr = g.practice[k]
       if (pr < thr) continue
       // A secret craft: only its holders (the first birth creates the secret).
@@ -123,6 +123,7 @@ export function traditionPass(s: HistoryState, g: GoodsState): void {
       const nt = birth(s, g, c, id, -1, 1)
       logGoods(s, EventType.TraditionBorn, id, -1, nt)
       if (sk === -1) grantCraft(s, g, c, id, -1, 0) // (the first of a secret craft: the secret begins)
+      else if (sk >= 0) setVarSecret(g, g.tVar[nt], sk)
     }
   }
   // Quality, clusters, idle seats.
@@ -136,12 +137,12 @@ export function traditionPass(s: HistoryState, g: GoodsState): void {
       out += o
       pop += s.pop[x]
       if (s.pop[x] > s.pop[big]) big = x
-      const u1 = o / (o + X.birthShare * s.pop[x] + 1e-9)
+      const u1 = o / (o + X.birthShare[c] * s.pop[x] + 1e-9)
       const k = x * 4 + c
       if (u1 < X.deadU) g.seatIdle[k] += 10
       else g.seatIdle[k] = 0
     }
-    const u = out / (out + X.birthShare * pop + 1e-9)
+    const u = out / (out + X.birthShare[c] * pop + 1e-9)
     const people = g.tPeople[t]
     const field = s.tech[people * TECH_FIELD_COUNT + CRAFT_FIELD[c]]
     let qcap = 1 + X.capField * (field - CRAFT_GATE[c]) + X.capSeat * Math.min(2, seats.length - 1)
@@ -159,7 +160,7 @@ export function traditionPass(s: HistoryState, g: GoodsState): void {
     for (let i = 0; i < living.length; i++) {
       const id = living[i]
       if (s.people[id] !== people || g.seatOf[id * 4 + c] >= 0) continue
-      if (outOf(s, g, id, c) < X.clusterShare * X.birthShare * s.pop[id] || !(outOf(s, g, id, c) > 0)) continue
+      if (outOf(s, g, id, c) < X.clusterShare * X.birthShare[c] * s.pop[id] || !(outOf(s, g, id, c) > 0)) continue
       let close = false
       for (const x of seats) if (chord2(s, x, id) < cl2) { close = true; break }
       if (!close) continue
@@ -203,6 +204,8 @@ export function carryCraft(s: HistoryState, g: GoodsState, from: number, to: num
         const sk = secretKind(g, c, from)
         if (sk >= 0 && !craftHeld(g, sk, s.people[to])) grantCraft(s, g, c, to, from, cause === 1 ? 5 : 3)
       }
+      const sk2 = secretKind(g, c, from)
+      if (sk2 >= 0) setVarSecret(g, g.tVar[nt], sk2)
     } else addSeat(s, g, t, to)
     logGoods(s, EventType.TraditionMoved, to, from, nt, cause)
   }

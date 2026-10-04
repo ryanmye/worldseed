@@ -55,7 +55,7 @@ export const MIX = {
  */
 export const STOCK = {
   /** Share of the leftover that keeps a year, per class (food 0: storage.ts decides what food keeps). */
-  keep: [0, 0, 0, 0.8, 0.9, 0.9, 0.8, 0.85, 0.8, 0.95, 0.9, 0.98, 0.95],
+  keep: [0, 0, 0, 0, 0, 0, 0, 0.85, 0.8, 0.95, 0.9, 0.98, 0.95], // (bulk classes keep nothing: as before goods)
   /** Years of demand a trader keeps at most (bulk 1, HV 2). */
   capYearsBulk: 1,
   capYearsHV: 2,
@@ -68,7 +68,9 @@ export const STOCK = {
   maxRatio: 6,
   /** The gap a trader earns on (half of it, as for bulk goods) is counted up to incomeGap * worth a unit: scarcity moves goods
    *  far, but a glutted source and a starved buyer do not mint wealth beyond what the old two-times price let them. */
-  incomeGap: 0.5,
+  incomeGap: 0.25,
+  /** Exporters' margin on HV goods: this share of TRADE.margin * worth (bulk goods keep the whole margin). */
+  hvMargin: 0.5,
 }
 
 /**
@@ -98,6 +100,10 @@ export const DEMAND = {
   treasure: 0.002,
   treasureBase: 0.2,
   courtK: 1.5,
+  /** Raw ore's own demand (GOODS.need Ore) is mostly worked into Metalware now: this share of it remains. */
+  oreRaw: 0.3,
+  /** Bog iron: every base catchment cell (weight w) yields bogIron * w units of ore a year at full labour and Metalworking 1. */
+  bogIron: 0.4,
   /** Buyers of Finery pay CASHCROP.pay of its value out of their wealth, as for Luxury. */
   fineryPays: true,
 }
@@ -113,7 +119,7 @@ export const METAL = {
   toolWear: 0.05,
   armsWear: 0.03,
   toolHalf: 0.04,
-  toolFarm: 0.12,
+  toolFarm: 0.08,
   toolArtisan: 0.3,
   armsQ: 0.4,
   armsHalf: 0.03,
@@ -134,7 +140,7 @@ export const METAL = {
  * the smithing of a Blades tradition's seats (gate M bladeGate).
  */
 export const WORKSHOP = {
-  craftShare: 0.06,
+  craftShare: 0.03,
   artLow: 400,
   artHigh: 5000,
   marginRef: 0.25,
@@ -145,7 +151,7 @@ export const WORKSHOP = {
   need1: [1, 1, 1.6],
   in2: [Good.Timber, Good.Luxury, -1],
   need2: [0.5, 0.15, 0],
-  prod: [0.4, 0.5, 0.4],
+  prod: [0.4, 0.1, 0.08],
   field: [2, 3, 3], // TechField: Metalworking, Crafts, Crafts
   gate: [1.3, 1.5, 1.8],
   /** Fine blades: gate on Metalworking, and the share of a seat's smithing that is fine work. */
@@ -180,6 +186,8 @@ export const DEPOSIT = {
   /** Prospecting every 10 years: chance smoothstep(prospLow, prospHigh, Metalworking) * (placer ? placerFind : find). */
   find: 0.25,
   placerFind: 0.6,
+  /** Prospectors of a settlement within rushHops whose fields do not reach it find it at this share of the chance. */
+  farFind: 0.4,
   prospLow: 0.8,
   prospHigh: 1.6,
   /** Output = yield * richness * lab * (1 + techMul * (M - 1)) * sqrt(R / R0), lab = pop / (pop + workHalf) (a camp counts campPop). */
@@ -194,6 +202,8 @@ export const DEPOSIT = {
   rushK: 2,
   /** Boom: a find whose output passes boom of the world's Treasure output. */
   boom: 0.25,
+  /** A small working settlement (not trading) sells what it mines to the nearest trader within sinkHops hops. */
+  sinkHops: 12,
   /** Mining camp: people sent with the camp (from the finder), and its supply cost per person per route cost unit. */
   campFound: 40,
 }
@@ -219,12 +229,12 @@ export const CROPS = {
  */
 export const TRADITION = {
   practice: 0.2,
-  birthPop: 3000,
-  birthShare: 0.03,
+  birthPop: 2000,
+  birthShare: [0.004, 0.004, 0.005, 0.011], // (per craft: Silk, Dyeing, FineCloth, Blades)
   birth: 0.1,
   spacing: 18,
-  up: 0.08,
-  down: 0.05,
+  up: 0.15,
+  down: 0.03,
   capField: 0.4,
   capSeat: 0.3,
   qMin: 0.5,
@@ -235,7 +245,7 @@ export const TRADITION = {
   clusterShare: 0.5,
   cluster: 0.25,
   /** Craftsmen: on a Migration from a seat, chance carry * (group / pop) * push * (1 - 0.7 pi); daughters start at Q * daughter. */
-  carry: 0.5,
+  carry: 0.25,
   daughter: 0.6,
   farHops: 12,
   /** Deportation after a Sack: chance, quality kept. */
@@ -281,8 +291,8 @@ export const LANE = {
   /** A mart of people p hears of a variety at share >= hear of a class in its stock. */
   hear: 0.05,
   /** Urge: U += 10 * urge * Pi / (Pi + half * worth) * smoothstep(0.3, 0.7, prosperity) * (1 + tech * (driveTech - 1)). */
-  urge: 0.02,
-  half: 30,
+  urge: 0.08,
+  half: 12,
   tech: 0.5,
   /** Guess of the direct cost: transport * great-circle cells * guess * ocean factor. */
   guess: 1.3,
@@ -293,8 +303,9 @@ export const LANE = {
   /** Cost of the expedition: costMul * EXPLORE.cost * group * (1 + cells / costCells); a kingdom's capital pays with polityMul times it. */
   costMul: 2,
   polityMul: 2,
-  /** Range: rangeMul times the exploration range. */
+  /** Range: rangeMul times the exploration range; the search stops after maxVisits cells. */
   rangeMul: 1.5,
+  maxVisits: 6000,
   /** Targets: cells within targetHops of the source, or of a mart holding the variety at >= martShare. */
   targetHops: 2,
   martShare: 0.2,
@@ -316,6 +327,10 @@ export const LANE = {
   season: 0.5,
   /** A lane closes after idle years without cargo. */
   idle: 50,
+  /** A source reached by this many open lanes (of others) draws no new venture. */
+  rivals: 2,
+  /** Weight of each class in the urge (spices, silk and fine cloth were what lanes were opened for; bullion followed). */
+  classWeight: [0, 0, 0, 0, 0, 0, 0, 1, 1, 0.5, 1, 0.4, 1],
   /** The lane's urge only for varieties whose saving Pi exceeds minSave * worth, from a source at least minCells hops away (great circle). */
   minSave: 2,
   minCells: 25,
@@ -330,9 +345,16 @@ export const POST = {
   supplyYears: 60,
   selfPop: 1000,
   selfFood: 0.9,
-  /** Supply cost a year: supply * pop * route cost of the post (like an outpost), from the owner's wealth; strikes before it is lost. */
+  /** Supply cost a year: supply * pop * route cost of the post (like an outpost), from the owner's wealth; strikes before it is lost.
+   *  A supplied post's food is topped up to fed * its people (from the owner), and every colonyStep years the owner sends
+   *  colonists: colonyShare of its people (at most colonyMax) while it has at least colonyPop. */
   supply: 0.05,
   strikes: 8,
+  fed: 1.05,
+  colonyStep: 10,
+  colonyShare: 0.02,
+  colonyMax: 250,
+  colonyPop: 2000,
   /** A factory's host takes muShare of its usual cut on the sponsor's goods. */
   muShare: 1 / 3,
   /** A factory is expelled after relation R >= expel for expelYears. */
@@ -361,7 +383,9 @@ export const SECRET = {
   stateless: 0.15,
   /** Monopoly rent: rho = rent * psi of the sender's price on the secret varieties leaving the holder polity. */
   rent: 0.3,
-  contact: 0.01,
+  contact: 0.02,
+  /** Craft secrets pass by contact at this share of the rate (tacit skill travels with craftsmen, not goods). */
+  craftContact: 0.25,
   contactHalf: 200,
   espionage: 0.06,
   spyLow: 0.05,
@@ -373,16 +397,16 @@ export const SECRET = {
   /** Without full smuggling, contraband of a secret variety reaching a people is proxy * its legal imports. */
   proxy: 0.2,
   rediscovery: 0.005,
-  chart: 0.03,
+  chart: 0.008,
   chartGuard: 0.6,
-  chartWar: 0.1,
+  chartWar: 0.03,
   /** Inside a holder polity, other ports gain a chart after chartYears * psi years. */
   chartYears: 30,
   /** Defection: push per event (Sacked, Famine, Revolt; a Migration to another people: migration * group / pop * 50). */
-  pushSack: 0.5,
-  pushFamine: 0.15,
-  pushRevolt: 0.15,
-  pushMigration: 0.05,
+  pushSack: 0.3,
+  pushFamine: 0.05,
+  pushRevolt: 0.05,
+  pushMigration: 0.01,
   /** MonopolyBroken: the original holder's share of world output falls below `broken`. */
   broken: 0.5,
   /** The four secret species (archetypes). */

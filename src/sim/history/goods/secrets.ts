@@ -22,7 +22,7 @@ import { SPECIES } from '../params.ts'
 import type { TechState } from '../technology.ts'
 import { SECRET, WORKSHOP } from './params.ts'
 import type { GoodsState } from './state.ts'
-import { K, M, MIX_OF, logGoods } from './state.ts'
+import { K, M, MIX_OF, logGoods, setVarSecret } from './state.ts'
 import { prosperity } from '../migration.ts'
 import { chartedExpedition } from './routes.ts'
 
@@ -109,7 +109,7 @@ export function grantCraft(s: HistoryState, g: GoodsState, c: number, at: number
     else g.purple = k
     grantHold(s, g, k, s.people[at], LeakChannel.Founded, at, -1)
     // Its tradition's goods are the secret's.
-    for (let t = 0; t < g.tCount; t++) if (g.tCraft[t] === c && g.tPeople[t] === s.people[at]) g.vSecret[g.tVar[t]] = k
+    for (let t = 0; t < g.tCount; t++) if (g.tCraft[t] === c && g.tPeople[t] === s.people[at]) setVarSecret(g, g.tVar[t], k)
     return
   }
   grantHold(s, g, k, s.people[at], channel, at, from)
@@ -155,10 +155,6 @@ function outputAt(s: HistoryState, g: GoodsState, k: number, id: number): number
   return g.legOpen[subj] && g.legA[subj] === id ? 1 : 0
 }
 
-/** True when settlement id produces secret k for a people holding it. */
-function isProducer(s: HistoryState, g: GoodsState, k: number, id: number): boolean {
-  return g.sHeld[k][s.people[id]] === 1 && outputAt(s, g, k, id) > 0
-}
 
 /** Scratch per people: output and largest producer. */
 let POUT = new Float64Array(0), PTOP = new Int32Array(0), PBIG = new Int32Array(0)
@@ -169,7 +165,7 @@ let POUT = new Float64Array(0), PTOP = new Int32Array(0), PBIG = new Int32Array(
  */
 export function secretPass(s: HistoryState, g: GoodsState, tk: TechState): void {
   const P = g.P
-  if (POUT.length < P) { POUT = new Float64Array(P); PTOP = new Int32Array(P); PBIG = new Int32Array(P) }
+  if (POUT.length < P) { POUT = new Float64Array(P); PTOP = new Int32Array(P); PBIG = new Int32Array(P); PTOPV = new Float64Array(P) }
   const living = s.living
   const ps = s.pol
   // Largest settlement per people (alive).
@@ -195,14 +191,18 @@ export function secretPass(s: HistoryState, g: GoodsState, tk: TechState): void 
     let mainP = -1
     const ppop = PPOL
     ppop.length = 0
+    if (OUTL.length < living.length) OUTL = new Float64Array(2 * living.length)
+    const outl = OUTL
+    PTOPV.fill(0)
     for (let t = 0; t < living.length; t++) {
       const id = living[t]
       const o = outputAt(s, g, k, id)
+      outl[t] = o
       if (!(o > 0)) continue
       const p = s.people[id]
       POUT[p] += o
       world += o
-      if (PTOP[p] < 0 || o > outputAt(s, g, k, PTOP[p])) PTOP[p] = id
+      if (PTOP[p] < 0 || o > PTOPV[p]) { PTOP[p] = id; PTOPV[p] = o }
       if (g.sHeld[k][p]) {
         const q = polityOf(s, id)
         if (q >= 0) ppop.push(q, s.pop[id])
@@ -229,7 +229,7 @@ export function secretPass(s: HistoryState, g: GoodsState, tk: TechState): void 
       if (!g.sGuardLogged[k] && psi >= 0.3) {
         g.sGuardLogged[k] = 1
         let prod = -1
-        for (let t = 0; t < living.length; t++) { const id = living[t]; if (ps.polity[id] === mainP && isProducer(s, g, k, id)) { prod = id; break } }
+        for (let t = 0; t < living.length; t++) { const id = living[t]; if (ps.polity[id] === mainP && outl[t] > 0 && g.sHeld[k][s.people[id]]) { prod = id; break } }
         logGoods(s, EventType.SecretGuarded, cap, prod, k, psi)
       }
     } else g.sPsi[k] = SECRET.stateless
@@ -237,7 +237,7 @@ export function secretPass(s: HistoryState, g: GoodsState, tk: TechState): void 
     g.sExport[k] = 0
     // Mean protection over the holders' producers.
     let pi = 0, pn = 0
-    for (let t = 0; t < living.length; t++) { const id = living[t]; if (isProducer(s, g, k, id)) { pi += protectionOf(s, g, k, id); pn++ } }
+    for (let t = 0; t < living.length; t++) { const id = living[t]; if (outl[t] > 0 && g.sHeld[k][s.people[id]]) { pi += protectionOf(s, g, k, id); pn++ } }
     g.sPi[k] = pn > 0 ? pi / pn : 0
     // MonopolyBroken: the first holder's share of world output below half (once there is output elsewhere).
     const orig = g.sOrig[k]
@@ -255,6 +255,9 @@ export function secretPass(s: HistoryState, g: GoodsState, tk: TechState): void 
   }
 }
 const PPOL: number[] = []
+/** Output of the secret being reckoned per living settlement (index into living), and the top producer's output per people. */
+let OUTL = new Float64Array(0)
+let PTOPV = new Float64Array(0)
 
 /** The leak channels of secret k for each people in contact with a holder (one draw each). */
 function leaks(s: HistoryState, g: GoodsState, k: number, tk: TechState, big: Int32Array): void {
@@ -290,7 +293,7 @@ function leaks(s: HistoryState, g: GoodsState, k: number, tk: TechState, big: In
     const r = R
     r.fill(0)
     if (kind !== SecretKind.Chart) {
-      r[LeakChannel.Contact] = X.contact * (v / (v + X.contactHalf)) * (1 - X.protect * pi) * cr
+      r[LeakChannel.Contact] = X.contact * (kind === SecretKind.Craft ? X.craftContact : 1) * (v / (v + X.contactHalf)) * (1 - X.protect * pi) * cr
       // Espionage: a kingdom or empire paying much for it.
       const qp = polityOf(s, big[q])
       if (ps !== null && qp >= 0 && tierOf(ps.pPop[qp], ps.pMembers[qp], ps.pMulti[qp] === 1) >= Tier.Kingdom) {
@@ -331,8 +334,12 @@ function leaks(s: HistoryState, g: GoodsState, k: number, tk: TechState, big: In
     for (let c = 0; c < 8; c++) { if (!(r[c] > 0)) continue; acc += r[c] / sum; if (target <= acc) { ch = c; break } }
     if (ch < 0) for (let c = 7; c >= 0; c--) if (r[c] > 0) { ch = c; break }
     const via = big[q]
-    let src = big[h0]
-    for (let t = 0; t < s.living.length; t++) { const id = s.living[t]; if (s.people[id] === h0 && isProducer(s, g, k, id)) { src = id; break } }
+    // The source: a producer of a holder people q has met (the first holder if it is one of them).
+    let hs = know.contact[q * P + h0] >= 0 ? h0 : -1
+    for (let h = 0; h < P && hs < 0; h++) if (held[h] && big[h] >= 0 && know.contact[q * P + h] >= 0) hs = h
+    if (hs < 0) continue
+    let src = big[hs]
+    for (let t = 0; t < s.living.length; t++) { const id = s.living[t]; if (s.people[id] === hs && OUTL[t] > 0) { src = id; break } }
     grantHold(s, g, k, q, ch, via, src)
     if (kind === SecretKind.Species && ch === LeakChannel.Smuggling) plantAt(s, q, g.sSubject[k], src)
   }

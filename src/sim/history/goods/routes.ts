@@ -54,14 +54,17 @@ function sameSource(g: GoodsState, a: number, b: number): boolean {
 /** True when settlement a may use (or reach) a lane to variety v already: an open lane from a's polity's marts (or from a) for v's source. */
 function laneFor(s: HistoryState, g: GoodsState, a: number, v: number): boolean {
   const pa = polityOf(s, a)
+  let rivals = 0
   for (const k of g.lanes) {
-    if (!g.legOpen[k]) continue
+    if (!g.legOpen[k] || g.legB[k] === g.legA[k]) continue
     const lv = g.legVariety[k]
     if (lv !== v && !(lv > 0 && g.vKind[lv] === g.vKind[v] && g.vSource[lv] === g.vSource[v] && g.vPeople[lv] === g.vPeople[v])) continue
     const h = g.legA[k]
     if (h === a || (pa >= 0 && polityOf(s, h) === pa) || s.people[h] === s.people[a] && pa < 0) return true
+    rivals++
   }
-  return false
+  // Competition: a source already reached by enough rivals' lanes is no longer worth a new venture.
+  return rivals >= LANE.rivals
 }
 
 /** Every 10 years (year % 10 = 7): rumour, the urge, trade expeditions (see the header). */
@@ -122,7 +125,7 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       const Q = share * ts.demand[h * G + gd]
       const tGuess = (CLASS.transport[gd] * cells * LANE.guess * (byLand ? 1.5 : ocean) * tf) / g.vRel[v]
       const save = Q * (ts.price[h * G + gd] - (1 + mu1) * (ts.price[o * G + gd] + tGuess))
-      const pi = save / CLASS.worth[gd]
+      const pi = (save / CLASS.worth[gd]) * LANE.classWeight[gd]
       if (pi > best && save > LANE.minSave * CLASS.worth[gd]) { best = pi; bv = v }
     }
     if (bv >= 0) {
@@ -219,7 +222,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
       const c = items[i]
       pending--
       if (dist[c] !== cur) continue
-      if (visits >= 12000) break search
+      if (visits >= LANE.maxVisits) break search
       visits++
       if (tmark[c] === trun && c !== origin) {
         const dd = chord(s, c, srcCell)
@@ -319,6 +322,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
         e = found(s, site, n, h)
         ensureGoods(g, s.count)
         postKind = PostKind.Fort
+        logJourney(s, { departYear: depart, arriveYear: s.year, from: h, to: e, size: n, kind: JourneyKind.Settlers, path: extendTo(s, path, site) })
       } else e = -1
     } else e = -1
   } else if (s.people[e] !== people && s.pop[e] >= POST.factoryPop) postKind = PostKind.Factory
@@ -328,8 +332,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   logJourney(s, { departYear: depart, arriveYear: s.year, from: h, to: h, size: gsz, kind: JourneyKind.Expedition, path: round })
   if (e < 0) return
   // The lane (two legs through a victualling station when it is longer than a season's sailing).
-  let full = path
-  if (full[full.length - 1] !== s.cell[e]) full = full.concat([s.cell[e]])
+  const full = extendTo(s, path, s.cell[e])
   const legs: number[] = []
   const season = X.season * rangeOf(s, h, sea, f)
   let station = -1
@@ -346,6 +349,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
           station = found(s, j, n, h)
           ensureGoods(g, s.count)
           const p1 = full.slice(0, i + 1).concat([j])
+          logJourney(s, { departYear: depart, arriveYear: s.year, from: h, to: station, size: n, kind: JourneyKind.Settlers, path: p1.slice() })
           const p2 = [j].concat(full.slice(i))
           legs.push(openLeg(s, g, h, station, LegKind.Lane, p1, pathCost(s, p1, h, station)))
           legs.push(openLeg(s, g, station, e, LegKind.Lane, p2, pathCost(s, p2, station, e)))
@@ -387,6 +391,24 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
 }
 let TMARK = new Int32Array(0)
 let TRUN = 0
+
+/** The path continued from its last cell to `cell` (a few hops, breadth first). */
+function extendTo(s: HistoryState, path: number[], cell: number): number[] {
+  const last = path[path.length - 1]
+  if (last === cell) return path.slice()
+  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  const q = [last], prev = [-1]
+  const seen = new Set<number>([last]) // (membership only)
+  let at = -1
+  for (let i = 0; i < q.length && i < 4000; i++) {
+    if (q[i] === cell) { at = i; break }
+    for (let k = off[q[i]]; k < off[q[i] + 1]; k++) { const j = nb[k]; if (!seen.has(j)) { seen.add(j); q.push(j); prev.push(i) } }
+  }
+  const tail: number[] = []
+  for (let i = at; i > 0; i = prev[i]) tail.push(q[i])
+  tail.reverse()
+  return path.concat(tail)
+}
 
 /** Expedition cost of a path. */
 function routeCostOf(es: ExploreState, path: readonly number[]): number {
@@ -451,7 +473,45 @@ export function postYear(s: HistoryState, g: GoodsState): void {
     if (s.abandoned[owner] >= 0) { failPost(s, g, i); continue }
     const cost = POST.supply * s.pop[x] * g.pCost[i] / (1 + 0.5 * (s.tech[s.people[owner] * TECH_FIELD_COUNT + TechField.Crafts] - 1))
     if (s.wealth[owner] >= cost) { s.wealth[owner] -= cost; g.pStrikes[i] = 0 }
-    else if (++g.pStrikes[i] >= POST.strikes) failPost(s, g, i)
+    else if (++g.pStrikes[i] >= POST.strikes) { failPost(s, g, i); continue }
+    // Colonists from the owner, along the lane.
+    if ((s.year - g.pFounded[i]) % POST.colonyStep === 0 && s.year > g.pFounded[i] && s.pop[owner] >= POST.colonyPop && s.food[x] >= 0.9) colonists(s, g, i, owner, x)
+  }
+}
+
+/** The owner of post i sends colonists to its settlement x (a Migration along the lane's way). */
+function colonists(s: HistoryState, g: GoodsState, i: number, owner: number, x: number): void {
+  const leg = g.pLeg[i]
+  if (leg < 0) return
+  let path: number[] | null = null
+  const lp = g.legPath[leg]
+  if (g.legA[leg] === owner && lp[lp.length - 1] === s.cell[x]) path = lp
+  else {
+    // A station: the first leg of the lane ends there.
+    for (const k of g.lanes) if (g.legA[k] === owner && g.legB[k] === x) { path = g.legPath[k]; break }
+  }
+  if (path === null || path[0] !== s.cell[owner]) return
+  let n = Math.floor(POST.colonyShare * s.pop[owner])
+  if (n > POST.colonyMax) n = POST.colonyMax
+  if (n < 20) return
+  s.pop[owner] -= n
+  s.pop[x] += n
+  logEvent(s, EventType.Migration, owner, x, n)
+  const years = Math.min(3, 0.5 + 0.03 * path.length)
+  logJourney(s, { departYear: Math.max(s.founded[owner], s.year - years), arriveYear: s.year, from: owner, to: x, size: n, kind: JourneyKind.Migrants, path: path.slice() })
+}
+
+/** Yearly before the market: a supplied fort or station's food is topped up by its owner (POST.fed of its people). */
+export function postSupply(s: HistoryState, g: GoodsState): void {
+  for (let i = 0; i < g.postCount; i++) {
+    if (g.pEnded[i] >= 0 || (g.pKind[i] !== PostKind.Fort && g.pKind[i] !== PostKind.Station)) continue
+    const x = g.pSettlement[i], owner = g.pOwner[i]
+    if (s.abandoned[x] >= 0 || s.abandoned[owner] >= 0) continue
+    const want = POST.fed * s.pop[x] - s.supply[x]
+    if (!(want > 0) || s.wealth[owner] < want) continue
+    s.wealth[owner] -= want
+    s.supply[x] += want
+    s.food[x] = s.supply[x] >= s.pop[x] ? 1 : s.supply[x] / s.pop[x]
   }
 }
 
@@ -489,11 +549,12 @@ export function postConquered(s: HistoryState, g: GoodsState, v: number): void {
 
 /** Yearly: relay income smoothed and its peak; every 10 years the variety behind it and Bypassed (see the header). */
 export function relayYear(s: HistoryState, g: GoodsState): void {
-  const living = s.living
+  const list = g.relayList
   const X = BYPASS
   const decade = s.year % 10 === 0
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
+  for (let t = 0; t < list.length; t++) {
+    const id = list[t]
+    if (s.abandoned[id] >= 0) continue
     const r = g.relayYear[id]
     g.relayYear[id] = 0
     g.relayDec[id] += r

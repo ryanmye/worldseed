@@ -18,7 +18,7 @@ import type { ExploreState } from '../exploration.ts'
 import { registerBase } from '../exploration.ts'
 import { DEPOSIT } from './params.ts'
 import type { GoodsState } from './state.ts'
-import { MIX_OF, Maker, addPost, ensureGoods, logGoods, mixAdd, newVariety } from './state.ts'
+import { MIX_OF, Maker, addPost, ensureGoods, logGoods, mixAdd, mixScale, newVariety } from './state.ts'
 import { GOOD_COUNT } from '../../../contract.ts'
 
 const G = GOOD_COUNT
@@ -141,6 +141,7 @@ export function placeDeposits(s: HistoryState, g: GoodsState): void {
   g.dWorker = new Int32Array(D).fill(-1)
   g.dCamp = new Int32Array(D).fill(-1)
   g.dMine = new Int32Array(D).fill(-1)
+  g.dSink = new Int32Array(D).fill(-1)
   g.rushUntil = new Int32Array(D).fill(-1)
   g.boomLogged = new Uint8Array(D)
   for (let d = 0; d < D; d++) {
@@ -218,9 +219,8 @@ export function prospect(s: HistoryState, g: GoodsState): void {
       const c = s.cell[id]
       let covers = false
       for (let k = T.catchOff[c]; k < T.catchBase[c] && !covers; k++) { const j = T.catchCell[k]; if (j === cell || g.dNear[j] === d + 1) covers = true }
-      if (!covers) continue
       const M = s.tech[s.people[id] * TECH_FIELD_COUNT + TechField.Metalworking]
-      const ch = smoothstep(DEPOSIT.prospLow, DEPOSIT.prospHigh, M) * (g.dKind[d] === DK.Placer ? DEPOSIT.placerFind : DEPOSIT.find)
+      const ch = smoothstep(DEPOSIT.prospLow, DEPOSIT.prospHigh, M) * (g.dKind[d] === DK.Placer ? DEPOSIT.placerFind : DEPOSIT.find) * (covers ? 1 : DEPOSIT.farFind)
       if (rng.next() < ch) { discover(s, g, d, id, false); break }
     }
   }
@@ -241,6 +241,23 @@ function workerOf(s: HistoryState, c: number, ring3: readonly number[]): number 
       if (w > bw) { bw = w; best = id }
       break
     }
+  }
+  return best
+}
+
+/** The nearest settlement of at least 400 people within DEPOSIT.sinkHops hops of settlement id (-1). */
+function nearestTrader(s: HistoryState, id: number): number {
+  const P = s.world.grid.positions
+  const c = s.cell[id] * 3
+  const lim = (1.12 / s.terrain.n) * DEPOSIT.sinkHops
+  let best = -1, bd = lim * lim
+  for (let t = 0; t < s.living.length; t++) {
+    const j = s.living[t]
+    if (s.pop[j] < 400 || j === id) continue
+    const o = s.cell[j] * 3
+    const dx = P[c] - P[o], dy = P[c + 1] - P[o + 1], dz = P[c + 2] - P[o + 2]
+    const d = dx * dx + dy * dy + dz * dz
+    if (d < bd) { bd = d; best = j }
   }
   return best
 }
@@ -278,6 +295,23 @@ function buildMine(s: HistoryState, g: GoodsState, d: number, owner: number): vo
   g.dMine[d] = sid
 }
 
+/** End of the year (after abandonment): a Mine is built where a Treasure deposit was worked this year and has none. */
+export function buildMines(s: HistoryState, g: GoodsState): void {
+  for (let d = 0; d < g.dCount; d++) {
+    const wk = g.dWorker[d]
+    if (g.dMine[d] >= 0 || wk < 0 || !(g.dOut[d] > 0) || s.abandoned[wk] >= 0 || DK_GOOD[g.dKind[d]] !== Good.Treasure) continue
+    buildMine(s, g, d, wk)
+  }
+}
+
+/** Settlement id was abandoned this year: the mines it worked fall out of use with it. */
+export function minesAbandoned(s: HistoryState, g: GoodsState, id: number): void {
+  for (let d = 0; d < g.dCount; d++) {
+    const sid = g.dMine[d]
+    if (sid >= 0 && s.structures[sid].settlement === id) { loseMine(s, g, d); g.dWorker[d] = -1 }
+  }
+}
+
 function loseMine(s: HistoryState, g: GoodsState, d: number): void {
   const sid = g.dMine[d]
   if (sid < 0) return
@@ -313,9 +347,10 @@ export function mineYear(s: HistoryState, g: GoodsState, es: ExploreState): void
     if (wk < 0) continue
     if (!gateOk(s, g, d, wk)) continue
     const isCamp = s.outpost[wk] === 1
-    const sink = isCamp ? s.parent[wk] : wk
+    let sink = isCamp ? s.parent[wk] : wk
+    // A small place sells what it mines at the nearest market town.
+    if (sink >= 0 && s.pop[sink] < 400) { if (g.dSink[d] < 0 || s.abandoned[g.dSink[d]] >= 0 || decade) g.dSink[d] = nearestTrader(s, sink); if (g.dSink[d] >= 0) sink = g.dSink[d] }
     if (sink < 0 || s.abandoned[sink] >= 0) continue
-    if (g.dMine[d] < 0 && DK_GOOD[k] === Good.Treasure) buildMine(s, g, d, wk)
     const pop = isCamp ? DEPOSIT.campPop : s.pop[wk]
     const lab = pop / (pop + DEPOSIT.workHalf)
     const M = s.tech[s.people[wk] * TECH_FIELD_COUNT + TechField.Metalworking]
@@ -336,7 +371,7 @@ export function mineYear(s: HistoryState, g: GoodsState, es: ExploreState): void
     g.vOut[g.dVar[d]] += out
     if (out > g.vOriginOut[g.dVar[d]]) { g.vOriginOut[g.dVar[d]] = out; g.vOrigin[g.dVar[d]] = sink }
     // A small place cannot store it all: what it cannot use or sell is lost.
-    if (s.pop[sink] < 400) { const capH = 50; if (g.held[sink * G + gd] > capH) g.held[sink * G + gd] = capH }
+    if (s.pop[sink] < 400) { const capH = 50; const x = g.held[sink * G + gd]; if (x > capH) { g.held[sink * G + gd] = capH; mixScale(g, sink, MIX_OF[gd], capH / x) } }
     if (g.dR0[d] > 0 && out < DEPOSIT.exhausted * g.dPeak[d] && s.year - g.dFound[d] > 20) {
       g.dExh[d] = s.year
       logEvent(s, EventType.MineExhausted, wk, -1, d)
@@ -361,7 +396,7 @@ function foundCamp(s: HistoryState, g: GoodsState, es: ExploreState, d: number):
   const by = g.dFoundBy[d]
   if (by < 0 || s.abandoned[by] >= 0 || s.outpost[by] || s.pop[by] < 400) return -1
   const c = g.dCell[d]
-  if (s.occupant[c] >= 0 || s.terrain.sea[c]) return -1
+  if (s.occupant[c] >= 0 || s.terrain.sea[c] || s.terrain.habitable[c]) return -1 // (where people can farm, the rush settles it)
   const path = hopPath(s, s.cell[by], c, 40)
   if (path === null) return -1
   const n = DEPOSIT.campFound
