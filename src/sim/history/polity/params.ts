@@ -27,8 +27,11 @@ export const POLITY = {
   formGrain: 0.4,
   formRatio: 2,
   formDependents: 2,
-  /** Grain share gamma = 1 - fishFrac - liveWeight * liveFrac (the tax base; species storableShare later). */
+  /** Grain share gamma = (1 - fishFrac - liveWeight * liveFrac) * storable (the tax base; state.ts storableOf). */
   liveWeight: 0.6,
+  /** Storable share of the crop where the main staple is a tuber (potato, cassava), and where no held staple fits (species-v2: replaced by its per-settlement `storable`). */
+  storeTuber: 0.7,
+  storeWild: 0.8,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
   submit: 2.2,
   subBase: 0.3,

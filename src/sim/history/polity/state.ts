@@ -14,6 +14,7 @@ import { Heap } from '../heap.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { prosperity } from '../migration.ts'
+import { hasHorse, SP } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, POLITY, UNREST } from './params.ts'
 
@@ -199,6 +200,8 @@ export interface PolityDiag {
   /** The founders' own danger, and 1 when the new settlement is on its parent's landmass. */
   foundFromZ: number[]
   foundHome: number[]
+  /** The cell of each founding (for harness measures of site choice). */
+  foundCell: number[]
 }
 
 function f64(n: number): Float64Array { return new Float64Array(n) }
@@ -237,7 +240,7 @@ export function createPolityState(s: HistoryState): PolityState {
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],
     heap: new Heap(256), aDist: new Float64Array(N), aPrev: new Int32Array(N), aStamp: new Int32Array(N), aRun: 0, aHeap: new Heap(256),
     stamp: new Int32Array(cap), run: 0, ringDist: f64(cap), scratchF: f64(cap), scratchI: i32(cap),
-    diag: { raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [] },
+    diag: { raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [] },
   }
 }
 
@@ -315,15 +318,31 @@ export function grip(d: number, lambda: number): number {
   return 1 / (1 + x * x)
 }
 
-/** Grain share gamma (the taxable, storable base): 1 - fishFrac - liveWeight * liveFrac, at least 0. */
+/**
+ * Grain share gamma (the taxable, storable base): (1 - fishFrac - liveWeight * liveFrac) * storableOf, at least 0:
+ * the farm part of a settlement's food, times how much of its crop keeps and can be counted and carried.
+ */
 export function grainShare(s: HistoryState, id: number): number {
-  const g = 1 - s.fishFrac[id] - POLITY.liveWeight * s.liveFrac[id]
+  const g = (1 - s.fishFrac[id] - POLITY.liveWeight * s.liveFrac[id]) * storableOf(s, id)
   return g > 0 ? g : 0
 }
 
-/** Horses: none until the species system says (hook for species.hasHorse). */
-export function horseOf(_s: HistoryState, _id: number): number {
-  return 0
+/**
+ * Storable share of settlement id's crop (0..1), from its main staple (species.ts: the best staple on its own cell):
+ * grains (wheat, barley, rice, maize, sorghum) 1, tubers (potato, cassava) POLITY.storeTuber, wild and minor crops
+ * (no held staple fits) POLITY.storeWild.
+ * species-v2: seam. Species version 2 adds a per-settlement `storable` value (the share of its food from storable
+ * staples); this function should return that instead (and the two constants go).
+ */
+export function storableOf(s: HistoryState, id: number): number {
+  const m = s.sp.main[id]
+  if (m < 0) return POLITY.storeWild
+  return m === SP.potato || m === SP.cassava ? POLITY.storeTuber : 1
+}
+
+/** Horses: 1 when settlement id keeps horses (species.ts), else 0 (military quality, steppe raiding). */
+export function horseOf(s: HistoryState, id: number): number {
+  return hasHorse(s, id) ? 1 : 0
 }
 
 /** Military quality q from the settlement's people's Metalworking and Crafts (and horses). */
