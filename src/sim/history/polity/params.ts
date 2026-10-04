@@ -40,7 +40,7 @@ export const POLITY = {
   storeFloor: 0.5,
   storeRef: 0.85,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
-  submit: 2.8,
+  submit: 3.2,
   subBase: 0.3,
   foreign: 0.5,
   /** Accretion: at most this many settlements join a polity per slow step, the most dominated first. */
@@ -48,7 +48,7 @@ export const POLITY = {
   /** A chiefdom (fewer than absorbMembers members) whose capital would submit (at submit) to a larger neighbour joins it whole. */
   absorbMembers: 6,
   /** Reach: lambda = lambda0 * (1 + reachCrafts * (Crafts - 1)) / sqrt(1 + members / overload). */
-  lambda0: 6,
+  lambda0: 7,
   reachCrafts: 0.5,
   overload: 250,
   /** Power b = pop * q * (1 + prosperityPower * prosperity); q = 1 + qMetal (Metalworking - 1) + qCrafts (Crafts - 1). */
