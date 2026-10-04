@@ -271,7 +271,7 @@ export const TRADITION = {
  */
 export const MART = {
   minPop: 800,
-  maxMarts: 96,
+  maxMarts: 64,
   port: 2,
   capital: 1,
   reach: 2.5,
