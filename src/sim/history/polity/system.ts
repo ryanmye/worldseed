@@ -30,7 +30,7 @@ import { claimPass } from './claims.ts'
 import { cellDanger, linkNew, mapPass, createMapHeap, zCell } from './territory.ts'
 import { dangerStep, loseFort, loseWalls, wallStep } from './danger.ts'
 import { absorption, accretion, atWar, formation, leagues } from './formation.ts'
-import { COHESION, DANGER, PIRACY, POLITY, REFUGEE, UNREST } from './params.ts'
+import { CLAIM, COHESION, DANGER, PIRACY, POLITY, REFUGEE, UNREST } from './params.ts'
 import { relationOf, relationStep } from './relations.ts'
 import { FAR, createPolityState, ensureSettlements, grainShare, grip, setPolity, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
@@ -251,6 +251,8 @@ export function fleeChance(ps: PolityState, id: number): number {
  * and danger makes defensible sites sought after; zr is the cell's danger or, for a group fleeing danger, part of its
  * own (fear sends people to hilltops and islands even where it is quiet for now), while the repulsion still tells
  * quiet land from raided borderlands and pirate coasts.
+ * Claims (claims.ts): a state's settlers favour land their state claims, * (1 + CLAIM.settle); anyone else is
+ * deterred from it (a stateless people's or another state's settlers), * (1 - CLAIM.deter).
  */
 export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: number): number {
   const z = zCell(s, ps, c)
@@ -258,7 +260,11 @@ export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: nu
   if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > zr) zr = zf }
   const D = ps.defenseD[c]
   const rep = z > DANGER.siteFree ? 1 - DANGER.siteNew * (z - DANGER.siteFree) * (1 - D) : 1
-  return (rep > DANGER.siteMin ? rep : DANGER.siteMin) * (1 + DANGER.refuge * zr * D)
+  const f = (rep > DANGER.siteMin ? rep : DANGER.siteMin) * (1 + DANGER.refuge * zr * D)
+  const q = ps.cPol[c]
+  if (q < 0 || ps.pEnded[q] >= 0) return f
+  const home = from < ps.seen && s.outpost[from] && s.parent[from] >= 0 ? s.parent[from] : from // (an expedition base: its parent's state)
+  return f * ((home < ps.seen ? ps.polity[home] : -1) === q ? 1 + CLAIM.settle : 1 - CLAIM.deter)
 }
 
 /** The sites a group weighs (migration's search), for PolityDiag.site*: the best of them by its score without danger. */

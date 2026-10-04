@@ -575,4 +575,7 @@ export const CLAIM = {
   pocket: 1,
   pocketShape: 0.15,
   pocketChief: 4,
+  /** Siting (system.ts siteFactor): a state's settlers score a site on its claims * (1 + settle), anyone else's * (1 - deter). */
+  settle: 0.15,
+  deter: 0.15,
 }
