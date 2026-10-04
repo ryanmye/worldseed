@@ -584,7 +584,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     },
     setSpeciesColors(rgb: Uint8Array | null) {
       modeData.speciesRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
-      if (currentMode === ViewMode.Crops || currentMode === ViewMode.Herds) applyColors(currentMode)
+      if (currentMode === ViewMode.Crops || currentMode === ViewMode.Herds || currentMode === ViewMode.Cash) applyColors(currentMode)
     },
     setCityLights(perCell: Float32Array | null, intensity: number) {
       if (perCell) lightData.set(perCell.length > cellCount ? perCell.subarray(0, cellCount) : perCell)

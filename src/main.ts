@@ -432,6 +432,7 @@ const historyView = createHistoryView(
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Crops, false)
 overlay.setViewModeAvailable(ViewMode.Herds, false)
+overlay.setViewModeAvailable(ViewMode.Cash, false)
 // the Factions and Danger views need the history's polities (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Factions, false)
 overlay.setViewModeAvailable(ViewMode.Danger, false)

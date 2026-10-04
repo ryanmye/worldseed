@@ -20,6 +20,8 @@ export const ViewMode = {
   Crops: 'crops',
   /** Main herd animal per cell (History.herd). */
   Herds: 'herds',
+  /** Main cash crop (fibre, luxury or stimulant) per cell (History.cash). */
+  Cash: 'cash',
   /** polities: flat political map (render/polities.ts draws the factions over a neutral base; hidden without polity data). */
   Factions: 'factions',
   /** polities: danger (raids, war, lawlessness) per land cell as a heat map (render/polities.ts), over a neutral base. */
@@ -39,6 +41,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.LandUse,
   ViewMode.Crops,
   ViewMode.Herds,
+  ViewMode.Cash,
   ViewMode.Factions,
   ViewMode.Danger,
 ]
@@ -66,6 +69,7 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Capacity:
     case ViewMode.Crops:
     case ViewMode.Herds:
+    case ViewMode.Cash:
     case ViewMode.Factions:
     case ViewMode.Danger: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
@@ -246,7 +250,7 @@ export interface ModeData {
   density?: Float32Array | null
   /** Fixed colour-scale maximum for `density`, from the first NORM_YEARS of the history. */
   densityMax?: number
-  /** Crops and Herds views: sRGB 0..255 per cell (3 per cell) for the land snapshot shown, or null (all land neutral). */
+  /** Crops, Herds and Cash crops views: sRGB 0..255 per cell (3 per cell) for the land snapshot shown, or null (all land neutral). */
   speciesRgb?: Uint8Array | null
 }
 
@@ -332,7 +336,8 @@ export function colorForMode(
       return
     }
     case ViewMode.Crops:
-    case ViewMode.Herds: {
+    case ViewMode.Herds:
+    case ViewMode.Cash: {
       const water = e < 0 || world.lake?.[i] === 1
       const c = data?.speciesRgb
       if (water) write(CAPACITY_WATER, out, o, scale)

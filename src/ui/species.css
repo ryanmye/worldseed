@@ -1,11 +1,12 @@
-/* Species panel, Crops / Herds legend, species chips, inspector species section (speciesPanel.ts),
+/* Species panel, Crops / Herds / Cash crops legend, habits, techniques, species chips, inspector species section (speciesPanel.ts),
    and the chronicle dots for species, epidemics and expedition bases */
 
 .species {
   width: var(--right-w);
   padding: 8px 10px 8px 12px;
   flex: 0 0.03 auto !important;
-  max-height: max(110px, min(300px, 32vh));
+  /* 40 species in groups and the techniques: taller than the other lists when there is room */
+  max-height: max(110px, min(520px, 50vh));
   min-height: 34px;
   display: flex;
   flex-direction: column;
@@ -41,12 +42,119 @@
 .sp-cols span:nth-child(n + 3) {
   text-align: right;
 }
+/* collapsible groups by kind (staples, livestock, fibre, luxuries, stimulants, ornamentals, techniques) */
 .sp-group {
-  margin: 4px 0 1px 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin: 3px 0 1px;
+  padding: 2px 4px 2px 2px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font: inherit;
   font-size: 10px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-faint);
+  text-align: left;
+  cursor: pointer;
+}
+.sp-group:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-2);
+}
+.sp-group-caret {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px 1px 2px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+.sp-group.open .sp-group-caret {
+  transform: translate(0, -1px) rotate(45deg);
+}
+.sp-group-name {
+  font-weight: 600;
+}
+.sp-group-count {
+  flex: 1;
+  text-align: right;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sp-group-body.hidden {
+  display: none;
+}
+
+/* tags after a name: the good yielded, and the habit or its harm */
+.sp-tags {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+}
+.sp-tags .good-dot {
+  margin: 0;
+  width: 6px;
+  height: 6px;
+}
+.sp-pill {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 6px;
+  font-size: 9.5px;
+  line-height: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #d7dccf;
+  background: rgba(200, 210, 190, 0.14);
+}
+.sp-pill.mild-warn {
+  color: #ffd08a;
+  background: rgba(255, 176, 70, 0.16);
+}
+.sp-pill.warn {
+  color: #ffb4a0;
+  background: rgba(255, 86, 56, 0.22);
+}
+
+/* the selected species' or technique's details, under its row */
+.sp-detail {
+  margin: 1px 0 4px 19px;
+  padding: 3px 6px 4px 7px;
+  border-left: 2px solid rgba(255, 255, 255, 0.18);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.sp-detail .warn {
+  color: #ffb4a0;
+}
+.sp-detail-faint {
+  color: var(--text-faint);
+}
+.sp-detail .good-dot {
+  margin: 0 3px 0 0;
+}
+
+/* techniques */
+.sp-tech-icon {
+  justify-self: center;
+  width: 7px;
+  height: 7px;
+  background: #ffdb80;
+  transform: rotate(45deg);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.sp-row.tech.unheld .sp-tech-icon {
+  background: #6d6655;
 }
 .sp-row {
   width: 100%;
@@ -101,6 +209,32 @@
 }
 .sp-swatch.neutral {
   background: #2e3432;
+}
+.sp-swatch.neutral.food {
+  background: #464c48;
+}
+/* a shape per kind: staples square, livestock round, fibre a leaf, luxuries a diamond, stimulants a drop, ornamentals a ring */
+.sp-swatch.cat1,
+.sp-chip.cat1 {
+  border-radius: 50%;
+}
+.sp-swatch.cat2,
+.sp-chip.cat2 {
+  border-radius: 1px 5px;
+}
+.sp-swatch.cat3,
+.sp-chip.cat3 {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.82);
+}
+.sp-swatch.cat4,
+.sp-chip.cat4 {
+  border-radius: 50% 50% 50% 1px;
+}
+.sp-swatch.cat5,
+.sp-chip.cat5 {
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px rgba(20, 22, 26, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.55);
 }
 
 /* a collapsed Peoples panel is just its header */
@@ -160,6 +294,86 @@ button.sp-legend-item:hover {
   font-weight: 600;
   color: var(--text);
 }
+.sp-legend-group {
+  margin: 4px 0 0 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sp-legend-item.absent {
+  opacity: 0.45;
+}
+.sp-legend-item .sp-tags {
+  margin-left: auto;
+}
+
+/* habits: a small bar per stimulant (peoples rows, inspector) */
+.sp-habits {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 7px;
+}
+.sp-habit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.sp-habit-bar {
+  position: relative;
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.sp-habit-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: #e8d9a0;
+}
+.sp-habit.mild-warn .sp-habit-bar > span {
+  background: #ffb24a;
+}
+.sp-habit.warn .sp-habit-bar > span {
+  background: #ff5a3c;
+}
+.sp-habit.warn .sp-habit-name {
+  color: #ffb4a0;
+}
+.sp-techcount {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.pp-row .pp-extra {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px 8px;
+  margin: 0 0 1px;
+}
+.pp-row .pp-extra.hidden {
+  display: none;
+}
+.isp-store,
+.isp-habit,
+.isp-tech {
+  margin-top: 1px;
+}
+.isp-habit .sp-habit {
+  font-size: 11px;
+}
+.isp-species.tech {
+  color: #f5dc9a;
+  text-decoration-color: rgba(245, 220, 154, 0.35);
+}
 
 /* species chips (peoples rows, inspector) */
 .sp-chips {
@@ -179,9 +393,6 @@ button.sp-legend-item:hover {
   border-radius: 1.5px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
   cursor: pointer;
-}
-.sp-chip.cat1 {
-  border-radius: 50%;
 }
 .sp-chips.insp .sp-chip {
   width: 9px;
@@ -251,4 +462,23 @@ button.sp-legend-item:hover {
 .ev-epidemic .ev-text::before {
   background: #9a62c4;
   box-shadow: 0 0 0 1px rgba(216, 224, 112, 0.7);
+}
+
+/* species, second version: techniques, blight, habits, livestock plague */
+.ev-technique .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+  background: #ffdb80;
+}
+.ev-blight .ev-text::before {
+  background: #a77a2c;
+  box-shadow: 0 0 0 1px rgba(230, 200, 110, 0.6);
+}
+.ev-habit .ev-text::before {
+  border-radius: 50% 50% 50% 1px;
+  background: #e5674a;
+}
+.ev-plague .ev-text::before {
+  background: #8f8a86;
+  box-shadow: 0 0 0 1px rgba(210, 205, 200, 0.6);
 }

@@ -42,8 +42,8 @@ import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, networkRouteSamples, routeNetwork } from './routeCurves.ts'
 
-/** Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury, stimulant. Chosen to read on water and land alike. */
-export const GOOD_COLORS: readonly string[] = ['#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#ff5fb0', '#c9712e']
+/** Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury, stimulant. Chosen to read on water and land alike (luxuries a royal violet apart from the ore's magenta, stimulants a bright orange apart from the livestock's coral). */
+export const GOOD_COLORS: readonly string[] = ['#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#a65cff', '#ff9a2e']
 /** Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. The palette has no spare slots, so cloth, luxury and stimulant reuse the closest existing tints. */
 const GOOD_PALETTE = [3, 6, 5, 4, 2, 7, 1, 5, 7]
 

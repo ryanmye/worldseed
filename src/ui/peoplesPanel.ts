@@ -27,7 +27,7 @@ import { NORM_YEARS, type HistoryIndex } from './historyIndex.ts'
 import { ANYONE, cellKnownYears, contactOf, knownShare, metCount, NEVER_YEAR, type PeoplesData } from './peoplesData.ts'
 import { loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
-import { SpeciesChips } from './speciesPanel.ts'
+import { HabitLine, SpeciesChips, TechniqueCount } from './speciesPanel.ts'
 import './peoples.css'
 
 /** A known-world selection: a people id, ANYONE (the unexplored world), or null (normal view). */
@@ -103,6 +103,8 @@ interface Row {
   bars: HTMLSpanElement[]
   /** The species the people holds (when the history has species). */
   chips: SpeciesChips | null
+  /** Its habits and techniques (when the history has species), on a line of their own while it has any. */
+  extra: { el: HTMLSpanElement; habits: HabitLine; techs: TechniqueCount; on: boolean } | null
   /** What the row shows (numbers compared before any text is made). */
   shown: { alive: number; pop: number; met: number; known: number; tech: number; selected: boolean }
 }
@@ -302,9 +304,18 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
       el.append(swatch(p), nameWrap, sett, pop, met, known)
       const chips = index.species ? new SpeciesChips() : null
       if (chips) el.append(chips.el)
+      let extra: Row['extra'] = null
+      if (index.species && (index.species.habit || index.species.techniques.length)) {
+        const x = document.createElement('span')
+        x.className = 'pp-extra hidden'
+        const habits = new HabitLine(), techs = new TechniqueCount()
+        x.append(habits.el, techs.el)
+        el.append(x)
+        extra = { el: x, habits, techs, on: false }
+      }
       el.title = `The ${data.names[p]} people: click to see the world as they knew it`
       list.appendChild(el)
-      rows.push({ p, el, sett, pop, met, known, bars, chips, shown: { alive: -1, pop: -1, met: -1, known: -2, tech: -1, selected: false } })
+      rows.push({ p, el, sett, pop, met, known, bars, chips, extra, shown: { alive: -1, pop: -1, met: -1, known: -2, tech: -1, selected: false } })
     }
   }
   list.addEventListener('click', (e) => {
@@ -365,6 +376,15 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
         r.el.setAttribute('aria-pressed', String(sel))
       }
       r.chips?.update(index.species, p, year, data.names)
+      if (r.extra) {
+        r.extra.habits.update(index.species, p, year, data.names)
+        r.extra.techs.update(index.species, p, year, data.names)
+        const on = r.extra.habits.shown || r.extra.techs.shown
+        if (on !== r.extra.on) {
+          r.extra.on = on
+          r.extra.el.classList.toggle('hidden', !on)
+        }
+      }
       if (tech && s !== r.shown.tech) {
         r.shown.tech = s
         for (let f = 0; f < TECH_FIELD_COUNT; f++) {

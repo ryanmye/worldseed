@@ -42,7 +42,7 @@ import { createPeoplesView } from './peoplesPanel.ts'
 import { buildExpeditionData, discoveryNote } from './expeditionsData.ts'
 import { buildOutpostLayer, type OutpostLayer } from '../render/outposts.ts'
 import { buildDiscoveryLayer, type DiscoveryLayer } from '../render/discoveries.ts'
-import { applySpeciesStandIn, buildSpeciesData, cropSnapshotAt } from './speciesData.ts'
+import { applySpeciesStandIn, buildSpeciesData, CASH_VIEW, cropSnapshotAt, inViewCategory, layerOf } from './speciesData.ts'
 import { buildSpeciesLayer, type SpeciesLayer } from '../render/species.ts'
 import { createSpeciesView } from './speciesPanel.ts'
 import { buildContactPulses, type ContactPulses } from '../render/knownWorld.ts'
@@ -350,7 +350,14 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       requestRender()
       deps.wake()
     },
+    onSelectTechnique: (k) => {
+      speciesLayer?.setTechnique(k)
+      requestRender()
+      deps.wake()
+    },
   })
+  /** Species view category of a map view: 0 Crops, 1 Herds, CASH_VIEW Cash crops, -1 others. */
+  const speciesViewCategory = (m: ViewMode) => (m === ViewMode.Crops ? 0 : m === ViewMode.Herds ? 1 : m === ViewMode.Cash ? CASH_VIEW : -1)
 
   // ---------- legend of the Population view ----------
   const popLegend = document.createElement('div')
@@ -506,7 +513,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         name: 'species',
         run() {
           const sd = b.index!.species
-          b.speciesLayer = sd ? buildSpeciesLayer(w, sd) : null
+          b.speciesLayer = sd ? buildSpeciesLayer(w, sd, h, b.index!.peoples?.people ?? null) : null
           const n = sd ? sd.epidemicCells.length : 0
           if (sd && n > 0) {
             // a sickly yellow and a bruised purple
@@ -615,11 +622,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const sd = index.species
       deps.setViewModeAvailable?.(ViewMode.Crops, !!sd?.crop)
       deps.setViewModeAvailable?.(ViewMode.Herds, !!sd?.herd)
+      deps.setViewModeAvailable?.(ViewMode.Cash, !!sd?.cash)
       speciesSelected = -1
       shownSpeciesKey = shownGrownKey = -1
-      speciesRgb = sd?.crop || sd?.herd ? new Uint8Array(w.grid.cellCount * 3) : null
+      speciesRgb = sd?.crop || sd?.herd || sd?.cash ? new Uint8Array(w.grid.cellCount * 3) : null
       grownFlags = sd ? new Uint8Array(w.grid.cellCount) : null
-      speciesLayer?.setOriginCategory(viewMode === ViewMode.Crops ? 0 : viewMode === ViewMode.Herds ? 1 : -1)
+      speciesLayer?.setOriginCategory(speciesViewCategory(viewMode))
       speciesView.setData(sd, h, index.peoples?.people ?? null, index.peoples?.names ?? null, extend)
     }
     const dioramaInputs = {
@@ -832,18 +840,25 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     if (!sd || !world) return
     const N = world.grid.cellCount
     const l = cropSnapshotAt(sd, year)
-    const cat = viewMode === ViewMode.Crops ? 0 : viewMode === ViewMode.Herds ? 1 : -1
-    const shownLayer = cat === 0 ? sd.crop : cat === 1 ? sd.herd : null
+    const cat = speciesViewCategory(viewMode)
+    const shownLayer = cat === 0 ? sd.crop : cat === 1 ? sd.herd : cat === CASH_VIEW ? sd.cash : null
     const globe = deps.getGlobe()
     if (shownLayer && speciesRgb && globe) {
-      const key = (l * 4 + cat + 1) * 64 + speciesSelected + 1
+      const key = (l * 16 + cat + 1) * 64 + speciesSelected + 1
       if (key !== shownSpeciesKey) {
         shownSpeciesKey = key
-        const dimOthers = speciesSelected >= 0 && sd.list[speciesSelected].category === cat
+        const dimOthers = speciesSelected >= 0 && inViewCategory(sd.list[speciesSelected].category, cat)
         const o = l * N
+        // (the Cash crops view tells farmland growing only food from unfarmed land by a lighter neutral)
+        const food = cat === CASH_VIEW ? sd.crop : null
         for (let c = 0; c < N; c++) {
           const v = shownLayer[o + c] - 1
           let r = 46, g = 52, b = 50 // not farmed: neutral (palette.ts LANDUSE_WILD)
+          if (food && food[o + c] > 0) {
+            r = 70
+            g = 76
+            b = 72
+          }
           if (v >= 0 && v < sd.count) {
             r = sd.rgb[v * 3] * 255
             g = sd.rgb[v * 3 + 1] * 255
@@ -863,8 +878,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     }
     // discs where the selected species is grown (not on the view that already colours it)
     const sel = speciesSelected
-    const selLayer = sel >= 0 ? (sd.list[sel].category === 1 ? sd.herd : sd.list[sel].category === 0 ? sd.crop : null) : null
-    const showDiscs = selLayer !== null && sd.list[sel].category !== cat && grownFlags !== null
+    const selLayer = sel >= 0 ? layerOf(sd, sel) : null
+    const showDiscs = selLayer !== null && !inViewCategory(sd.list[sel].category, cat) && grownFlags !== null
     const gk = showDiscs ? l * 64 + sel + 1 : 0
     if (gk !== shownGrownKey) {
       shownGrownKey = gk
@@ -1025,7 +1040,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       applyMarkerStyle()
       speciesView.setViewMode(mode)
       polities.setViewMode(mode)
-      speciesLayer?.setOriginCategory(mode === ViewMode.Crops ? 0 : mode === ViewMode.Herds ? 1 : -1)
+      speciesLayer?.setOriginCategory(speciesViewCategory(mode))
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
       if (mode === ViewMode.Population) shownPopS0 = -1 // force a recompute on the next tick (the view was not kept live while inactive)
@@ -1154,7 +1169,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         discoveries.update(deps.camera, drawSize, pixelRatio)
       }
       if (speciesLayer) {
-        speciesLayer.setTime(year)
+        speciesLayer.setTime(year, pulseYears)
         speciesLayer.update(deps.camera, drawSize, pixelRatio)
       }
       if (epidemics && epidemics.mesh.visible) {

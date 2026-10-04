@@ -347,7 +347,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 34) // 20-34: polities
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 34) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) // 20-34: polities; 44-49: species, second version
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -355,6 +355,8 @@ function otherIsSettlement(type: number): boolean {
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
     type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
     type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic ||
+    // species, second version: the people a technique, habit or plague came from, the seller a habit drains wealth to
+    type === EventType.TechniqueAdopted || type === EventType.HabitSpreads || type === EventType.Drain || type === EventType.Panzootic ||
     // polities: the conqueror's, old, defending or receiving capital (not the capital of every town that joins)
     type === 21 || type === 22 || type === 24 || type === 25 || type === 30 || type === 32 || type === 33
 }

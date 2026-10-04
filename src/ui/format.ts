@@ -2,6 +2,7 @@
 
 import { EventType, FeatureKind, StructureType, type GeoFeature, type History, type HistoryEvent } from '../contract.ts'
 import { describePolityEvent, describePolityEventFor, isWallEvent, polityEventKind } from './polityFormat.ts'
+import { describeSpeciesV2Event, tameVerb } from './speciesFormat.ts'
 
 /** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
@@ -24,6 +25,8 @@ export function formatInt(n: number): string {
 }
 
 export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd' | 'contact' | 'landfall' | 'voyage' | 'expedition' | 'discovery' | 'tech' | 'species' | 'epidemic'
+  // species, second version (speciesFormat.ts)
+  | 'technique' | 'blight' | 'habit' | 'plague'
   // polities (polityFormat.ts)
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
 
@@ -153,7 +156,7 @@ export function fractionWords(f: number): string {
 /** "The Eitebo first tame the kerrow near Tesh", and the other species lines (null for other types). */
 function describeSpeciesEvent(h: History, e: HistoryEvent, forId: number): string | null {
   const t = e.type as number
-  if (t !== PeoplesEvent.Domesticated && t !== PeoplesEvent.SpeciesAdopted && t !== PeoplesEvent.Epidemic) return null
+  if (t !== PeoplesEvent.Domesticated && t !== PeoplesEvent.SpeciesAdopted && t !== PeoplesEvent.Epidemic) return describeSpeciesV2Event(h, e, forId)
   const p = peopleOf(h, e.settlement)
   const pn = peopleName(h, p) ?? 'people'
   const q = e.other >= 0 && e.other < h.settlements.length ? peopleOf(h, e.other) : -1
@@ -161,7 +164,7 @@ function describeSpeciesEvent(h: History, e: HistoryEvent, forId: number): strin
   const sp = speciesOf(h)[e.value]
   const name = sp ? sp.name.toLowerCase() : 'a new species'
   const the = sp ? `the ${name}` : name
-  const tame = sp && sp.category !== 0 ? 'tame' : 'cultivate'
+  const tame = sp ? tameVerb(sp.category) : 'cultivate'
   if (forId < 0) {
     if (t === PeoplesEvent.Domesticated) return `The ${pn} first ${tame} ${the} near ${settlementName(h, e.settlement)}`
     if (t === PeoplesEvent.SpeciesAdopted) return `The ${pn} take up ${the}` + (qn ? ` from the ${qn}` : '')
@@ -291,6 +294,12 @@ export function eventKind(e: HistoryEvent): EventKind {
     case PeoplesEvent.Domesticated:
     case PeoplesEvent.SpeciesAdopted: return 'species'
     case PeoplesEvent.Epidemic: return 'epidemic'
+    case EventType.TechniqueFound:
+    case EventType.TechniqueAdopted: return 'technique'
+    case EventType.Blight: return 'blight'
+    case EventType.HabitSpreads:
+    case EventType.Drain: return 'habit'
+    case EventType.Panzootic: return 'plague'
     default: return (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
