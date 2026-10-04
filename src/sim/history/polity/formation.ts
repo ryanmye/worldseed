@@ -56,13 +56,18 @@ export function formation(s: HistoryState, ps: PolityState): void {
   const P = POLITY
   const living = s.living
   const cand: number[] = []
-  const formPop = formPopOf(s)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
-    if (ps.polity[id] >= 0 || s.pop[id] < formPop || grainShare(s, id) < P.formGrain) continue
+    if (ps.polity[id] >= 0 || s.pop[id] < P.formPopMin || grainShare(s, id) < P.formGrain) continue
     cand.push(id)
   }
   if (cand.length === 0) return
+  // (the world's bar only when some settlement could clear it)
+  const formPop = formPopOf(s)
+  let nc = 0
+  for (let t = 0; t < cand.length; t++) if (s.pop[cand[t]] >= formPop) cand[nc++] = cand[t]
+  cand.length = nc
+  if (nc === 0) return
   cand.sort((a, b) => s.pop[b] - s.pop[a] || a - b)
   const deps: number[] = []
   for (const i of cand) {
