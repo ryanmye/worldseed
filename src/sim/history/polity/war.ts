@@ -29,6 +29,7 @@ import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent, logJourney, loseStructure } from '../state.ts'
 import { prosperity } from '../migration.ts'
+import { learnPath } from '../knowledge.ts'
 import { controlOne, distTo } from './control.ts'
 import { loseWalls, spike } from './danger.ts'
 import { COHESION, POLITY, WAR } from './params.ts'
@@ -166,6 +167,7 @@ function armyJourney(s: HistoryState, ps: PolityState, u: number, v: number, edg
   let depart = arrive - years
   if (depart < s.founded[u]) depart = s.founded[u]
   logJourney(s, { departYear: depart, arriveYear: arrive, from: u, to: v, size, kind: JourneyKind.Army, path })
+  learnPath(s, u, path, false) // (the attacker's people learn the way they marched)
 }
 
 /** Odds of a strike by p from u on q's v at graph cost d: A and D. */
