@@ -24,6 +24,8 @@ import { EXPLORE, EXPEDITION_COST, MIGRATION, TRADE } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import { abandon, canSettle, found, logEvent, logJourney } from '../state.ts'
 import type { TradeState } from '../trade.ts'
+import { tradeAbandonSystem } from '../trade.ts'
+import { loseFort, loseWalls } from '../polity/danger.ts'
 import type { ExploreState } from '../exploration.ts'
 import { driveTech, rangeOf } from '../exploration.ts'
 import { ContactVia, learnPath } from '../knowledge.ts'
@@ -37,7 +39,7 @@ import { K, M, MIXED, MIX_OF, addPost, ensureGoods, logGoods, losePost } from '.
 import { openLeg, pathCost } from './longhaul.ts'
 import { Heap } from '../heap.ts'
 import { grantHold, newSecret } from './secrets.ts'
-import { expeditionFinds } from './deposits.ts'
+import { expeditionFinds, minesAbandoned } from './deposits.ts'
 
 const G = GOOD_COUNT
 
@@ -543,7 +545,7 @@ export function chartedExpedition(s: HistoryState, g: GoodsState, k: number, q: 
 }
 
 /** Yearly: posts are supplied by their owners (or lost), factories expelled in war, forts grow self-sufficient. */
-export function postYear(s: HistoryState, g: GoodsState): void {
+export function postYear(s: HistoryState, g: GoodsState, ts: TradeState): void {
   const ps = s.pol
   for (let i = 0; i < g.postCount; i++) {
     if (g.pEnded[i] >= 0) continue
@@ -567,10 +569,10 @@ export function postYear(s: HistoryState, g: GoodsState): void {
       g.postOf[x] = -1
       continue
     }
-    if (s.abandoned[owner] >= 0) { failPost(s, g, i); continue }
+    if (s.abandoned[owner] >= 0) { failPost(s, g, i, ts); continue }
     const cost = POST.supply * s.pop[x] * g.pCost[i] / (1 + 0.5 * (s.tech[s.people[owner] * TECH_FIELD_COUNT + TechField.Crafts] - 1))
     if (s.wealth[owner] >= cost) { s.wealth[owner] -= cost; g.pStrikes[i] = 0 }
-    else if (++g.pStrikes[i] >= POST.strikes) { failPost(s, g, i); continue }
+    else if (++g.pStrikes[i] >= POST.strikes) { failPost(s, g, i, ts); continue }
     // Colonists from the owner, along the lane.
     if ((s.year - g.pFounded[i]) % POST.colonyStep === 0 && s.year > g.pFounded[i] && s.pop[owner] >= POST.colonyPop && s.food[x] >= 0.9) colonists(s, g, i, owner, x)
   }
@@ -622,8 +624,13 @@ function endFactory(s: HistoryState, g: GoodsState, i: number, cause: number): v
   losePost(s, g, i, cause)
 }
 
-/** A fort or station whose supply failed is abandoned. */
-function failPost(s: HistoryState, g: GoodsState, i: number): void {
+/**
+ * A fort or station whose supply failed is abandoned; its trade routes close and its walls, fort and mines fall the same
+ * year, as for a resort given up (tourism/system.ts): the trade system's own pass (tradeAbandonSystem) ran before this one
+ * this year, and the polity and goods systems see the Abandoned event only next year, which would log the losses a year
+ * after the post was given up.
+ */
+function failPost(s: HistoryState, g: GoodsState, i: number, ts: TradeState): void {
   const x = g.pSettlement[i]
   losePost(s, g, i, 0)
   if (s.abandoned[x] >= 0) return
@@ -631,6 +638,10 @@ function failPost(s: HistoryState, g: GoodsState, i: number): void {
   if (idx < 0) return
   abandon(s, x)
   s.living.splice(idx, 1)
+  const ps = s.pol
+  if (ps !== null && x < ps.seen) { if (ps.walls[x] > 0) loseWalls(s, ps, x); if (ps.fort[x] >= 0) loseFort(s, ps, x) }
+  minesAbandoned(s, g, x)
+  tradeAbandonSystem(s, ts)
 }
 
 /** A post's settlement or host was conquered by a state other than its owner's: lost (cause 1). */
