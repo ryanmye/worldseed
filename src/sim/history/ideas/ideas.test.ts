@@ -228,6 +228,12 @@ describe('ideas', () => {
     const bufs = (h: History) => [h.ideaAdoptions.idea, h.ideaAdoptions.people, h.ideaAdoptions.year, h.ideaAdoptions.via].map((x) => x.buffer)
     const seen = new Set(bufs(r1))
     for (const x of bufs(r2)) expect(seen.has(x)).toBe(false)
+    // The worker's way (src/worker.ts): 150-year chunks; every field the same as in one run.
+    const chunked = createHistoryRun(w)
+    let c = chunked.advanceTo(150)
+    for (let y = 300; y <= 1500; y += 150) c = chunked.advanceTo(y)
+    expect(hashIdeas(c)).toBe(hashIdeas(a))
+    expect(hashPreIdeas(c)).toBe(hashPreIdeas(a))
   }, 400_000)
 
   it('the technology levels follow the caps of the ideas held: a people without ideas plateaus, receiving them it catches up', () => {
