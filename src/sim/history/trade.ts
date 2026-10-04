@@ -872,12 +872,17 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     for (let gi = 0; gi < nGoods; gi++) {
       const g = goods[gi]
       if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue
-      const tg = tUnit[g] * c
-      const hv = gx !== null && g >= 7 // goods: high-value classes travel by the value density of the sender's mix
-      const tA = hv ? hvTransport(gx, a, g, stock[oa + g]) * c : g === 0 ? tg * perish[a] : tg
-      const tB = hv ? hvTransport(gx, b, g, stock[ob + g]) * c : g === 0 ? tg * perish[b] : tg
       const mg = minGap[g]
       const gap = price[ob + g] - price[oa + g]
+      if (gx !== null && g >= 7) { // goods: high-value classes travel by the value density of the sender's mix (reckoned for the way the gap runs)
+        if (gap > 0) {
+          if (x.sAB[p] > 0) { const tA = hvTransport(gx, a, g, stock[oa + g]) * c; if (gap > prem * tA + mg) smuggleFlow(p, a, b, g, gap - prem * tA, 0, x.sAB[p], x.eAB[p]) }
+        } else if (x.sBA[p] > 0) { const tB = hvTransport(gx, b, g, stock[ob + g]) * c; if (-gap > prem * tB + mg) smuggleFlow(p, b, a, g, -gap - prem * tB, 1, x.sBA[p], x.eBA[p]) }
+        continue
+      }
+      const tg = tUnit[g] * c
+      const tA = g === 0 ? tg * perish[a] : tg
+      const tB = g === 0 ? tg * perish[b] : tg
       if (bk === 2 && g < FOOD) { // (an embargo stops all but food)
         const rA = dAB * foodDuty, rB = dBA * foodDuty
         const dA = wedge * rA * price[ob + g], dB = wedge * rB * price[oa + g]
@@ -911,8 +916,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         wAB = wedge * pc.dAB[p]
         wBA = wedge * pc.dBA[p]
       }
+      // goods: high-value goods keep in store: local merchants deal in them on each pair every other year (half the pairs a
+      // year; the goods list is ascending, so the high-value classes come last).
+      const hvOff = gx !== null && ((s.year + p) & 1) === 1
       for (let gi = 0; gi < nGoods; gi++) {
         const g = goods[gi]
+        if (hvOff && g >= 7) break
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         if (gx !== null && g >= 7) { // goods: high-value classes (polities: under the duty's wedge, its flows summed for the accounts)
           if (hvPair(s, ts, gx, p, a, b, g, c, wAB, wBA) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
@@ -958,7 +967,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     if (!trader[a] || !trader[b]) continue
     let vol = 0
     const o = p * G * 2
-    for (let g = 0; g < G; g++) vol += (pairFlow[o + g * 2] + pairFlow[o + g * 2 + 1]) * V[g]
+    // (only the goods traded this year can have moved: the others' flows are 0)
+    for (let gi = 0; gi < nGoods; gi++) { const g = goods[gi]; vol += (pairFlow[o + g * 2] + pairFlow[o + g * 2 + 1]) * V[g] }
     if (!(vol > 0)) continue
     let r = pairRoute[p]
     if (r < 0) { r = createRoute(s, ts, p); pairRoute[p] = r } // (may grow the route buffers: use ts.* below)
@@ -970,7 +980,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     }
     ts.rVol[r] = vol
     const og = r * G * 2
-    for (let g = 0; g < G; g++) {
+    for (let gi = 0; gi < nGoods; gi++) {
+      const g = goods[gi]
       const ab = pairFlow[o + g * 2], ba = pairFlow[o + g * 2 + 1]
       ts.rGood[og + g * 2] += ab
       ts.rGood[og + g * 2 + 1] += ba
@@ -980,13 +991,14 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     throughYear[a] += TRADE.ownWeight * vol
     throughYear[b] += TRADE.ownWeight * vol
     const transit = ts.rTransit[r]
+    const hvv = gx !== null ? gx.pairHv[p] : 0
     const tollVol = gx !== null ? vol - hvLoads(ts, p) : vol // goods: high-value goods pay their cut instead
     for (let k = 0; k < transit.length; k++) {
       const x = transit[k]
       if (s.abandoned[x] >= 0) continue
       throughYear[x] += vol
       income[x] += TRADE.toll * tollVol
-      if (gx !== null && ts.trader[x]) { const cut = cutOf(s, x) * gx.pairHv[p]; income[x] += cut; noteIncome(s, gx, 14, cut) } // goods: every hand takes a cut
+      if (hvv > 0 && ts.trader[x]) { const cut = cutOf(s, x) * hvv; income[x] += cut; noteIncome(s, gx!, 14, cut) } // goods: every hand takes a cut (none where nothing of value moved)
     }
   }
 

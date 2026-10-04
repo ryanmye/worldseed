@@ -319,8 +319,7 @@ export function hvTransport(g: GoodsState, id: number, gd: number, S0: number): 
  * (polities v2: TARIFF.wedge times b's and a's duty rate). Returns true when it moved something (the flow is in HVR).
  */
 export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: number, a: number, b: number, gd: number, c: number, wA: number, wB: number): boolean {
-  // High-value goods keep in store: local merchants deal in them on each pair every other year (half the pairs a year).
-  if (((s.year + pi) & 1) === 1) return false
+  // (High-value goods keep in store: trade.ts calls this on each pair every other year, (year + pi) even.)
   const stock = ts.stock, price = ts.price, deriv = ts.deriv
   const oa = a * G + gd, ob = b * G + gd
   const m = MIX_OF[gd]

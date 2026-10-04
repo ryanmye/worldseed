@@ -327,7 +327,9 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
   const P = s.know.P
   const N = s.terrain.cellCount
   const VM = MIX.maxVarieties
-  const g: GoodsState = {
+  // (Two literals joined, the first under 128 properties and the second's under 128: V8 keeps an object literal of 128 or
+  // more properties, or one given 128 or more properties after it, in slow dictionary mode.)
+  const base = {
     rng: createRng(s.world.seed, 'history-goods'),
     cap, P,
     held: f64(cap * G), mixV: i32(cap * M * K), mixA: f64(cap * M * K),
@@ -342,12 +344,14 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     vGood: i32(VM, -1), vKind: i32(VM), vSource: i32(VM, -1), vPeople: i32(VM, -1), vMakerKind: i32(VM), vMakerId: i32(VM, -1),
     nSecretVars: 0, vRel: f64(VM, 1), vFirst: i32(VM), vValue: f64(VM), vSecret: i32(VM, -1), vDye: new Uint8Array(VM), vOut: f64(VM), vOrigin: i32(VM, -1), vOriginOut: f64(VM),
     cropVar: i32(P * speciesCount, -1), furVar: i32(P, -1),
-    rumour: new Int16Array(P * VM).fill(-1), vImp: f64(VM * P), vSmug: f64(VM * P), smugLogged: [],
+    rumour: new Int16Array(P * VM).fill(-1), vImp: f64(VM * P), vSmug: f64(VM * P), smugLogged: [] as number[],
     dCount: 0, dKind: i32(0), dCell: i32(0), dRich: f64(0), dFound: i32(0), dFoundBy: i32(0), dExh: i32(0), dVar: i32(0), dR: f64(0), dR0: f64(0), dPeak: f64(0), dOut: f64(0),
     dWorker: i32(0), dCamp: i32(0), dMine: i32(0), dSink: i32(0), dRing: [], dNear: i32(0), wsum: f64(N, -1), rush: f64(N, 1), rushUntil: i32(0), boomLogged: new Uint8Array(0), treasureOut: 0,
     tCount: 0, tCraft: [], tPeople: [], tVar: [], tQ: [], tBorn: [], tBornAt: [], tEnd: [], tParent: [], tSeats: [], tSeatFrom: [], tSeatTo: [], tRenowned: [], tOut: [],
     legCount: 0, legA: [], legB: [], legKind: [], legOpened: [], legClosed: [], legChart: [], legPath: [], legCost: [], legT: [], legOpen: [], legIndex: new Map(), legOrder: [],
     legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], legPol: null, lanes: [],
+  }
+  const more = {
     sCount: 0, sKind: [], sSubject: [], sFound: [], sFoundAt: [], sLost: [], sHeld: [], sPsi: [], sOrig: [], sBroken: [], sGuardLogged: [],
     hSecret: [], hPeople: [], hPolity: [], hFrom: [], hTo: [], hChannel: [], hVia: [],
     speciesSecret: i32(speciesCount, -1), purple: -1, steel: -1, sRent: [], sExport: [], sPi: [], relayDec: f64(cap), relayList: [], relayIn: new Uint8Array(cap),
@@ -362,6 +366,7 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     legVolSnap: new Float32Array(1024), lvUsed: 0, guardSnap: new Uint8Array(256), gUsed: 0,
     diag: { expYear: [], expFrom: [], expOutcome: [], expVariety: [], expCells: [], expSea: [], priceLog: [], leakLog: [], battleLog: [], farmGain: [], income: [] },
   }
+  const g = Object.assign(base, more) as unknown as GoodsState
   // Variety 0: the Common variety of every class.
   g.vGood[0] = -1
   g.vKind[0] = VarietyKind.Common
