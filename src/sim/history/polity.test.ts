@@ -48,8 +48,12 @@ function hashBase(hi: History): string {
  */
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
+// (Re-recorded at the merge of the ideas: the merged tree with the ideas off checked on every field, on every golden
+// configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
+// overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
+// is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, '54f42444'],
+  [42, 2000, undefined, '10ade64'],
   [3, 600, undefined, '65b6ea87'],
   [9, 800, 24, '32f53d06'],
 ]

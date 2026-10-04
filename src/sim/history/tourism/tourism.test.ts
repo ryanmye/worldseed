@@ -58,11 +58,15 @@ function hashTourism(hi: History): string {
 // (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
 // polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
 // hashes take in); fixed-field hashes of runs with polities off keep their values.)
+// (Re-recorded at the merge of the ideas: the merged tree with the ideas off checked on every field, on every golden
+// configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
+// overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
+// is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'e2c732e2'],
+  [42, 2000, undefined, {}, 'ef467207'],
   [3, 600, undefined, {}, '3acd23f4'],
   [7, 900, undefined, { polities: false, goods: false }, '9e5b88b5'],
-  [1, 1500, undefined, { disease: false }, '3fb1053b'],
+  [1, 1500, undefined, { disease: false }, 'd46bc9a3'],
   [9, 800, 24, {}, 'bd670f71'],
 ]
 

@@ -49,14 +49,15 @@ function hashIdeas(hi: History): string {
  * Histories without the ideas system: hashPreIdeas of simulateHistory with ideas off equals the history of main before it
  * (every key of History there, hashed the same way). Re-recorded at the merge into main after the claims (e1d2ae5): the merged
  * tree with ideas off was checked on every field, on these configurations and on every other system's golden ones, against
- * e1d2ae5 plus the one fix made unconditional with the merge (a vassal passed to an overlord its people never met goes free).
+ * e1d2ae5 plus the fixes made unconditional with the merge (a vassal passed to an overlord its people never met goes free; a useless
+ * technique is of no benefit however stale the crop multiplier; a resort is not given up the year new visitors came; a revived name's row).
  * A later change outside the ideas system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '26882f32'],
+  [42, 2000, undefined, {}, 'a16be631'],
   [3, 600, undefined, {}, '653dfcd5'],
   [7, 900, undefined, { polities: false, goods: false }, '88c2eb5e'],
-  [1, 1500, undefined, { disease: false }, '903a24a5'],
+  [1, 1500, undefined, { disease: false }, '74e575ea'],
   [9, 800, 24, {}, 'fce490'],
 ]
 
