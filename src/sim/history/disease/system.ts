@@ -23,8 +23,11 @@
 // over centuries with the share of its people living there; armies on fever ground tire.
 // Effects: deaths; the year's food multiplier falls (labour); trade pairs of sick places cost more for a few years;
 // flight to neighbours (who may catch it) and deserted hamlets; unrest in polity members; exhaustion of armies that
-// meet sickness (ArmyStricken), which may end a campaign; quarantine at wealthy, well-governed ports.
+// meet sickness (ArmyStricken), which may end a campaign; quarantine at wealthy, well-governed ports. Once an outbreak has
+// passed, a fed settlement regains part of the gap to its people before it each year (DZ.rebound): epidemics are waves.
+// An outbreak at a capital may take its ruler and heirs (rulers/hooks.ts); a town struck hard is a woe for religion.
 
+import { smoothstep } from '../../util.ts'
 import { CITY_POPULATION, DiseaseKind, DiseaseVia, EventType, JourneyKind, LegKind, TECH_FIELD_COUNT, TOWN_POPULATION, TechField } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
@@ -135,6 +138,7 @@ function strike(s: HistoryState, dz: DiseaseState, j: number, d: number, epi: nu
   const f = (sig * pop) / def.crowd
   dz.actForce[j] = f > 1 ? 1 : f
   dz.active.push(j)
+  if (DZ.rebound > 0) { if (dz.recPre[j] === 0) dz.rec.push(j); if (pop > dz.recPre[j]) dz.recPre[j] = pop } // (recovery to the people before it)
   if (dz.firstYear[d] < 0) {
     dz.firstYear[d] = s.year; dz.firstSettlement[d] = j; dz.originPeople[d] = pj
     if (dz.originCell[d] < 0) dz.originCell[d] = s.cell[j]
@@ -477,14 +481,16 @@ function spills(s: HistoryState, dz: DiseaseState, ts: TradeState, tk: TechState
       // (herders and traders in or near the reservoir: the busiest trading place within reach, nearer ones first)
       const R = dz.region[d], o = dz.originCell[d]
       const G = s.world.grid.positions
-      const r2 = DZ.spillReach * DZ.spillReach
+      // (the reach widens from spillReach to spillFar between spillFrom and spillFull, as trade reaches farther)
+      const far = DZ.spillReach + (DZ.spillFar - DZ.spillReach) * smoothstep(DZ.spillFrom, DZ.spillFull, year)
+      const r2 = DZ.spillReach * DZ.spillReach, far2 = far * far
       let best = -1, bt = -1
       for (const id of s.living) {
         if (s.pop[id] < DZ.spillPop || !ts.trader[id] || dz.act[id] !== 0) continue
         const c = s.cell[id]
         const dx = G[c * 3] - G[o * 3], dy = G[c * 3 + 1] - G[o * 3 + 1], dzz = G[c * 3 + 2] - G[o * 3 + 2]
         const d2 = dx * dx + dy * dy + dzz * dzz
-        if (s.weatherRegion[c] !== R && d2 > r2) continue
+        if (s.weatherRegion[c] !== R && d2 > far2) continue
         if (dz.sus[id * D + d] / 255 < def.susMin) continue
         const x = (s.through[id] + s.pop[id] * 1e-3) / (1 + d2 / r2)
         if (x > bt) { bt = x; best = id }
@@ -701,6 +707,19 @@ export function diseaseSystem(s: HistoryState, dz: DiseaseState, ts: TradeState,
     A.length = w
   }
   closeEpidemics(s, dz)
+  // Recovery after an outbreak has passed (fed settlements regain a share of the gap to their people before it).
+  if (dz.rec.length > 0) {
+    const R = dz.rec
+    let w = 0
+    for (let t = 0; t < R.length; t++) {
+      const i = R[t]
+      const pre = dz.recPre[i]
+      if (!alive(s, i) || s.pop[i] >= pre) { dz.recPre[i] = 0; continue }
+      R[w++] = i
+      if (dz.act[i] === 0 && s.food[i] >= 1) s.pop[i] += DZ.rebound * (pre - s.pop[i])
+    }
+    R.length = w
+  }
   // Endemic sickness and fever: steady deaths.
   let endDead = 0, feverDead = 0
   const fid = dz.feverId
