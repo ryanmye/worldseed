@@ -222,7 +222,7 @@ function checkPolities(w: World, h: History): void {
         break
       }
       case EventType.Revolt:
-        expect(e.value >= 0 && e.value <= 3).toBe(true)
+        expect(e.value >= 0 && e.value <= 4).toBe(true) // (religion: RevoltCause.Religious 4)
         break
       default:
         break
