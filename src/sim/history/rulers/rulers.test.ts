@@ -29,10 +29,10 @@ export function hashBaseFields(h: History): string {
 }
 /** hashBaseFields of the history without rulers and religion (the base commit 7bdbe75; since the merge, the disease system's main, verified by hashing every field against it): [seed, years, subdivisions, options, hash]. */
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, '8d38210'],
-  [3, 600, undefined, {}, '3ee187e0'],
-  [9, 800, 24, {}, 'f843e556'],
-  [7, 900, undefined, { polities: false }, '6b6f8912'],
+  [42, 2000, undefined, {}, '4071f7fd'],
+  [3, 600, undefined, {}, '94f3e1d2'],
+  [9, 800, 24, {}, '7b860c73'],
+  [7, 900, undefined, { polities: false }, '370f5ff0'],
 ]
 
 function hashRulers(h: History): string {

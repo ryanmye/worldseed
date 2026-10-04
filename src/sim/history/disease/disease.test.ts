@@ -46,11 +46,11 @@ function hashDisease(hi: History): string {
  * disease system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, 'ae7b767e'],
+  [42, 2000, undefined, true, true, '359eb037'],
   [3, 600, undefined, true, true, 'cc2907d8'],
-  [7, 900, undefined, false, false, 'c4bf88bf'],
-  [1, 1500, undefined, true, false, 'be896b38'],
-  [9, 800, 24, true, true, '3f82e8a1'],
+  [7, 900, undefined, false, false, '3465454e'],
+  [1, 1500, undefined, true, false, 'd98e8f6d'],
+  [9, 800, 24, true, true, '1f9f3dfe'],
 ]
 
 const worlds = new Map<number, World>()
