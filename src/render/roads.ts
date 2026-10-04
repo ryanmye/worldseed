@@ -28,6 +28,7 @@ import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
 import { TOWN_MASK_GLSL, townMaskUniforms } from './dioramas/townMask.ts'
@@ -309,6 +310,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
 
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uRoad: { value: roadTex },
     uFrac: { value: 0 },
     uSunObj: { value: SUN_DIRECTION.clone() },
@@ -372,7 +374,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
           return;
         }
         vec3 ground = positionR + normalize(positionR) * uLift;
-        vec4 mv = modelViewMatrix * vec4(ground, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(ground), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         // half width: a track a cart or two wide up close, the map's width further out
         float w = mix(0.0001 + 0.00016 * l, 0.0002 + 0.00058 * l, uFar);
@@ -384,7 +386,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
         vLevel = l;
         vec3 p = ground + aSide.xyz * aSide.w * outer;
         vObjPos = p;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -397,9 +399,11 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       varying float vAlpha;
       varying float vLevel;
       varying vec3 vObjPos;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         vec3 up = normalize(vObjPos);
-        float limb = smoothstep(0.05, 0.35, dot(up, normalize(uCamObj - vObjPos)));
+        float limb = mix(smoothstep(0.05, 0.35, dot(up, normalize(uCamObj - vObjPos))), 1.0, uFlat);
         float x = abs(vAcross);
         float edge = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
         // packed earth with a slightly darker verge; highways a little paler
@@ -470,14 +474,14 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
         float l = min(min(roadAt(aInfo.y), roadAt(aInfo.z)), roadAt(aInfo.w));
         float vis = smoothstep(${(BRIDGE_LEVEL / 255).toFixed(4)}, ${((BRIDGE_LEVEL + 20) / 255).toFixed(4)}, l) * uBridgeZoom;
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         if (uYield.y > 0.0) vis *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPosR));
         if (vis <= 0.0 || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
         vec3 c = aPosR * (1.0 + uLift + 0.00006);
-        vec4 mv = modelViewMatrix * vec4(c, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(c), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio; // world size of a CSS pixel here
         // a deck about as wide as the road (the 3D bridge is 0.00045 wide)
         vec2 halfPx = vec2(max(0.5 * aInfo.x / pix, 6.0), max((0.00016 + 0.00012 * l) / pix, 2.0));
@@ -488,7 +492,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
         vLocal = position.xy * ext;
         vHalf = halfPx;
         vAlpha = vis * smoothstep(0.05, 0.3, facing);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_place(p), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `

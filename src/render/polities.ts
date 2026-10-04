@@ -32,6 +32,7 @@ import type { History, World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius, type GlobeMesh } from './globe.ts'
 import { NOISE_GLSL } from './glsl.ts'
 import { RELIEF_GLSL, relief, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
 import { capitalAt, cellPolities, landSnapNear, polityAt, PolityEvent, SACK_YEARS, type PolitiesData } from '../ui/politiesData.ts'
@@ -130,7 +131,13 @@ void main() {
   vT0 = aC0.rgb;
   vT1 = aC1.rgb;
   vT2 = aC2.rgb;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_relief(position), 1.0);
+  // (on the flat map: unwrapped at the antimeridian, mapProjection.ts)
+  vec3 pDrawn = ws_placeTri(ws_relief(position), aCorners);
+  if (ws_cull > 0.5) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pDrawn, 1.0);
 }
 `
 
@@ -167,6 +174,7 @@ varying vec3 vGrad;
 varying float vElev;
 varying float vSlope;
 ${NOISE_GLSL}
+${SEAM_FRAG_GLSL}
 
 // cheap value noise in about [-0.5, 0.5] (the sweep of a changing border needs no gradient noise)
 float pl_vnoise(vec3 x) {
@@ -280,6 +288,8 @@ void main() {
 
   // lighting: the sun on the Terrain view (dim at night), the data views' flat light otherwise
   vec3 V = normalize(uCamObj - p);
+  // (the flat map is seen from straight above)
+  if (uFlat > 0.0) V = normalize(mix(V, up, uFlat));
   float light = 1.0, lineLight = 1.0;
   if (tint) {
     float ndl = uDaylight > 0.5 ? 0.8 : dot(up, normalize(uSunObj));
@@ -363,6 +373,7 @@ void main() {
   }
   outc *= landM;
   if (outc.a < 0.003) discard;
+  ws_clipTri(); // (the flat map's edge: mapProjection.ts)
   // un-premultiply for the standard blend; tone mapping and output encoding as the planet
   gl_FragColor = vec4(outc.rgb / max(outc.a, 1e-4), outc.a);
   #include <tonemapping_fragment>
@@ -403,7 +414,7 @@ void main() {
   float kind = aA.y;
   float age = uYear - aA.x;
   vec3 up = normalize(pos);
-  float facing = dot(up, normalize(uCamObj - pos));
+  float facing = ws_facing(dot(up, normalize(uCamObj - pos)));
   bool hidden = facing <= 0.0 || (uMaskOn > 0.5 && uYear < aKnown);
   float t = 0.0, alpha = 1.0, ext = aA.z;
   if (kind < 0.5) {
@@ -430,7 +441,7 @@ void main() {
     return;
   }
   ext *= uSizeScale;
-  vec4 clip = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
   vec2 off = kind < 0.5 ? vec2(0.0, aA.w * uSizeScale) : vec2(0.0);
   clip.xy += (position.xy * ext + off) * uPixelRatio * 2.0 / uViewport * clip.w;
   gl_Position = clip;
@@ -628,6 +639,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
   const wars = Array.from({ length: MAX_WARS }, () => new THREE.Vector4(-9, -9, 0, 0))
   const ou = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uCells: { value: cellTex },
     uPalette: { value: palTex },
     uMode: { value: 1 },
@@ -664,6 +676,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
   // ---- marks ----
   const mu = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uLife: { value: 10 },
     uDanger: { value: 0 },
@@ -936,6 +949,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       overlay.frustumCulled = false
       overlay.renderOrder = 1.8 // over the planet and the town ground and shadows, under rivers (2) and roads
       overlay.name = 'polity territory'
+      seamCopy(overlay)
       object.add(overlay)
       syncVisibility()
     },

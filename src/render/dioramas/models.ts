@@ -10,7 +10,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
-  buildBlob, buildBoat, buildDam, buildHaystacks, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
+  buildBanner, buildBlob, buildBoat, buildDam, buildHaystacks, buildRubble, buildSmoke, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
   isFarKind, KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
 } from './shapes.ts'
 
@@ -48,9 +48,15 @@ export const Model = {
   TownBridge: 21,
   Boat: 22,
   FishingBoat: 23,
+  /** A banner on a pole, in its instance's wall colour (a faction's colour). */
+  Banner: 24,
+  /** Rubble of a slighted wall or a burnt-out house. */
+  Rubble: 25,
+  /** Smoke over a sacked town. */
+  Smoke: 26,
 } as const
 export type Model = (typeof Model)[keyof typeof Model]
-const FLORA_BASE = 24
+const FLORA_BASE = 27
 const STYLE_BASE = FLORA_BASE + FLORA_COUNT
 export const MODEL_COUNT = STYLE_BASE + STYLE_COUNT * KIND_COUNT
 
@@ -105,6 +111,9 @@ export const MODEL_SPECS: readonly ModelSpec[] = (() => {
     S(null, KK), // town bridge (x scaled per instance)
     S(null, KK), // rowing boat
     S(null, KK), // fishing boat
+    S(null, KK), // banner
+    S(null, KK), // rubble
+    S(null, KK), // smoke
   ]
   for (let f = 0; f < FLORA_COUNT; f++) specs.push(S(null, KK))
   for (let s = 0; s < STYLE_COUNT; s++) for (let k = 0; k < KIND_COUNT; k++) specs.push(S(null, KK, true))
@@ -151,6 +160,9 @@ function generated(id: number): THREE.BufferGeometry | null {
     case Model.TownBridge: return buildTownBridge()
     case Model.Boat: return buildBoat(false)
     case Model.FishingBoat: return buildBoat(true)
+    case Model.Banner: return buildBanner()
+    case Model.Rubble: return buildRubble()
+    case Model.Smoke: return buildSmoke()
   }
   if (id >= STYLE_BASE) {
     const k = id - STYLE_BASE

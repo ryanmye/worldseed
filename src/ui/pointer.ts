@@ -8,11 +8,14 @@
 // Terrain picking: the ray is marched against the rendered ground (terrainHeight.ts, at
 // the zoom's relief: mountains up close stand well above the sea-level sphere), then a
 // greedy walk over the cell graph finds the nearest cell centre (cheap even at 100k+ cells).
+// On the flat map the ray meets the map's plane and the inverse projection gives the point
+// on the sphere (mapProjection.ts mapRayHit); the same walk follows.
 
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { lakeArray, type GlobeMesh } from '../render/globe.ts'
 import { located, RELIEF_NEAR, reliefRadius, renderedGroundRadius } from '../render/terrainHeight.ts'
+import { flat, mapRayHit } from '../render/mapProjection.ts'
 import type { Readout } from './overlay.ts'
 
 export interface PointerDeps {
@@ -134,6 +137,17 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     if (!deps.dragSun) return
     setRay(clientX, clientY)
     const ray = raycaster.ray
+    if (flat.t > 0) {
+      // the point of the map under the pointer, as a direction in world space
+      const globe = deps.getGlobe()
+      if (!globe) return
+      globe.mesh.updateWorldMatrix(true, false)
+      invMatrix.copy(globe.mesh.matrixWorld).invert()
+      localRay.copy(ray).applyMatrix4(invMatrix)
+      if (!mapRayHit(localRay, hitPoint)) return
+      deps.dragSun(hitPoint.transformDirection(globe.mesh.matrixWorld))
+      return
+    }
     if (!ray.intersectSphere(worldSphere, hitPoint)) ray.closestPointToPoint(worldSphere.center, hitPoint)
     if (hitPoint.lengthSq() < 1e-8) return
     deps.dragSun(hitPoint.normalize())
@@ -147,7 +161,7 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     globe.mesh.updateWorldMatrix(true, false)
     invMatrix.copy(globe.mesh.matrixWorld).invert()
     localRay.copy(raycaster.ray).applyMatrix4(invMatrix)
-    if (!groundHit(w, localRay, hitPoint)) {
+    if (flat.t > 0 ? !mapRayHit(localRay, hitPoint) : !groundHit(w, localRay, hitPoint)) {
       hideReadout()
       return
     }

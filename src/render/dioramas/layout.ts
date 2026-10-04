@@ -18,8 +18,10 @@ import { floraModel, HOUSE_WIDTH, KK, Model, MODEL_SPECS, styleKindOf, styleMode
 import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, type Style as StyleT } from './shapes.ts'
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
 import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
-import { createTownPlan, GroundKind, Role, townExtent, townRadius, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { createOriginEnv, planOrigin } from './origin.ts'
+import { createTownPlan, GroundKind, Role, townExtent, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
 import { RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
+import { politiesOf } from '../../ui/politiesData.ts'
 
 export const NEVER = 1e9
 /** Model id of the packed-earth ground decal under built-up patches (drawn by the ground batch). */
@@ -170,6 +172,10 @@ export interface Layouts {
   port(structureId: number, owner: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
   /** Dam at `pos` across a river flowing along `dir` (cached by structure id). */
   dam(structureId: number, cell: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
+  /** Polity data: the population that wall ring `structureId` of settlement id encloses (the town of its building year). */
+  wallPop(id: number, structureId: number): number
+  /** Polity data: a slot set made from settlement id's plan (cached by key), or null while the plan is not set up. */
+  townExtra(id: number, key: string, make: (plan: TownPlan) => PlanItem[] | null): SlotSet | null
 }
 
 /**
@@ -496,103 +502,13 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     gset: GroundSet | null
   }
   const states = new Map<number, SettlementState>()
-  const COAST_SHIFT = 0.12
-
+  const originEnv = createOriginEnv(world, surface)
   const origins = new Map<number, Float64Array>()
-  /** Centre of settlement id's plan (unit vector) and whether its cell is coastal. */
+  /** Centre of settlement id's plan (unit vector) and whether its cell is coastal (origin.ts, as the terrain flattens round it). */
   const originOf = (id: number): Float64Array => {
     let o = origins.get(id)
     if (o) return o
-    const c = settlements[id].cell
-    // a coastal settlement's centre moves a little inland (its cell centre is often right
-    // on the shore), toward the higher of its dry neighbours
-    let ox = GP[c * 3], oy = GP[c * 3 + 1], oz = GP[c * 3 + 2]
-    let coastal = false
-    let vx = 0, vy = 0, vz = 0
-    for (let k = off[c]; k < off[c + 1]; k++) {
-      const j = nb[k]
-      if (water(j)) { coastal = true; continue }
-      const wgt = Math.max(world.elevation[j], 0.002)
-      vx += (GP[j * 3] - ox) * wgt
-      vy += (GP[j * 3 + 1] - oy) * wgt
-      vz += (GP[j * 3 + 2] - oz) * wgt
-    }
-    // the centre is the point nearest the cell centre (leaning toward the higher dry
-    // neighbours) whose surroundings are mostly dry land as drawn: on the coast the town
-    // hugs the shore, but stands on land
-    const vl = Math.hypot(vx, vy, vz)
-    surface.probe(ox, oy, oz, c, probe)
-    if (coastal || surface.wet(probe, 0.25)) {
-      frameAt(ox, oy, oz)
-      const ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
-      const lx = vl > 0 ? (vx * ex + vy * ey + vz * ez) / vl : 0, ly = vl > 0 ? (vx * nx + vy * ny + vz * nz) / vl : 0
-      const c0x = ox, c0y = oy, c0z = oz
-      const ring = HOUSE_WIDTH * 2.2
-      let need = 4
-      const dryAround = (x: number, y: number) => {
-        probeAt(c0x, c0y, c0z, ex, ey, ez, nx, ny, nz, x, y, c)
-        if (surface.wet(probe, need >= 4 ? 0.12 : 0)) return false
-        let dry = 0
-        for (let k = 0; k < 6; k++) {
-          const a = (k / 6) * Math.PI * 2
-          probeAt(c0x, c0y, c0z, ex, ey, ez, nx, ny, nz, x + Math.cos(a) * ring, y + Math.sin(a) * ring, c)
-          if (!surface.wet(probe, 0.1)) dry++
-        }
-        return dry >= need
-      }
-      let bx = lx * COAST_SHIFT * spacing * 0.4, by = ly * COAST_SHIFT * spacing * 0.4
-      // (a settlement whose cell is drawn as sea moves to the nearest land, up to ~3/4 of a cell)
-      // a second pass settles for any spit of land (a small island)
-      search: for (let pass = 0, i = 0; pass < 2; i++) {
-        if (i > 25) { pass++; i = 0; need = 1; if (pass >= 2) break }
-        const r = i * spacing * 0.03
-        const n = i === 0 ? 1 : 16
-        // directions ordered by how well they lean inland
-        for (let q = 0; q < n; q++) {
-          const a = Math.atan2(ly, lx) + (q % 2 ? 1 : -1) * Math.ceil(q / 2) * ((Math.PI * 2) / 16)
-          const x = lx * COAST_SHIFT * spacing * 0.4 + Math.cos(a) * r, y = ly * COAST_SHIFT * spacing * 0.4 + Math.sin(a) * r
-          if (dryAround(x, y)) { bx = x; by = y; break search }
-        }
-      }
-      const px = c0x + ex * bx + nx * by, py = c0y + ey * bx + ny * by, pz = c0z + ez * bx + nz * by
-      const l = Math.hypot(px, py, pz)
-      ox = px / l; oy = py / l; oz = pz / l
-    }
-    // a port town comes down to its harbour: its centre sits inland of the port by about
-    // half the town's radius, so the waterfront wards (and the quay) meet the water
-    const ps = portOf[id] >= 0 && portSite ? portSite(id) : null
-    if (ps) {
-      const pl = Math.hypot(ps[0], ps[1], ps[2])
-      const px0 = ps[0] / pl, py0 = ps[1] / pl, pz0 = ps[2] / pl
-      frameAt(px0, py0, pz0)
-      const ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
-      let dx = ps[3] * ex + ps[4] * ey + ps[5] * ez, dy = ps[3] * nx + ps[4] * ny + ps[5] * nz
-      const dl = Math.hypot(dx, dy) || 1
-      dx /= dl; dy /= dl
-      const R = Math.min(spacing * 0.5, Math.max(HOUSE_WIDTH * 2.5, townRadius(peak[id]) * KK * 0.5))
-      const ring = HOUSE_WIDTH * 2
-      for (let i = 0; i < 8; i++) {
-        const t = R + i * HOUSE_WIDTH
-        const x = -dx * t, y = -dy * t
-        probeAt(px0, py0, pz0, ex, ey, ez, nx, ny, nz, x, y, c)
-        if (surface.wet(probe, 0.12)) continue
-        let dry = 0
-        for (let k = 0; k < 6; k++) {
-          const a = (k / 6) * Math.PI * 2
-          probeAt(px0, py0, pz0, ex, ey, ez, nx, ny, nz, x + Math.cos(a) * ring, y + Math.sin(a) * ring, c)
-          if (!surface.wet(probe, 0.1)) dry++
-        }
-        if (dry < 4) continue
-        const qx = px0 + ex * x + nx * y, qy = py0 + ey * x + ny * y, qz = pz0 + ez * x + nz * y
-        const ql = Math.hypot(qx, qy, qz)
-        // (still the settlement's own place: within a cell of its centre)
-        if (Math.hypot(qx / ql - GP[c * 3], qy / ql - GP[c * 3 + 1], qz / ql - GP[c * 3 + 2]) > spacing * 0.9) break
-        ox = qx / ql; oy = qy / ql; oz = qz / ql
-        coastal = true
-        break
-      }
-    }
-    o = Float64Array.of(ox, oy, oz, coastal ? 1 : 0)
+    o = planOrigin(originEnv, settlements[id].cell, peak[id], portOf[id] >= 0 && portSite ? portSite(id) : null)
     origins.set(id, o)
     return o
   }
@@ -692,6 +608,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       // the town stays within about a cell of its centre
       maxRadius: (spacing * 1.2) / KK,
     }
+    // polity data: the wall rings the history builds (they shape the gate wards), a capital's palace
+    if (politiesOf(hist)) {
+      site.walls = [...new Set(wallPopsOf(id).values())].sort((a, b) => a - b)
+      site.palace = everCapital(id) && peak[id] >= TOWN_POPULATION * 0.8
+    }
     sf = { site, ox, oy, oz, ex, ey, ez, nx, ny, nz, segs, style, coastal }
     sites.set(id, sf)
     return sf
@@ -709,6 +630,16 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
 
   // (perf=1: the centre of a settlement's plan, for aiming test shots)
   if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaOrigin: (id: number) => number[] }).__dioramaOrigin = (id) => [...Array.from(originOf(id)), extentOf(id), states.get(id)?.writer.radius ?? 0]
+  // (perf=1: latitude and azimuth (degrees, as the URL takes them) of plan point (x, y) of settlement id, plan units)
+  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) {
+    (globalThis as unknown as { __dioramaAim: (id: number, x: number, y: number) => number[] }).__dioramaAim = (id, x, y) => {
+      const sf = siteFor(id)
+      const U = 1 - 0.3 * Math.min(1, Math.max(0, Math.log10(Math.max(1, sf.site.peak) / 1000)))
+      const px = sf.ox + (sf.ex * x + sf.nx * y) * U * KK, py = sf.oy + (sf.ey * x + sf.ny * y) * U * KK, pz = sf.oz + (sf.ez * x + sf.nz * y) * U * KK
+      const l = Math.hypot(px, py, pz)
+      return [+((Math.asin(py / l) * 180) / Math.PI).toFixed(4), +((Math.atan2(px / l, pz / l) * 180) / Math.PI).toFixed(4)]
+    }
+  }
 
   const stateOf = (id: number): SettlementState => {
     let st = states.get(id)
@@ -778,6 +709,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       case Role.Lumbermill: return (kk || s === Style.Cold) && has(Model.Lumbermill) ? Model.Lumbermill : styleModel(s, Kind.Long)
       case Role.Bridge: return Model.TownBridge
       case Role.Ground: return GROUND_MODEL
+      case Role.Palace: return styleModel(s, Kind.Block)
+      case Role.Banner: return has(Model.Banner) ? Model.Banner : -1
+      case Role.Rubble: return has(Model.Rubble) ? Model.Rubble : -1
+      case Role.Stockade: return styleModel(s, Kind.Fort)
+      case Role.Haystack: return has(Model.Haystack) ? Model.Haystack : -1
       case Role.Grove: {
         // a garden tree of the climate
         const f = s === Style.Desert ? Flora.Palm : s === Style.Rainforest ? Flora.Jungle : s === Style.Savanna ? Flora.Acacia : s === Style.Cold || s === Style.Mountain ? Flora.Conifer : Flora.Broadleaf
@@ -787,39 +723,98 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     }
   }
 
-  function writeItems(id: number, st: SettlementState) {
-    const items = st.plan.items
-    const w = st.writer
+  /** One plan item as a slot of writer w (k: its index, for colour draws). */
+  function writeItem(w: SlotWriter, id: number, st: SettlementState, it: PlanItem, k: number) {
     const c = settlements[id].cell
     const { ox, oy, oz, ex, ey, ez, nx, ny, nz } = st
-    for (; st.written < items.length; st.written++) {
-      const it = items[st.written]
-      const model = modelFor(it)
-      if (model < 0) continue
-      probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, it.x * KK, it.y * KK, c)
-      if (it.role === Role.Grove && !treeFits(it.jitter)) continue
-      const style = it.style
-      if (model === GROUND_MODEL) {
-        const g = lin(GROUND[style])
-        roofTmp[0] = roofTmp[1] = roofTmp[2] = 0; roofTmp[3] = 0
-        writeSlot(w, model, it.threshold, 0, 0, it.sx, 1, it.sx, roofTmp, g)
-        continue
-      }
-      setColours(st, id, it, st.written)
-      if (it.role === Role.WallSeg || it.role === Role.WallTower) {
-        const g = lin(WALL_STONE[style], 0.94 + 0.12 * it.jitter)
-        wallTmp[0] = g[0]; wallTmp[1] = g[1]; wallTmp[2] = g[2]
-      }
-      let sx = it.sx, sz = it.sz, sy = it.sy
-      if (it.role === Role.Barracks && model !== Model.Barracks) { sx *= 1.3; sz *= 1.3; sy *= 1.2 }
-      const r = footprint(model) * Math.max(sx, sz)
-      // half-timbering on many temperate houses (more in the old core than out of town)
-      const timber = style === Style.Temperate && rand4(seed, id, st.written, 0x74) < (it.ward === 12 || it.ward === 13 || it.ward === 14 ? 0.3 : 0.6)
-      const info = infoFor(model, it.jitter, timber, style)
-      // the plan's yaw is the model's x axis; KayKit models face +z: put their long side along the street too
-      writeSlot(w, model, it.threshold, it.yaw, it.role === Role.Bridge ? 0 : sinkFor(r), sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : 1.2, info)
-      w.radius = Math.max(w.radius, Math.hypot(it.x, it.y) * KK + footprint(model) * Math.max(sx, sz))
+    const model = modelFor(it)
+    if (model < 0) return
+    probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, it.x * KK, it.y * KK, c)
+    if (it.role === Role.Grove && !treeFits(it.jitter)) return
+    const style = it.style
+    if (model === GROUND_MODEL) {
+      const g = lin(GROUND[style])
+      roofTmp[0] = roofTmp[1] = roofTmp[2] = 0; roofTmp[3] = 0
+      writeSlot(w, model, it.threshold, 0, 0, it.sx, 1, it.sx, roofTmp, g)
+      return
     }
+    setColours(st, id, it, k)
+    if (it.role === Role.WallSeg || it.role === Role.WallTower || it.role === Role.Rubble) {
+      const g = lin(WALL_STONE[style], 0.94 + 0.12 * it.jitter)
+      wallTmp[0] = g[0]; wallTmp[1] = g[1]; wallTmp[2] = g[2]
+    }
+    let sx = it.sx, sz = it.sz, sy = it.sy
+    if (it.role === Role.Barracks && model !== Model.Barracks) { sx *= 1.3; sz *= 1.3; sy *= 1.2 }
+    const r = footprint(model) * Math.max(sx, sz)
+    // half-timbering on many temperate houses (more in the old core than out of town)
+    const timber = style === Style.Temperate && rand4(seed, id, k, 0x74) < (it.ward === 12 || it.ward === 13 || it.ward === 14 ? 0.3 : 0.6)
+    const info = infoFor(model, it.jitter, timber, style)
+    // the plan's yaw is the model's x axis; KayKit models face +z: put their long side along the street too
+    // (a banner on a tower stands on its drum)
+    const sink = it.lift ? -it.lift * KK : it.role === Role.Bridge || it.role === Role.Banner ? 0 : sinkFor(r)
+    writeSlot(w, model, it.threshold, it.yaw, sink, sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : it.role === Role.Banner ? 0.25 : 1.2, info)
+    w.radius = Math.max(w.radius, Math.hypot(it.x, it.y) * KK + footprint(model) * Math.max(sx, sz))
+  }
+  function writeItems(id: number, st: SettlementState) {
+    const items = st.plan.items
+    for (; st.written < items.length; st.written++) writeItem(st.writer, id, st, items[st.written], st.written)
+  }
+
+  // ---------- polity data (ui/politiesData.ts): walls, palaces and garrisons as slot sets of their own ----------
+  /** Population of settlement id at year y (between snapshots, linear). */
+  const popAt = (id: number, y: number) => {
+    const S = hist.snapshotCount
+    const f = Math.max(0, Math.min(S - 1, y / hist.snapshotInterval))
+    const s0 = Math.floor(f), s1 = Math.min(S - 1, s0 + 1)
+    const a = hist.population[s0 * N + id], b = hist.population[s1 * N + id]
+    return a + (b - a) * (f - s0)
+  }
+  /**
+   * The population each wall ring of settlement id encloses: the town as it stood the year
+   * the ring was built, and (a ring built while an older one stands) clearly beyond the
+   * older ring, so rings nest. Per structure id (cached; a longer run keeps the old rings' values).
+   */
+  let wallPops = new Map<number, Map<number, number>>()
+  const wallPopsOf = (id: number): Map<number, number> => {
+    let m = wallPops.get(id)
+    if (m) return m
+    m = new Map()
+    const pd = politiesOf(hist)
+    const list = pd?.wallsOf.get(id) ?? []
+    const done: { b: number; l: number; p: number }[] = []
+    for (const sid of list) {
+      const S = hist.structures[sid]
+      if (!S) continue
+      let p = Math.max(250, popAt(id, S.builtYear))
+      // (beyond an older ring still standing, but not far past the town at its peak)
+      for (const o of done) if (o.b <= S.builtYear && (o.l < 0 || o.l > S.builtYear)) p = Math.max(p, Math.min(o.p * 1.45, Math.max(peak[id], o.p * 1.15)))
+      done.push({ b: S.builtYear, l: S.lostYear, p })
+      m.set(sid, p)
+    }
+    wallPops.set(id, m)
+    return m
+  }
+  /** Whether settlement id is a capital at some time in the history. */
+  const everCapital = (id: number) => {
+    const pd = politiesOf(hist)
+    return !!pd && pd.list.some((x) => x.capitals?.includes(id))
+  }
+  /** Slot sets made from a settlement's plan for the polity data (cached by key; null while its plan is not set up). */
+  const extras = new Map<string, SlotSet>()
+  function townExtra(id: number, key: string, make: (plan: TownPlan) => PlanItem[] | null): SlotSet | null {
+    const k = `${id}:${key}`
+    let set = extras.get(k)
+    if (set) return set
+    const st = states.get(id)
+    if (!st) return null
+    const list = make(st.plan)
+    if (!list) return null
+    const w = new SlotWriter()
+    w.cx = st.ox; w.cy = st.oy; w.cz = st.oz
+    for (let q = 0; q < list.length; q++) writeItem(w, id, st, list[q], 0x4000 + q)
+    set = w.finish()
+    extras.set(k, set)
+    return set
   }
 
   // ---------- the town's ground: streets, squares, yards and gardens ----------
@@ -1701,7 +1696,10 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       ownerCell = null
       territoryGen = null
       computeFacts(next, keep)
+      wallPops = new Map()
     },
+    wallPop: (id, sid) => wallPopsOf(id).get(sid) ?? 0,
+    townExtra,
     settlement: getSettlement,
     settlementReady(id, need) {
       const st = states.get(id)

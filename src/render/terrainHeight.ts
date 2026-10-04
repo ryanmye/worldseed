@@ -30,6 +30,7 @@
 
 import { RIVER_FLOW_THRESHOLD, type History, type World } from '../contract.ts'
 import { townFootprint } from './dioramas/footprint.ts'
+import { MAP_GLSL } from './mapProjection.ts'
 
 /** Relief (fraction of the planet radius per unit of h) of the stored ground and up close. */
 export const RELIEF_NEAR = 0.028
@@ -99,6 +100,9 @@ export function reliefRadius(r: number): number {
 /**
  * GLSL: `ws_relief(p)` moves a point stored at the RELIEF_NEAR ground (plus any lift) to the
  * relief of the moment (radially about sea level). Add `uReliefK: reliefUniforms.uReliefK`.
+ * Also the flat map's projection (mapProjection.ts MAP_GLSL: ws_place, ws_placeV,
+ * ws_placeTri, ws_facing; add `...flatUniforms`), which every layer applies to ws_relief's
+ * result before the model-view matrix.
  */
 export const RELIEF_GLSL = /* glsl */ `
 uniform float uReliefK;
@@ -106,6 +110,7 @@ vec3 ws_relief(vec3 p) {
   float r = length(p);
   return r > 1.0 ? p * ((1.0 + (r - 1.0) * uReliefK) / r) : p;
 }
+${MAP_GLSL}
 `
 
 // ---------- gradient noise (glsl.ts ws_noised), value and gradient ----------
@@ -566,6 +571,13 @@ function buildRiverChannels(world: World, lake: Uint8Array | null): { seg: Float
  * smoothed, from every settlement and every land snapshot of the whole history (so the
  * ground is the same at every year: scrubbing never moves it). Null clears.
  */
+/** Moves the town sites of the flattening to where their plans stand (dioramas/origin.ts registers it; null: cell centres). */
+type TownCentres = (world: World, history: History, siteList: number[], siteCell: number[], siteIds: number[], sitePeak: number[]) => void
+let townCentres: TownCentres | null = null
+export function setTownCentres(fn: TownCentres | null): void {
+  townCentres = fn
+}
+
 export function setTerrainHistory(world: World, history: History | null): void {
   const f = terrainOf(world)
   const N = world.grid.cellCount
@@ -573,6 +585,7 @@ export function setTerrainHistory(world: World, history: History | null): void {
   f.wild = new Float32Array(N).fill(1)
   const siteList: number[] = []
   const siteCell: number[] = []
+  const siteIds: number[] = [], sitePeak: number[] = []
   if (history) {
     // farmed land: the highest land use over the history, per cell
     const lu = history.landUse
@@ -611,7 +624,12 @@ export function setTerrainHistory(world: World, history: History | null): void {
       }
       siteList.push(P[s.cell * 3], P[s.cell * 3 + 1], P[s.cell * 3 + 2], flat, reach)
       siteCell.push(s.cell)
+      siteIds.push(id)
+      sitePeak.push(outpost ? -1 : m)
     }
+    // a coastal or port town's plan centre can stand most of a cell from its cell centre
+    // (dioramas/origin.ts, where layout.ts places the plan): flatten round where it stands
+    townCentres?.(world, history, siteList, siteCell, siteIds, sitePeak)
   }
   const siteCount = siteList.length / 5
   const site = Float32Array.from(siteList)

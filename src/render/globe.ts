@@ -30,6 +30,7 @@ import { closeDetailUniforms } from './dioramas/townMask.ts'
 import { evalGround, newGroundSample, relief, RELIEF_NEAR, reliefUniforms, setReliefAltitude, terrainOf } from './terrainHeight.ts'
 import { createDetailPatch } from './terrainDetail.ts'
 import { requestRender } from './invalidate.ts'
+import { cellDirTexture, flatUniforms, seamCopy } from './mapProjection.ts'
 
 export const PLANET_RADIUS = 1
 /** Stored relief of the ground (fraction of radius per unit of height; terrainHeight.ts): CPU placements use it. */
@@ -37,6 +38,9 @@ export const RELIEF_SCALE = RELIEF_NEAR
 
 /** Sun direction in world space (shared, mutable: see sun.ts) and colour. */
 export { SUN_COLOR, SUN_DIRECTION }
+
+/** Sea of the Factions view on the flat map (sRGB). */
+const MAP_FACTIONS_SEA = [44, 70, 100]
 
 export function lakeArray(world: World): Uint8Array | null {
   const lake = (world as Partial<World>).lake
@@ -113,6 +117,8 @@ export interface GlobeMesh {
   readonly bakeInfo: { ready: boolean; pending: boolean; count: number; lastMs: number; bytes: number; size: number }
   /** Close-zoom detail tiles (perf=1): vertices and triangles drawn for them, tiles, finest level, last build ms, builds. */
   readonly detailInfo: { vertices: number; triangles: number; tiles: number; maxLevel: number; buildMs: number; builds: number; relief: number }
+  /** The flat map's colours (a lighter atlas sea on the Factions view): on while the map shows. */
+  setMapStyle(on: boolean): void
   /** Debug: output noise calls per pixel instead of colour (see glsl.ts). */
   setNoiseCount(on: boolean): void
   /** Debug: false draws the procedural shader even when the bake is ready (A/B timing). */
@@ -455,11 +461,19 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
 
   const modeData: ModeData = { capacity: null, capacityMax: 0, density: null, densityMax: 0 }
   let currentMode = mode
+  let mapStyle = false
   const cellColor = new Uint8Array(cellCount * 4)
   const applyColors = (m: ViewMode) => {
     currentMode = m
+    // the political map on the flat map: an atlas sea, lighter than the globe's (the plate stands off its surround)
+    const atlasSea = mapStyle && m === ViewMode.Factions
     for (let i = 0; i < cellCount; i++) {
       colorForMode(m, world, i, cellColor, i * 4, 255, modeData)
+      if (atlasSea && isWaterCell(world, lake, i)) {
+        cellColor[i * 4] = MAP_FACTIONS_SEA[0]
+        cellColor[i * 4 + 1] = MAP_FACTIONS_SEA[1]
+        cellColor[i * 4 + 2] = MAP_FACTIONS_SEA[2]
+      }
       cellColor[i * 4 + 3] = lake !== null && lake[i] === 1 ? 255 : 0
     }
     const arrays = corner.map((a) => a.array as Uint8Array)
@@ -519,11 +533,16 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     uShade: { value: relief.shade },
     uDetailShade: { value: relief.detailShade },
     uDetailFreq: { value: field.detailFreq },
+    // the flat map (mapProjection.ts)
+    ...flatUniforms,
   }
+  flatUniforms.uWsCellDir.value = cellDirTexture(world)
   // procedural: data views, and the Terrain view until its bake is ready
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader: PLANET_VERT, fragmentShader: PLANET_FRAG })
 
   const mesh = new THREE.Mesh(geometry, material)
+  // on the flat map, the triangles across the antimeridian drawn again a world over
+  seamCopy(mesh)
   const tmpQ = new THREE.Quaternion()
   const camDir = new THREE.Vector3()
   /** Wall-clock budget per frame for building detail tiles (ms). */
@@ -543,6 +562,8 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     uCityLights: { value: 0 },
     uReliefK: { value: 1 },
     uDetailFreq: { value: field.detailFreq },
+    // (always the globe: no uFlat)
+    uWsCellDir: flatUniforms.uWsCellDir,
   }
   const disposeBake = () => {
     bake?.dispose()
@@ -736,6 +757,11 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     setBakeUse(on: boolean) {
       useBakeWhenReady = on
       pickMaterial()
+    },
+    setMapStyle(on: boolean) {
+      if (on === mapStyle) return
+      mapStyle = on
+      if (currentMode === ViewMode.Factions) applyColors(currentMode)
     },
     setNoiseCount(on: boolean) {
       countNoise = on

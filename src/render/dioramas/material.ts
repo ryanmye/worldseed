@@ -22,6 +22,12 @@ import * as THREE from 'three'
 import { SUN_COLOR, SUN_DIRECTION } from '../globe.ts'
 import { sunUniforms } from '../sun.ts'
 import { KK } from './models.ts'
+import { SACK_YEARS } from '../../ui/politiesData.ts'
+
+/** Facade flag (aInfo.w, integer part, bit 2) of a model from the KayKit and Kenney packs: toned toward the generated buildings' palette. */
+export const FACADE_PACK = 2
+/** Facade flag (bit 4) of a column of smoke: it stands only while its aRuin years last (the sack's), rising a little. */
+export const FACADE_SMOKE = 4
 
 /** Team colours (linear RGB); index 0 keeps the model's own colours. */
 export const PALETTE: readonly [number, number, number][] = [
@@ -103,6 +109,20 @@ const LIFE_GLSL = /* glsl */ `
     float life = easeOutBack(grow) * (1.0 - shrink * shrink);
     return life * near * near * (3.0 - 2.0 * near) * smoothstep(0.0, 0.12, facing);
   }
+  // A sacked house: aRuin holds the years it stands burnt out (0, 0: never). Its roof and
+  // ceiling are gone and its walls broken down to a ragged height, or (one in four) it is a
+  // low heap of its own walls. Generated houses only (their roofs carry the roof mask).
+  attribute vec2 aRuin;
+  float ruinState() {
+    return aRuin.y > aRuin.x && uYear >= aRuin.x && uYear < aRuin.y ? 1.0 : 0.0;
+  }
+  vec3 ruinPos(vec3 p, vec3 origin, float eave) {
+    float h = fract(sin(dot(origin * 913.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float m = aColor.a;
+    if ((m > 0.6 && m < 0.9) || normal.y > 0.9) return vec3(0.0, -0.3, 0.0);
+    float top = h < 0.25 ? 0.07 : max(0.14, eave * (0.5 + 0.35 * fract(h * 7.31)));
+    return vec3(p.x, min(p.y, top * (0.8 + 0.2 * sin(p.x * 11.0 + p.z * 7.0 + h * 40.0))), p.z);
+  }
 `
 
 const SKY = 'vec3(0.30, 0.50, 0.95)'
@@ -179,6 +199,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       varying float vSeed;
       varying float vRoof;
       varying float vSnow;
+      varying float vRuin;
       attribute vec4 aRoof; // roof colour (linear), snow
       attribute vec3 aWall; // wall colour (linear)
       attribute vec4 aInfo; // facade: style + 1, lowest floor, eave, flags + seed
@@ -189,11 +210,16 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       void main() {
         vec3 origin = instanceMatrix[3].xyz;
         float s = instanceSize(origin);
+        bool smoke = aInfo.x < 0.5 && mod(floor(aInfo.w * 0.25), 2.0) > 0.5;
+        if (smoke) s *= ruinState();
         if (s <= 0.002) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 wp = instanceMatrix * vec4(position * s, 1.0);
+        vRuin = smoke ? 0.0 : ruinState();
+        vec3 lp = vRuin > 0.5 ? ruinPos(position, origin, aInfo.z) : position;
+        if (smoke) lp.y *= 0.6 + 0.4 * clamp((uYear - aRuin.x) / 0.4, 0.0, 1.0);
+        vec4 wp = instanceMatrix * vec4(lp * s, 1.0);
         gl_Position = projectionMatrix * modelViewMatrix * wp;
         vObj = wp.xyz;
         vN = normalize(mat3(instanceMatrix) * normal);
@@ -221,17 +247,19 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           c = aWall * (c.r / 0.5);
           vMask = 1.0;
         }
-        // a touch less saturated and bright than the packs, closer to the planet's albedos
+        // a touch less saturated and bright than the packs, closer to the planet's albedos (the
+        // packs' own landmarks more so, to sit with the generated houses)
         float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
         vSeed = fract(sin(dot(origin * 1000.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-        vAlb = mix(vec3(lum), c, 0.85) * 0.9 * (0.94 + 0.12 * vSeed);
+        bool pack = aInfo.x < 0.5 && mod(floor(aInfo.w * 0.5), 2.0) > 0.5;
+        vAlb = mix(vec3(lum), c, pack ? 0.64 : 0.85) * (pack ? 0.86 : 0.9) * (0.94 + 0.12 * vSeed);
         vSnow = aRoof.a;
-        vLocal = position;
+        vLocal = lp;
         vLocalN = normal;
         vScale = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz)) / uKK;
         vInfo = aInfo;
         vFace = aFace;
-        vLit = mod(aAnim.w, 2.0);
+        vLit = vRuin > 0.5 ? 0.0 : mod(aAnim.w, 2.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -253,6 +281,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       varying float vSeed;
       varying float vRoof;
       varying float vSnow;
+      varying float vRuin;
       float hash12(vec2 p) {
         return fract(sin(dot(p, vec2(12.9898, 78.233)) + vSeed * 91.7) * 43758.5453);
       }
@@ -430,6 +459,11 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
             }
           }
         }
+        // a burnt-out shell: soot over everything, blackest high up and inside
+        if (vRuin > 0.5) {
+          alb = mix(alb, vec3(0.05, 0.045, 0.04), 0.5 + 0.3 * smoothstep(0.0, 0.35, vLocal.y)) * (gl_FrontFacing ? 1.0 : 0.45);
+          winMask = 0.0;
+        }
         // snow on roofs (and lightly on other upward faces) where the ground is snowy
         if (vSnow > 0.0) alb = mix(alb, vec3(0.82, 0.85, 0.9), vSnow * smoothstep(0.3, 0.75, up) * (vRoof > 0.5 ? 1.0 : 0.55) * step(0.02, vLocal.y));
         // the sun's shadow (casters: every model near the view)
@@ -582,6 +616,7 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
       attribute vec2 aUv;
       attribute float aKind;
       attribute vec2 aLife;
+      attribute vec2 aScorch; // sack year, share burnt (0: none)
       uniform float uYear;
       uniform float uAnimYears;
       uniform vec3 uCamObj;
@@ -592,7 +627,9 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
       varying vec2 vUv;
       varying float vKind;
       varying float vA;
+      varying float vScorch;
       void main() {
+        vScorch = aScorch.y * step(aScorch.x, uYear) * clamp(1.0 - (uYear - aScorch.x) / ${SACK_YEARS.toFixed(1)}, 0.0, 1.0);
         float grow = clamp((uYear - aLife.x) / uAnimYears, 0.0, 1.0);
         float shrink = clamp((uYear - aLife.y) / uAnimYears, 0.0, 1.0);
         float dist = length(uCamObj - position);
@@ -620,6 +657,7 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
       varying vec2 vUv;
       varying float vKind;
       varying float vA;
+      varying float vScorch;
       float h21(vec2 p) {
         vec3 q = fract(vec3(p.xyx) * 0.1031);
         q += dot(q, q.yzx + 33.33);
@@ -667,6 +705,9 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
           float row = band(fract(uv.y / 0.07), 0.25, 0.75, px / 0.07);
           alb = mix(alb, mix(alb, crop, row), det * 0.9 + 0.1) * (0.92 + 0.16 * n2);
         }
+        // a sacked town's scorched ground, in patches, fading over the years after
+        float burnt = vScorch > 0.0 ? vScorch * smoothstep(0.42, 0.6, vnoise(uv * 0.7 + 3.1) * 0.75 + n2 * 0.25) : 0.0;
+        alb = mix(alb, alb * 0.2 + vec3(0.012, 0.01, 0.008), min(1.0, burnt * 1.6));
         float diff = max(dot(N, L), 0.0) * day;
         vec3 sky = mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu));
         vec3 col = alb * (uSunColor * diff + sky * 1.4);
@@ -691,6 +732,7 @@ export function createDepthMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
     colorWrite: false,
     vertexShader: /* glsl */ `
       ${LIFE_GLSL}
+      attribute vec4 aInfo;
       void main() {
         vec3 origin = instanceMatrix[3].xyz;
         float s = instanceSize(origin);
@@ -698,7 +740,8 @@ export function createDepthMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        gl_Position = projectionMatrix * modelViewMatrix * (instanceMatrix * vec4(position * s, 1.0));
+        vec3 lp = ruinState() > 0.5 ? ruinPos(position, origin, aInfo.z) : position;
+        gl_Position = projectionMatrix * modelViewMatrix * (instanceMatrix * vec4(lp * s, 1.0));
       }
     `,
     fragmentShader: /* glsl */ `

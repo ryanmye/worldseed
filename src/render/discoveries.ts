@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { DiscoveryKind, type Discovery } from '../ui/expeditionsData.ts'
 
@@ -52,6 +53,7 @@ export function buildDiscoveryLayer(world: World, list: readonly Discovery[]): D
   quad.instanceCount = n
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uPulseYears: { value: 20 },
     uViewport: { value: new THREE.Vector2(1, 1) },
@@ -89,7 +91,7 @@ export function buildDiscoveryLayer(world: World, list: readonly Discovery[]): D
         bool shown = uYear >= aInfo.x;
         if (uMaskOn > 0.5 && uYear < aKnown) shown = false;
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         if (!shown || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -100,7 +102,7 @@ export function buildDiscoveryLayer(world: World, list: readonly Discovery[]): D
         vPole = aInfo.y;
         float r = (vPole > 0.5 ? 7.5 : 5.0) * uSizeScale * mix(0.6, 1.0, sqrt(facing));
         float ext = vPulse >= 0.0 ? r + 34.0 : r + 3.0;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosR, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(aPosR), 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;

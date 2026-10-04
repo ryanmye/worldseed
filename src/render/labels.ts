@@ -25,6 +25,7 @@ import * as THREE from 'three'
 import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
 import { surfaceRadius } from './globe.ts'
 import { reliefRadius } from './terrainHeight.ts'
+import { equalEarthKx, equalEarthLat, equalEarthY, flat, flatLam, placeFlat } from './mapProjection.ts'
 import { requestRender } from './invalidate.ts'
 
 /** A newly named feature's label fades in over this many years, and glows for GLOW_YEARS. */
@@ -369,6 +370,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   let lastYear = NaN
   let playing = false
   let lastW = 0, lastH = 0, lastFov = 0
+  let lastFlat = -1
 
   const mvp = new THREE.Matrix4()
   const invPlanet = new THREE.Matrix4()
@@ -377,8 +379,13 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   const placements: Placement[] = []
   const v4 = new THREE.Vector4()
 
-  /** Projects a local point: writes screen x, y (CSS px), clip w and facing into proj; false when behind the camera. */
-  const proj = { x: 0, y: 0, w: 1, facing: 0 }
+  /**
+   * Projects a local point: writes screen x, y (CSS px), clip w and facing into proj; false
+   * when behind the camera. On the flat map (mapProjection.ts) also its longitude from the
+   * central meridian (proj.lam), and everything faces the viewer.
+   */
+  const proj = { x: 0, y: 0, w: 1, facing: 0, lam: 0 }
+  const flatTmp = new THREE.Vector3()
   let W = 1, H = 1
   const project = (x: number, y: number, z: number): boolean => {
     // where the ground under the anchor is drawn at the zoom's relief (terrainHeight.ts ws_relief)
@@ -387,7 +394,11 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       const f = reliefRadius(rr) / rr
       x *= f; y *= f; z *= f
     }
-    v4.set(x, y, z, 1).applyMatrix4(mvp)
+    if (flat.t > 0) {
+      proj.lam = flatLam(x, z)
+      placeFlat(flatTmp.set(x, y, z))
+      v4.set(flatTmp.x, flatTmp.y, flatTmp.z, 1).applyMatrix4(mvp)
+    } else v4.set(x, y, z, 1).applyMatrix4(mvp)
     if (v4.w <= 1e-6) return false
     proj.x = (v4.x / v4.w + 1) * 0.5 * W
     proj.y = (1 - v4.y / v4.w) * 0.5 * H
@@ -395,6 +406,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     const dx = camLocal.x - x, dy = camLocal.y - y, dz = camLocal.z - z
     const r = Math.hypot(x, y, z), d = Math.hypot(dx, dy, dz)
     proj.facing = (x * dx + y * dy + z * dz) / (r * d)
+    if (flat.t > 0) proj.facing += (1 - proj.facing) * flat.t
     return true
   }
 
@@ -428,7 +440,10 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     // visible run of the path around the anchor
     const ai = Math.round(l.pathAnchor * (n - 1))
     let a = ai, b = ai
-    const vis = (i: number) => project(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) && proj.facing > 0.05
+    // (on the flat map a path stops at the antimeridian, where it would jump across the map)
+    let lamA = 0
+    const vis = (i: number) => project(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]) && proj.facing > 0.05 && (flat.t <= 0 || Math.abs(proj.lam - lamA) < 2)
+    if (flat.t > 0 && project(path[ai * 3], path[ai * 3 + 1], path[ai * 3 + 2])) lamA = proj.lam
     if (!vis(ai)) return -1
     while (a > 0 && vis(a - 1)) a--
     while (b < n - 1 && vis(b + 1)) b++
@@ -499,7 +514,14 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
 
   /** The globe's outline on screen (centre and radius, CSS px): labels stay inside it. */
   const disk = { x: 0, y: 0, r2: 0 }
-  const onDisk = (x: number, y: number) => (x - disk.x) * (x - disk.x) + (y - disk.y) * (y - disk.y) <= disk.r2
+  /** On the flat map: screen pixels per map unit and the map y of the clip latitude (labels stay on the map). */
+  const mapClip = { on: false, k: 1, yTop: 1 }
+  const onMap = (x: number, y: number) => {
+    const my = flat.y0 - (y - H / 2) / mapClip.k
+    if (Math.abs(my) > mapClip.yTop) return false
+    return Math.abs((x - W / 2) / mapClip.k) <= Math.PI * equalEarthKx(equalEarthLat(my))
+  }
+  const onDisk = (x: number, y: number) => (mapClip.on ? onMap(x, y) : (x - disk.x) * (x - disk.x) + (y - disk.y) * (y - disk.y) <= disk.r2)
 
   /** Collision boxes of a placement; returns false (adding nothing) when one overlaps or it leaves the globe. */
   const tryPlace = (pl: Placement, commit: boolean): boolean => {
@@ -548,6 +570,11 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     const sinA = Math.min(0.9999, 1 / Math.max(1.0001, camDist))
     const rPx = (H / 2) * (sinA / Math.sqrt(1 - sinA * sinA)) / tanHalf
     disk.r2 = (rPx * 0.985) * (rPx * 0.985)
+    // the flat map has no limb: the labels keep to the map (and to the screen during the morph)
+    if (flat.t > 0) disk.r2 = Infinity
+    mapClip.on = flat.t >= 1
+    mapClip.k = H / (2 * tanHalf * Math.max(1e-4, camDist - 1))
+    mapClip.yTop = equalEarthY(flat.poleClip)
     cands.length = 0
     glyphSlot = 0
     grid.clear()
@@ -830,7 +857,9 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       const planetSame = same(lastPlanet, planet.matrixWorld)
       const ratio = Math.min(2, window.devicePixelRatio || 1)
       const sizeSame = cssWidth === lastW && cssHeight === lastH && ratio === dpr && camera.fov === lastFov
-      if (camSame && planetSame && sizeSame && year === lastYear && !dirty) return
+      const flatSame = flat.version === lastFlat
+      lastFlat = flat.version
+      if (camSame && planetSame && sizeSame && flatSame && year === lastYear && !dirty) return
       // a jump in time (scrubbing, a new history) lays out afresh: no hysteresis, no fades
       const fresh = Number.isNaN(lastYear) || (!playing && !(Math.abs(year - lastYear) <= JUMP_YEARS))
       lastYear = year

@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefRadius, reliefUniforms } from './terrainHeight.ts'
+import { flatActive, flatFacing, flatUniforms, placeFlat } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of marker centres above the ground. */
@@ -122,6 +123,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
 
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uFrac: { value: 0 },
     uPulseYears: { value: 20 },
@@ -185,7 +187,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         vPeople = aPeople;
         vContact = uMaskOn > 0.5 && uYear >= aMask.y ? 1.0 : 0.0;
         vec3 up = normalize(aCenterR);
-        float facing = dot(up, normalize(uCamObj - aCenterR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aCenterR)));
         if (!alive || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside the clip volume
           return;
@@ -211,7 +213,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         else if (vContact > 0.5) ext = r + 4.5;
         if (vPulse >= 0.0) ext = max(ext, r + 20.0);
         if (vTier > 1.5) ext = max(ext, r + 7.0); // glow
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aCenterR, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(aCenterR), 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;
@@ -383,12 +385,13 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       for (let id = 0; id < N; id++) {
         if (!shownAt(id)) continue
         const cx = center[id * 3], cy = center[id * 3 + 1], cz = center[id * 3 + 2]
-        // visible hemisphere: (camera - c) . c > 0
-        if ((camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
+        // visible hemisphere: (camera - c) . c > 0 (on the flat map, everything)
+        if (!flatActive() && (camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
         const cl = Math.hypot(cx, cy, cz)
         const dx = camLocal.x - cx, dy = camLocal.y - cy, dz = camLocal.z - cz
-        const facing = (dx * cx + dy * cy + dz * cz) / (cl * Math.hypot(dx, dy, dz))
-        tmpV.set(cx, cy, cz).multiplyScalar(reliefRadius(cl) / cl).applyMatrix4(mvp) // as drawn (ws_relief)
+        const facing = flatFacing((dx * cx + dy * cy + dz * cz) / (cl * Math.hypot(dx, dy, dz)))
+        if (facing <= 0) continue
+        placeFlat(tmpV.set(cx, cy, cz).multiplyScalar(reliefRadius(cl) / cl)).applyMatrix4(mvp) // as drawn (ws_relief, ws_place)
         const sx = ((tmpV.x + 1) / 2) * width
         const sy = ((1 - tmpV.y) / 2) * height
         const d = Math.hypot(sx - x, sy - y)

@@ -27,6 +27,7 @@ import * as THREE from 'three'
 import type { Journeys, World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of the routes above the ground (settlement markers sit at 0.004). */
@@ -365,6 +366,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
 
   const shared = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
@@ -439,16 +441,16 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       if (aKind.x > 1.5) core *= 0.72; // expeditions: a finer line
       float rim = uMode == 1 ? mix(0.3, 1.1, uClose) : 0.0;
       vec3 base = positionR - normalize(positionR) * uDrop;
-      vec4 mv = modelViewMatrix * vec4(base, 1.0);
+      vec4 mv = modelViewMatrix * vec4(ws_place(base), 1.0);
       float pix = -mv.z * uPixel * uPixelRatio;
       float outer = core + rim + 0.6;
       vCore = core / outer;
       vSoft = 0.9 / outer;
       vAcross = aSide.w;
       vec3 p = base + aSide.xyz * aSide.w * outer * pix;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
       vec3 up = normalize(positionR);
-      vFacing = dot(up, normalize(uCamObj - positionR));
+      vFacing = ws_facing(dot(up, normalize(uCamObj - positionR)));
       vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       vFrac = aTime.z;
       vArc = aTime.w;
@@ -471,7 +473,9 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     varying float vWater;
     varying float vFacing;
     varying float vNight;
+    ${SEAM_FRAG_GLSL}
     void main() {
+      ws_clipLine();
       if (uMode == 0 && vAge < 0.0) discard; // not reached yet: the trail ends at the group
       float limb = smoothstep(0.0, 0.3, vFacing);
       float x = abs(vAcross);
@@ -575,13 +579,13 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
         vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         vec3 up = normalize(aPosR);
         vec3 at = aPosR - up * uDrop;
-        float facing = dot(up, normalize(uCamObj - at));
+        float facing = ws_facing(dot(up, normalize(uCamObj - at)));
         if (facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
-        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(at + aDir * 0.01, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(at), 1.0);
+        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(ws_place(at + aDir * 0.01), 1.0);
         vec2 d = (ahead.xy / ahead.w - clip.xy / clip.w) * uViewport;
         vec2 fwd = length(d) > 1e-5 ? normalize(d) : vec2(1.0, 0.0);
         vec2 side = vec2(-fwd.y, fwd.x);

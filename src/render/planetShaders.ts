@@ -125,7 +125,14 @@ void main() {
       texelFetch(uLightTex, ivec2(cx.y, cy.y), 0).r,
       texelFetch(uLightTex, ivec2(cx.z, cy.z), 0).r);
   }
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_relief(position), 1.0);
+  // (on the flat map: unwrapped at the antimeridian, mapProjection.ts; what hangs past the
+  // map's edge lies under the frame's matte, mapFrame.ts, so this shader needs no clip)
+  vec3 pDrawn = ws_placeTri(ws_relief(position), aCorners);
+  if (ws_cull > 0.5) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    return;
+  }
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(pDrawn, 1.0);
 }
 `
 
@@ -403,6 +410,8 @@ void main() {
   vec3 p = vObjPos;
   vec3 up = normalize(p);
   vec3 V = normalize(uCamObj - ws_relief(p));
+  // (the flat map is seen from straight above)
+  if (uFlat > 0.0) V = normalize(mix(V, up, uFlat));
   vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), up) + vec3(1e-5, 0.0, 0.0));
   vec3 north = cross(up, east);
   vec3 L = sunAt(up, east, north);
@@ -548,6 +557,8 @@ void main() {
         spec = fresH * 15.0 * (glintLobe(Nw, H, east, north, ax, ax * 0.55, nl) * glitter + 0.12 * sheen);
       }
       spec *= dayFade * (1.0 - ice);
+      // (no glint on the flat map)
+      if (uFlat > 0.0) spec *= 1.0 - uFlat;
       float fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
       float wdiff = max(mu, 0.0) * dayFade;
       sea = wcol * (uSunColor * wdiff * 0.9 + skyAmb * 1.2);
@@ -681,6 +692,8 @@ void main() {
   vec3 p = vObjPos;
   vec3 up = normalize(p);
   vec3 V = normalize(uCamObj - ws_relief(p));
+  // (the flat map is seen from straight above)
+  if (uFlat > 0.0) V = normalize(mix(V, up, uFlat));
   vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), up) + vec3(1e-5, 0.0, 0.0));
   vec3 north = cross(up, east);
   vec3 L = sunAt(up, east, north);
@@ -810,6 +823,8 @@ void main() {
       spec = fresH * 15.0 * (glintLobe(Nw, H, east, north, ax, ax * 0.55, nl) * glitter + 0.12 * sheen);
     }
     spec *= dayFade * (1.0 - ice);
+    // (no glint on the flat map)
+    if (uFlat > 0.0) spec *= 1.0 - uFlat;
     float fres = 0.02 + 0.98 * pow(1.0 - nv, 5.0);
     float wdiff = max(mu, 0.0) * dayFade;
     sea = wcol * (uSunColor * wdiff * 0.9 + skyAmb * 1.2);

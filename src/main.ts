@@ -18,7 +18,13 @@ import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIs
 import { loadQuality, Quality, QUALITY_SETTINGS, saveQuality } from './render/quality.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
+import { addShortcut } from './ui/shortcuts.ts'
 import { located, renderedGroundRadius, setTerrainHistory } from './render/terrainHeight.ts'
+import { flat, setFlatView, syncSeamCopies } from './render/mapProjection.ts'
+import { createMapControls } from './render/mapControls.ts'
+import { buildMapFrame } from './render/mapFrame.ts'
+import { sunUniforms } from './render/sun.ts'
+import { loadPref, savePref } from './ui/panels.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -32,6 +38,7 @@ import { located, renderedGroundRadius, setTerrainHistory } from './render/terra
 // expeditions=0 (no expedition trails, supply lines, lost-expedition marks or discoveries), species=<id> (select a species),
 // view=crops|herds (main staple / herd animal per cell, when the history has them),
 // factions=0 (no faction tint and borders on the Terrain view), polity=<id> (select a faction), view=factions|danger (when the history has them)
+// map=1|0 (the flat map, Equal Earth; else the remembered choice), mapcenter=<degrees> (its central meridian)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -119,7 +126,8 @@ function groundUnder(x: number, y: number, z: number): number {
   groundStart = located.cell
   return r
 }
-if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings, groundUnder) // leans the view toward the horizon up close
+// (never on the flat map, which is seen from straight above)
+if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings && !mapOn && flat.t === 0, groundUnder) // leans the view toward the horizon up close
 
 // The planet turns beneath a sun fixed in world space; the first drag stops it.
 let spinning = numParam('spin', 1) !== 0
@@ -156,6 +164,37 @@ const planetGroup = new THREE.Group()
 planetGroup.rotation.y = -THREE.MathUtils.degToRad(numParam('lon', 0))
 scene.add(planetGroup)
 
+// ---------- the flat map (render/mapProjection.ts): map=1, mapcenter=<degrees>, remembered ----------
+// Globe and map are one scene: every layer goes through the shared projection, whose amount
+// (flat.t) morphs between the two. The map lies under the camera, which stays where a globe
+// camera looking at the same place would be, so switching keeps the view's centre and scale.
+const MAP_KEY = 'worldseed.map'
+const MORPH_SECONDS = 0.8
+/** Map background (around the map plate), and the globe's space. */
+const MAP_BG = new THREE.Color(0x0b1016)
+const SPACE_BG = new THREE.Color(0x010205)
+const clearTmp = new THREE.Color()
+let mapOn = params.has('map') ? params.get('map') === '1' : loadPref(MAP_KEY) === '1'
+// (remembered on: written to the URL, so the address reproduces the view)
+if (mapOn && !params.has('map')) setUrlParam('map', '1')
+/** Morph progress toward the map (0 globe .. 1 map), eased into flat.t. */
+let morph = mapOn ? 1 : 0
+// (no auto-rotation on the map)
+if (mapOn) spinning = false
+const easeMorph = (x: number) => x * x * (3 - 2 * x)
+const mapFrame = buildMapFrame()
+planetGroup.add(mapFrame.matte, mapFrame.graticule, mapFrame.neatline)
+const mapControls = createMapControls(camera, canvas, planetGroup, () => {
+  spinning = false
+  fly.cancel()
+})
+let mapUrlTimer = 0
+function writeMapUrl() {
+  mapUrlTimer = 0
+  if (mapOn) setUrlParam('mapcenter', String(Math.round(THREE.MathUtils.radToDeg(mapControls.lon) * 10) / 10))
+}
+const flatCam = new THREE.Vector3()
+
 let currentGlobe: GlobeMesh | null = null
 let currentRivers: RiverLines | null = null
 let currentClouds: Clouds | null = null
@@ -180,16 +219,23 @@ let showTrade = layerOn('trade', 'trade') // trade=0: no trade routes or merchan
 let showRoads = layerOn('roads', 'roads') // roads=0: no roads or bridges
 let showLabels = layerOn('labels', 'labels') // labels=0: no place names
 let showExpeditions = layerOn('expeditions', 'expeditions') // expeditions=0: no expedition trails, supply lines or discoveries
+// the flat map's own toggles (remembered, no URL): clouds there (off by default), the graticule, day and night
+let showMapClouds = layerPrefs['mapClouds'] ?? false
+let showGraticule = layerPrefs['graticule'] ?? true
+let showMapNight = layerPrefs['mapNight'] ?? false
 const showFactions = layerOn('factions', 'factions') // factions=0: no faction tint, borders, capitals and armies
 /** While a known world is shown its mist goes under the clouds (historyView.ts). */
 let cloudsOverFog = false
 let viewMode: ViewModeT = isViewMode(params.get('view')) ? (params.get('view') as ViewModeT) : ViewMode.Terrain
 
+let atmosphereStrength = 1
 function applyLayerVisibility() {
   const terrain = viewMode === ViewMode.Terrain
   if (currentRivers) currentRivers.lines.visible = showRivers && terrain
-  if (currentClouds) currentClouds.mesh.visible = showClouds && terrain
-  atmosphere.setStrength(terrain ? 1 : 0.35)
+  // (on the map its own clouds toggle: see draw)
+  if (currentClouds) currentClouds.mesh.visible = (flat.t >= 0.5 ? showMapClouds : showClouds) && terrain
+  atmosphereStrength = terrain ? 1 : 0.35
+  atmosphere.setStrength(atmosphereStrength * (1 - Math.min(1, flat.t / 0.45)))
   requestRender()
 }
 
@@ -216,6 +262,7 @@ function showWorld(world: World) {
   clearPlanet()
   currentWorld = world
   currentGlobe = buildGlobeMesh(world, viewMode)
+  currentGlobe.setMapStyle(flat.t >= 0.5)
   currentGlobe.setFarmlandVisible(showFarmland)
   currentGlobe.setReservoirsVisible(showStructures)
   planetGroup.add(currentGlobe.mesh)
@@ -377,7 +424,8 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
   onBuildingsToggle(show: boolean) {
     showBuildings = show
     setUrlParam('models', show ? null : '0')
-    historyView.setBuildingsVisible(show)
+    // (the 3D towns stay on the globe)
+    historyView.setBuildingsVisible(show && !mapOn)
   },
   onTradeToggle(show: boolean) {
     showTrade = show
@@ -393,6 +441,9 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     showLabels = show
     setUrlParam('labels', show ? null : '0')
     historyView.setLabelsVisible(show)
+  },
+  onProjectionChange(map: boolean) {
+    setMapMode(map)
   },
 })
 
@@ -469,11 +520,126 @@ historyView.setViewMode(viewMode)
 historyView.setMarkersVisible(showMarkers)
 historyView.setJourneysVisible(showJourneys)
 historyView.setStructuresVisible(showStructures)
-historyView.setBuildingsVisible(showBuildings)
+historyView.setBuildingsVisible(showBuildings && !mapOn)
 historyView.setTradeVisible(showTrade)
 historyView.setRoadsVisible(showRoads)
 historyView.setLabelsVisible(showLabels)
 historyView.setExpeditionsVisible(showExpeditions)
+
+// ---------- Globe / Map ----------
+
+const rowOf = (box: HTMLInputElement) => box.closest('.layer-toggle') as HTMLElement | null
+const mapCloudsBox = overlay.addLayerToggle({
+  key: 'mapClouds',
+  label: 'Clouds',
+  group: 'nature',
+  checked: showMapClouds,
+  title: 'Clouds over the map',
+  onChange: (on) => {
+    showMapClouds = on
+    applyLayerVisibility()
+  },
+})
+const graticuleBox = overlay.addLayerToggle({
+  key: 'graticule',
+  label: 'Graticule',
+  group: 'nature',
+  checked: showGraticule,
+  title: 'Meridians and parallels every 30 degrees on the map',
+  onChange: (on) => {
+    showGraticule = on
+    requestRender()
+  },
+})
+const mapNightBox = overlay.addLayerToggle({
+  key: 'mapNight',
+  label: 'Day and night',
+  group: 'nature',
+  checked: showMapNight,
+  title: 'The sun on the map: the terminator and the night lights sweep across (else daylight everywhere)',
+  onChange: (on) => {
+    showMapNight = on
+    // the night sweeps across the map as the planet turns beneath the sun
+    spinning = on && mapOn
+    requestRender()
+  },
+})
+const cloudsBox = document.querySelector<HTMLInputElement>('input[data-layer="clouds"]')
+const buildingsBox = document.querySelector<HTMLInputElement>('input[data-layer="buildings"]')
+/** Toggles that belong to one projection: shown in it only. */
+function syncMapUi() {
+  const show = (box: HTMLInputElement | null, on: boolean) => {
+    const row = box ? rowOf(box) : null
+    if (row) row.classList.toggle('hidden', !on)
+  }
+  show(cloudsBox, !mapOn)
+  show(mapCloudsBox, mapOn)
+  show(graticuleBox, mapOn)
+  show(mapNightBox, mapOn)
+  if (buildingsBox) {
+    buildingsBox.disabled = mapOn
+    const row = rowOf(buildingsBox)
+    if (row) row.title = mapOn ? '3D towns show on the globe only: the map keeps the flat markers' : '3D towns, farms and ships up close'
+  }
+  overlay.setProjection(mapOn)
+}
+
+/** Switch between the globe and the flat map (a morph keeping the view's centre and scale). */
+function setMapMode(on: boolean, animate = true) {
+  if (on === mapOn) return
+  mapOn = on
+  savePref(MAP_KEY, on ? '1' : '0')
+  setUrlParam('map', on ? '1' : null)
+  if (!on) setUrlParam('mapcenter', null)
+  fly.cancel()
+  if (on) {
+    // leave the orbit: no tilt (restored by one update with it off), no auto-rotation
+    controls.update()
+    controls.enabled = false
+    spinning = showMapNight
+    mapControls.sync()
+    historyView.setBuildingsVisible(false)
+  } else {
+    mapControls.enabled = false
+    mapControls.stop()
+    spinning = false
+  }
+  if (!animate) {
+    morph = on ? 1 : 0
+    morphDone()
+  }
+  syncMapUi()
+  applyLayerVisibility()
+  requestRender()
+  wake()
+}
+/** The morph reached its end: hand the camera to the controls of the projection. */
+function morphDone() {
+  if (mapOn) {
+    mapControls.enabled = true
+  } else {
+    mapControls.enabled = false
+    controls.enabled = true
+    camera.up.set(0, 1, 0)
+    camera.lookAt(0, 0, 0)
+    historyView.setBuildingsVisible(showBuildings)
+  }
+  applyLayerVisibility()
+}
+addShortcut({ keys: ['m', 'M'], label: 'M', description: 'Globe / flat map', group: 'View', run: () => setMapMode(!mapOn) })
+if (mapOn) {
+  // starting on the map: the whole world unless a distance is given, centred on mapcenter (degrees) if given
+  controls.enabled = false
+  const lonDeg = params.has('mapcenter') ? numParam('mapcenter', 0) : numParam('az', 0) + numParam('lon', 0)
+  const az = THREE.MathUtils.degToRad(lonDeg - numParam('lon', 0))
+  const lat = THREE.MathUtils.degToRad(numParam('lat', 0, -89, 89))
+  const dist = params.has('dist') ? numParam('dist', 3.25, 1.03, 8) : 1 + mapControls.fitAltitude() * 1.02
+  camera.position.set(dist * Math.sin(az) * Math.cos(lat), dist * Math.sin(lat), dist * Math.cos(az) * Math.cos(lat))
+  camera.lookAt(0, 0, 0)
+  mapControls.sync()
+  mapControls.enabled = true
+}
+syncMapUi()
 
 setUrlParam('seed', String(currentSeed))
 requestWorld(currentSeed)
@@ -660,6 +826,39 @@ function applySize() {
   renderer.setSize(window.innerWidth, window.innerHeight)
 }
 
+/**
+ * The projection of the moment (render/mapProjection.ts): the morph amount, the map centred
+ * under the camera; and what goes with it: the sky fades out, the map's frame and background
+ * fade in, daylight everywhere on the map unless Day and night is on. No allocation.
+ */
+function updateFlat() {
+  const t = easeMorph(morph)
+  if (t > 0 || flat.t > 0) {
+    planetGroup.updateWorldMatrix(true, false)
+    flatCam.copy(camera.position)
+    planetGroup.worldToLocal(flatCam)
+    const was = flat.t
+    setFlatView(t, flatCam.x, flatCam.y, flatCam.z)
+    if ((was >= 0.5) !== (t >= 0.5) || (was > 0) !== (t > 0)) {
+      applyLayerVisibility()
+      currentGlobe?.setMapStyle(t >= 0.5)
+    }
+  }
+  const terrain = viewMode === ViewMode.Terrain
+  atmosphere.mesh.visible = t < 0.45
+  atmosphere.setStrength(atmosphereStrength * (1 - Math.min(1, t / 0.45)))
+  stars.visible = t < 0.5
+  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - Math.min(1, t / 0.5)
+  if (currentClouds) currentClouds.mesh.visible = (t >= 0.5 ? showMapClouds : showClouds) && terrain
+  mapFrame.neatline.visible = t > 0.5
+  mapFrame.graticule.visible = t > 0.5 && showGraticule
+  mapFrame.matte.visible = t > 0.8
+  renderer.setClearColor(clearTmp.copy(SPACE_BG).lerp(MAP_BG, t), 1)
+  mapFrame.setBackground(clearTmp)
+  sunUniforms.uDaylight.value = sunState.mode === SunMode.Full || (t >= 0.5 && !showMapNight) ? 1 : 0
+  syncSeamCopies(planetGroup)
+}
+
 /** Advance time-based state and draw one frame. */
 function draw(ts: number) {
   if (sizeDirty) applySize()
@@ -669,9 +868,14 @@ function draw(ts: number) {
     camera.near = nearWant
     camera.updateProjectionMatrix()
   }
-  if (spinTime > 0) planetGroup.rotation.y += SPIN_SPEED * spinTime
+  if (spinTime > 0) {
+    planetGroup.rotation.y += SPIN_SPEED * spinTime
+    // on the map the camera turns with the planet (the map stays put, the sun sweeps across it)
+    if (mapOn || morph > 0) mapControls.apply()
+  }
   if (cloudTime > 0) currentClouds?.update(cloudTime)
   spinTime = cloudTime = 0
+  updateFlat()
   updateSun(camera)
   currentGlobe?.update(camera)
   renderer.getDrawingBufferSize(drawSize)
@@ -698,15 +902,30 @@ function frame(ts: number) {
   // camera: fly-to and controls (damping keeps it moving after a drag)
   const flying = fly.active
   fly.update(Math.min(dt, 0.1))
-  // damping per unit of time, not per frame: the same glide (and settle time) at any frame rate
-  controls.dampingFactor = 1 - Math.pow(1 - DAMPING_PER_60HZ_FRAME, Math.min(Math.max(dt * 60, 0.25), 6))
-  // drag speed eases off near the ground, where the view is a few houses across
-  controls.rotateSpeed = 0.6 * Math.min(1, Math.max(0.025, (camera.position.length() - 1) / 0.5))
-  // keep clear of the ground under the camera (tall mountains up close)
-  controls.minDistance = Math.max(MIN_DISTANCE, groundUnder(camera.position.x, camera.position.y, camera.position.z) + MIN_CLEARANCE)
-  inLoopControlsUpdate = true
-  const moved = controls.update()
-  inLoopControlsUpdate = false
+  let moved: boolean
+  // the morph between globe and map, and the map's own controls while either shows it
+  const morphing = mapOn ? morph < 1 : morph > 0
+  if (morphing) {
+    morph = Math.min(1, Math.max(0, morph + ((mapOn ? 1 : -1) * Math.min(dt, 0.1)) / MORPH_SECONDS))
+    if (morph === (mapOn ? 1 : 0)) morphDone()
+  }
+  if (mapOn || morph > 0) {
+    // (a fly-to moves the camera like a globe camera: the map follows it)
+    if (flying) mapControls.sync()
+    moved = mapControls.update(Math.min(dt, 0.1)) || morphing
+    // the central meridian in the URL, a little after the view moved (one timer at a time)
+    if (moved && mapOn && !morphing && !mapUrlTimer) mapUrlTimer = window.setTimeout(writeMapUrl, 400)
+  } else {
+    // damping per unit of time, not per frame: the same glide (and settle time) at any frame rate
+    controls.dampingFactor = 1 - Math.pow(1 - DAMPING_PER_60HZ_FRAME, Math.min(Math.max(dt * 60, 0.25), 6))
+    // drag speed eases off near the ground, where the view is a few houses across
+    controls.rotateSpeed = 0.6 * Math.min(1, Math.max(0.025, (camera.position.length() - 1) / 0.5))
+    // keep clear of the ground under the camera (tall mountains up close)
+    controls.minDistance = Math.max(MIN_DISTANCE, groundUnder(camera.position.x, camera.position.y, camera.position.z) + MIN_CLEARANCE)
+    inLoopControlsUpdate = true
+    moved = controls.update()
+    inLoopControlsUpdate = false
+  }
   const camMoved = moved || flying || cameraChanged
   cameraChanged = false
   const sunMoved = updateSun(camera)
@@ -804,6 +1023,13 @@ perf.expose({
   setAtmosphereSteps: (n) => atmosphere.setSteps(n),
 })
 if (params.get('perf') === '1') {
+  // the flat map: switch (animated or not) and state
+  ;(window as unknown as { __worldseedMap: unknown }).__worldseedMap = {
+    set: (on: boolean, animate = true) => setMapMode(on, animate),
+    state: () => ({ map: mapOn, morph, t: flat.t, lon0: flat.lon0, lat0: flat.lat0, alt: camera.position.length() - 1, fit: mapControls.fitAltitude() }),
+    /** The settlement under canvas pixel (x, y), as a click would pick it (-1: none). */
+    pick: (x: number, y: number) => historyView.pickAt(x, y),
+  }
   // history extension: state, the last swap's timing, and a simulated failure
   ;(window as unknown as { __worldseedHistory: unknown }).__worldseedHistory = {
     years: () => historyView.years,

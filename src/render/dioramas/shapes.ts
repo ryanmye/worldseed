@@ -744,6 +744,45 @@ export function buildBoat(fishing: boolean): THREE.BufferGeometry {
   return b.build()
 }
 
+/**
+ * A banner on a pole, the pole at the origin, the cloth flying toward +x (0.3 long): the
+ * cloth is wall-masked, so it takes the instance's wall colour (a faction's colour).
+ */
+export function buildBanner(): THREE.BufferGeometry {
+  const b = new Builder()
+  b.box(-0.014, -0.05, -0.014, 0.014, 0.66, 0.014, DARK_WOOD)
+  b.box(-0.022, 0.66, -0.022, 0.022, 0.69, 0.022, [190, 160, 90])
+  // the cloth in two panels with a slight kink, as if in a breeze (both sides drawn)
+  const y0 = 0.4, y1 = 0.63
+  b.quad([0.014, y0, 0], [0.16, y0 - 0.015, 0.025], [0.16, y1 - 0.015, 0.025], [0.014, y1, 0], W, M_WALL)
+  b.quad([0.16, y0 - 0.015, 0.025], [0.3, y0 - 0.04, -0.005], [0.3, y1 - 0.04, -0.005], [0.16, y1 - 0.015, 0.025], W_DARK, M_WALL)
+  return b.build()
+}
+
+/** Rubble: tumbled wall blocks and stones, ~1 unit across, low (wall-masked: the town's stone). */
+export function buildRubble(): THREE.BufferGeometry {
+  const b = new Builder()
+  const blocks: [number, number, number, number, number][] = [[-0.34, -0.06, 0.16, 0.1, 0.12], [0.02, 0.08, 0.2, 0.13, 0.16], [0.3, -0.1, 0.14, 0.09, 0.1], [-0.08, -0.22, 0.12, 0.07, 0.11], [0.2, 0.22, 0.1, 0.06, 0.09]]
+  for (const [x, z, hw, h, hd] of blocks) b.box(x - hw, -0.12, z - hd, x + hw, h, z + hd, W_DARK, M_WALL)
+  const stone: RGB = [132, 126, 116]
+  b.rock(-0.18, 0.18, 0.12, 0.1, stone, 0.7)
+  b.rock(0.38, 0.12, 0.1, 0.08, stone, 2.1)
+  b.rock(-0.42, -0.24, 0.09, 0.07, stone, 3.4)
+  return b.build()
+}
+
+/** A column of smoke, ~2 units tall, leaning a little toward +x: dark puffs, larger as they rise. */
+export function buildSmoke(): THREE.BufferGeometry {
+  const b = new Builder()
+  const puffs: [number, number, number, number, number][] = [[0, 0.25, 0, 0.16, 40], [0.06, 0.62, 0.02, 0.22, 48], [0.16, 1.05, -0.02, 0.3, 58], [0.3, 1.55, 0.03, 0.38, 70], [0.48, 2.05, 0, 0.44, 82]]
+  for (const [x, y, z, r, g] of puffs) {
+    const c: RGB = [g + 4, g, g - 6]
+    b.frustum(x, z, y - r * 0.55, y, r * 0.75, r, 6, c, M_FIXED, null, M_FIXED, y)
+    b.dome(x, z, y, r, 6, 2, c)
+  }
+  return b.build()
+}
+
 // ---------- vegetation ----------
 
 export const Flora = {

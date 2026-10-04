@@ -28,6 +28,7 @@ import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { cellPeopleAt, CASH_VIEW, type SpeciesData } from '../ui/speciesData.ts'
 
@@ -76,6 +77,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
   const object = new THREE.Group()
   const shared = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
@@ -155,14 +157,14 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         bool shown = vSel > 0.5 || abs(aInfo.y - uCategory) < 0.5 || (uCategory > ${(CASH_VIEW - 0.5).toFixed(1)} && aInfo.y > 1.5 && aInfo.y < 4.5);
         if (uMaskOn > 0.5 && uYear < aKnown) shown = false;
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         if (!shown || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
         float r = (vSel > 0.5 ? 6.5 : 4.6) * uSizeScale * mix(0.6, 1.0, sqrt(facing));
         float ext = r + 6.0;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosR, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(aPosR), 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;
@@ -236,7 +238,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         bool shown = uYear >= aArc.y;
         if (uMaskOn > 0.5 && uYear < aArc.z) shown = false;
         vec3 up = normalize(positionR);
-        float facing = dot(up, normalize(uCamObj - positionR)) + 0.25; // lifted arcs show a little past the limb
+        float facing = ws_facing(dot(up, normalize(uCamObj - positionR)) + 0.25); // lifted arcs show a little past the limb
         if (!shown || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -251,14 +253,14 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         float narrow = smoothstep(0.92, 1.0, aArc.x);
         float arrow = mix(1.0, mix(2.6, 0.0, narrow), widen);
         float core = 1.05 * arrow + 0.6 * emphasis;
-        vec4 mv = modelViewMatrix * vec4(positionR, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(positionR), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + 0.7;
         vCore = core / outer;
         vSoft = 0.85 / outer;
         vAcross = aSide.w;
         vec3 p = positionR + aSide.xyz * aSide.w * outer * pix;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -269,7 +271,9 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
       varying float vA;
       varying float vT;
       varying float vEmphasis;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         float x = abs(vAcross);
         float core = 1.0 - smoothstep(vCore - vSoft, vCore, x);
         float body = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
@@ -402,7 +406,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         // aOn: 0 not grown; else grown, and (with the mask on) shown from that year
         bool on = aOn > 0.5 && (uMaskOn < 0.5 || uYear >= aOn);
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         if (!on || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -411,7 +415,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         vec3 e = normalize(abs(up.y) > 0.95 ? cross(vec3(0.0, 0.0, 1.0), up) : cross(vec3(0.0, 1.0, 0.0), up));
         vec3 n = cross(up, e);
         vec3 p = aPosR + (e * position.x + n * position.y) * uRadius;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
         vUv = position.xy;
         float night = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vA = smoothstep(0.0, 0.25, facing) * mix(1.0, 0.6, night);
@@ -421,7 +425,9 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
       uniform vec3 uColor;
       varying vec2 vUv;
       varying float vA;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         // near-flat per-cell tiles (only a thin feather at the edge) so contiguous "grown
         // here" cells read as one tinted area instead of overlapping soft discs
         float d = length(vUv);
@@ -501,7 +507,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         float level = 0.0;
         if (aPeople > -0.5) level = mix(uHabit0[p], uHabit1[p], uFrac);
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         if (level < 0.02 || facing <= 0.0 || (uMaskOn > 0.5 && uYear < aKnown)) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -509,7 +515,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         vec3 e = normalize(abs(up.y) > 0.95 ? cross(vec3(0.0, 0.0, 1.0), up) : cross(vec3(0.0, 1.0, 0.0), up));
         vec3 n = cross(up, e);
         vec3 pp = aPosR + (e * position.x + n * position.y) * uRadius;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(pp, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(pp), 1.0);
         vUv = position.xy;
         float night = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vA = smoothstep(0.0, 0.25, facing) * mix(1.0, 0.65, night);
@@ -522,7 +528,9 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
       varying vec2 vUv;
       varying float vA;
       varying float vLevel;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         // diagonal hatching in screen space, the lines thicker the stronger the habit: nearly
         // opaque lines, so neighbouring tiles that overlap do not show as darker seams, over a
         // faint wash
@@ -622,7 +630,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
           // it reaches farther fields a little later
           float age = uYear - aInfo.x - aInfo.y * uPulse * 0.4;
           vec3 up = normalize(aPosR);
-          float facing = dot(up, normalize(uCamObj - aPosR));
+          float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
           if (age < 0.0 || age > uPulse || facing <= 0.0 || (uMaskOn > 0.5 && uYear < aKnown)) {
             gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
             return;
@@ -631,7 +639,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
           vec3 n = cross(up, e);
           // a spot a little smaller than its cell: neighbouring spots barely overlap and read as lesions
           vec3 p = aPosR + (e * position.x + n * position.y) * uRadius * 0.82;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
           vUv = position.xy;
           vT = age / uPulse;
           vKind = aInfo.z;
@@ -643,7 +651,9 @@ export function buildSpeciesLayer(world: World, d: SpeciesData, h: History | nul
         varying float vA;
         varying float vT;
         varying float vKind;
+        ${SEAM_FRAG_GLSL}
         void main() {
+          ws_clipLine();
           float r = length(vUv);
           float a = (1.0 - smoothstep(0.72, 1.0, r)) * vA * 0.8;
           if (a < 0.004) discard;

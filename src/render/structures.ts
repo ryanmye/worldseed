@@ -16,6 +16,7 @@ import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, StructureType, type Settlement, type Structure, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, PLANET_RADIUS, SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of icon anchors above the ground (settlement markers sit at 0.004). */
@@ -183,6 +184,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
 
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uAnimYears: { value: 20 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
@@ -224,10 +226,10 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         float built = aInfo.x;
         float lost = aInfo.y;
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         float age = uYear - built;
         float gone = uYear - lost;
-        vec4 mv = modelViewMatrix * vec4(aPosR, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(aPosR), 1.0);
         // on-screen size of a grid cell here, in CSS pixels
         float cellPx = uCellSpacing / max(-mv.z * uPixel, 1e-9) / uPixelRatio;
         float zoomA = smoothstep(13.0, 24.0, cellPx);
@@ -258,7 +260,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vec2 ax = vec2(1.0, 0.0);
         if (vType > 0.5) {
           vec4 clip0 = projectionMatrix * mv;
-          vec4 clip1 = projectionMatrix * modelViewMatrix * vec4(aPosR + aDir * 0.005, 1.0);
+          vec4 clip1 = projectionMatrix * modelViewMatrix * vec4(ws_place(aPosR + aDir * 0.005), 1.0);
           vec2 dd = (clip1.xy / clip1.w - clip0.xy / clip0.w) * uViewport;
           vec2 fwd = length(dd) > 1e-6 ? normalize(dd) : vec2(0.0, 1.0);
           ax = vec2(fwd.y, -fwd.x);

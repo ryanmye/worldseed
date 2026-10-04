@@ -1,10 +1,13 @@
-// Atmosphere shell, starfield and optional cloud layer.
+// Atmosphere shell, starfield and optional cloud layer. On the flat map (mapProjection.ts)
+// the atmosphere and the stars fade out (main.ts) and the clouds lie on the map.
 
 import * as THREE from 'three'
 import { NOISE_GLSL } from './glsl.ts'
 import { PLANET_RADIUS } from './globe.ts'
 import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { createCubeBake, type CubeBake } from './surfaceBake.ts'
+import { RELIEF_GLSL } from './terrainHeight.ts'
+import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 
 const ATMOSPHERE_RADIUS = PLANET_RADIUS * 1.06
 const SCALE_HEIGHT = 0.011
@@ -197,14 +200,15 @@ export function buildStarfield(count = 3200): THREE.Points {
   geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
   geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
   const material = new THREE.ShaderMaterial({
-    uniforms: { uPixelRatio: { value: 1 } },
+    uniforms: { uPixelRatio: { value: 1 }, uFade: { value: 1 } },
     vertexShader: /* glsl */ `
       attribute vec3 aColor;
       attribute float aSize;
       uniform float uPixelRatio;
+      uniform float uFade; // 0 on the flat map
       varying vec3 vColor;
       void main() {
-        vColor = aColor;
+        vColor = aColor * uFade;
         gl_PointSize = aSize * uPixelRatio;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -271,10 +275,15 @@ float cloudCover(vec3 p, float footprint) {
 `
 
 const CLOUD_VERT = /* glsl */ `
+  ${RELIEF_GLSL}
+  // the deck's drift (its turn about the planet's axis): the map is laid out in planet space
+  uniform mat3 uCloudTurn;
   varying vec3 vObjPos;
   void main() {
     vObjPos = position;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec3 p = position;
+    if (uFlat > 0.0) p = transpose(uCloudTurn) * ws_placeV(uCloudTurn * position);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `
 
@@ -285,6 +294,7 @@ const CLOUD_FRAG = /* glsl */ `
   uniform vec3 uCamObj;
   uniform float uDaylight;
   varying vec3 vObjPos;
+  ${SEAM_FRAG_GLSL}
 #ifdef CLOUD_BAKED
   uniform samplerCube uCover;
 #else
@@ -292,7 +302,9 @@ const CLOUD_FRAG = /* glsl */ `
   ${CLOUD_COVER_GLSL}
 #endif
   void main() {
+    ws_clipLine();
     vec3 p = normalize(vObjPos);
+    if (uFlat > 0.0 && abs(p.y) > sin(uMapCentre.z)) discard; // (the map stops short of the poles)
 #ifdef CLOUD_BAKED
     float c = textureCube(uCover, vObjPos).r;
 #else
@@ -303,7 +315,7 @@ const CLOUD_FRAG = /* glsl */ `
     float mu = uDaylight > 0.5 ? 0.9 : dot(p, L);
     float day = smoothstep(-0.15, 0.15, mu);
     vec3 V = normalize(uCamObj - vObjPos);
-    float limb = smoothstep(0.0, 0.25, dot(p, V));
+    float limb = mix(smoothstep(0.0, 0.25, dot(p, V)), 1.0, uFlat);
     vec3 col = vec3(0.95) * (uSunColor * max(mu * 0.8 + 0.2, 0.0) * day + vec3(0.015, 0.02, 0.035));
     gl_FragColor = vec4(col, c * mix(0.6, 1.0, limb));
     #include <tonemapping_fragment>
@@ -332,6 +344,8 @@ export function buildClouds(seed: number): Clouds {
     uOffset: { value: offset },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uDaylight: sunUniforms.uDaylight,
+    ...flatUniforms,
+    uCloudTurn: { value: new THREE.Matrix3() },
   }
   const blend = { transparent: true, depthWrite: false }
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader: CLOUD_VERT, fragmentShader: CLOUD_FRAG, ...blend })
@@ -352,6 +366,8 @@ export function buildClouds(seed: number): Clouds {
     uniforms.uSunObj.value.copy(SUN_DIRECTION).applyQuaternion(tmpQ)
     camera.getWorldPosition(tmpCam)
     uniforms.uCamObj.value.copy(mesh.worldToLocal(tmpCam))
+    const c = Math.cos(mesh.rotation.y), s = Math.sin(mesh.rotation.y)
+    uniforms.uCloudTurn.value.set(c, 0, s, 0, 1, 0, -s, 0, c)
   }
   const disposeBake = () => {
     bake?.dispose()

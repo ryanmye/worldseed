@@ -1147,3 +1147,26 @@ kbd {
 .insp-places.hidden {
   display: none;
 }
+
+/* ---------- Globe / Map switch (top bar) ---------- */
+
+.proj-switch {
+  display: inline-flex;
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.proj-switch .proj-btn {
+  border: none;
+  border-radius: 0;
+  padding: 6px 9px;
+}
+.proj-switch .proj-btn + .proj-btn {
+  border-left: 1px solid var(--ctl-border);
+}
+.help-note {
+  margin: 6px 0 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+}

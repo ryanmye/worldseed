@@ -30,6 +30,7 @@ import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, RELIEF_NEAR, reliefUniforms, terrainOf } from './terrainHeight.ts'
+import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Years over which a newly known cell clears. */
@@ -120,6 +121,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
 
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uKnownTex: { value: yearTex },
     uYear: { value: 0 },
     uFade: { value: FADE_YEARS },
@@ -158,7 +160,13 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
         vSeed = aSeed.xyz;
         vec3 p = position + normalize(position) * uLift;
         vObj = p;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_relief(p), 1.0);
+        // (on the flat map: unwrapped at the antimeridian, mapProjection.ts)
+        vec3 pDrawn = ws_placeTri(ws_relief(p), aCorners);
+        if (ws_cull > 0.5) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(pDrawn, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -172,7 +180,9 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
       varying vec3 vBary;
       varying vec3 vObj;
       ${NOISE}
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipTri();
         vec3 p = vObj;
         float footprint = length(fwidth(p));
         vec3 kn = smoothstep(vKY, vKY + uFade, vec3(uYear)); // 1: known
@@ -227,6 +237,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
   mesh.renderOrder = 9.5 // over every flat overlay (markers 8, icons 8.5, merchants 8.8, groups 9), under the atmosphere (10)
   mesh.frustumCulled = false
   mesh.visible = false
+  seamCopy(mesh)
   const tmpQ = new THREE.Quaternion()
   const tmpV = new THREE.Vector3()
 
@@ -301,6 +312,7 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
   quad.instanceCount = n
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uPulse: { value: 40 },
     uViewport: { value: new THREE.Vector2(1, 1) },
@@ -332,7 +344,7 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
         vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         float age = uYear - aYear;
         vec3 up = normalize(aPosR);
-        float facing = dot(up, normalize(uCamObj - aPosR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - aPosR)));
         bool hidden = uMaskOn > 0.5 && uYear < aKnown;
         if (age < 0.0 || age > uPulse || facing <= 0.0 || hidden) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -340,7 +352,7 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
         }
         vT = age / uPulse;
         float ext = 66.0;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosR, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(aPosR), 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;

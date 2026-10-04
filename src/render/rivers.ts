@@ -15,6 +15,7 @@ import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { createSurface, type Probe } from './dioramas/surface.ts'
 
@@ -206,6 +207,7 @@ export function buildRiverLines(world: World): RiverLines {
       uPixel: { value: 0.001 },
       uLift: { value: RIVER_LIFT },
       uReliefK: reliefUniforms.uReliefK,
+      ...flatUniforms,
       uFar: { value: 1 },
     },
     vertexShader: /* glsl */ `
@@ -222,7 +224,7 @@ export function buildRiverLines(world: World): RiverLines {
       void main() {
         vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         vec3 ground = positionR + normalize(positionR) * uLift;
-        vec4 mv = modelViewMatrix * vec4(ground, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(ground), 1.0);
         float pix = -mv.z * uPixel;
         float w = mix(aData.w, aData.y, uFar);
         float hw = max(w, 0.6 * pix);
@@ -233,7 +235,7 @@ export function buildRiverLines(world: World): RiverLines {
         vSoft = min(1.0, pix / outer);
         vec3 p = ground + aSide * aData.x * outer;
         vObjPos = p;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -245,10 +247,12 @@ export function buildRiverLines(world: World): RiverLines {
       varying float vSoft;
       varying float vAlpha;
       varying vec3 vObjPos;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         vec3 up = normalize(vObjPos);
         vec3 V = normalize(uCamObj - vObjPos);
-        float limb = smoothstep(0.05, 0.35, dot(up, V));
+        float limb = mix(smoothstep(0.05, 0.35, dot(up, V)), 1.0, uFlat);
         float edge = 1.0 - smoothstep(1.0 - vSoft, 1.0, abs(vAcross));
         float mu = mix(dot(up, normalize(uSunObj)), 0.92, uDaylight);
         float day = smoothstep(-0.12, 0.12, mu);

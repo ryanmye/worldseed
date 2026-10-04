@@ -39,6 +39,7 @@ import * as THREE from 'three'
 import { GOOD_COUNT, type TradeRoutes, type World } from '../contract.ts'
 import { SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
+import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, networkRouteSamples, routeNetwork } from './routeCurves.ts'
 
@@ -267,6 +268,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
 
   const shared = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
@@ -348,16 +350,16 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         // half widths in CSS pixels: hairlines for minor links, a couple of pixels for arteries
         float core = (0.3 + 1.15 * vStrength * vStrength) * mix(0.45, 1.0, uClose);
         vec3 base = positionR - normalize(positionR) * uDrop;
-        vec4 mv = modelViewMatrix * vec4(base, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(base), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + 0.6;
         vCore = core / outer;
         vSoft = 0.9 / outer;
         vAcross = aSide.w;
         vec3 p = base + aSide.xyz * aSide.w * outer * pix;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
         vec3 up = normalize(positionR);
-        vFacing = dot(up, normalize(uCamObj - positionR));
+        vFacing = ws_facing(dot(up, normalize(uCamObj - positionR)));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vArc = aArc;
       }
@@ -373,7 +375,9 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       varying float vLand;
       varying float vFacing;
       varying float vNight;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         float limb = smoothstep(0.0, 0.3, vFacing);
         float x = abs(vAcross);
         float coreMask = 1.0 - smoothstep(vCore - vSoft, vCore, x);
@@ -443,15 +447,15 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         float strength = max(s, vGhost * 0.15);
         float core = (1.05 + 0.75 * strength) * mix(0.4, 1.0, uClose);
         vec3 base = positionR - normalize(positionR) * uDrop;
-        vec4 mv = modelViewMatrix * vec4(base, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(base), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + mix(0.3, 1.0, uClose) + 0.6;
         vCore = core / outer;
         vSoft = 0.9 / outer;
         vAcross = aSide.w;
         vec3 p = base + aSide.xyz * aSide.w * outer * pix;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        vFacing = dot(normalize(positionR), normalize(uCamObj - positionR));
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(p), 1.0);
+        vFacing = ws_facing(dot(normalize(positionR), normalize(uCamObj - positionR)));
         vArc = aRoute.w;
         vSea = aRoute.z;
       }
@@ -465,7 +469,9 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       varying float vSea;
       varying float vFacing;
       varying float vGhost;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         float limb = smoothstep(0.0, 0.3, vFacing);
         float x = abs(vAcross);
         float body = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
@@ -588,13 +594,13 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         vec3 up = normalize(aPosR);
         vec3 at = aPosR - up * uDrop;
-        float facing = dot(up, normalize(uCamObj - at));
+        float facing = ws_facing(dot(up, normalize(uCamObj - at)));
         if (facing <= 0.0 || aInfo.w <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
-        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(at + aDir * 0.01, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(at), 1.0);
+        vec4 ahead = projectionMatrix * modelViewMatrix * vec4(ws_place(at + aDir * 0.01), 1.0);
         vec2 d = (ahead.xy / ahead.w - clip.xy / clip.w) * uViewport;
         vec2 fwd = length(d) > 1e-5 ? normalize(d) : vec2(1.0, 0.0);
         vec2 side = vec2(-fwd.y, fwd.x);
@@ -886,6 +892,9 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       const horizon = Math.acos(Math.min(1, 1 / Math.max(1, dist)))
       const k = dist * Math.sin(corner)
       cosView = Math.cos(Math.min(horizon, (k < 1 ? Math.asin(k) - corner : horizon) + 0.25))
+      // on the flat map the whole view is the map around the centre (mapProjection.ts): its
+      // half diagonal in map units, generously (the projection stretches toward the edges)
+      if (flat.t > 0) cosView = Math.cos(Math.min(Math.PI, (dist - 1) * Math.tan(corner) * 1.8 + 0.25))
       merchantUniforms.uSizeScale.value = Math.min(1.4, Math.max(0.85, Math.sqrt(3.25 / dist)))
       // From mid zoom inward the roads carry the land legs: the warm line on a road (the
       // same curve, so never a second line beside it) fades to a tint, and is gone up close

@@ -47,6 +47,8 @@ export interface OverlayCallbacks {
   onRoadsToggle?(show: boolean): void
   /** Place-name labels (shown only when given). */
   onLabelsToggle?(show: boolean): void
+  /** Globe (false) or flat map (true); the switch shows only when given. */
+  onProjectionChange?(map: boolean): void
 }
 
 export interface OverlayOptions {
@@ -137,6 +139,8 @@ export interface Overlay {
   setViewModeAvailable(mode: ViewMode, available: boolean): void
   /** Re-measure what the columns must keep clear of (after a panel changes size). */
   relayout(): void
+  /** Reflect the Globe / Map switch. */
+  setProjection(map: boolean): void
 }
 
 let uid = 0
@@ -187,7 +191,35 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.2v2.1M8 12.7v2.1M1.2 8h2.1M12.7 8h2.1M3.2 3.2l1.5 1.5M11.3 11.3l1.5 1.5M3.2 12.8l1.5-1.5M11.3 4.7l1.5-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
   )
   const helpBtn = iconBtn('help-btn', 'Help and keyboard shortcuts (?)', '<span aria-hidden="true">?</span>')
-  topBar.append(seedLabel, randomBtn, settingsBtn, helpBtn)
+  // Globe / Map: a two-way switch (M)
+  const projSwitch = document.createElement('div')
+  projSwitch.className = 'proj-switch'
+  projSwitch.setAttribute('role', 'radiogroup')
+  projSwitch.setAttribute('aria-label', 'Projection')
+  const projBtn = (label: string, title: string) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'btn proj-btn'
+    b.textContent = label
+    b.title = title
+    b.setAttribute('role', 'radio')
+    projSwitch.appendChild(b)
+    return b
+  }
+  const globeBtn = projBtn('Globe', 'The world as a globe (M)')
+  const mapBtn = projBtn('Map', 'The world as a flat map, Equal Earth projection (M)')
+  const setProjection = (map: boolean) => {
+    globeBtn.classList.toggle('active', !map)
+    mapBtn.classList.toggle('active', map)
+    globeBtn.setAttribute('aria-checked', String(!map))
+    mapBtn.setAttribute('aria-checked', String(map))
+  }
+  setProjection(false)
+  globeBtn.addEventListener('click', () => callbacks.onProjectionChange?.(false))
+  mapBtn.addEventListener('click', () => callbacks.onProjectionChange?.(true))
+  topBar.append(seedLabel, randomBtn)
+  if (callbacks.onProjectionChange) topBar.append(projSwitch)
+  topBar.append(settingsBtn, helpBtn)
 
   // ---------- popovers ----------
   const makePopover = (cls: string, title: string) => {
@@ -254,8 +286,8 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     const body = helpPop.body
     body.replaceChildren()
     const mouse: [string, string][] = [
-      ['Drag', 'Orbit the globe'],
-      ['Scroll', 'Zoom'],
+      ['Drag', 'Orbit the globe; on the map, pan (east-west it scrolls on around the world)'],
+      ['Scroll', 'Zoom (on the map, toward the pointer)'],
       ['Click', 'Select a settlement (empty ground deselects)'],
       ['Shift-drag', 'Move the sun (or right-drag)'],
     ]
@@ -280,6 +312,12 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       body.append(h, dl)
     }
     section('Mouse', mouse)
+    if (callbacks.onProjectionChange) {
+      const note = document.createElement('p')
+      note.className = 'help-note'
+      note.textContent = 'The map (M) is the same world in the Equal Earth projection, every layer and view included. It is lit from the north-west in full daylight (Day and night shows the terminator), and the 3D towns stay on the globe: the map keeps the flat settlement markers at every zoom.'
+      body.appendChild(note)
+    }
     for (const g of ['Timeline', 'View', 'Panels'] as const) {
       const rows = shortcutList().filter((s) => s.group === g).map((s) => [s.label, s.description] as [string, string])
       if (rows.length) section(g, rows)
@@ -343,8 +381,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
 
   const toggles: HTMLInputElement[] = []
   const syncCount = () => {
-    const on = toggles.filter((t) => t.checked).length
-    layersCount.textContent = `${on} of ${toggles.length} on`
+    // (toggles of the other projection are hidden: not counted)
+    const shown = toggles.filter((t) => !t.closest('.layer-toggle')?.classList.contains('hidden'))
+    const on = shown.filter((t) => t.checked).length
+    layersCount.textContent = `${on} of ${shown.length} on`
   }
   function addLayerToggle(t: LayerToggle): HTMLInputElement {
     const row = document.createElement('label')
@@ -560,5 +600,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       for (const o of viewSelect.options) if (o.value === mode) o.hidden = !available
     },
     relayout: queueRelayout,
+    setProjection(map: boolean) {
+      setProjection(map)
+      syncCount()
+    },
   }
 }

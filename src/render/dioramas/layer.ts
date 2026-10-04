@@ -22,7 +22,11 @@
 // left over from a previous rebuild (plans are computed nearest first under a time budget
 // of a few milliseconds per frame) is still pending. Within a window the shader animates
 // pop-ins and removals from the year alone, so playback, scrubbing back and a direct load
-// at a year all agree. Travelling groups are the one per-frame write (a handful of
+// at a year all agree. With polity data (ui/politiesData.ts townPolityState, sampled at the
+// window's snapshot years) the walls are the history's: rings built and lost in their years,
+// slighted rings as weathering ruins, a sack's burnt-out houses (a per-instance year range
+// the shader reads), scorched ground and smoke in its year, a capital's palace and banners in
+// its polity's colour, a garrison's quarters by the gate. Travelling groups are the one per-frame write (a handful of
 // matrices, into preallocated buffers).
 
 import * as THREE from 'three'
@@ -33,8 +37,11 @@ import { createLayouts, crossing, GROUND_MODEL, NEVER, type GroundSet, type Layo
 import { createGroundMaterial, createModelMaterial, createShadowMaterial, createTownGroundMaterial, createUniforms } from './material.ts'
 import { createShadows } from './shadows.ts'
 import { closeDetailUniforms, TOWN_MASK_MAX, townMaskUniforms } from './townMask.ts'
-import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, type ModelLibrary } from './models.ts'
-import { createSurface, type Probe } from './surface.ts'
+import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, styleKindOf, type ModelLibrary } from './models.ts'
+import { createSurface, rand4, type Probe } from './surface.ts'
+import { FACADE_PACK, FACADE_SMOKE } from './material.ts'
+import { isHouseKind } from './shapes.ts'
+import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type TownPolityState } from '../../ui/politiesData.ts'
 
 /**
  * Camera distance (to each instance) at which models are full size, and where they are
@@ -135,6 +142,21 @@ export interface DioramaLayer {
 
 const ZERO4 = new Float32Array(4)
 const ZERO3 = new Float32Array(3)
+/** Facade info of a model from the packs (material.ts FACADE_PACK: toned down). */
+const PACK_INFO = Float32Array.of(0, 0, 0, FACADE_PACK)
+/** A column of smoke's facade info (material.ts FACADE_SMOKE: shown only in its aRuin years). */
+const SMOKE_INFO = Float32Array.of(0, 0, 0, FACADE_SMOKE)
+/** Polity data: a wall ring builds up over a few years; a slighted ring's ruins weather away over three times the years a sack shows. */
+const BUILD_YEARS = 3
+const RUIN_YEARS = SACK_YEARS * 3
+/** Garrison (men) from which each of a camp's quarters stands. */
+const CAMP_MEN = [250, 700, 1500, 3000]
+/** Generated house models (a sack burns them out). */
+const HOUSE_MODEL = new Uint8Array(MODEL_COUNT)
+for (let m = 0; m < MODEL_COUNT; m++) {
+  const sk = styleKindOf(m)
+  if (sk && isHouseKind(sk[1])) HOUSE_MODEL[m] = 1
+}
 /** Vertex attributes a batch shares with its model. */
 const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace']
 
@@ -144,7 +166,7 @@ const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace']
  * Interleaved per vertex: position, normal, colour, pattern uv, kind, appear, disappear.
  */
 class TownGround {
-  static readonly STRIDE = 14
+  static readonly STRIDE = 16
   data: Float32Array
   buffer: THREE.InterleavedBuffer
   geometry = new THREE.BufferGeometry()
@@ -156,6 +178,7 @@ class TownGround {
   private ns: number[] = []
   private offs: number[] = []
   private grs: number[] = []
+  private sc: number[] = []
   private k = 0
   private matching = true
   private epoch = -1
@@ -179,6 +202,7 @@ class TownGround {
     this.geometry.setAttribute('aUv', new THREE.InterleavedBufferAttribute(b, 2, 9))
     this.geometry.setAttribute('aKind', new THREE.InterleavedBufferAttribute(b, 1, 11))
     this.geometry.setAttribute('aLife', new THREE.InterleavedBufferAttribute(b, 2, 12))
+    this.geometry.setAttribute('aScorch', new THREE.InterleavedBufferAttribute(b, 2, 14))
   }
   private reserve(n: number) {
     const S = TownGround.STRIDE
@@ -197,7 +221,7 @@ class TownGround {
    * Appends the triangles of g whose threshold the value crosses in the window (life from
    * `life(threshold)`, null: not shown); returns the farthest appended vertex from (cx, cy, cz).
    */
-  append(g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number): number {
+  append(g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0): number {
     if (g.n === 0) return 0
     this.reserve(g.n)
     let far2 = 0
@@ -221,6 +245,7 @@ class TownGround {
         d[o + 9] = g.uv[k * 2]; d[o + 10] = g.uv[k * 2 + 1]
         d[o + 11] = g.kind[k]
         d[o + 12] = a; d[o + 13] = b
+        d[o + 14] = scorchYear; d[o + 15] = scorch
         this.count++
       }
       const dx = g.pos[v * 3] - cx, dy = g.pos[v * 3 + 1] - cy, dz = g.pos[v * 3 + 2] - cz
@@ -233,7 +258,7 @@ class TownGround {
     if (epoch !== this.epoch || window !== this.window) {
       this.epoch = epoch
       this.window = window
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = 0
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = 0
       this.count = 0
     }
     this.k = 0
@@ -241,27 +266,28 @@ class TownGround {
     this.dirtyFrom = Infinity
   }
   /** append() for settlement id's ground, reused if the buffer already holds it at this place in the order. */
-  appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number): number {
+  appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0): number {
     const k = this.k++
-    if (this.matching && k < this.ids.length && this.ids[k] === id && this.ns[k] === g.n) return this.grs[k]
+    if (this.matching && k < this.ids.length && this.ids[k] === id && this.ns[k] === g.n && this.sc[k] === scorchYear * 4 + scorch) return this.grs[k]
     if (this.matching) {
       this.matching = false
       if (k < this.offs.length) this.count = this.offs[k]
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = k
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = k
       this.dirtyFrom = this.count
     }
     this.offs[k] = this.count
-    const gr = this.append(g, life, cx, cy, cz)
+    const gr = this.append(g, life, cx, cy, cz, scorchYear, scorch)
     this.ids[k] = id
     this.ns[k] = g.n
     this.grs[k] = gr
+    this.sc[k] = scorchYear * 4 + scorch
     return gr
   }
   /** Ends a rebuild: drops what was not appended again and uploads what changed. */
   end() {
     if (this.matching && this.k < this.ids.length) {
       this.count = this.offs[this.k]
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.k
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = this.k
     }
     const n = this.count
     this.geometry.setDrawRange(0, n)
@@ -287,6 +313,9 @@ class Batch {
   wallAttr: THREE.InstancedBufferAttribute
   info: Float32Array
   infoAttr: THREE.InstancedBufferAttribute
+  /** Years a sacked house stands burnt out (0, 0: never). */
+  ruin: Float32Array
+  ruinAttr: THREE.InstancedBufferAttribute
   count = 0
   capacity: number
   triangles: number
@@ -310,6 +339,9 @@ class Batch {
     this.wallAttr = new THREE.InstancedBufferAttribute(this.wall, 3).setUsage(THREE.DynamicDrawUsage)
     this.info = new Float32Array(capacity * 4)
     this.infoAttr = new THREE.InstancedBufferAttribute(this.info, 4).setUsage(THREE.DynamicDrawUsage)
+    this.ruin = new Float32Array(capacity * 2)
+    this.ruinAttr = new THREE.InstancedBufferAttribute(this.ruin, 2).setUsage(THREE.DynamicDrawUsage)
+    this.geometry.setAttribute('aRuin', this.ruinAttr)
     this.geometry.setAttribute('aAnim', this.animAttr)
     this.geometry.setAttribute('aRoof', this.roofAttr)
     this.geometry.setAttribute('aWall', this.wallAttr)
@@ -347,10 +379,15 @@ class Batch {
     this.info = f
     this.infoAttr = new THREE.InstancedBufferAttribute(f, 4).setUsage(THREE.DynamicDrawUsage)
     this.geometry.setAttribute('aInfo', this.infoAttr)
+    const ru = new Float32Array(cap * 2)
+    ru.set(this.ruin)
+    this.ruin = ru
+    this.ruinAttr = new THREE.InstancedBufferAttribute(ru, 2).setUsage(THREE.DynamicDrawUsage)
+    this.geometry.setAttribute('aRuin', this.ruinAttr)
     this.capacity = cap
   }
 
-  push(mat: ArrayLike<number>, matOffset: number, a: number, b: number, c: number, d: number, roof: ArrayLike<number> = ZERO4, ro = 0, wall: ArrayLike<number> = ZERO3, wo = 0, info: ArrayLike<number> = ZERO4, io = 0) {
+  push(mat: ArrayLike<number>, matOffset: number, a: number, b: number, c: number, d: number, roof: ArrayLike<number> = ZERO4, ro = 0, wall: ArrayLike<number> = ZERO3, wo = 0, info: ArrayLike<number> = ZERO4, io = 0, ruinFrom = 0, ruinTo = 0) {
     if (this.count >= this.capacity) this.grow()
     const i = this.count++
     const dst = this.mesh.instanceMatrix.array as Float32Array
@@ -363,6 +400,8 @@ class Batch {
     for (let k = 0; k < 4; k++) this.roof[i * 4 + k] = roof[ro + k]
     for (let k = 0; k < 3; k++) this.wall[i * 3 + k] = wall[wo + k]
     for (let k = 0; k < 4; k++) this.info[i * 4 + k] = info[io + k]
+    this.ruin[i * 2] = ruinFrom
+    this.ruin[i * 2 + 1] = ruinTo
   }
 
   commit() {
@@ -374,7 +413,7 @@ class Batch {
     im.clearUpdateRanges()
     im.addUpdateRange(0, n * 16)
     im.needsUpdate = true
-    for (const [attr, size] of [[this.animAttr, 4], [this.roofAttr, 4], [this.wallAttr, 3], [this.infoAttr, 4]] as const) {
+    for (const [attr, size] of [[this.animAttr, 4], [this.roofAttr, 4], [this.wallAttr, 3], [this.infoAttr, 4], [this.ruinAttr, 2]] as const) {
       attr.clearUpdateRanges()
       attr.addUpdateRange(0, n * size)
       attr.needsUpdate = true
@@ -423,6 +462,13 @@ interface Stats {
   villages: number
   villageInstances: number
   farVillages: number
+  /** Polity data: wall rings and slighted rings drawn, palaces, garrison quarters, burnt-out houses and smoke columns. */
+  walls: number
+  ruins: number
+  palaces: number
+  camps: number
+  burnt: number
+  smoke: number
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
@@ -500,8 +546,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const byDist = (a: number, b: number) => visD[a] - visD[b]
   /** (perf=1) What kept the last rebuild pending. */
   const pendWhy = { vnull: 0, vgen: 0, snull: 0, sgen: 0, farm: 0, forest: 0 }
-  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0 }
-  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) {
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, burnt: 0, smoke: 0 }
+  const perfOn = typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)
+  // (perf=1: the history, for console expressions over it)
+  if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
+  if (perfOn) {
     (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
     ;(globalThis as unknown as { __dioramaPlans: object }).__dioramaPlans = {}
     ;(globalThis as unknown as { __dioramaPending: object }).__dioramaPending = pendWhy
@@ -547,7 +596,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       batches[m] = new Batch(entry.geometry, modelMaterial, 64)
       object.add(batches[m]!.mesh)
       // (far-away village clusters stay out of the shadow map)
-      if (!isFarModel(m)) shadowSys.addCaster(batches[m]!.mesh)
+      if (!isFarModel(m) && m !== Model.Smoke) shadowSys.addCaster(batches[m]!.mesh)
     }
     shadows = new Batch(l.blob, shadowMaterial, 256)
     shadows.mesh.renderOrder = 1
@@ -597,7 +646,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   }
 
   /** `far`: a nearer camera distance where the instance is gone (0: the layer's); `blob`: a soft shadow under it. */
-  const pushSlots = (slots: SlotSet, k: number, appear: number, disappear: number, far = 0, blob = true) => {
+  const pushSlots = (slots: SlotSet, k: number, appear: number, disappear: number, far = 0, blob = true, ruinFrom = 0, ruinTo = 0, wall: ArrayLike<number> | null = null) => {
     const model = slots.model[k]
     if (model === GROUND_MODEL) {
       ground?.push(slots.mat, k * 16, appear, disappear, 0, 0, ZERO4, 0, slots.wall, k * 3)
@@ -605,10 +654,87 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     }
     const b = batches[model]
     if (!b) return
-    const lit = MODEL_SPECS[model].lit ? 1 : 0
-    b.push(slots.mat, k * 16, appear, disappear, slots.palette[k], lit + (far > 0 ? 2 * Math.round(far / 0.002) : 0), slots.roof, k * 4, slots.wall, k * 3, slots.info, k * 4)
+    const spec = MODEL_SPECS[model]
+    const lit = spec.lit ? 1 : 0
+    const pack = spec.name !== null
+    b.push(slots.mat, k * 16, appear, disappear, slots.palette[k], lit + (far > 0 ? 2 * Math.round(far / 0.002) : 0), slots.roof, k * 4, wall ?? slots.wall, wall ? 0 : k * 3, pack ? PACK_INFO : slots.info, pack ? 0 : k * 4, ruinFrom, ruinTo)
     if (blob) shadows?.push(slots.blob, k * 16, appear, disappear, slots.height[k], 0)
   }
+
+  // ---------- polity data (ui/politiesData.ts townPolityState): walls, sacks, capitals, garrisons ----------
+  // Sampled at the snapshot years of the window (sP, s0, s1) and combined with the exact years
+  // of the structures and events, so the instance set is a pure function of the window: a
+  // scrub back, playback and a direct load agree.
+  let polStates = new Map<number, TownPolityState | null>()
+  const polAt = (id: number, s: number) => {
+    const key = id * 8192 + s
+    let v = polStates.get(key)
+    if (v === undefined) {
+      if (polStates.size > 50000) polStates.clear()
+      v = townPolityState(h, id, s * interval)
+      polStates.set(key, v)
+    }
+    return v
+  }
+  /** Where the army that sacked settlement id in a year came from (-1 unknown). */
+  let sackFrom: Map<number, number> | null = null
+  const sackOrigin = (id: number, year: number) => {
+    if (!sackFrom) {
+      sackFrom = new Map()
+      for (const e of h.events) if ((e.type as number) === 27) sackFrom.set(e.settlement * 8192 + Math.round(e.year), e.other)
+    }
+    return sackFrom.get(id * 8192 + Math.round(year)) ?? -1
+  }
+  /**
+   * A capital's palace over the years: [year, tier, ...], the palace from each year on at that
+   * tier (the largest its polity has reached while ruled from there); it stays, an old
+   * palace, when the capital moves on.
+   */
+  let palaces = new Map<number, number[]>()
+  const palaceOf = (id: number): number[] => {
+    let out = palaces.get(id)
+    if (out) return out
+    out = []
+    const pd = politiesOf(h)
+    if (pd) {
+      const periods: [number, number, number][] = []
+      for (const x of pd.list) {
+        const caps = x.capitals ?? []
+        for (let k = 0; k < caps.length; k++) {
+          if (caps[k] !== id) continue
+          const to = k + 1 < caps.length ? x.capitalYears[k + 1] : x.endedYear >= 0 ? x.endedYear : h.years + 1
+          periods.push([x.capitalYears[k], to, x.id])
+        }
+      }
+      periods.sort((a, b) => a[0] - b[0])
+      let tier = -1
+      for (const [from, to, p] of periods) {
+        for (let sn = Math.floor(from / interval); sn * interval < to && sn <= lastSnap; sn++) {
+          const t = tierAt(pd, p, sn)
+          if (t > tier) {
+            out.push(tier < 0 ? from : Math.max(from, sn * interval), t)
+            tier = t
+          }
+        }
+      }
+    }
+    palaces.set(id, out)
+    return out
+  }
+  /** A polity's colour (linear rgb) for banners, or null. */
+  const bannerRgb = new Float32Array(3)
+  const polColour = (q: number): Float32Array | null => {
+    const pd = politiesOf(h)
+    if (!pd || q < 0 || q >= pd.count) return null
+    for (let c = 0; c < 3; c++) {
+      const v = pd.rgb[q * 3 + c]
+      bannerRgb[c] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+    }
+    return bannerRgb
+  }
+  const smokeMat = new Float32Array(16)
+  const sackY = new Float64Array(2), sackShare = new Float64Array(2), sackA = new Float64Array(6)
+  const ringIds: number[] = []
 
   function rebuild() {
     if (!lib || !layouts) return
@@ -631,6 +757,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.villages = 0
     stats.villageInstances = 0
     stats.farVillages = 0
+    stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = 0
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -721,13 +848,73 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           pickPos[pickCount * 4 + 3] = Math.max(slots.radius, 0.0015)
           pickCount++
         }
+        // ---- polity data: the town's state at the window's snapshot years ----
+        const pd = politiesOf(h)
+        const stP = pd ? polAt(id, sP) : null, st0 = pd ? polAt(id, s0) : null, st1 = pd ? polAt(id, s1) : null
+        // sacks showing in the window (newest last): a share of the houses standing then burns,
+        // more on the side the army came from, and they are rebuilt one by one over the years after
+        let nSack = 0
+        if (st1) {
+          for (const st of [stP, st1]) {
+            if (!st || st.sackedYear < 0 || st.sackedYear + SACK_YEARS <= yP) continue
+            if (nSack > 0 && sackY[nSack - 1] === st.sackedYear) continue
+            const Y = st.sackedYear
+            sackY[nSack] = Y
+            sackShare[nSack] = Math.min(0.8, 0.2 + 1.8 * Math.max(0, st.sackLoss))
+            sackA[nSack * 3] = sackA[nSack * 3 + 1] = sackA[nSack * 3 + 2] = 0
+            const o = sackOrigin(id, Y)
+            if (o >= 0 && o < N && o !== id) {
+              const oc = h.settlements[o].cell
+              let ax = P[oc * 3] - slots.cx, ay = P[oc * 3 + 1] - slots.cy, az = P[oc * 3 + 2] - slots.cz
+              const d = ax * slots.cx + ay * slots.cy + az * slots.cz
+              ax -= slots.cx * d; ay -= slots.cy * d; az -= slots.cz * d
+              const l = Math.hypot(ax, ay, az)
+              if (l > 1e-9) { sackA[nSack * 3] = ax / l; sackA[nSack * 3 + 1] = ay / l; sackA[nSack * 3 + 2] = az / l }
+            }
+            nSack++
+          }
+        }
+        const smokeBatch = batches[Model.Smoke]
+        let smokes = 0
         for (let k = 0; k < slots.n; k++) {
           if (!crossing(slots.threshold[k], pP, pA, pB, yP, y0, y1, cross)) continue
           const appear = Math.max(cross[0], s.foundedYear)
           const disappear = Math.min(cross[1], end)
           if (appear >= disappear) continue
-          pushSlots(slots, k, appear, disappear)
+          let ra = 0, rb = 0
+          if (nSack > 0 && HOUSE_MODEL[slots.model[k]]) {
+            const o = k * 16
+            const mx = slots.mat[o + 12], my = slots.mat[o + 13], mz = slots.mat[o + 14]
+            const ml = Math.hypot(mx, my, mz)
+            const dx = mx / ml - slots.cx, dy = my / ml - slots.cy, dz = mz / ml - slots.cz
+            const dl = Math.hypot(dx, dy, dz) || 1
+            for (let q = 0; q < nSack; q++) {
+              const Y = sackY[q]
+              if (appear > Y || disappear <= Y) continue
+              const bias = (dx * sackA[q * 3] + dy * sackA[q * 3 + 1] + dz * sackA[q * 3 + 2]) / dl
+              const u = rand4(world.seed | 0, id, k, Y)
+              const pb = sackShare[q] * (1 + 0.75 * bias)
+              if (u >= pb) continue
+              ra = Y
+              rb = Y + SACK_YEARS * (0.12 + 0.88 * rand4(world.seed | 0, id, k, Y + 4099))
+              // smoke over a few of them in the year of the sack
+              if (smokeBatch && u < pb * 0.14 && smokes < 8 && Y >= yP - 2 && Y <= y1 + interval) {
+                const up = [mx / ml, my / ml, mz / ml]
+                let xx = slots.mat[o], xy = slots.mat[o + 1], xz = slots.mat[o + 2]
+                const xl = Math.hypot(xx, xy, xz) || 1
+                xx /= xl; xy /= xl; xz /= xl
+                const zx = xy * up[2] - xz * up[1], zy = xz * up[0] - xx * up[2], zz = xx * up[1] - xy * up[0]
+                const sc = MODEL_SPECS[Model.Smoke].scale * (0.9 + 0.5 * rand4(world.seed | 0, id, k, 0x5a0))
+                smokeMat.set([xx * sc, xy * sc, xz * sc, 0, up[0] * sc, up[1] * sc, up[2] * sc, 0, zx * sc, zy * sc, zz * sc, 0, mx, my, mz, 1])
+                smokeBatch.push(smokeMat, 0, -NEVER, NEVER, 0, 0, ZERO4, 0, ZERO3, 0, SMOKE_INFO, 0, Y, Y + 1.2)
+                smokes++
+              }
+            }
+            if (rb > yP) stats.burnt++
+          }
+          pushSlots(slots, k, appear, disappear, 0, true, ra, rb)
         }
+        stats.smoke += smokes
         // the settlement's streets, squares and yards, with its houses; the road ribbons give way inside them
         if (got.ground.n > 0) {
           const gr = townGround.appendFor(id, got.ground, (t) => {
@@ -735,12 +922,94 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             cross[0] = Math.max(cross[0], s.foundedYear)
             cross[1] = Math.min(cross[1], end)
             return cross[0] < cross[1] ? cross : null
-          }, slots.cx * r, slots.cy * r, slots.cz * r)
+          }, slots.cx * r, slots.cy * r, slots.cz * r, nSack > 0 ? sackY[nSack - 1] : 0, nSack > 0 ? Math.min(1, sackShare[nSack - 1] * 2.2) : 0)
           if (gr > 0 && masks < TOWN_MASK_MAX) {
             townMaskUniforms.uTowns.value[masks].set(slots.cx * r, slots.cy * r, slots.cz * r, gr * 0.95)
             masks++
           }
           if (gr > 0 && pickCount > 0 && pickIds[pickCount - 1] === id) pickPos[(pickCount - 1) * 4 + 3] = Math.max(pickPos[(pickCount - 1) * 4 + 3], gr)
+        }
+        if (st1 && pd) {
+          // banners in the colour of the town's polity, changing with it within the window
+          const q1 = st1.polity, qP = stP ? stP.polity : q1
+          let change = NEVER
+          if (qP !== q1) {
+            change = y0
+            for (const y of pd.changesOf.get(id) ?? []) if (y > yP && y <= y1) { change = y; break }
+          }
+          const push = (set: SlotSet, k: number, appear: number, disappear: number) => {
+            appear = Math.max(appear, s.foundedYear)
+            disappear = Math.min(disappear, end)
+            if (appear >= disappear) return
+            if (set.model[k] !== Model.Banner) { pushSlots(set, k, appear, disappear); return }
+            const a = polColour(qP)
+            if (a && appear < Math.min(change, disappear)) pushSlots(set, k, appear, Math.min(change, disappear), 0, false, 0, 0, a)
+            const b = change < NEVER ? polColour(q1) : null
+            if (b && Math.max(appear, change) < disappear) pushSlots(set, k, Math.max(appear, change), disappear, 0, false, 0, 0, b)
+          }
+          // wall rings: built (a few years' build-up) and lost when the history says; a slighted
+          // ring's ruins weather away; each round the town as it stood the year it was built
+          ringIds.length = 0
+          for (const st of [stP, st0, st1]) {
+            if (!st) continue
+            for (const w of st.walls) if (!ringIds.includes(w.id)) ringIds.push(w.id)
+            for (const w of st.ruinedWalls) if (!ringIds.includes(w.id)) ringIds.push(w.id)
+          }
+          let outer = -1, outerPop = 0
+          for (const sid of ringIds) {
+            const S = h.structures[sid]
+            const pop = layouts.wallPop(id, sid)
+            if (!S || pop <= 0) continue
+            const lost = S.lostYear >= 0 ? S.lostYear : NEVER
+            tl = performance.now()
+            const ring = layouts.townExtra(id, `w${sid}:${Math.round(pop)}`, (p) => p.wallRing(pop, budget()))
+            spent += performance.now() - tl
+            if (!ring) { pending = true; continue }
+            if (lost > yP - 2) {
+              for (let k = 0; k < ring.n; k++) push(ring, k, S.builtYear + ring.threshold[k] * BUILD_YEARS, lost)
+              stats.walls++
+            }
+            if (lost < NEVER && lost <= y1 + interval && lost + RUIN_YEARS > yP && wallSlighted(pd, id, S.lostYear)) {
+              tl = performance.now()
+              const ruin = layouts.townExtra(id, `r${sid}:${Math.round(pop)}`, (p) => p.ruinRing(pop, budget()))
+              spent += performance.now() - tl
+              if (!ruin) { pending = true; continue }
+              for (let k = 0; k < ruin.n; k++) push(ruin, k, lost, lost + RUIN_YEARS * (0.2 + 0.8 * ruin.threshold[k]))
+              stats.ruins++
+            }
+            if (S.builtYear <= y1 && lost > y1 && pop > outerPop) { outer = sid; outerPop = pop }
+          }
+          // a capital's palace, from the year it became one (an old palace once the capital moves)
+          const pal = palaceOf(id)
+          for (let q = 0; q < pal.length; q += 2) {
+            const from = pal[q], to = q + 2 < pal.length ? pal[q + 2] : NEVER
+            if (from > y1 + interval || to < yP - 2) continue
+            const tier = pal[q + 1]
+            tl = performance.now()
+            const set = layouts.townExtra(id, `p${tier}`, (p) => p.palace(tier))
+            spent += performance.now() - tl
+            if (!set) { pending = true; continue }
+            for (let k = 0; k < set.n; k++) push(set, k, from, to)
+            stats.palaces++
+          }
+          // a garrison's quarters outside the main gate of its outermost wall (or at the town's edge), one more for each step in its size
+          const gP = stP ? stP.garrison : 0, g0 = st0 ? st0.garrison : 0, g1 = st1.garrison
+          if (Math.max(gP, g0, g1) >= CAMP_MEN[0]) {
+            tl = performance.now()
+            const set = layouts.townExtra(id, `c${outer}:${Math.round(outerPop)}`, (p) => p.camp(outerPop, CAMP_MEN.length))
+            spent += performance.now() - tl
+            if (!set) pending = true
+            else {
+              // (a village staging an army keeps it in a quarter or two by the road)
+              const most = pA < 1000 ? 1 : pA < 3000 ? 2 : CAMP_MEN.length
+              for (let k = 0; k < set.n; k++) {
+                const j = Math.min(CAMP_MEN.length - 1, Math.round(set.threshold[k]))
+                if (j >= most || !crossing(CAMP_MEN[j], gP, g0, g1, yP, y0, y1, cross)) continue
+                push(set, k, cross[0], cross[1])
+                stats.camps++
+              }
+            }
+          }
         }
       }
       // ---- the countryside: farmsteads on cultivated land, groves on wild land ----
@@ -1087,6 +1356,10 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       if (visTown.length < N) visTown = new Uint8Array(N)
       if (visD.length < Math.max(N, cellCount)) visD = new Float32Array(Math.max(N, cellCount))
       layouts?.setHistory(h)
+      polStates = new Map()
+      sackFrom = null
+      palaces = new Map()
+      if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
       groundEpoch++
       shownS0 = -1
       shownL0 = -1

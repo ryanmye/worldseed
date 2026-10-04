@@ -23,6 +23,7 @@ import * as THREE from 'three'
 import { Biome, type History, type World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefRadius, reliefUniforms } from './terrainHeight.ts'
+import { flatActive, flatUniforms, placeFlat, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import type { ExpeditionData } from '../ui/expeditionsData.ts'
 import { DIORAMA_FAR, DIORAMA_NEAR } from './dioramas/layer.ts'
@@ -312,6 +313,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
 
   const glyphUniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: { value: 0 },
     uPulseYears: { value: 20 },
     uViewport: { value: new THREE.Vector2(1, 1) },
@@ -376,7 +378,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         if ((lost ? uLost : uFlags) < 0.5) alive = false;
         vec3 up = normalize(aPosR);
         vec3 at = aPosR - up * uDrop;
-        float facing = dot(up, normalize(uCamObj - at));
+        float facing = ws_facing(dot(up, normalize(uCamObj - at)));
         float zoom = max(uZoom, special);
         if (!alive || facing <= 0.0 || zoom <= 0.01) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -389,10 +391,11 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         float lift = lost ? 0.0 : ext * 0.72; // a flag's quad sits above its foot
         float pad = vSel > 0.5 || vHov > 0.5 || vPulse >= 0.0 ? 10.0 : 2.0;
         float quadR = ext + pad;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(at, 1.0);
-        vec4 above = projectionMatrix * modelViewMatrix * vec4(at + up * 0.01, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(at), 1.0);
+        vec4 above = projectionMatrix * modelViewMatrix * vec4(ws_place(at + up * 0.01), 1.0);
         vec2 d = (above.xy / above.w - clip.xy / clip.w) * uViewport;
-        vec2 upS = length(d) > 1e-4 ? normalize(d) : vec2(0.0, 1.0);
+        // (on the flat map, seen from straight above, a flag stands up the screen)
+        vec2 upS = length(d) > 1e-4 && uFlat < 0.5 ? normalize(d) : vec2(0.0, 1.0);
         vec2 side = vec2(upS.y, -upS.x);
         vec2 offPx = side * position.x * quadR + upS * (position.y * quadR + lift);
         clip.xy += offPx * uPixelRatio * 2.0 / uViewport * clip.w;
@@ -546,6 +549,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   lineGeom.setAttribute('aKnown', lineKnownAttr)
   const lineUniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: glyphUniforms.uYear,
     uCamObj: glyphUniforms.uCamObj,
     uSelected: glyphUniforms.uSelected,
@@ -589,7 +593,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         float sel = abs(aInfo.x - uSelected) < 0.5 || abs(aInfo.y - uSelected) < 0.5 ? 1.0 : 0.0;
         float hov = abs(aInfo.x - uHovered) < 0.5 || abs(aInfo.y - uHovered) < 0.5 ? 0.7 : 0.0;
         vec3 up = normalize(positionR);
-        float facing = dot(up, normalize(uCamObj - positionR));
+        float facing = ws_facing(dot(up, normalize(uCamObj - positionR)));
         float night = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vSel = max(sel, hov);
         vA = max(vSel * 0.95, uFaint) * smoothstep(0.0, 0.25, facing) * mix(1.0, 0.6, night);
@@ -598,12 +602,12 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
           return;
         }
         vec3 base = positionR - up * uDrop;
-        vec4 mv = modelViewMatrix * vec4(base, 1.0);
+        vec4 mv = modelViewMatrix * vec4(ws_place(base), 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float halfW = vSel > 0.5 ? 2.1 : 1.5; // CSS px: a light core of about 1-1.5 px and a dark rim
         vAcross = aSide.w;
         vArc = aArc;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(base + aSide.xyz * aSide.w * halfW * pix, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_placeV(base + aSide.xyz * aSide.w * halfW * pix), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -612,7 +616,9 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
       varying float vA;
       varying float vAcross;
       varying float vSel;
+      ${SEAM_FRAG_GLSL}
       void main() {
+        ws_clipLine();
         float dash = step(0.42, fract(vArc / uDash));
         float x = abs(vAcross);
         float core = 1.0 - smoothstep(0.38, 0.55, x);
@@ -668,6 +674,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   campGeom.setAttribute('aKnown', campKnownAttr)
   const campUniforms = {
     uReliefK: reliefUniforms.uReliefK,
+    ...flatUniforms,
     uYear: glyphUniforms.uYear,
     uCamObj: glyphUniforms.uCamObj,
     uSunObj: glyphUniforms.uSunObj,
@@ -702,7 +709,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
           return;
         }
         vec3 p = ws_relief(aAnchor) + (position - aAnchor) * s;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_place(p), 1.0);
         vC = aColor;
         vN = normal;
         vUp = normalize(aAnchor);
@@ -808,9 +815,9 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         const special = id === glyphUniforms.uSelected.value || id === glyphUniforms.uHovered.value
         if (zoom < 0.2 && !special) continue
         const cx = gPos[k * 3], cy = gPos[k * 3 + 1], cz = gPos[k * 3 + 2]
-        if ((camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
-        const cr = Math.hypot(cx, cy, cz), crr = reliefRadius(cr) // as drawn (ws_relief)
-        tmp.set(cx, cy, cz).multiplyScalar((crr - dropNow) / cr).applyMatrix4(mvp)
+        if (!flatActive() && (camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
+        const cr = Math.hypot(cx, cy, cz), crr = reliefRadius(cr) // as drawn (ws_relief, ws_place)
+        placeFlat(tmp.set(cx, cy, cz).multiplyScalar((crr - dropNow) / cr)).applyMatrix4(mvp)
         const sx = ((tmp.x + 1) / 2) * width, sy = ((1 - tmp.y) / 2) * height
         // the flag stands above its foot: aim at its middle
         const ext = 8.5 * sizeScale
