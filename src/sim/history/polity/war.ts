@@ -74,7 +74,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      if (rng.next() >= POLITY.step * WAR.declare * drive) continue
+      if (rng.next() >= POLITY.slowStep * WAR.declare * drive) continue
       declare(s, ps, r, p, q)
     }
   }
@@ -377,7 +377,7 @@ export function raids(s: HistoryState, ps: PolityState): void {
   const rng = ps.rng
   const living = s.living
   const minPop = WAR.raidMinPop
-  const step = POLITY.step
+  const step = POLITY.slowStep
   for (let t = 0; t < living.length; t++) {
     const u = living[t]
     if (s.pop[u] < minPop) continue

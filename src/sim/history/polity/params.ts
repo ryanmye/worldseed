@@ -8,8 +8,9 @@
 export const POLITY = {
   /** Polity system on by default (HistoryOptions.polities overrides it). */
   enabled: true,
-  /** Control, cohesion, danger, unrest, formation, relations, declarations and raids run every `step` years. */
+  /** Control, danger, cohesion, unrest, revolts and successions run every `step` years; rivalry, declarations, formation, accretion, absorption, raids and walls every `slowStep` years (a multiple of step). */
   step: 5,
+  slowStep: 10,
   /** Territory map pass (and the settlement graph) every mapStep years: aligned with the land snapshots (HISTORY_DEFAULTS.landInterval). */
   mapStep: 20,
   /** Territory radius of a settlement in cost units: mapR0 + mapR1 * smoothstep(mapPopLow, mapPopHigh, pop). */
@@ -32,8 +33,8 @@ export const POLITY = {
   submit: 1.8,
   subBase: 0.3,
   foreign: 0.5,
-  /** Accretion: at most this many settlements join a polity per step, the most dominated first. */
-  accreteMax: 4,
+  /** Accretion: at most this many settlements join a polity per slow step, the most dominated first. */
+  accreteMax: 8,
   /** A chiefdom (fewer than absorbMembers members) whose capital would submit (at submit) to a larger neighbour joins it whole. */
   absorbMembers: 6,
   /** Reach: lambda = lambda0 * (1 + reachCrafts * (Crafts - 1)) / sqrt(1 + members / overload). */
@@ -67,7 +68,7 @@ export const POLITY = {
   tax: 0.06,
   wealthTax: 0.05,
   /** Grain tax counts as loads through the capital (the capital as a hub) times this. */
-  taxThrough: 1,
+  taxThrough: 0.5,
   /** Successor founded: members' cohesion rises by this; a state formed: the same. */
   foundAsab: 0.1,
 }
@@ -196,7 +197,7 @@ export const DANGER = {
   wild: 0.1,
   /** Flight: extra refugee chance flee * smoothstep(fleeLow, fleeHigh, z). */
   flee: 0.06,
-  fleeLow: 0.3,
+  fleeLow: 0.35,
   fleeHigh: 0.8,
   /** Site and join scores: * (1 - site * zCell * (1 - D)), D = defensibility 0..1; walled towns pull the threatened: * (1 + z_from * wall). */
   site: 1.0,

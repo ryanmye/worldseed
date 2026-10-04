@@ -4,8 +4,8 @@
 //   new settlements (graph link, cohesion, membership) -> members abandoned this year leave (a lost
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
-//   danger, unrest, revolts, successions / fragmentation / capital moves, formation, accretion,
-//   absorption, rivalry, declarations, raids, walls, cell danger.
+//   danger, unrest, revolts, successions / fragmentation / capital moves; every POLITY.slowStep years
+//   also formation, accretion, absorption, rivalry, declarations, raids, walls, hostile borders; cell danger.
 // The tax (taxSystem) runs between trade and population: grain flows from members to capitals.
 //
 // Hooks (every one a no-op while HistoryState.pol is null, which is how the off switch keeps the
@@ -19,7 +19,7 @@ import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { controlPass } from './control.ts'
-import { cellDanger, linkNew, mapPass, createMapHeap } from './territory.ts'
+import { cellDanger, linkNew, mapPass, createMapHeap, zCell } from './territory.ts'
 import { dangerStep, loseWalls, wallStep } from './danger.ts'
 import { absorption, accretion, atWar, formation } from './formation.ts'
 import { COHESION, DANGER, POLITY, UNREST } from './params.ts'
@@ -38,7 +38,7 @@ export function createPolitySystem(s: HistoryState, ts: TradeState): PolityState
   newSettlements(s, ps)
   if (!mapHeap) mapHeap = createMapHeap()
   mapPass(s, ps, ts, mapHeap)
-  cellDanger(s, ps, ps.hostile)
+  cellDanger(s, ps)
   return ps
 }
 
@@ -51,13 +51,13 @@ function newSettlements(s: HistoryState, ps: PolityState): void {
     const par = s.parent[id]
     ps.asab[id] = par >= 0 ? ps.asab[par] : COHESION.start
     ps.dist[id] = FAR
-    ps.foundZ[id] = ps.cellZ[s.cell[id]]
+    ps.foundZ[id] = zCell(s, ps, s.cell[id])
     const links = ps.linkA.length
     linkNew(s, ps, id)
     if (s.outpost[id] || s.abandoned[id] >= 0) continue
     if (s.year > 0) {
       ps.diag.foundYear.push(s.year)
-      ps.diag.foundCellZ.push(ps.cellZ[s.cell[id]])
+      ps.diag.foundCellZ.push(zCell(s, ps, s.cell[id]))
       ps.diag.foundT.push(ps.defense[s.cell[id]])
       ps.diag.foundFromZ.push(par >= 0 && par < ps.seen ? ps.danger[par] : 0)
       ps.diag.foundHome.push(par >= 0 && s.terrain.landmass[s.cell[par]] === s.terrain.landmass[s.cell[id]] ? 1 : 0)
@@ -122,32 +122,37 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   warYear(s, ps)
   if (s.year % POLITY.step !== 0) return
   controlPass(s, ps, ps.heap)
-  cohesionStep(s, ps)
   dangerStep(s, ps)
+  cohesionStep(s, ps)
   unrestStep(s, ps)
   revoltStep(s, ps)
   realmStep(s, ps)
-  formation(s, ps)
-  accretion(s, ps)
-  absorption(s, ps)
-  relationStep(s, ps, ts)
-  declarations(s, ps)
-  raids(s, ps)
-  wallStep(s, ps)
-  hostileCells(s, ps)
-  cellDanger(s, ps, ps.hostile)
+  if (s.year % POLITY.slowStep === 0) {
+    formation(s, ps)
+    accretion(s, ps)
+    absorption(s, ps)
+    relationStep(s, ps, ts)
+    declarations(s, ps)
+    raids(s, ps)
+    wallStep(s, ps)
+    hostileCells(s, ps)
+  }
+  cellDanger(s, ps)
   taxShares(s, ps)
 }
 
 /** Share of its food each member sends its capital until the next step: tax * gamma * g / T. */
 function taxShares(s: HistoryState, ps: PolityState): void {
   const living = s.living
+  const payers = ps.taxPayers
+  payers.length = 0
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const p = ps.polity[id]
     let x = 0
     if (p >= 0 && ps.pCapital[p] !== id && ps.dist[id] < FAR) x = (POLITY.tax * grainShare(s, id) * grip(ps.dist[id], ps.pReach[p])) / ps.defense[s.cell[id]]
     ps.taxShare[id] = x
+    if (x > 0) payers.push(id)
   }
 }
 
@@ -158,14 +163,14 @@ function taxShares(s: HistoryState, ps: PolityState): void {
  */
 export function taxSystem(s: HistoryState, ps: PolityState): void {
   if (ps.alive.length === 0) return
-  const living = s.living
   const P = POLITY
   const inFood = ps.scratchF
   for (const p of ps.alive) inFood[ps.pCapital[p]] = 0
   const wt = P.wealthTax * WEALTH.decay
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
-    if (id >= ps.seen) break
+  const payers = ps.taxPayers
+  for (let t = 0; t < payers.length; t++) {
+    const id = payers[t]
+    if (s.abandoned[id] >= 0) continue
     const share = ps.taxShare[id]
     if (!(share > 0)) continue
     const p = ps.polity[id]
@@ -213,8 +218,8 @@ export function fleeChance(ps: PolityState, id: number): number {
  * sites sought after; z is the cell's danger or, for a group fleeing danger, part of its own (fear sends people
  * to hilltops and islands even where it is quiet for now).
  */
-export function siteFactor(ps: PolityState, c: number, from: number): number {
-  let z = ps.cellZ[c]
+export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: number): number {
+  let z = zCell(s, ps, c)
   if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > z) z = zf }
   const D = ps.defenseD[c]
   return (1 - DANGER.site * z * (1 - D)) * (1 + DANGER.refuge * z * D)

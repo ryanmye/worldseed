@@ -19,7 +19,7 @@ import { smoothstep } from '../../util.ts'
 import { TECH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent, techOf } from '../state.ts'
-import { DANGER, POLITY, WALLS } from './params.ts'
+import { COHESION, DANGER, POLITY, WALLS } from './params.ts'
 import { grip, inCrisis, isCapital } from './state.ts'
 import type { PolityState } from './state.ts'
 import { relationOf } from './relations.ts'
@@ -49,23 +49,34 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
     let z = danger[i] * keep
     const pi = polity[i]
     let on = 0
+    // Also the frontier flags for cohesion (unrest.ts): 1 a frontier, 2 a steppe frontier (a raider-type neighbour of another people).
+    let front = 0
     const nb = gNb[i]
     if (nb) {
       for (let k = 0; k < nb.length; k++) {
         const v = nb[k]
         if (s.abandoned[v] >= 0 || s.outpost[v]) continue
         const pv = polity[v]
+        const other = s.people[v] !== s.people[i]
         if (pi >= 0 && pv >= 0 && pi !== pv) {
-          if (atWar(ps, pi, pv)) { if (on < D.enemy) on = D.enemy }
-          else if (relationOf(ps, pi, pv) >= 0.5 && on < D.rival) on = D.rival
+          if (atWar(ps, pi, pv)) { if (on < D.enemy) on = D.enemy; front |= 1 }
+          else {
+            const R = relationOf(ps, pi, pv)
+            if (R >= 0.5 && on < D.rival) on = D.rival
+            if (R >= COHESION.frontierR) front |= 1
+          }
         }
         if ((pi < 0) !== (pv < 0) && on < D.frontier) on = D.frontier
-        if (pv < 0 && s.people[v] !== s.people[i] && raiderType(s, ps, v)) {
+        if (pi < 0 && pv >= 0) front |= 1
+        if (other) front |= 1
+        if (pv < 0 && other && raiderType(s, ps, v)) {
+          front |= 2
           const r = D.raider * ps.asab[v]
           if (r > on) on = r
         }
       }
     }
+    ps.scratchI[i] = front
     if (pi >= 0) {
       const A = ps.pAsab[pi] * (inCrisis(s, ps, pi) ? POLITY.crisisMass : 1)
       const lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * smoothstep(D.lawlessHigh, D.lawlessLow, A)
@@ -111,7 +122,7 @@ export function wallStep(s: HistoryState, ps: PolityState): void {
   const W = WALLS
   const rng = ps.rng
   const living = s.living
-  const step = POLITY.step
+  const step = POLITY.slowStep
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const p = s.pop[id]

@@ -116,8 +116,9 @@ export interface PolityState {
   fringeCell: number[]
   fringeOff: number[]
   fringeOwner: number[]
-  /** Share of its food each member sends its capital (tax.ts; set every step). */
+  /** Share of its food each member sends its capital (set every step), and the members that pay, ascending. */
   taxShare: Float64Array
+  taxPayers: number[]
   /** Events already scanned for abandonments. */
   evSeen: number
   mapYear: number
@@ -230,7 +231,7 @@ export function createPolityState(s: HistoryState): PolityState {
     memOff: new Int32Array(1), memList: new Int32Array(0),
     gNb: [], gCost: [], linkA: [], linkB: [], linkCost: [],
     tOwner: new Int32Array(N).fill(-1), tDist: new Float64Array(N), borderCell: [], borderOther: [],
-    cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), evSeen: 0, mapYear: -1,
+    cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), taxPayers: [], evSeen: 0, mapYear: -1,
     relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
     wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [],
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],

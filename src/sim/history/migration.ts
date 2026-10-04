@@ -275,7 +275,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           const free = alone > 0 ? food / alone : 0
           let score = (food * (1 + M.emptyPull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
           if (portReach[c]) score *= sitePref
-          if (s.pol !== null) score *= siteFactor(s.pol, c, from) // polities: danger and defensibility
+          if (s.pol !== null) score *= siteFactor(s, s.pol, c, from) // polities: danger and defensibility
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }

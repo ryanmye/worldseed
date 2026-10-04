@@ -24,37 +24,24 @@ import { foodBase } from '../migration.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { controlOne, distTo } from './control.ts'
-import { spike, raiderType } from './danger.ts'
-import { atWar } from './formation.ts'
+import { spike } from './danger.ts'
 import { COHESION, DANGER, POLITY, UNREST } from './params.ts'
 import { chooseCapital, membersOf, successors } from './realm.ts'
-import { relationOf } from './relations.ts'
 import { FAR, clampAsab, endPolity, grip, inCrisis, moveCapital, projAt, setPolity, submits } from './state.ts'
 import type { PolityState } from './state.ts'
 
-/** System part (every step): cohesion on frontiers and in interiors. */
+/** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
   const C = COHESION
   const step = POLITY.step
   const living = s.living
-  const { asab, polity, gNb } = ps
+  const { asab } = ps
+  const front = ps.scratchI
   for (let t = 0; t < living.length; t++) {
     const i = living[t]
-    const pi = polity[i]
-    let frontier = false, steppe = false
-    const nb = gNb[i]
-    if (nb) {
-      for (let k = 0; k < nb.length; k++) {
-        const v = nb[k]
-        if (s.abandoned[v] >= 0 || s.outpost[v]) continue
-        const pv = polity[v]
-        if (s.people[v] !== s.people[i]) { frontier = true; if (raiderType(s, ps, v)) steppe = true }
-        else if (pi < 0 && pv >= 0) frontier = true
-        else if (pi >= 0 && pv >= 0 && pi !== pv && (relationOf(ps, pi, pv) >= C.frontierR || atWar(ps, pi, pv))) frontier = true
-      }
-    }
+    const f = front[i]
     const a = asab[i]
-    asab[i] = clampAsab(frontier ? a + step * C.grow * a * (1 - a) * (steppe ? C.steppe : 1) : a - step * C.decay * a)
+    asab[i] = clampAsab(f !== 0 ? a + step * C.grow * a * (1 - a) * (f & 2 ? C.steppe : 1) : a - step * C.decay * a)
   }
 }
 

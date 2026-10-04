@@ -397,9 +397,10 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
   const xs: number[] = [], ys: number[] = []
   for (let p = 0; p < P; p++) if (root[p] === p && (l1100[p] > 0 || l2000[p] > 0)) { xs.push(l1100[p]); ys.push(l2000[p]) }
   const pathDep = xs.length >= 3 ? spearman(xs, ys) : NaN
-  // Snowball: the polity with the highest share at any snapshot; did it fall >= 30% within 300 years?
+  // Snowball: the polity with the highest share at any snapshot up to 300 years before the end; did it fall >= 30% within 300 years?
   let peak = 0, peakP = -1, peakQ = 0
-  for (let q = 0; q <= last; q++) for (let p = 0; p < P; p++) if (shareSeries[q][p] > peak) { peak = shareSeries[q][p]; peakP = p; peakQ = q }
+  const qMax = Math.max(0, last - Math.round(300 / h.snapshotInterval))
+  for (let q = 0; q <= qMax; q++) for (let p = 0; p < P; p++) if (shareSeries[q][p] > peak) { peak = shareSeries[q][p]; peakP = p; peakQ = q }
   let fell = false
   const horizon = Math.round(300 / h.snapshotInterval)
   if (peakP >= 0) for (let q = peakQ; q <= Math.min(last, peakQ + horizon); q++) if (shareSeries[q][peakP] <= 0.7 * peak) fell = true
@@ -479,7 +480,7 @@ export function formatPolityStats(rows: PolityStatRow[]): string {
     ['Top-10 cities that are or were capitals', '>= 0.50', rng(col((r) => r.topCapitals))],
     ['Churn: changes per settlement per century', 'median <= 1.0', rng(col((r) => r.churn))],
     ['Path dependence (Spearman lineage share 1100 vs 2000)', 'median <= 0.7', rng(col((r) => r.pathDep))],
-    ['Snowball: peak share fell >= 30% within 300 y', '>= 12/20', cnt((r) => r.peakFell)],
+    ['Snowball: peak share (by 1700) fell >= 30% within 300 y', '>= 12/20', cnt((r) => r.peakFell)],
     ['Towns >= 3k on defensible sites (T >= 1.3): on vs off', 'on > off', `on ${f2(median(col((r) => r.townsDefOn)))} off ${f2(median(col((r) => r.townsDefOff)))}`],
     ['Towns >= 3k: hops from a border, on vs off', 'on > off', `on ${f2(median(col((r) => r.townsBorderOn)))} off ${f2(median(col((r) => r.townsBorderOff)))}`],
     ['  towns founded after 500: defensible, on vs off', 'on > off', `on ${f2(median(col((r) => r.lateDefOn)))} off ${f2(median(col((r) => r.lateDefOff)))}`],

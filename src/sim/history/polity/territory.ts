@@ -24,8 +24,10 @@ import type { TradeState } from '../trade.ts'
 import { DANGER, POLITY } from './params.ts'
 import type { PolityState } from './state.ts'
 
-/** Edge pair key (lower id first). */
-const KEY = 65536
+/** Bucket width of the map search in cell units (below the cheapest step: a road along a coastal river, about 0.39). */
+const BUCKET = 0.25
+const buckets: Int32Array[] = []
+let bucketLen = new Int32Array(0)
 
 /** Army travel cost along a cell path from settlement a to b (land at move cost; sea legs as freight would pay, times seaArmy). Also returns sea cells in seaCount. */
 let seaCount = 0
@@ -75,79 +77,106 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
   const { tOwner, tDist } = ps
   const moveCost = s.moveCost
   tOwner.fill(-1)
-  heap.size = 0
+  void heap
+  // Multi-source Dijkstra with a bucket queue (Dial): buckets narrower than the cheapest step, so a cell is
+  // final when its bucket comes up; cells within a bucket in the order reached.
   const radius = ps.scratchF
   const living = s.living
   const r0 = POLITY.mapR0 * T.cellScale, r1 = POLITY.mapR1 * T.cellScale
+  const inv = 1 / (BUCKET * T.cellScale)
+  const nB = Math.floor((r0 + r1) * inv) + 2
+  while (buckets.length < nB) buckets.push(new Int32Array(64))
+  if (bucketLen.length < nB) bucketLen = new Int32Array(nB)
+  bucketLen.fill(0)
+  const push = (c: number, d: number): void => {
+    const b = Math.floor(d * inv)
+    let arr = buckets[b]
+    const n = bucketLen[b]
+    if (n === arr.length) { const x = new Int32Array(n * 2); x.set(arr); buckets[b] = arr = x }
+    arr[n] = c
+    bucketLen[b] = n + 1
+  }
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     radius[id] = r0 + r1 * smoothstep(POLITY.mapPopLow, POLITY.mapPopHigh, s.pop[id])
     const c = s.cell[id]
     tOwner[c] = id
     tDist[c] = 0
-    heap.push(0, c)
+    push(c, 0)
   }
   const sea = T.sea
-  while (heap.size > 0) {
-    const d = heap.topKey()
-    const c = heap.pop()
-    if (d > tDist[c]) continue
-    const a = tOwner[c]
-    const r = radius[a]
-    for (let k = off[c]; k < off[c + 1]; k++) {
-      const j = nb[k]
-      if (sea[j]) continue
-      const nd = d + moveCost[j]
-      if (nd > r) continue
-      if (tOwner[j] >= 0 && nd >= tDist[j]) continue
-      tOwner[j] = a
-      tDist[j] = nd
-      heap.push(nd, j)
+  for (let b = 0; b < nB; b++) {
+    for (let i = 0; i < bucketLen[b]; i++) {
+      const c = buckets[b][i]
+      const d = tDist[c]
+      if (Math.floor(d * inv) !== b) continue // (improved since: queued again further down)
+      const a = tOwner[c]
+      const r = radius[a]
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const j = nb[k]
+        if (sea[j]) continue
+        const nd = d + moveCost[j]
+        if (nd > r) continue
+        if (tOwner[j] >= 0 && nd >= tDist[j]) continue
+        tOwner[j] = a
+        tDist[j] = nd
+        push(j, nd)
+      }
     }
   }
-  // Land edges between owners of neighbouring cells, at the cheapest crossing; border cells.
-  const eA: number[] = [], eB: number[] = [], eC: number[] = []
-  const index = new Map<number, number>()
+  // Land edges between owners of neighbouring cells, at the cheapest crossing; border cells (one entry per cell and other owner).
+  const S = s.count
+  const gNb: number[][] = [], gCost: number[][] = []
+  for (let id = 0; id < S; id++) { gNb.push([]); gCost.push([]) }
   const add = (a: number, b: number, cost: number): void => {
-    const lo = a < b ? a : b, hi = a < b ? b : a
-    const key = lo * KEY + hi
-    const e = index.get(key)
-    if (e === undefined) { index.set(key, eA.length); eA.push(lo); eB.push(hi); eC.push(cost) }
-    else if (cost < eC[e]) eC[e] = cost
+    const na = gNb[a]
+    for (let k = 0; k < na.length; k++) {
+      if (na[k] !== b) continue
+      if (cost < gCost[a][k]) {
+        gCost[a][k] = cost
+        const nbb = gNb[b]
+        for (let q = 0; q < nbb.length; q++) if (nbb[q] === a) { gCost[b][q] = cost; break }
+      }
+      return
+    }
+    na.push(b); gCost[a].push(cost)
+    gNb[b].push(a); gCost[b].push(cost)
   }
   const bc: number[] = [], bo: number[] = []
   const cells = ps.landCells
+  // (one pass: borders of owned cells; for unowned ones, the wilderness fringe that takes its owners' danger)
+  const fc: number[] = [], fo: number[] = [0], fw: number[] = []
+  const cellZ = ps.cellZ, wild = DANGER.wild
   for (let t = 0; t < cells.length; t++) {
     const c = cells[t]
     const a = tOwner[c]
-    if (a < 0) continue
+    if (a < 0) {
+      cellZ[c] = wild
+      const start = fw.length
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const b = tOwner[nb[k]]
+        if (b < 0) continue
+        let dup = false
+        for (let q = start; q < fw.length; q++) if (fw[q] === b) { dup = true; break }
+        if (!dup) fw.push(b)
+      }
+      if (fw.length > start) { fc.push(c); fo.push(fw.length) }
+      continue
+    }
+    const start = bo.length
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
       const b = tOwner[j]
       if (b < 0 || b === a) continue
-      bc.push(c); bo.push(b)
+      let dup = false
+      for (let q = start; q < bo.length; q++) if (bo[q] === b) { dup = true; break }
+      if (!dup) { bc.push(c); bo.push(b) }
       if (b < a) continue
       add(a, b, tDist[c] + tDist[j] + 0.5 * (moveCost[c] + moveCost[j]))
     }
   }
   ps.borderCell = bc
   ps.borderOther = bo
-  // Wilderness: far cells keep the wild danger; cells next to owned land take their owners' (cellDanger).
-  const fc: number[] = [], fo: number[] = [0], fw: number[] = []
-  for (let t = 0; t < cells.length; t++) {
-    const c = cells[t]
-    if (tOwner[c] >= 0) continue
-    const start = fw.length
-    for (let k = off[c]; k < off[c + 1]; k++) {
-      const b = tOwner[nb[k]]
-      if (b < 0) continue
-      let dup = false
-      for (let q = start; q < fw.length; q++) if (fw[q] === b) dup = true
-      if (!dup) fw.push(b)
-    }
-    if (fw.length > start) { fc.push(c); fo.push(fw.length) }
-    ps.cellZ[c] = DANGER.wild
-  }
   ps.fringeCell = fc
   ps.fringeOff = fo
   ps.fringeOwner = fw
@@ -163,14 +192,6 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
     const a = ps.linkA[k], b = ps.linkB[k]
     if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0) continue
     add(a, b, ps.linkCost[k])
-  }
-  const S = s.count
-  const gNb: number[][] = [], gCost: number[][] = []
-  for (let id = 0; id < S; id++) { gNb.push([]); gCost.push([]) }
-  for (let e = 0; e < eA.length; e++) {
-    const a = eA[e], b = eB[e], c = eC[e]
-    gNb[a].push(b); gCost[a].push(c)
-    gNb[b].push(a); gCost[b].push(c)
   }
   ps.gNb = gNb
   ps.gCost = gCost
@@ -199,19 +220,26 @@ export function linkNew(s: HistoryState, ps: PolityState, id: number): void {
   else if (par >= 0 && s.abandoned[par] < 0 && path !== null) addEdge(ps, id, par, armyPathCost(s, path, par, id))
 }
 
-/** Cell danger for siting and the danger layer: owner's danger (+ on hostile borders); wilderness from its neighbours. */
-export function cellDanger(s: HistoryState, ps: PolityState, hostile: Uint8Array): void {
-  const { tOwner, cellZ, danger } = ps
+/** Danger of cell c now: its owner's (+ on a hostile border), or the wilderness value (cellDanger keeps it for unowned cells). */
+export function zCell(s: HistoryState, ps: PolityState, c: number): number {
+  const o = ps.tOwner[c]
+  if (o < 0) return ps.cellZ[c]
+  if (s.abandoned[o] >= 0) return DANGER.wild
+  const z = ps.danger[o] + (ps.hostile[c] ? DANGER.hostileEdge : 0)
+  return z > 1 ? 1 : z
+}
+
+/** Every land cell's danger into cellZ (for the danger layer). */
+export function fillCellDanger(s: HistoryState, ps: PolityState): void {
   const cells = ps.landCells
+  for (let t = 0; t < cells.length; t++) { const c = cells[t]; if (ps.tOwner[c] >= 0) ps.cellZ[c] = zCell(s, ps, c) }
+}
+
+/** Wilderness cell danger (every step): unowned cells next to owned land take half their owners' largest danger. */
+export function cellDanger(s: HistoryState, ps: PolityState): void {
+  const { cellZ, danger } = ps
   const abandoned = s.abandoned
-  const hEdge = DANGER.hostileEdge, wild = DANGER.wild
-  for (let t = 0; t < cells.length; t++) {
-    const c = cells[t]
-    const o = tOwner[c]
-    if (o < 0) continue
-    const z = abandoned[o] < 0 ? danger[o] + (hostile[c] ? hEdge : 0) : wild
-    cellZ[c] = z > 1 ? 1 : z
-  }
+  const wild = DANGER.wild
   const { fringeCell, fringeOff, fringeOwner } = ps
   for (let k = 0; k < fringeCell.length; k++) {
     let m = 0

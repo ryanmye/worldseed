@@ -24,7 +24,7 @@ import type { PolityState } from './state.ts'
 
 /** Pairs of polities at war with each other (active wars): true if p and q fight. */
 export function atWar(ps: PolityState, p: number, q: number): boolean {
-  if (p < 0 || q < 0 || p === q) return false
+  if (p < 0 || q < 0 || p === q || ps.pWars[p] === 0 || ps.pWars[q] === 0) return false
   const lo = p < q ? p : q, hi = p < q ? q : p
   const r = ps.relIndex.get(lo * 65536 + hi)
   return r !== undefined && ps.relWar[r] >= 0

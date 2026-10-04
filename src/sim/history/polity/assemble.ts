@@ -10,6 +10,7 @@ import type { SettlementNaming } from '../../names/index.ts'
 import { namePolities } from '../../names/polityNames.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from './state.ts'
+import { fillCellDanger } from './territory.ts'
 
 export interface PolitySnaps {
   pol: Int16Array<ArrayBuffer>
@@ -55,6 +56,7 @@ export function polSnapshot(s: HistoryState, ps: PolityState, sn: PolitySnaps): 
 
 /** Land snapshot of territory owners and cell danger over the land cells. */
 export function polLandSnapshot(s: HistoryState, ps: PolityState, sn: PolitySnaps): void {
+  fillCellDanger(s, ps)
   const L = ps.landCells.length
   const need = (sn.landCount + 1) * L
   if (need > sn.terr.length) {

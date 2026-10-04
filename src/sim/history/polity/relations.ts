@@ -51,7 +51,7 @@ export function ensureRelation(ps: PolityState, p: number, q: number): number {
 /** System part (every step): border edges per pair, then rivalry. */
 export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): void {
   const X = RELATION
-  const step = POLITY.step
+  const step = POLITY.slowStep
   const living = s.living
   const { polity, gNb, gCost } = ps
   for (let r = 0; r < ps.relEdges.length; r++) ps.relEdges[r].length = 0
