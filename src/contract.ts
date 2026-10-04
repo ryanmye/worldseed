@@ -323,6 +323,8 @@ export interface History {
   piracy: Uint8Array
   /** Vassalage, tribute and alliances between polities. */
   bonds: Bonds
+  /** Embargoes between polities short of war. */
+  embargoes: Embargoes
 
   // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
   /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
@@ -564,9 +566,9 @@ export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
  * Tier is derived, not stored (see tierOf in the sim), relative to the world's people W at the same time: the sum of
- * History.population over living settlements that are not outposts. Empire at >= max(20,000, 0.08 W) people (or two
- * peoples each >= 15% of its people with >= 25 members), Kingdom at >= 6 members and >= max(2,000, 0.008 W) people, else
- * Chiefdom. A polity's people and members are those of its living member settlements (History.polity).
+ * History.population over living settlements that are not outposts. Empire at >= max(20,000, 0.08 W) people, or at
+ * >= 20,000 people with >= 25 members where two peoples each hold >= 15% of its people; Kingdom at >= 6 members and
+ * >= max(2,000, 0.008 W) people; else Chiefdom. A polity's people and members are those of its living member settlements (History.polity).
  */
 export interface Polity {
   /** Index into History.polities; ids in founding order. */
@@ -634,6 +636,23 @@ export const BondEnd = {
   Ended: 4, // one of the two polities ended, or the vassal passed to its overlord's overlord
 } as const
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
+
+/**
+ * Embargoes short of war, struct-of-arrays in order of declaration (one entry per embargo; the same pair may embargo
+ * each other again later as a new entry). An embargo is declared when the rivalry of two polities reaches
+ * TARIFF.embargoOn (never between a vassal or tributary and its overlord) and lifted when it falls below embargoOff;
+ * while it is in force all goods but food stop between the two states' members (only contraband moves; food pays a
+ * duty), and if they go to war all trade stops anyway. It also ends when either polity ends (endYear its end year).
+ */
+export interface Embargoes {
+  count: number
+  /** Polity ids, a < b. */
+  a: Int16Array
+  b: Int16Array
+  startYear: Int16Array
+  /** -1 while still in force at the end of the run. */
+  endYear: Int16Array
+}
 
 /**
  * Bonds between polities, struct-of-arrays in order of making (one entry per bond; the same pair may bond again

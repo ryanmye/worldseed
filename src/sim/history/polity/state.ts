@@ -190,6 +190,13 @@ export interface PolityState {
   relIndex: Map<number, number>
   /** v2: 1 while the pair embargoes trade short of war (policy.ts). */
   relEmb: number[]
+  /** v2: the embargo record (embA..) of each relation's embargo in force, -1. */
+  relEmbRec: number[]
+  /** v2: embargoes, in order of declaration (History.embargoes). */
+  embA: number[]
+  embB: number[]
+  embStart: number[]
+  embEnd: number[]
   /** Border edges of each pair this step: flat (u, v, cost) triples, u < v. */
   relEdges: number[][]
   /** Contested cells per pair (recounted every map pass). */
@@ -350,7 +357,7 @@ export function createPolityState(s: HistoryState): PolityState {
     gNb: [], gCost: [], linkA: [], linkB: [], linkCost: [],
     tOwner: new Int32Array(N).fill(-1), tDist: new Float64Array(N), borderCell: [], borderOther: [],
     cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), taxPayers: [], evSeen: 0, mapYear: -1,
-    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEmb: [], relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
+    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEmb: [], relEmbRec: [], embA: [], embB: [], embStart: [], embEnd: [], relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
     wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [], warEpoch: 0,
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],
     heap: new Heap(256), aDist: new Float64Array(N), aPrev: new Int32Array(N), aStamp: new Int32Array(N), aRun: 0, aHeap: new Heap(256),
@@ -686,7 +693,7 @@ export const Tier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
 export function tierOf(pop: number, members: number, multi: boolean, world: number): number {
   const X = POLITY
   const e = X.empireShare * world
-  if (pop >= (e > X.empirePop ? e : X.empirePop) || (multi && members >= X.multiMembers)) return Tier.Empire
+  if (pop >= (e > X.empirePop ? e : X.empirePop) || (multi && members >= X.multiMembers && pop >= X.empirePop)) return Tier.Empire
   const k = X.kingdomShare * world
   if (members >= X.kingdomMembers && pop >= (k > X.kingdomPop ? k : X.kingdomPop)) return Tier.Kingdom
   return Tier.Chiefdom

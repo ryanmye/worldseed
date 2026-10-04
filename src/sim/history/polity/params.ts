@@ -69,7 +69,7 @@ export const POLITY = {
   /**
    * Tiers (derived, see tierOf), relative to the world's people W (living settlements, outposts excepted): Kingdom >= kingdomMembers
    * members and max(kingdomPop, kingdomShare * W) people; Empire >= max(empirePop, empireShare * W) people, or two peoples each >=
-   * multiShare of its people with >= multiMembers members.
+   * multiShare of its people with >= multiMembers members and >= empirePop people.
    */
   kingdomMembers: 6,
   kingdomPop: 2000,

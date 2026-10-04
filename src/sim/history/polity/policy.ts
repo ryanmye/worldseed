@@ -133,12 +133,26 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
   const R = ps.relA.length
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
-    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
+    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) {
+      // (an embargo in force ends with either polity: History.embargoes)
+      const k = ps.relEmbRec[r]
+      if (k >= 0) { const ea = ps.pEnded[a], eb = ps.pEnded[b]; ps.embEnd[k] = ea >= 0 && (eb < 0 || ea <= eb) ? ea : eb; ps.relEmbRec[r] = -1 }
+      continue
+    }
     const x = ps.relR[r]
     if (ps.relEdges[r].length > 0) { if (x > maxR[a]) maxR[a] = x; if (x > maxR[b]) maxR[b] = x }
-    // Embargo short of war (with hysteresis); never between a vassal and its overlord.
-    if (ps.relEmb[r] === 0) { if (x >= X.embargoOn && !bound(ps, a, b)) ps.relEmb[r] = 1 }
-    else if (x < X.embargoOff || bound(ps, a, b)) ps.relEmb[r] = 0
+    // Embargo short of war (with hysteresis); never between a vassal and its overlord. Recorded in History.embargoes.
+    if (ps.relEmb[r] === 0) {
+      if (x >= X.embargoOn && !bound(ps, a, b)) {
+        ps.relEmb[r] = 1
+        ps.relEmbRec[r] = ps.embA.length
+        ps.embA.push(a); ps.embB.push(b); ps.embStart.push(s.year); ps.embEnd.push(-1)
+      }
+    } else if (x < X.embargoOff || bound(ps, a, b)) {
+      ps.relEmb[r] = 0
+      const k = ps.relEmbRec[r]
+      if (k >= 0) { ps.embEnd[k] = s.year; ps.relEmbRec[r] = -1 }
+    }
   }
   const k = step * X.rate < 1 ? step * X.rate : 1
   for (const p of ps.alive) {

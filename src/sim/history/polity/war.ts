@@ -407,6 +407,13 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
       closeWar(s, ps, w, t > b ? WarOutcome.AttackerGains : b > t ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)
     }
   }
+  // A war whose side fell later this year (in another war) ends this year too, as if it had come later in the order.
+  for (const w of wars) {
+    if (ps.wEnd[w] >= 0) continue
+    const p = ps.wAtt[w], q = ps.wDef[w]
+    if (ps.pEnded[q] >= 0) closeWar(s, ps, w, ps.pEndBy[q] === ps.pCapital[p] ? WarOutcome.Conquest : ps.wTaken[w] > ps.wRetaken[w] ? WarOutcome.AttackerGains : WarOutcome.WhitePeace)
+    else if (ps.pEnded[p] >= 0) closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)
+  }
 }
 
 /** Yearly: exhaustion fades at peace, ravaged fields recover. */
