@@ -113,6 +113,22 @@ export const EventType = {
   SpeciesAdopted: 18, // the people of `settlement` first took up a species from another people; `other` is the settlement it came from; `value` is the species id
   Epidemic: 19, // a sickness new to the people of `settlement` struck after contact; `other` is the settlement of the people it came from; `value` is the fraction of that people lost
   FirstContact: 12, // two peoples met for the first time; `settlement` and `other` are the settlements through which they met; `value` is the other people's id (that of `other`)
+  // polities: ids 20-43 are reserved for polities (20-34 in use); 17-19 are the species events above.
+  PolityFounded: 20, // a state was founded at its capital `settlement`; `other` is the parent polity's capital (successor states) or -1; `value` is the polity id
+  PolityEnded: 21, // a polity ended (cause in History.polities); `settlement` is its last capital; `other` is the conqueror's capital or -1; `value` is the polity id
+  CapitalMoved: 22, // `settlement` became the capital; `other` is the old capital (-1 if it was abandoned); `value` is the polity id
+  Joined: 23, // a town (>= TOWN_POPULATION) submitted to a polity peacefully; `other` is the capital; `value` is the polity id
+  WarDeclared: 24, // `settlement` is the attacker's capital, `other` the defender's; `value` is the war id (History.wars)
+  PeaceMade: 25, // a war ended; `settlement` is the attacker's capital, `other` the defender's; `value` is the war id
+  Conquered: 26, // `settlement` was taken in a war; `other` is the settlement the army came from (-1 if it submitted after its capital fell); `value` is the war id
+  Sacked: 27, // `settlement` was sacked after it fell; `other` is the settlement the army came from; `value` is the fraction of its people lost
+  SiegeLifted: 28, // a siege of `settlement` (walled or a capital) ended without its fall; `other` is the besiegers' base; `value` is the war id
+  Raid: 29, // raiders from `other` struck `settlement` (logged only for settlements of 1,000 or more; see History.raids); `value` is the wealth taken
+  Revolt: 30, // a revolt broke out at `settlement` against the capital `other`; `value` is the cause (RevoltCause)
+  RevoltCrushed: 31, // the revolt seated at `settlement` was put down by the capital `other`; `value` is the number of settlements that rose
+  Seceded: 32, // `settlement` became the capital of a new state that broke away from the one ruled from `other`; `value` is the new polity id
+  Defected: 33, // `settlement` left its polity for the one ruled from `other`; `value` is that polity's id
+  SuccessionCrisis: 34, // the death of a ruler at the capital `settlement` left the succession contested; `other` is -1; `value` is the polity id
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -207,6 +223,119 @@ export interface History {
    * In value-weighted loads (one load is about a person-year of grain), both directions summed. 0 while the route is not open.
    */
   tradeVolume: Float32Array
+
+  // polities: states, borders, war and danger (all empty when HistoryOptions.polities is false).
+  /** States in order of founding (Polity.id is the index). */
+  polities: Polity[]
+  /**
+   * Polity per snapshot per settlement, same layout as `population`: polity[s * settlements.length + id],
+   * -1 when stateless or not alive. Expedition bases belong to their parent's polity.
+   */
+  polity: Int16Array
+  /** Land cells (elevation >= 0, lakes included), ascending; static. The compact per-cell layers below index into it. */
+  landCells: Uint32Array
+  /**
+   * Territory per land snapshot: the settlement whose land each cell is, plus 1 (0 = nobody's: wilderness, sea never),
+   * row-major: territory[q * landCells.length + k] for cell landCells[k]. The cell's polity at a year is
+   * polity[snapshot, owner]: borders move with membership every snapshot, territory shapes every land snapshot.
+   */
+  territory: Uint16Array
+  /** Danger (raids, war, lawlessness) 0..255 per land snapshot per land cell, same layout as `territory`. */
+  danger: Uint8Array
+  wars: Wars
+  /** Raids on settlements below 1,000 people (not logged as events), summed per decade and settlement. */
+  raids: RaidSummary
+}
+
+// ---------------------------------------------------------------------------
+// polities: states that form, grow, fight, rebel and split.
+
+export const PolityOrigin = {
+  Formed: 0, // a dominant town gathered its neighbours
+  Revolt: 1, // provinces that rose and broke away
+  Fragment: 2, // a successor of a state that fell apart (its capital taken, or its cohesion gone)
+  Colonial: 3, // overseas colonies that broke away
+  Partition: 4, // (later versions) heirs dividing a realm
+  CivilWar: 5, // (later versions)
+  League: 6, // (later versions) a league of trading towns
+} as const
+export type PolityOrigin = (typeof PolityOrigin)[keyof typeof PolityOrigin]
+
+export const PolityEnd = {
+  Alive: 0,
+  Conquered: 1, // its capital fell and no rump was left
+  Fragmented: 2, // it broke into successor states with no rump left
+  Dwindled: 3, // its people died out or left
+  Reunified: 4, // (later versions)
+  Absorbed: 5, // a small chiefdom that submitted whole to a larger neighbour
+} as const
+export type PolityEnd = (typeof PolityEnd)[keyof typeof PolityEnd]
+
+/** English qualifier the UI puts before a successor state's inherited name ("North Vashtar", "New Vashtar"). */
+export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, New: 5, Upper: 6, Lower: 7, Restored: 8 } as const
+export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
+
+/** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3 } as const
+export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
+
+/**
+ * Tier is derived, not stored (see polityTier in the sim): Empire at >= 60,000 people (or two peoples each >= 15% of
+ * its people with >= 25 members), Kingdom at >= 6 members and >= 5,000 people, else Chiefdom.
+ */
+export interface Polity {
+  /** Index into History.polities; ids in founding order. */
+  id: number
+  /** Proper name in the founding capital's language (no tier word: the UI adds it, "Kingdom of Vashtar"). */
+  name: string
+  /** For a successor that kept its parent's name: the English qualifier the UI puts first; else None. */
+  qualifier: PolityQualifier
+  foundedYear: number
+  /** Year it ended, or -1 if it survives to the end of the run. */
+  endedYear: number
+  origin: PolityOrigin
+  endCause: PolityEnd
+  /** Polity it split from (successor states), or -1. Always lower than id. */
+  parent: number
+  /** Ruling people (index into History.peoples): the founding capital's. */
+  people: number
+  /** Capital history: capitals[k] is the capital from capitalYears[k] on (ascending; capitalYears[0] = foundedYear). */
+  capitals: number[]
+  capitalYears: number[]
+  /** Stable 0..1 hue seed; a successor starts near its parent's hue. */
+  hue: number
+}
+
+export const WarKind = { Conquest: 0, CivilWar: 1, Blockade: 2 } as const
+export type WarKind = (typeof WarKind)[keyof typeof WarKind]
+export const WarOutcome = { Ongoing: 0, WhitePeace: 1, AttackerGains: 2, DefenderGains: 3, Conquest: 4, Tribute: 5, Vassalage: 6, Reunified: 7 } as const
+export type WarOutcome = (typeof WarOutcome)[keyof typeof WarOutcome]
+
+/** Wars, struct-of-arrays, in order of declaration (the war id is the index). */
+export interface Wars {
+  count: number
+  kind: Uint8Array
+  /** Polity ids. */
+  attacker: Int16Array
+  defender: Int16Array
+  startYear: Int16Array
+  /** -1 while ongoing at the end of the run. */
+  endYear: Int16Array
+  outcome: Uint8Array
+  /** Settlements that changed hands either way, and people killed on both sides (battles, sieges, sacks). */
+  taken: Uint16Array
+  dead: Float32Array
+}
+
+/** Small raids per decade and settlement raided, struct-of-arrays, sorted by decade then settlement (only nonzero entries). */
+export interface RaidSummary {
+  count: number
+  /** Decade d covers years [10 d, 10 d + 10). */
+  decade: Int16Array
+  settlement: Int32Array
+  /** Raids that struck it in that decade, and the wealth they took. */
+  raids: Uint16Array
+  wealth: Float32Array
 }
 
 export const Good = {
@@ -247,6 +376,7 @@ export const CITY_POPULATION = 10000
 export const StructureType = {
   Port: 0, // on a coastal settlement's cell; makes sea travel and fishing easier
   Dam: 1, // on a river cell near its settlement; irrigates land downstream and forms a reservoir
+  Walls: 2, // polities: town walls on the settlement's cell, raised against danger; a town may have several rings in use (one Structure per ring, oldest first)
 } as const
 export type StructureType = (typeof StructureType)[keyof typeof StructureType]
 
@@ -267,6 +397,8 @@ export interface HistoryOptions {
   years?: number
   /** Years between snapshots. Default 5. */
   snapshotInterval?: number
+  /** polities: simulate states, war and danger. Default true; false gives the history without them (the new History fields empty). */
+  polities?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
@@ -292,6 +424,7 @@ export const JourneyKind = {
   Settlers: 0, // founded settlement `to`
   Migrants: 1, // joined existing settlement `to`
   Expedition: 2, // explorers; `to` is the outpost founded, or `from` again if they came home, or -1 if lost
+  Army: 3, // polities: a campaign's army marching from the staging settlement `from` on the target `to` (arriving the year of the battle); size is men
 } as const
 export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
 

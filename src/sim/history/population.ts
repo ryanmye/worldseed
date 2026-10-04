@@ -26,6 +26,7 @@ import { CATCHMENT, DAM, PORT, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { abandon, logEvent } from './state.ts'
 import { foodBase } from './migration.ts'
+import { harvestLeft } from './polity/system.ts' // polities:
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -181,7 +182,7 @@ export function foodSystem(s: HistoryState): void {
     const expected = perStrength * stm
     let h = s.harvest[s.weatherRegion[c]]
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
-    const supply = expected * h
+    const supply = s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h // polities: fields ravaged by war
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p
