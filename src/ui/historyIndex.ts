@@ -9,6 +9,7 @@ import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
 import { goodsGroupKey, goodsOtherIsSettlement, isGoodsEvent } from './goodsFormat.ts'
 import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './diseaseFormat.ts'
+import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
@@ -53,6 +54,10 @@ export const EntryKind = {
   Goods: 18,
   /** disease: cities struck per epidemic, armies struck per war, ports in quarantine per decade, sicknesses become endemic per disease and decade (diseaseFormat.ts diseaseGroupKey). */
   Disease: 19,
+  /** rulers: one state's successions per quarter-century, a contested succession's events, a war of succession (rulersFormat.ts rulersGroupKey; numbered apart from the others). */
+  Rulers: 40,
+  /** religion: one state's conversion and state religion, a faith reaching peoples per half-century, a holy war (rulersFormat.ts). */
+  Faiths: 41,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -363,11 +368,13 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
+  if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) // 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
 function otherIsSettlement(type: number): boolean {
+  if (rulersOtherIsSettlement(type)) return true // rulers, religion: the senior realm's capital, the marriage partner's, the parent faith's holy city, ...
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
     type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
     type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic ||
@@ -620,6 +627,16 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     diseasePerKey.set(k, (diseasePerKey.get(k) ?? 0) + 1)
   })
   const diseaseEntry = new Map<number, number>()
+  // rulers, religion: a succession's events, one state's routine successions, a war with its declaration, ... (rulersGroupKey), gathered when two or more
+  const rulersKeyOfEvent = new Map<number, number>()
+  const rulersPerKey = new Map<number, number>()
+  for (let i = 0; i < h.events.length; i++) {
+    const k = rulersGroupKey(h, i)
+    if (k < 0) continue
+    rulersKeyOfEvent.set(i, k)
+    rulersPerKey.set(k, (rulersPerKey.get(k) ?? 0) + 1)
+  }
+  const rulersEntry = new Map<number, number>()
   const v2Kind = (t: number) => (t === 38 ? EntryKind.Bonds : t === 39 ? EntryKind.Alliances : t === 4 ? EntryKind.Forts : EntryKind.Blockades)
   const raidsPerBucket = perBucket(29, () => true)
   const raidEntry = new Map<number, number>()
@@ -632,6 +649,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     while (nextNaming < namings.length && namings[nextNaming].year < e.year) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
     while (nextSmallRaid < smallRaids.length && smallRaids[nextSmallRaid].year < e.year) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
     if (!isShownType(e.type)) continue
+    if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
@@ -646,6 +664,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (revoltKeyOfEvent.has(i) && (revoltsPerKey.get(revoltKeyOfEvent.get(i)!) ?? 0) >= 2) join(revoltEntry, revoltKeyOfEvent.get(i)!, EntryKind.Revolts, i)
     else if (wallKeyOfEvent.has(i) && (wallsPerKey.get(wallKeyOfEvent.get(i)!) ?? 0) >= 2) join(wallEntry, wallKeyOfEvent.get(i)!, EntryKind.Walls, i)
     else if (v2KeyOfEvent.has(i) && (v2PerKey.get(v2KeyOfEvent.get(i)!) ?? 0) >= 2) join(v2Entry, v2KeyOfEvent.get(i)!, v2Kind(e.type as number), i)
+    else if (rulersKeyOfEvent.has(i) && (rulersPerKey.get(rulersKeyOfEvent.get(i)!) ?? 0) >= 2) join(rulersEntry, rulersKeyOfEvent.get(i)!, isFaithGroupKey(rulersKeyOfEvent.get(i)!) ? EntryKind.Faiths : EntryKind.Rulers, i)
     else if (goodsKeyOfEvent.has(i) && (goodsPerKey.get(goodsKeyOfEvent.get(i)!) ?? 0) >= 2) join(goodsEntry, goodsKeyOfEvent.get(i)!, EntryKind.Goods, i)
     else if (diseaseKeyOfEvent.has(i) && (diseasePerKey.get(diseaseKeyOfEvent.get(i)!) ?? 0) >= 2) join(diseaseEntry, diseaseKeyOfEvent.get(i)!, EntryKind.Disease, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
@@ -668,6 +687,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   for (const i of order) {
     const e = h.events[i]
     if (!isShownType(e.type)) continue
+    if (rulersHiddenInList(h, i)) continue // rulers: the accession line of the same year says it
     if (involves(e.settlement)) counts[e.settlement]++
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) counts[e.other]++
   }
@@ -678,6 +698,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   for (const i of order) {
     const e = h.events[i]
     if (!isShownType(e.type)) continue
+    if (rulersHiddenInList(h, i)) continue
     if (involves(e.settlement)) eventList[cursor[e.settlement]++] = i
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) eventList[cursor[e.other]++] = i
   }
