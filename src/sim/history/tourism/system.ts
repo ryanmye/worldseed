@@ -218,11 +218,12 @@ function leisureOf(s: HistoryState, tz: TourismState, id: number): number {
   const pop = s.pop[id]
   if (pop < X.minPop || tz.resort[id]) return 0
   const crafts = s.tech[s.people[id] * TECH_FIELD_COUNT + TechField.Crafts]
+  const cLo = s.ideas !== null ? X.cLoIdeas : X.cLo // (ideas: worlds spread wider)
   const ps = s.pol
   const pz = polOf(s, id)
   let ease = 0
-  if (ps !== null && pz >= 0 && ps.pCapital[pz] === id && crafts > X.cLo - X.capitalEase && tierOf(ps.pPop[pz], ps.pMembers[pz], ps.pMulti[pz] === 1, ps.worldPop) >= Tier.Kingdom) ease = X.capitalEase
-  const cg = smoothstep(X.cLo - ease, X.cHi, crafts)
+  if (ps !== null && pz >= 0 && ps.pCapital[pz] === id && crafts > cLo - X.capitalEase && tierOf(ps.pPop[pz], ps.pMembers[pz], ps.pMulti[pz] === 1, ps.worldPop) >= Tier.Kingdom) ease = X.capitalEase
+  const cg = smoothstep(cLo - ease, X.cHi, crafts)
   if (cg <= 0) return 0
   const wg = smoothstep(X.wLo, X.wHi, s.wealth[id] / pop)
   if (wg <= 0) return 0
@@ -237,7 +238,7 @@ function leisureOf(s: HistoryState, tz: TourismState, id: number): number {
   const road = s.road[s.cell[id]]
   const ac = s.port[id] >= 0 ? 1 : road
   const access = X.roadMin + (1 - X.roadMin) * ac
-  ELITE = ease > 0 && crafts < X.cLo
+  ELITE = ease > 0 && crafts < cLo
   return X.rate * pop * cg * wg * home * access
 }
 
@@ -650,7 +651,7 @@ function spending(s: HistoryState, tz: TourismState, ts: TradeState): void {
     if (tz.resort[h]) {
       // (the grace runs from the last year visitors paid enough, not from the smoothed income, which outlasts them)
       if (raw >= RESORT.minIncome) tz.lastGood[h] = s.year
-      else if (s.year - tz.lastGood[h] >= RESORT.grace) {
+      else if (s.year - tz.lastGood[h] >= RESORT.grace && !newVisitors(s, tz, h)) {
         logEvent(s, EventType.ResortAbandoned, h, -1, s.year - tz.lastGood[h])
         const idx = s.living.indexOf(h)
         abandon(s, h)
@@ -668,6 +669,15 @@ function spending(s: HistoryState, tz: TourismState, ts: TradeState): void {
     L[w++] = h
   }
   L.length = w
+}
+
+/**
+ * True when visitors from a town that had never come before began to come to h this year (this year's flow step): a resort is
+ * not given up in the year it drew them (the history would show visitors starting for a town given up that year).
+ */
+function newVisitors(s: HistoryState, tz: TourismState, h: number): boolean {
+  for (let f = 0; f < tz.fTo.length; f++) if (tz.fTo[f] === h && tz.pFirst[tz.fPair[f]] === s.year) return true
+  return false
 }
 
 /** System (yearly, after the goods system): sights, destinations, flows, spending, resorts. */
