@@ -14,7 +14,7 @@ import { Heap } from '../heap.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { prosperity } from '../migration.ts'
-import { hasHorse, SP } from '../species.ts'
+import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, POLITY, UNREST } from './params.ts'
 
@@ -328,16 +328,13 @@ export function grainShare(s: HistoryState, id: number): number {
 }
 
 /**
- * Storable share of settlement id's crop (0..1), from its main staple (species.ts: the best staple on its own cell):
- * grains (wheat, barley, rice, maize, sorghum) 1, tubers (potato, cassava) POLITY.storeTuber, wild and minor crops
- * (no held staple fits) POLITY.storeWild.
- * species-v2: seam. Species version 2 adds a per-settlement `storable` value (the share of its food from storable
- * staples); this function should return that instead (and the two constants go).
+ * Storable share of settlement id's crop (0..1): species v2's mix (species.ts cropOf, storage.ts) of what of each
+ * staple's harvest keeps, weighted by the staples' shares of its crop food (grains about 0.75-0.95, tubers 0.05-0.5,
+ * minor crops SPECIES2.minorStore). History.storable is this times the crop part of the food (storableByte); the
+ * grain share above applies its own farm part, so the crop part is not counted twice.
  */
 export function storableOf(s: HistoryState, id: number): number {
-  const m = s.sp.main[id]
-  if (m < 0) return POLITY.storeWild
-  return m === SP.potato || m === SP.cassava ? POLITY.storeTuber : 1
+  return s.sp.sto[id]
 }
 
 /** Horses: 1 when settlement id keeps horses (species.ts), else 0 (military quality, steppe raiding). */
