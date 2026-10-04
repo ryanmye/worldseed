@@ -53,6 +53,8 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
   const cur: string[] = new Array<string>(S)
   /** Table row of each settlement's Distinguished renaming (-1), and of each decision. */
   const distRow = new Int32Array(S).fill(-1)
+  /** Table row that gave each settlement the name it bears now (-1: its founding name). */
+  const lastRow = new Int32Array(S).fill(-1)
   const rowOf = new Int32Array(K)
   const identName: string[] = new Array<string>(K)
   const rows: Row[] = []
@@ -88,6 +90,7 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
       for (let attempt = 0; attempt < 20 && !name; attempt++) { const q = qualify(st.name, lang, ends, rng); if (q !== null && free(q, st.foundedYear)) name = q }
       for (let attempt = 0; !name; attempt++) { const q = attempt < 200 ? freshPlace(lang, ends, rng) : capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng)); if (free(q, st.foundedYear) || attempt > 400) name = q }
       distRow[id] = rows.length
+      lastRow[id] = rows.length
       rows.push({ settlement: id, year: st.foundedYear, name, cause: RenameCause.Distinguished, form: RenameForm.Qualified, polity: -1, ruler: -1, dynasty: -1, faith: -1, people: st.people, previous: -1, restored: NEW_NAME, source: -1, keptBy: -1, other: -1 })
       owner.set(name.toLowerCase(), id)
       cur[id] = name
@@ -136,12 +139,17 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
     identName[k] = name
     rowOf[k] = rows.length
     const prev = rn.yPrev[k]
-    const restored = form === RenameForm.Restored || form === RenameForm.Revived ? rowOfIdent(restore) : NEW_NAME
+    // (a revived name is the ruin's as it was given up: the row that gave the ruin that name, which may itself have been revived
+    // from an older ruin, so not always the row of the name's identity)
+    const src = rn.ySource[k]
+    const restored = form === RenameForm.Revived && src >= 0 && src < S && cur[src] === name ? lastRow[src]
+      : form === RenameForm.Restored || form === RenameForm.Revived ? rowOfIdent(restore) : NEW_NAME
     rows.push({
       settlement: v, year, name, cause: rn.yCause[k], form, polity: rn.yPolity[k], ruler: rn.yRuler[k], dynasty: rn.yDynasty[k], faith: rn.yFaith[k],
       people: rn.yPeople[k], previous: prev >= 0 ? rowOf[prev] : distRow[v], restored, source: rn.ySource[k], keptBy: rn.yKept[k], other: rn.yOther[k],
     })
     cur[v] = name
+    lastRow[v] = rowOf[k]
   }
   admit(1 << 30)
 
