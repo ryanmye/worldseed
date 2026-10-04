@@ -14,6 +14,7 @@ import type { HistoryState } from '../state.ts'
 import { FAR, grip, inCrisis, powerOf, reachOf } from './state.ts'
 import type { PolityState } from './state.ts'
 import { POLITY } from './params.ts'
+import { rulerMass } from '../rulers/system.ts' // rulers:
 
 /** Member lists per polity (ascending ids), from the current membership. */
 export function rebuildMembers(s: HistoryState, ps: PolityState): void {
@@ -88,6 +89,7 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   const A = pop > 0 ? aSum / pop : 0
   ps.pAsab[p] = A
   ps.pMass[p] = A * bSum * (inCrisis(s, ps, p) ? POLITY.crisisMass : 1)
+  if (s.rul !== null) ps.pMass[p] *= rulerMass(s.rul, p) // rulers: an able ruler's realm is stronger
   let multi = 0
   for (let q = 0; q < NP; q++) if (pop > 0 && peoplePop[q] >= POLITY.multiShare * pop) multi++
   ps.pMulti[p] = multi >= 2 ? 1 : 0

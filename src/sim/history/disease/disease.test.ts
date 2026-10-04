@@ -41,15 +41,17 @@ function hashDisease(hi: History): string {
 }
 
 /**
- * Histories without the disease system: hashPre of simulateHistory with disease off equals the history of the commit before it
- * (7bdbe75, every key of History), recorded with that commit's code. A later change outside the disease system must regenerate these.
+ * Histories without the disease system: hashPre of simulateHistory with disease off equals the history without it (every key of
+ * History but the disease fields): first the commit before it (7bdbe75); since the merge of rulers and religion, that code with
+ * the disease system taken out, verified by hashing every field against it and recorded here. A later change outside the
+ * disease system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, '49dbf213'],
-  [3, 600, undefined, true, true, '9ad4ec6e'],
-  [7, 900, undefined, false, false, '71a9d3eb'],
-  [1, 1500, undefined, true, false, '8ea4a65'],
-  [9, 800, 24, true, true, '45708b98'],
+  [42, 2000, undefined, true, true, 'e9e6327c'],
+  [3, 600, undefined, true, true, 'cc2907d8'],
+  [7, 900, undefined, false, false, 'd67f2287'],
+  [1, 1500, undefined, true, false, 'c5ffcdc8'],
+  [9, 800, 24, true, true, '1f1e7f79'],
 ]
 
 const worlds = new Map<number, World>()

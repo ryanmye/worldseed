@@ -28,6 +28,8 @@ import { ensureRelation, relIdx, relationOf } from './relations.ts'
 import { FAR, Tier, endPolity, grainShare, inContact, localOf, projAt, setPolity, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
 import { PolityEnd, PolityOrigin } from '../../../contract.ts'
+import { tied, unionBond } from '../rulers/marriage.ts' // rulers:
+import { MARRIAGE } from '../rulers/params.ts' // rulers:
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -192,6 +194,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
       continue
     }
     // Vassal a of b.
+    if (s.rul !== null && unionBond(s.rul, k)) continue // rulers: a personal union holds by its ruler, not by force (rulers/marriage.ts)
     const d = distAcross(s, ps, b, a)
     const proj = d < FAR ? projAt(ps, b, d) : 0
     const m = ps.pMass[a]
@@ -245,7 +248,7 @@ export function allianceStep(s: HistoryState, ps: PolityState): void {
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
       if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
-      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= X.chance) continue
+      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= X.chance * (s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1)) continue // (rulers: houses tied by marriage ally more readily)
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }
   }
