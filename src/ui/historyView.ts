@@ -238,8 +238,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   /** Population view: per-cell density (populationDensity.ts), and the snapshot it last showed. */
   let popDensity: PopulationDensity | null = null
   let shownPopS0 = -1
-  /** Faction stats last given to the timeline (states * 10000 + wars, -1 none), and the routes open with them. */
-  let shownPolStats = -1
+  /** Faction stats last given to the timeline ("states:wars:largest bloc", '' none), and the routes open with them. */
+  let shownPolStats = ''
   let statRoutes: number | undefined = undefined
   const pos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
   const tmp = new THREE.Vector3()
@@ -1081,6 +1081,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       tradeVisible = show
       requestRender()
       if (trade) trade.object.visible = show
+      polities.setTradeVisible(show) // (contraband routes, preyed-upon lanes and pirate ships go with the trade)
     },
     setRoadsVisible(show: boolean) {
       roadsVisible = show
@@ -1128,7 +1129,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         const routesOpen = td ? td.openCount[Math.min(td.count - 1, Math.round((pos.s0 * h.snapshotInterval) / td.interval))] : undefined
         const ps = polities.stats()
         statRoutes = routesOpen
-        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], routesOpen, ps?.states, ps?.wars)
+        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], routesOpen, ps?.states, ps?.wars, ps?.largest)
         shownS0 = pos.s0
         shownS1 = pos.s1
       }
@@ -1207,10 +1208,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()
-        const key = ps ? ps.states * 10000 + ps.wars : -1
+        const key = ps ? `${ps.states}:${ps.wars}:${ps.largest}` : ''
         if (key !== shownPolStats) {
           shownPolStats = key
-          timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], statRoutes, ps?.states, ps?.wars)
+          timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], statRoutes, ps?.states, ps?.wars, ps?.largest)
         }
       }
       if (labels && labelsVisible) {

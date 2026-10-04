@@ -1,4 +1,4 @@
-// Ports and dams: small crisp icons, one instanced screen-space quad per structure,
+// Ports, dams and forts: small crisp icons, one instanced screen-space quad per structure,
 // all drawn in a single call. Everything is static per history (position, an
 // orientation on the surface, built and lost years, type); which icons show, the
 // build animation and the fade after loss are functions of per-frame uniforms, so
@@ -8,6 +8,10 @@
 //  - A dam is a short bar across its river, just below a small reservoir. The
 //    reservoir itself is water drawn by the planet shader: this layer only works out
 //    which cells hold it (`reservoirs`), for GlobeMesh.setReservoirs.
+//  - A fort (polities v2) is a small crenellated tower on its border cell, from mid zoom
+//    in (sooner than ports and dams: there are few of them and they mark the frontiers);
+//    no 3D model stands in for it up close, so it does not yield to the dioramas. (Walls
+//    are drawn by the 3D towns, not here.)
 //
 // Icons scale with the on-screen size of a grid cell: hidden at full-globe zoom,
 // clear when zoomed in. They are culled on the far side and fade at the limb.
@@ -58,7 +62,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
   const water = (i: number) => isWaterCell(world, lake, i)
   const cellSpacing = Math.sqrt((4 * Math.PI) / cellCount)
 
-  const list = structures.filter((st) => st.cell >= 0 && st.cell < cellCount && (st.type === StructureType.Port || st.type === StructureType.Dam))
+  const list = structures.filter((st) => st.cell >= 0 && st.cell < cellCount && (st.type === StructureType.Port || st.type === StructureType.Dam || st.type === StructureType.Fort))
   const n = list.length
   const aPos = new Float32Array(Math.max(1, n) * 3)
   const aDir = new Float32Array(Math.max(1, n) * 3)
@@ -112,7 +116,11 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
     const cell = st.cell
     unit(cell, c)
     let r = surfaceRadius(world, cell)
-    if (st.type === StructureType.Port) {
+    if (st.type === StructureType.Fort) {
+      // on its cell, upright
+      aPos.set([c.x * (r + LIFT), c.y * (r + LIFT), c.z * (r + LIFT)], k * 3)
+      aDir.set([0, 0, 0], k * 3)
+    } else if (st.type === StructureType.Port) {
       // seaward: mean direction to the open-water neighbours
       d.set(0, 0, 0)
       for (let e = off[cell]; e < off[cell + 1]; e++) {
@@ -203,7 +211,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
-      attribute vec4 aInfo; // built year, lost year, type (0 port, 1 dam)
+      attribute vec4 aInfo; // built year, lost year, type (0 port, 1 dam, 3 fort)
       uniform float uYear;
       uniform float uAnimYears;
       uniform vec3 uCamObj;
@@ -232,7 +240,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vec4 mv = modelViewMatrix * vec4(ws_place(aPosR), 1.0);
         // on-screen size of a grid cell here, in CSS pixels
         float cellPx = uCellSpacing / max(-mv.z * uPixel, 1e-9) / uPixelRatio;
-        float zoomA = smoothstep(13.0, 24.0, cellPx);
+        float zoomA = aInfo.z > 2.5 ? smoothstep(8.0, 15.0, cellPx) : smoothstep(13.0, 24.0, cellPx);
         if (age < 0.0 || gone > uAnimYears || facing <= 0.0 || zoomA <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -246,7 +254,10 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         float e = b - 1.0;
         float pop = b >= 1.0 ? 1.0 : 1.0 + (c1 + 1.0) * e * e * e + c1 * e * e;
         vec2 size;
-        if (vType < 0.5) {
+        if (vType > 2.5) {
+          float R = clamp(0.2 * cellPx, 5.0, 10.0);
+          size = vec2(R, R);
+        } else if (vType < 0.5) {
           float R = clamp(0.19 * cellPx, 3.2, 9.0);
           size = vec2(R, R);
         } else {
@@ -258,7 +269,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         if (b < 1.0) ext = max(ext, size.x * 2.6 + 3.0); // room for the build ring
         // the quad's x axis runs across the river (dams); ports stay upright
         vec2 ax = vec2(1.0, 0.0);
-        if (vType > 0.5) {
+        if (vType > 0.5 && vType < 2.5) {
           vec4 clip0 = projectionMatrix * mv;
           vec4 clip1 = projectionMatrix * modelViewMatrix * vec4(ws_place(aPosR + aDir * 0.005), 1.0);
           vec2 dd = (clip1.xy / clip1.w - clip0.xy / clip0.w) * uViewport;
@@ -273,7 +284,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vPx = position.xy * ext;
         vAlpha = zoomA * smoothstep(0.0, 0.3, facing) * (1.0 - vRuin);
         // up close the dock or dam model stands in for the icon
-        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPosR));
+        if (uYield.y > 0.0 && vType < 2.5) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPosR));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,
@@ -285,6 +296,10 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       varying float vBuild;
       varying float vRuin;
       varying float vNight;
+      float sdBoxS(vec2 p, vec2 b) {
+        vec2 q = abs(p) - b;
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+      }
       float sdSeg(vec2 p, vec2 a, vec2 b) {
         vec2 pa = p - a, ba = b - a;
         float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
@@ -306,7 +321,24 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vec3 c = vec3(0.0);
         float a = 0.0;
         float rimD; // signed distance of the icon body, for the build ring
-        if (vType < 0.5) {
+        if (vType > 2.5) {
+          // a fort: a stone tower with three merlons, a dark door, a dark outline
+          float R = vSize.x;
+          vec2 p = vPx;
+          float body = sdBoxS(p - vec2(0.0, -0.18 * R), vec2(0.42 * R, 0.62 * R));
+          float m0 = sdBoxS(p - vec2(-0.32 * R, 0.56 * R), vec2(0.13 * R, 0.16 * R));
+          float m1 = sdBoxS(p - vec2(0.0, 0.56 * R), vec2(0.13 * R, 0.16 * R));
+          float m2 = sdBoxS(p - vec2(0.32 * R, 0.56 * R), vec2(0.13 * R, 0.16 * R));
+          float d = min(body, min(m0, min(m1, m2)));
+          float door = sdBoxS(p - vec2(0.0, -0.58 * R), vec2(0.13 * R, 0.22 * R));
+          float outline = 1.0 - smoothstep(0.6, 1.6, d);
+          float fill = 1.0 - smoothstep(-0.5, 0.4, d);
+          vec3 stone = mix(vec3(0.62, 0.57, 0.5), vec3(0.88, 0.84, 0.76), smoothstep(-0.8 * R, 0.6 * R, p.y));
+          stone = mix(stone, vec3(0.12, 0.1, 0.08), 1.0 - smoothstep(-0.4, 0.4, door));
+          c = mix(vec3(0.08, 0.07, 0.06), stone, fill) * outline;
+          a = outline;
+          rimD = d;
+        } else if (vType < 0.5) {
           float R = vSize.x;
           float d = length(vPx) - R;
           float bodyA = 1.0 - smoothstep(-0.5, 0.5, d);
@@ -335,7 +367,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         if (vBuild < 1.0) {
           float ringR = max(vSize.x, 2.0) * (0.6 + 1.9 * vBuild);
           float ring = (1.0 - smoothstep(0.5, 1.6, abs(length(vPx) - ringR))) * pow(1.0 - vBuild, 1.3) * 0.9;
-          vec3 rc = vType < 0.5 ? vec3(0.75, 0.9, 1.0) : vec3(1.0, 0.95, 0.85);
+          vec3 rc = vType < 0.5 ? vec3(0.75, 0.9, 1.0) : vType > 2.5 ? vec3(1.0, 0.85, 0.6) : vec3(1.0, 0.95, 0.85);
           c = c + rc * ring * (1.0 - a);
           a = a + ring * (1.0 - a);
         }

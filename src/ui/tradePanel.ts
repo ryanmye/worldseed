@@ -12,6 +12,12 @@ import './trade.css'
 /** Partners listed by name; the rest are counted. */
 const PARTNER_ROWS = 6
 
+/** A note on route r at trade snapshot t from settlement id's side ("duty 12% here · 40% contraband"), set by the factions view (politiesPanel.ts); '' for none. */
+let routeNote: ((r: number, t: number, id: number) => string) | null = null
+export function setTradeRouteNote(fn: ((r: number, t: number, id: number) => string) | null): void {
+  routeNote = fn
+}
+
 export interface TradeSection {
   /** A new selection. */
   show(index: HistoryIndex, id: number): void
@@ -133,6 +139,13 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
       text.className = 'insp-partner-text'
       if (out === back) text.append('Trades ', goodDot(out), `${goodName(out)} with `, link(partner))
       else text.append('Exports ', goodDot(out), `${goodName(out)} to `, link(partner), ', imports ', goodDot(back), goodName(back))
+      const note = routeNote?.(r, t, id) ?? ''
+      if (note) {
+        const n = document.createElement('span')
+        n.className = 'insp-partner-note'
+        n.textContent = ` · ${note}`
+        text.append(n)
+      }
       li.append(bar, text)
       list.appendChild(li)
     }

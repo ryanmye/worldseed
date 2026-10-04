@@ -2,9 +2,35 @@
 // inspector; all optional at runtime (null for other events, or for a history without
 // polity data, so the caller falls back to its own wording).
 
-import { RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
+import { BondKind, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
-import { capitalAt, isPolityEventType, polityAt, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, wallSlighted, type PolitiesData } from './politiesData.ts'
+import { capitalAt, isPolityEventType, polityAt, polityAtYear, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, TRIBUTE_BASE, wallSlighted, type PolitiesData } from './politiesData.ts'
+
+/** Good names (lower case) for the smuggling lines, indexed by Good (as format.ts GOOD_NAMES). */
+const SMUGGLED_GOODS: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants']
+
+/** Polity of settlement `id` at `year` (polityAtYear), else the one just before (-1 none). */
+function polOf(pd: PolitiesData, id: number, year: number): number {
+  if (id < 0 || id >= pd.settlementCount) return -1
+  const p = polityAtYear(pd, id, year)
+  return p >= 0 ? p : polityAt(pd, id, snapBefore(pd, year))
+}
+
+/** "A", "A and B", "A, B and C", "A, B, C and 2 more". */
+function listWords(names: string[], max = 3): string {
+  const n = names.length
+  if (n === 0) return ''
+  if (n === 1) return names[0]
+  if (n <= max) return `${names.slice(0, -1).join(', ')} and ${names[n - 1]}`
+  return `${names.slice(0, max).join(', ')} and ${n - max} more`
+}
+
+/** "the Fluthufi–Hulmu lane" for trade route r, or null. */
+function laneWords(h: History, r: number): string | null {
+  const T = (h as Partial<History>).trade
+  if (!T || !(r >= 0 && r < T.count)) return null
+  return `the ${settlementName(h, T.a[r])}–${settlementName(h, T.b[r])} lane`
+}
 
 const settlementName = (h: History, id: number) => (id >= 0 && id < h.settlements.length ? h.settlements[id].name || `Settlement #${id}` : 'a settlement')
 
@@ -57,6 +83,18 @@ export function warOutcomeWords(pd: PolitiesData, w: number): string {
   const W = pd.wars
   if (!W || w < 0 || w >= W.count) return ''
   const t = OUTCOME_WORDS[W.outcome[w]]
+  // vassalage and tribute: which side bowed is in History.bonds (the bond the war's end made between the two)
+  const B = pd.bonds
+  const o = W.outcome[w]
+  if (B && (o === WarOutcome.Vassalage || o === WarOutcome.Tribute) && W.endYear[w] >= 0) {
+    const a = W.attacker[w], d = W.defender[w]
+    for (let k = 0; k < B.count; k++) {
+      if (Math.abs(B.startYear[k] - W.endYear[w]) > 1 || B.kind[k] !== (o === WarOutcome.Vassalage ? BondKind.Vassal : BondKind.Tribute)) continue
+      if (!((B.a[k] === a && B.b[k] === d) || (B.a[k] === d && B.b[k] === a))) continue
+      const vn = polityName(pd, B.a[k]), on = polityName(pd, B.b[k])
+      return o === WarOutcome.Vassalage ? `${vn} becomes a vassal of ${on}` : `${vn} pays tribute to ${on}`
+    }
+  }
   return t ? t.replace('{a}', polityName(pd, W.attacker[w])).replace('{d}', polityName(pd, W.defender[w])) : ''
 }
 
@@ -64,7 +102,113 @@ export function warOutcomeWords(pd: PolitiesData, w: number): string {
 const The = (pd: PolitiesData, p: number, s: number) => `The ${polityTitle(pd, p, s)}`
 
 /** Words for political events of a history whose polity data is missing (types 20-34). */
-const FALLBACK = ['a state is founded', 'a state ends', 'the court moves here', 'joins a state', 'war is declared', 'peace is made', 'taken in war', 'sacked', 'a siege is lifted', 'raided', 'a revolt breaks out', 'a revolt is crushed', 'breaks away', 'changes sides', 'a disputed succession']
+const FALLBACK = ['a state is founded', 'a state ends', 'the court moves here', 'joins a state', 'war is declared', 'peace is made', 'taken in war', 'sacked', 'a siege is lifted', 'raided', 'a revolt breaks out', 'a revolt is crushed', 'breaks away', 'changes sides', 'a disputed succession',
+  'civil war breaks out', 'the realm is divided', 'the realm is one again', 'bows to an overlord', 'an alliance is made', 'smugglers gather', 'pirates rise', 'the pirates are put down', 'a blockade']
+
+/** The smuggled good of a SmugglingRing event ("timber"). */
+const goodWord = (g: number) => (g >= 0 && g < GOOD_COUNT ? SMUGGLED_GOODS[g] : 'goods')
+
+/** Chronicle line for the second version's events (35-43), or null. */
+function describeV2(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const t = e.type as number
+  const name = settlementName(h, e.settlement)
+  const W = pd.wars
+  const b = snapBefore(pd, e.year)
+  switch (t) {
+    case PolityEvent.CivilWar: {
+      const realm = e.other >= 0 ? polityAt(pd, e.other, b) : W && e.value >= 0 && e.value < W.count ? W.defender[e.value] : -1
+      const pretender = W && e.value >= 0 && e.value < W.count ? W.attacker[e.value] : polOf(pd, e.settlement, e.year)
+      return `Civil war in ${polityName(pd, realm, 'the realm')}: ${polityName(pd, pretender, name)} proclaims its own king`
+    }
+    case PolityEvent.Partitioned:
+      return `${polityName(pd, e.value, 'The realm')} is divided among the heirs`
+    case PolityEvent.Reunified: {
+      const win = polOf(pd, e.settlement, e.year)
+      const lost = e.value
+      const wn = polityName(pd, win, name), ln = polityName(pd, lost, 'the rival realm')
+      const wx = pd.list[win], lx = pd.list[lost]
+      if (lx && lx.parent === win) return `${wn} is one realm again` + (wn !== ln ? ` (${ln} is brought back)` : '')
+      if (wx && wx.parent === lost) return `${wn} wins the throne of ${ln}: one realm again`
+      return `${wn} brings ${ln} back into one realm`
+    }
+    case PolityEvent.BecameVassal: {
+      const v = polOf(pd, e.settlement, e.year)
+      const o = e.value % TRIBUTE_BASE
+      const vn = polityName(pd, v, name), on = polityName(pd, o, 'an overlord')
+      if (e.extra === 1) return `${vn} throws off the yoke of ${on}`
+      return e.value >= TRIBUTE_BASE ? `${vn} pays tribute to ${on}` : `${vn} bows to ${on}`
+    }
+    case PolityEvent.Alliance: {
+      const a = polOf(pd, e.settlement, e.year)
+      return `${polityName(pd, a, name)} and ${polityName(pd, e.value, 'a neighbour')} ally against ${polityName(pd, e.extra ?? -1, 'a common rival')}`
+    }
+    case PolityEvent.SmugglingRing: {
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      const g = goodWord(e.value)
+      return q >= 0 || e.other >= 0 ? `Smugglers at ${name} run ${g} past the customs of ${q >= 0 ? polityName(pd, q) : settlementName(h, e.other)}` : `${name} becomes a smugglers' den for ${g}`
+    }
+    case PolityEvent.PiratesRise: {
+      const lane = laneWords(h, e.value)
+      return `Pirates from ${name} prey on ${lane ?? 'the sea lanes nearby'}`
+    }
+    case PolityEvent.PiratesSuppressed: {
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      return `The fleets of ${q >= 0 ? polityName(pd, q) : e.other >= 0 ? settlementName(h, e.other) : 'a neighbour'} burn the pirate nests of ${name}`
+    }
+    case PolityEvent.Blockade: {
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      return `The fleets of ${q >= 0 ? polityName(pd, q) : e.other >= 0 ? settlementName(h, e.other) : 'the enemy'} blockade ${name}`
+    }
+  }
+  return null
+}
+
+/** Inspector line for the second version's events (35-43) from the point of view of settlement `id`, or null. */
+function describeV2For(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const t = e.type as number
+  const self = e.settlement === id
+  const otherName = settlementName(h, self ? e.other : e.settlement)
+  const W = pd.wars
+  switch (t) {
+    case PolityEvent.CivilWar: {
+      const pretender = W && e.value >= 0 && e.value < W.count ? W.attacker[e.value] : polOf(pd, e.settlement, e.year)
+      return self ? `Rose against ${otherName} in civil war, as the seat of ${polityName(pd, pretender, 'a pretender')}` : `${otherName} rose against it in civil war (${polityName(pd, pretender, 'a pretender')})`
+    }
+    case PolityEvent.Partitioned:
+      return 'Its realm was divided among the heirs'
+    case PolityEvent.Reunified:
+      return self ? `Took back ${polityName(pd, e.value, 'a kindred realm')}: one realm again` : `Brought back into one realm with ${otherName}`
+    case PolityEvent.BecameVassal: {
+      const o = e.value % TRIBUTE_BASE
+      const v = polOf(pd, e.settlement, e.year)
+      if (self) return e.extra === 1 ? `Threw off the yoke of ${polityName(pd, o, otherName)}` : e.value >= TRIBUTE_BASE ? `Began to pay tribute to ${polityName(pd, o, otherName)}` : `Bowed to ${polityName(pd, o, otherName)} as its vassal`
+      return e.extra === 1 ? `${polityName(pd, v, otherName)} threw off its yoke` : e.value >= TRIBUTE_BASE ? `${polityName(pd, v, otherName)} began to pay it tribute` : `${polityName(pd, v, otherName)} bowed to it`
+    }
+    case PolityEvent.Alliance: {
+      const rival = polityName(pd, e.extra ?? -1, 'a common rival')
+      const partner = self ? polityName(pd, e.value, otherName) : polityName(pd, polOf(pd, e.settlement, e.year), otherName)
+      return `Allied with ${partner} against ${rival}`
+    }
+    case PolityEvent.SmugglingRing: {
+      if (!self) return `Smugglers at ${otherName} evade its customs`
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      return `Became a smugglers' town: ${goodWord(e.value)}` + (q >= 0 ? ` past the customs of ${polityName(pd, q)}` : '')
+    }
+    case PolityEvent.PiratesRise: {
+      const lane = laneWords(h, e.value)
+      return `Pirates based here began to prey on ${lane ?? 'the sea lanes nearby'}`
+    }
+    case PolityEvent.PiratesSuppressed: {
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      return self ? `Its pirates were put down by the fleets of ${polityName(pd, q, otherName)}` : `Its fleets burned the pirate nests of ${otherName}`
+    }
+    case PolityEvent.Blockade: {
+      const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+      return self ? `Blockaded by the fleets of ${polityName(pd, q, otherName)}` : `Its fleets blockaded ${otherName}`
+    }
+  }
+  return null
+}
 
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
@@ -80,6 +224,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
     return wallSlighted(pd, e.settlement, e.year) ? `The walls of ${name} are slighted` : `The walls of ${name} fall into ruin`
   }
   if (!pd) return `${name}: ${FALLBACK[t - 20] ?? 'a political event'}`
+  if (t >= PolityEvent.CivilWar) return describeV2(h, pd, e)
   const b = snapBefore(pd, e.year), a = snapAfter(pd, e.year)
   const W = pd.wars
   switch (t) {
@@ -115,6 +260,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
     case PolityEvent.PeaceMade: {
       if (!W || e.value < 0 || e.value >= W.count) return `Peace between ${name} and ${settlementName(h, e.other)}`
       const o = warOutcomeWords(pd, e.value)
+      if (W.kind[e.value] === WarKind.CivilWar) return `The civil war in ${polityName(pd, W.defender[e.value])} ends` + (o ? ` (${o})` : '')
       return `Peace between ${polityName(pd, W.attacker[e.value])} and ${polityName(pd, W.defender[e.value])}` + (o ? ` (${o})` : '')
     }
     case PolityEvent.Conquered: {
@@ -194,6 +340,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
     return wallSlighted(pd, e.settlement, e.year) ? 'Its walls were slighted' : 'Its walls fell into ruin'
   }
   if (!pd) return FALLBACK[t - 20] ? FALLBACK[t - 20].charAt(0).toUpperCase() + FALLBACK[t - 20].slice(1) : null
+  if (t >= PolityEvent.CivilWar) return describeV2For(h, pd, e, id)
   const b = snapBefore(pd, e.year), a = snapAfter(pd, e.year)
   const W = pd.wars
   const self = e.settlement === id
@@ -272,8 +419,93 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
     case PolityEvent.RevoltCrushed:
     case PolityEvent.Seceded:
       return 'revolt'
+    case PolityEvent.CivilWar:
+      return 'civilwar'
+    case PolityEvent.Partitioned:
+    case PolityEvent.Reunified:
+      return 'polity'
+    case PolityEvent.BecameVassal:
+      return 'vassal'
+    case PolityEvent.Alliance:
+      return 'alliance'
+    case PolityEvent.SmugglingRing:
+      return 'smuggle'
+    case PolityEvent.PiratesRise:
+    case PolityEvent.PiratesSuppressed:
+      return 'pirate'
+    case PolityEvent.Blockade:
+      return 'blockade'
   }
   return null
+}
+
+// ---- the second version's frequent events, gathered per faction and decade in the chronicle ----
+
+/** Group of a BecameVassal event: its overlord. */
+export const bondGroupPolity = (e: HistoryEvent) => e.value % TRIBUTE_BASE
+/** Group of an Alliance event: the common rival. */
+export const allianceGroupPolity = (e: HistoryEvent) => e.extra ?? -1
+/** Group of a Blockade event: the blockading polity (that of `other`, its capital), -1 unknown. */
+export function blockadeGroupPolity(h: History, e: HistoryEvent): number {
+  const pd = politiesOf(h)
+  return pd && e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+}
+
+/** Chronicle line for the vassal bonds made or thrown off with one overlord in a decade ("Thogon and Kloson bow to Rilkochal; Tiboizo throws off its yoke"). */
+export function describeBonds(h: History, members: readonly HistoryEvent[]): string {
+  const pd = politiesOf(h)
+  if (!pd || members.length === 0) return ''
+  const o = bondGroupPolity(members[0])
+  const on = polityName(pd, o, 'an overlord')
+  const bowed: string[] = [], tribute: string[] = [], freed: string[] = []
+  for (const e of members) {
+    const n = polityName(pd, polOf(pd, e.settlement, e.year), settlementName(h, e.settlement))
+    const into = e.extra === 1 ? freed : e.value >= TRIBUTE_BASE ? tribute : bowed
+    if (!into.includes(n)) into.push(n)
+  }
+  const parts: string[] = []
+  if (bowed.length) parts.push(`${listWords(bowed)} ${bowed.length === 1 ? 'bows' : 'bow'} to ${on}`)
+  if (tribute.length) parts.push(`${listWords(tribute)} ${tribute.length === 1 ? 'pays' : 'pay'} tribute to ${parts.length ? 'it' : on}`)
+  if (freed.length) parts.push(parts.length ? `${listWords(freed)} ${freed.length === 1 ? 'throws' : 'throw'} off its yoke` : `${listWords(freed)} ${freed.length === 1 ? 'throws' : 'throw'} off the yoke of ${on}`)
+  return parts.join('; ')
+}
+
+/** Chronicle line for the alliances against one rival in a decade ("Kloson, Tiboizo and Thogon ally against Rilkochal"). */
+export function describeAlliances(h: History, members: readonly HistoryEvent[]): string {
+  const pd = politiesOf(h)
+  if (!pd || members.length === 0) return ''
+  const names: string[] = []
+  for (const e of members) {
+    for (const p of [polOf(pd, e.settlement, e.year), e.value]) {
+      const n = polityName(pd, p, '')
+      if (n && !names.includes(n)) names.push(n)
+    }
+  }
+  return `${listWords(names, 4)} ally against ${polityName(pd, allianceGroupPolity(members[0]), 'a common rival')}` + (members.length > 1 ? ` (${members.length} alliances)` : '')
+}
+
+/** Chronicle line for the forts built in a decade ("6 forts rise on the borders, at Frifinlom, Ifimu, Frilis and 3 more"). */
+export function describeForts(h: History, members: readonly HistoryEvent[]): string {
+  const at: string[] = []
+  for (const e of members) {
+    const n = settlementName(h, e.settlement)
+    if (!at.includes(n)) at.push(n)
+  }
+  return `${members.length} forts rise on the borders, at ${listWords(at)}`
+}
+
+/** Chronicle line for one polity's blockades in a decade ("The fleets of Rilkochal blockade Thofen and Haseno"). */
+export function describeBlockades(h: History, members: readonly HistoryEvent[]): string {
+  const pd = politiesOf(h)
+  if (members.length === 0) return ''
+  const by = blockadeGroupPolity(h, members[0])
+  const ports: string[] = []
+  for (const e of members) {
+    const n = settlementName(h, e.settlement)
+    if (!ports.includes(n)) ports.push(n)
+  }
+  const who = pd && by >= 0 ? polityName(pd, by) : members[0].other >= 0 ? settlementName(h, members[0].other) : 'the enemy'
+  return `The fleets of ${who} blockade ${listWords(ports)}` + (members.length > ports.length ? ` (${members.length} times)` : '')
 }
 
 /**
@@ -282,7 +514,11 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
  */
 export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   const t = e.type as number
+  // (a realm ended by reunification: its Reunified line is the headline)
+  if (t === PolityEvent.Ended && politiesOf(h)?.list[e.value]?.endCause === PolityEnd.Reunified) return false
   if (t === PolityEvent.Founded || t === PolityEvent.Ended || t === PolityEvent.WarDeclared || t === PolityEvent.PeaceMade || t === PolityEvent.Seceded) return true
+  // the second version: civil wars, partitions, reunifications
+  if (t === PolityEvent.CivilWar || t === PolityEvent.Partitioned || t === PolityEvent.Reunified) return true
   const pd = politiesOf(h)
   if (!pd) return false
   if (t === PolityEvent.Conquered) {

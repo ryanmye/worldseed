@@ -22,11 +22,31 @@
 // for a settlement and a year, the wall rings in use with their build years, slighted walls,
 // how recently it was sacked, whether it is a capital, and a rough garrison size.
 
-import { CITY_POPULATION, EventType, JourneyKind, PolityEnd, StructureType, type History, type HistoryEvent, type Polity, type RaidSummary, type Wars, type World } from '../contract.ts'
+import { BondKind, CITY_POPULATION, EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarKind, type Bonds, type History, type HistoryEvent, type Polity, type RaidSummary, type Wars, type World } from '../contract.ts'
 
 export const PolityTier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
 export type PolityTier = (typeof PolityTier)[keyof typeof PolityTier]
 export const TIER_WORDS: readonly string[] = ['Chiefdom', 'Kingdom', 'Empire']
+
+/**
+ * The tier rule (contract.ts, the comment on Polity), the one place the UI decides "Chiefdom", "Kingdom" or "Empire":
+ * Empire at max(empirePop, empireWorld * world people) people or more, or with multiPeoples peoples each holding at least
+ * multiShare of its people and multiMembers members or more; Kingdom at kingdomMembers members and max(kingdomPop,
+ * kingdomWorld * world people) people; else Chiefdom. "World people" is everyone living in a settlement (not an expedition
+ * base) at the snapshot. As the contract states it now (absolute thresholds): the values below. The rule relative to the
+ * world's population (Empire at max(20k, 8% of the world) or multi-people, Kingdom at 6+ members and max(2k, 0.8%)) is
+ *   { empirePop: 20000, empireWorld: 0.08, kingdomPop: 2000, kingdomWorld: 0.008, ... }
+ * A League (PolityOrigin.League) is always "League of ..." whatever its tier (tierWord).
+ */
+export const TIER_RULE = { empirePop: 60000, empireWorld: 0, kingdomPop: 5000, kingdomWorld: 0, kingdomMembers: 6, multiShare: 0.15, multiPeoples: 2, multiMembers: 25 }
+
+/** Tier of a polity of `pop` people in `members` settlements, `peoplesAtShare` of its peoples holding TIER_RULE.multiShare of it or more, in a world of `worldPop` people. */
+export function tierOf(pop: number, members: number, peoplesAtShare: number, worldPop: number): PolityTier {
+  const R = TIER_RULE
+  if (pop >= Math.max(R.empirePop, R.empireWorld * worldPop) || (peoplesAtShare >= R.multiPeoples && members >= R.multiMembers)) return PolityTier.Empire
+  if (members >= R.kingdomMembers && pop >= Math.max(R.kingdomPop, R.kingdomWorld * worldPop)) return PolityTier.Kingdom
+  return PolityTier.Chiefdom
+}
 
 /** English qualifiers by PolityQualifier. */
 const QUALIFIER_WORDS: readonly string[] = ['', 'North', 'South', 'East', 'West', 'New', 'Upper', 'Lower', 'Restored']
@@ -37,12 +57,23 @@ export const WATER = -2
 /** Years over which a sack marks a town (scorched ground, ruins), fading. */
 export const SACK_YEARS = 40
 
-/** Political event types (20-34). */
+/** Political event types (20-34, and the second version's 35-43). */
 export const PolityEvent = {
   Founded: 20, Ended: 21, CapitalMoved: 22, Joined: 23, WarDeclared: 24, PeaceMade: 25, Conquered: 26, Sacked: 27,
   SiegeLifted: 28, Raid: 29, Revolt: 30, RevoltCrushed: 31, Seceded: 32, Defected: 33, SuccessionCrisis: 34,
+  CivilWar: 35, Partitioned: 36, Reunified: 37, BecameVassal: 38, Alliance: 39, SmugglingRing: 40, PiratesRise: 41, PiratesSuppressed: 42, Blockade: 43,
 } as const
-export const isPolityEventType = (t: number) => t >= 20 && t <= 34
+export const isPolityEventType = (t: number) => t >= 20 && t <= 43
+
+/** contraband (0..255) from which a settlement counts as a smugglers' hub (marked on the map, said in the inspector). */
+export const HUB_CONTRABAND = 64
+/** Share of the goods crossing between two polities (not at war, not bound) carried as contraband from which their border is drawn as embargoed. */
+export const EMBARGO_SHARE = 0.5
+/** Bond values of BecameVassal events: value >= this is tribute (value - TRIBUTE_BASE the overlord). */
+export const TRIBUTE_BASE = 1000
+
+/** A blockade (EventType.Blockade): `port` blockaded by the fleets of the polity ruled from `by` in war `war`, from `year` until the war ends. */
+export interface BlockadeMark { year: number; end: number; port: number; by: number; war: number }
 
 export interface ArmyData {
   count: number
@@ -109,6 +140,30 @@ export interface PolitiesData {
   /** Cell-polity cache (see cellPolities). */
   cache: { key: number; cells: Int16Array }[]
   cellCount: number
+
+  // ---- polities v2 (each null or empty when the history has none) ----
+  /** People living in settlements (expedition bases not counted) per snapshot: the world population the tier rule may scale with. */
+  worldPop: Float64Array
+  /** Vassalage, tribute and alliances, and the bonds of each polity (as either side), in order of making. */
+  bonds: Bonds | null
+  bondsOf: number[][]
+  /** Tariff rate (0..255) and duty revenue per snapshot per polity (layout of History.tariff). */
+  tariff: Uint8Array | null
+  tariffRevenue: Float32Array | null
+  /** Contraband and the share of cargo lost per trade snapshot per route (layout of History.tradeVolume), with the trade layout. */
+  smuggle: Float32Array | null
+  loss: Uint8Array | null
+  trade: { count: number; snapshots: number; interval: number; a: Int32Array; b: Int32Array; volume: Float32Array } | null
+  /** Contraband share of income and pirate strength per snapshot per settlement (layout of population). */
+  contraband: Uint8Array | null
+  piracy: Uint8Array | null
+  /** Blockades, by year. */
+  blockades: BlockadeMark[]
+  /** Settlements that were ever a smugglers' hub (contraband >= HUB_CONTRABAND) or a pirate haven (piracy > 0) at some snapshot. */
+  hubSettlements: Int32Array
+  havenSettlements: Int32Array
+  /** Embargoed pairs per trade snapshot (lazily, see embargoesAt). */
+  embargoCache: Map<number, Int32Array>
 }
 
 const cache = new WeakMap<History, PolitiesData | null>()
@@ -172,9 +227,13 @@ function buildPolitiesData(h: History): PolitiesData | null {
   const offsets = new Uint32Array(S + 1)
   const ids: number[] = [], mem: number[] = [], pops: number[] = [], tiers: number[] = []
   const firstSnap = new Int32Array(P).fill(-1), lastSnap = new Int32Array(P).fill(-1)
+  const worldPop = new Float64Array(S)
   let maxAlive = 0
   for (let s = 0; s < S; s++) {
     const base = s * N
+    let world = 0
+    for (let i = 0; i < N; i++) if (!isOutpost[i]) world += h.population[base + i]
+    worldPop[s] = world
     for (let i = 0; i < N; i++) {
       const q = pol[base + i]
       if (q < 0 || q >= P) continue
@@ -193,11 +252,11 @@ function buildPolitiesData(h: History): PolitiesData | null {
       }
       let shares = 0
       for (let k = 0; k < PP; k++) {
-        if (popSum[q] > 0 && peoplePop[q * PP + k] >= 0.15 * popSum[q]) shares++
+        if (popSum[q] > 0 && peoplePop[q * PP + k] >= TIER_RULE.multiShare * popSum[q]) shares++
         peoplePop[q * PP + k] = 0
       }
       const pop = popSum[q], m = members[q]
-      const tier = pop >= 60000 || (shares >= 2 && m >= 25) ? PolityTier.Empire : m >= 6 && pop >= 5000 ? PolityTier.Kingdom : PolityTier.Chiefdom
+      const tier = tierOf(pop, m, shares, world)
       ids.push(q)
       mem.push(m)
       pops.push(pop)
@@ -275,6 +334,53 @@ function buildPolitiesData(h: History): PolitiesData | null {
     changesOf: new Map(),
     cache: [],
     cellCount,
+    worldPop,
+    bonds: null,
+    bondsOf: list.map(() => []),
+    tariff: null,
+    tariffRevenue: null,
+    smuggle: null,
+    loss: null,
+    trade: null,
+    contraband: null,
+    piracy: null,
+    blockades: [],
+    hubSettlements: new Int32Array(0),
+    havenSettlements: new Int32Array(0),
+    embargoCache: new Map(),
+  }
+
+  // ---- polities v2: bonds, trade policy, the outlaw economy (each optional) ----
+  const B = p.bonds
+  if (B && B.count > 0 && B.a && B.a.length >= B.count && B.b && B.kind && B.startYear && B.endYear) {
+    pd.bonds = B
+    for (let k = 0; k < B.count; k++) {
+      if (B.a[k] >= 0 && B.a[k] < P) pd.bondsOf[B.a[k]].push(k)
+      if (B.b[k] >= 0 && B.b[k] < P && B.b[k] !== B.a[k]) pd.bondsOf[B.b[k]].push(k)
+    }
+  }
+  if (p.tariff instanceof Uint8Array && p.tariff.length >= S * P) pd.tariff = p.tariff
+  if (p.tariffRevenue instanceof Float32Array && p.tariffRevenue.length >= S * P) pd.tariffRevenue = p.tariffRevenue
+  const T = p.trade, TS = p.tradeSnapshotCount ?? 0, TI = p.tradeInterval ?? 0
+  if (T && T.count > 0 && TS > 0 && TI > 0 && p.tradeVolume instanceof Float32Array && p.tradeVolume.length >= TS * T.count) {
+    pd.trade = { count: T.count, snapshots: TS, interval: TI, a: T.a, b: T.b, volume: p.tradeVolume }
+    if (p.smuggleVolume instanceof Float32Array && p.smuggleVolume.length >= TS * T.count) pd.smuggle = p.smuggleVolume
+    if (p.tradeLoss instanceof Uint8Array && p.tradeLoss.length >= TS * T.count) pd.loss = p.tradeLoss
+  }
+  const everAbove = (a: Uint8Array, min: number) => {
+    const seen = new Uint8Array(N)
+    for (let k = 0; k < S * N; k++) if (a[k] >= min) seen[k % N] = 1
+    const ids: number[] = []
+    for (let i = 0; i < N; i++) if (seen[i]) ids.push(i)
+    return Int32Array.from(ids)
+  }
+  if (p.contraband instanceof Uint8Array && p.contraband.length >= S * N) {
+    pd.contraband = p.contraband
+    pd.hubSettlements = everAbove(p.contraband, HUB_CONTRABAND)
+  }
+  if (p.piracy instanceof Uint8Array && p.piracy.length >= S * N) {
+    pd.piracy = p.piracy
+    pd.havenSettlements = everAbove(p.piracy, 1)
   }
 
   // ---- political events per polity; sacks and conquests per settlement ----
@@ -301,7 +407,12 @@ function buildPolitiesData(h: History): PolitiesData | null {
     for (const q of eventPolities(pd, e)) addTo(q, i)
     if (t === PolityEvent.Sacked) push(pd.sacksOf, e.settlement, e.year, e.value)
     if (t === PolityEvent.Conquered) push(pd.conquestsOf, e.settlement, e.year)
-    if (t === PolityEvent.Conquered || t === PolityEvent.Joined || t === PolityEvent.Defected || t === PolityEvent.Seceded || t === PolityEvent.Founded) push(pd.changesOf, e.settlement, e.year)
+    if (t === PolityEvent.Conquered || t === PolityEvent.Joined || t === PolityEvent.Defected || t === PolityEvent.Seceded || t === PolityEvent.Founded || t === PolityEvent.CivilWar) push(pd.changesOf, e.settlement, e.year)
+    if (t === PolityEvent.Blockade && e.settlement >= 0 && e.settlement < N) {
+      const w = e.value
+      const end = wars && w >= 0 && w < wars.count ? (wars.endYear[w] < 0 ? Infinity : wars.endYear[w]) : e.year + 5
+      pd.blockades.push({ year: e.year, end: Math.max(e.year + 1, end), port: e.settlement, by: e.other, war: w })
+    }
   }
   for (const a of pd.eventsOf) a.sort((x, y) => h.events[x].year - h.events[y].year || x - y)
 
@@ -379,6 +490,23 @@ export function eventPolities(pd: PolitiesData, e: HistoryEvent): number[] {
       return [e.value, polityAt(pd, e.other, b)]
     case PolityEvent.Defected:
       return [e.value, polityAt(pd, e.settlement, b)]
+    case PolityEvent.CivilWar:
+    case PolityEvent.Blockade:
+      return warSides(e.value)
+    case PolityEvent.Partitioned:
+      return [e.value]
+    case PolityEvent.Reunified:
+      return [polityAt(pd, e.settlement, a), e.value]
+    case PolityEvent.BecameVassal:
+      return [polityAt(pd, e.settlement, a), e.value % TRIBUTE_BASE]
+    case PolityEvent.Alliance:
+      return [polityAt(pd, e.settlement, a), e.value]
+    case PolityEvent.SmugglingRing:
+      return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
+    case PolityEvent.PiratesRise:
+      return [polityAt(pd, e.settlement, a)]
+    case PolityEvent.PiratesSuppressed:
+      return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
     default:
       return []
   }
@@ -417,10 +545,162 @@ export function tierAt(pd: PolitiesData, p: number, s: number): PolityTier {
   return (k >= 0 ? pd.aliveTier[k] : 0) as PolityTier
 }
 
-/** "Kingdom of North Vashtar" at snapshot s. */
+/** The title word of polity p at tier `tier`: "League" for a league of towns whatever its size, else the tier's word. */
+export function tierWord(pd: PolitiesData, p: number, tier: number): string {
+  return pd.list[p]?.origin === PolityOrigin.League ? 'League' : TIER_WORDS[tier] ?? 'Chiefdom'
+}
+
+/** "Kingdom of North Vashtar" ("League of Vashtar") at snapshot s. */
 export function polityTitle(pd: PolitiesData, p: number, s: number): string {
   if (p < 0 || p >= pd.count) return 'a state'
-  return `${TIER_WORDS[tierAt(pd, p, s)]} of ${pd.names[p]}`
+  return `${tierWord(pd, p, tierAt(pd, p, s))} of ${pd.names[p]}`
+}
+
+// ---------------------------------------------------------------------------
+// polities v2: bonds, civil wars, blockades, trade policy and the outlaw economy
+
+/** Whether bond k is in force at `year`. */
+export function bondActive(pd: PolitiesData, k: number, year: number): boolean {
+  const B = pd.bonds
+  if (!B) return false
+  return year >= B.startYear[k] && (B.endYear[k] < 0 || year < B.endYear[k])
+}
+
+/** The Vassal or Tribute bond polity p is under at `year` (it is the `a` of at most one), or -1. */
+export function overlordBond(pd: PolitiesData, p: number, year: number): number {
+  const B = pd.bonds
+  if (!B || p < 0 || p >= pd.count) return -1
+  for (const k of pd.bondsOf[p]) if (B.a[k] === p && B.kind[k] !== BondKind.Alliance && bondActive(pd, k, year)) return k
+  return -1
+}
+
+/** The overlord of p at `year` when p is its vassal (not a tributary), or -1. */
+export function overlordOf(pd: PolitiesData, p: number, year: number): number {
+  const k = overlordBond(pd, p, year)
+  return k >= 0 && pd.bonds!.kind[k] === BondKind.Vassal ? pd.bonds!.b[k] : -1
+}
+
+/** Bonds in force at `year` in which p is the overlord (b of a Vassal or Tribute bond), written to `out`. */
+export function subjectBonds(pd: PolitiesData, p: number, year: number, out: number[] = []): number[] {
+  out.length = 0
+  const B = pd.bonds
+  if (!B || p < 0 || p >= pd.count) return out
+  for (const k of pd.bondsOf[p]) if (B.b[k] === p && B.a[k] !== p && B.kind[k] !== BondKind.Alliance && bondActive(pd, k, year)) out.push(k)
+  return out
+}
+
+/** Whether polities p and q are bound at `year` (vassal and overlord, tributary, allies, or vassals of one overlord). */
+export function boundAt(pd: PolitiesData, p: number, q: number, year: number): boolean {
+  const B = pd.bonds
+  if (!B || p < 0 || q < 0) return false
+  for (const k of pd.bondsOf[p]) if (((B.a[k] === p && B.b[k] === q) || (B.a[k] === q && B.b[k] === p)) && bondActive(pd, k, year)) return true
+  const op = overlordOf(pd, p, year), oq = overlordOf(pd, q, year)
+  return op >= 0 && op === oq
+}
+
+/** Whether war w is a civil war. */
+export const isCivilWar = (pd: PolitiesData, w: number) => !!pd.wars && w >= 0 && w < pd.wars.count && pd.wars.kind[w] === WarKind.CivilWar
+
+/** Whether polities p and q are at war with each other at `year`. */
+export function atWarAt(pd: PolitiesData, p: number, q: number, year: number): boolean {
+  const W = pd.wars
+  if (!W || p < 0 || q < 0) return false
+  for (const w of pd.warsOf[p]) if (((W.attacker[w] === p && W.defender[w] === q) || (W.attacker[w] === q && W.defender[w] === p)) && warActive(pd, w, year)) return true
+  return false
+}
+
+/** Trade snapshot nearest a year (0 without trade). */
+export const tradeSnapNear = (pd: PolitiesData, year: number) => (pd.trade ? Math.max(0, Math.min(pd.trade.snapshots - 1, Math.round(year / pd.trade.interval))) : 0)
+
+/**
+ * Embargoed pairs at trade snapshot t, flat [p, q, ...] with p < q: neighbouring polities, not at war and not bound,
+ * whose trade with each other is at least EMBARGO_SHARE contraband. (The history does not record embargoes: an embargo
+ * short of war stops all legal trade but in food, so what still crosses is mostly smuggled; pairs that stopped trading
+ * altogether cannot be told apart from pairs that never traded.) Cached per trade snapshot.
+ */
+export function embargoesAt(pd: PolitiesData, t: number): Int32Array {
+  const T = pd.trade, SM = pd.smuggle
+  if (!T || !SM) return new Int32Array(0)
+  t = Math.max(0, Math.min(T.snapshots - 1, t))
+  const hit = pd.embargoCache.get(t)
+  if (hit) return hit
+  const year = t * T.interval
+  const s = clampS(pd, Math.floor(year / pd.interval))
+  const N = pd.settlementCount, R = T.count
+  const sums = new Map<number, [number, number]>()
+  for (let r = 0; r < R; r++) {
+    const v = T.volume[t * R + r]
+    if (!(v > 0)) continue
+    const a = T.a[r], b = T.b[r]
+    if (a < 0 || b < 0 || a >= N || b >= N) continue
+    const pa = pd.polity[s * N + a], pb = pd.polity[s * N + b]
+    if (pa < 0 || pb < 0 || pa === pb) continue
+    const key = Math.min(pa, pb) * 65536 + Math.max(pa, pb)
+    const x = sums.get(key)
+    if (x) {
+      x[0] += v
+      x[1] += SM[t * R + r]
+    } else sums.set(key, [v, SM[t * R + r]])
+  }
+  const out: number[] = []
+  for (const [key, [v, sm]] of sums) {
+    if (sm < EMBARGO_SHARE * v) continue
+    const p = Math.floor(key / 65536), q = key % 65536
+    if (atWarAt(pd, p, q, year) || boundAt(pd, p, q, year)) continue
+    out.push(p, q)
+  }
+  const arr = Int32Array.from(out)
+  if (pd.embargoCache.size > 64) pd.embargoCache.clear()
+  pd.embargoCache.set(t, arr)
+  return arr
+}
+
+/** Contraband share (0..1) of settlement id's income and its pirates' strength (0..1) at snapshot s. */
+export const contrabandAt = (pd: PolitiesData, id: number, s: number) => (pd.contraband && id >= 0 && id < pd.settlementCount ? pd.contraband[clampS(pd, s) * pd.settlementCount + id] / 255 : 0)
+export const piracyAt = (pd: PolitiesData, id: number, s: number) => (pd.piracy && id >= 0 && id < pd.settlementCount ? pd.piracy[clampS(pd, s) * pd.settlementCount + id] / 255 : 0)
+
+/** Tariff rate (0..1) of polity p at snapshot s, and its duty revenue (wealth a year). */
+export const tariffAt = (pd: PolitiesData, p: number, s: number) => (pd.tariff && p >= 0 && p < pd.count ? pd.tariff[clampS(pd, s) * pd.count + p] / 255 : 0)
+export const revenueAt = (pd: PolitiesData, p: number, s: number) => (pd.tariffRevenue && p >= 0 && p < pd.count ? pd.tariffRevenue[clampS(pd, s) * pd.count + p] : 0)
+
+/** Blockades in force at `year` (port blockaded, from the event until its war ends), written to `out`. */
+export function blockadesAt(pd: PolitiesData, year: number, out: BlockadeMark[] = []): BlockadeMark[] {
+  out.length = 0
+  for (const b of pd.blockades) {
+    if (b.year > year) break
+    if (year < b.end) out.push(b)
+  }
+  return out
+}
+
+/** A sphere at snapshot s: an overlord (not itself anyone's vassal) with its vassals and tributaries. */
+export interface Sphere { overlord: number; vassals: number[]; tributaries: number[]; members: number; pop: number }
+
+/** Spheres at `year` (snapshot s for the numbers), by people (overlord and vassals; tributaries are listed, not counted), largest first. */
+export function spheresAt(pd: PolitiesData, year: number, s: number): Sphere[] {
+  const B = pd.bonds
+  if (!B) return []
+  const by = new Map<number, Sphere>()
+  for (let k = 0; k < B.count; k++) {
+    if (B.kind[k] === BondKind.Alliance || !bondActive(pd, k, year)) continue
+    const a = B.a[k], o = B.b[k]
+    if (a === o || statIndex(pd, a, s) < 0 || statIndex(pd, o, s) < 0) continue
+    let x = by.get(o)
+    if (!x) by.set(o, (x = { overlord: o, vassals: [], tributaries: [], members: 0, pop: 0 }))
+    ;(B.kind[k] === BondKind.Vassal ? x.vassals : x.tributaries).push(a)
+  }
+  const out: Sphere[] = []
+  for (const x of by.values()) {
+    for (const q of [x.overlord, ...x.vassals]) {
+      const i = statIndex(pd, q, s)
+      if (i < 0) continue
+      x.members += pd.aliveMembers[i]
+      x.pop += pd.alivePop[i]
+    }
+    out.push(x)
+  }
+  out.sort((a, b) => b.pop - a.pop || a.overlord - b.overlord)
+  return out
 }
 
 /** Capital of polity p at `year` (its first before it was founded), or -1. */

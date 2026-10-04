@@ -76,7 +76,8 @@ export interface Timeline {
   tick(dt: number): number
   /** Live stats; towns and cities are counted by population tier; `routes` is the number of open trade routes. */
   /** `states` and `wars`: factions alive and wars in progress (polities; shown when given and there are any). */
-  setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number): void
+  /** `largest`: the largest bloc of states (polities v2: a sphere of an overlord and its vassals, or a single state) and its share of the people, "Rilkochal 31%". */
+  setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string): void
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>'
@@ -113,13 +114,16 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   const aliveText = document.createTextNode('')
   const popText = document.createTextNode('')
   const tierText = document.createTextNode('')
+  /** polities v2: the largest bloc (a sphere or a state) and its share of the people. */
+  const blocText = document.createElement('div')
+  blocText.className = 'tl-bloc'
   const statusText = document.createElement('span')
   statusText.className = 'tl-status'
   const statLine1 = document.createElement('div')
   statLine1.append(aliveText, popText)
   const statLine2 = document.createElement('div')
   statLine2.append(tierText)
-  stats.append(statLine1, statLine2, statusText)
+  stats.append(statLine1, statLine2, blocText, statusText)
 
   const speedBox = document.createElement('div')
   speedBox.className = 'tl-speed'
@@ -190,6 +194,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   let shownAlive = -1
   let shownPop = ''
   let shownTiers = ''
+  let shownBloc = ''
 
   function syncSpeed() {
     speedButtons.forEach((b, i) => {
@@ -351,6 +356,8 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
         aliveText.textContent = ''
         popText.textContent = ''
         tierText.textContent = ''
+        blocText.textContent = ''
+        shownBloc = ''
         shownAlive = -1
         shownPop = ''
         shownTiers = ''
@@ -477,7 +484,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       }
       return year
     },
-    setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number) {
+    setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string) {
       if (alive !== shownAlive) {
         shownAlive = alive
         aliveText.textContent = `${formatInt(alive)} ${alive === 1 ? 'settlement' : 'settlements'}`
@@ -494,6 +501,12 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       // polities: states, and wars while any is fought
       if (states !== undefined && states > 0) t += `${t ? ' · ' : ''}${plural(states, 'state', 'states')}`
       if (wars !== undefined && wars > 0) t += `${t ? ' · ' : ''}${plural(wars, 'war', 'wars')}`
+      const bl = largest ? `Largest bloc: ${largest} of the people` : ''
+      if (bl !== shownBloc) {
+        shownBloc = bl
+        blocText.textContent = bl
+        blocText.title = largest ? `The largest bloc of states (a state with its vassals, or a state alone): ${largest.replace(/ (\d+%)$/, ', $1 of the people')}` : ''
+      }
       if (t !== shownTiers) {
         shownTiers = t
         tierText.textContent = t

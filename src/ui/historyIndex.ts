@@ -7,7 +7,7 @@ import { LAST_SHOWN_EVENT, PeoplesEvent } from './format.ts'
 import type { PeoplesData } from './peoplesData.ts'
 import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
-import { gainKey, isMinorGain, revoltPolity } from './polityFormat.ts'
+import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isMinorGain, revoltPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -37,6 +37,14 @@ export const EntryKind = {
   SmallRaids: 11,
   /** polities: revolts against one polity, and their crushing, in one decade. */
   Revolts: 12,
+  /** polities (second version): vassal and tribute bonds made or thrown off with one overlord in one decade. */
+  Bonds: 13,
+  /** polities (second version): alliances against one rival in one decade. */
+  Alliances: 14,
+  /** polities (second version): one polity's blockades in one decade. */
+  Blockades: 15,
+  /** polities (second version): forts built in one decade (anywhere). */
+  Forts: 16,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -347,7 +355,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 34) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) // 20-34: polities; 44-49: species, second version
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) // 20-43: polities (35-43 the second version); 44-49: species, second version
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -358,7 +366,9 @@ function otherIsSettlement(type: number): boolean {
     // species, second version: the people a technique, habit or plague came from, the seller a habit drains wealth to
     type === EventType.TechniqueAdopted || type === EventType.HabitSpreads || type === EventType.Drain || type === EventType.Panzootic ||
     // polities: the conqueror's, old, defending or receiving capital (not the capital of every town that joins)
-    type === 21 || type === 22 || type === 24 || type === 25 || type === 30 || type === 32 || type === 33
+    type === 21 || type === 22 || type === 24 || type === 25 || type === 30 || type === 32 || type === 33 ||
+    // polities, second version: the capital risen against, the absorbed realm's, the overlord's, the ally's, the suppressing and blockading fleets' capital
+    type === 35 || type === 37 || type === 38 || type === 39 || type === 42 || type === 43
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -548,6 +558,25 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     revoltsPerKey.set(k, (revoltsPerKey.get(k) ?? 0) + 1)
   })
   const revoltEntry = new Map<number, number>()
+  // polities, second version: vassal bonds per overlord, alliances per rival, blockades per blockader, per decade, gathered when two or more
+  const v2Group = (e: { type: number; year: number }, i: number) => {
+    const t = e.type as number
+    const ev = h.events[i]
+    const g = t === 38 ? bondGroupPolity(ev) : t === 39 ? allianceGroupPolity(ev) : t === 43 ? blockadeGroupPolity(h, ev) : t === 4 ? -1 : -9
+    return g === -9 ? -1 : (t * 40000 + g + 2) * 1000 + bucketOf(e.year)
+  }
+  const isFort = (e: { type: number; other: number }) => (e.type as number) === 4 && h.structures?.[e.other]?.type === 3
+  const v2KeyOfEvent = new Map<number, number>()
+  const v2PerKey = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    const t = e.type as number
+    if (t !== 38 && t !== 39 && t !== 43 && !isFort(e)) return
+    const k = v2Group(e, i)
+    v2KeyOfEvent.set(i, k)
+    v2PerKey.set(k, (v2PerKey.get(k) ?? 0) + 1)
+  })
+  const v2Entry = new Map<number, number>()
+  const v2Kind = (t: number) => (t === 38 ? EntryKind.Bonds : t === 39 ? EntryKind.Alliances : t === 4 ? EntryKind.Forts : EntryKind.Blockades)
   const raidsPerBucket = perBucket(29, () => true)
   const raidEntry = new Map<number, number>()
   const smallRaids = smallRaidEntries(h)
@@ -570,6 +599,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (gainKeyOfEvent.has(i) && (gainsPerKey.get(gainKeyOfEvent.get(i)!) ?? 0) >= 2) join(gainEntry, gainKeyOfEvent.get(i)!, EntryKind.PolityGains, i)
     else if ((e.type as number) === 29 && (raidsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(raidEntry, bucketOf(e.year), EntryKind.Raids, i)
     else if (revoltKeyOfEvent.has(i) && (revoltsPerKey.get(revoltKeyOfEvent.get(i)!) ?? 0) >= 2) join(revoltEntry, revoltKeyOfEvent.get(i)!, EntryKind.Revolts, i)
+    else if (v2KeyOfEvent.has(i) && (v2PerKey.get(v2KeyOfEvent.get(i)!) ?? 0) >= 2) join(v2Entry, v2KeyOfEvent.get(i)!, v2Kind(e.type as number), i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })

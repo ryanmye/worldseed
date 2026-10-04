@@ -432,7 +432,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
             item.textContent = ruined
               ? `Walls built in ${st.builtYear}, ${wallSlighted(politiesOf(index.history), selected, st.lostYear) ? 'slighted' : 'abandoned'} in ${st.lostYear}`
               : `Walls${ring > 0 ? ` (ring ${ring + 1})` : ''}, built in ${st.builtYear}`
-          } else item.textContent = `${st.type === StructureType.Dam ? 'Dam' : 'Port'}, built in ${st.builtYear}` + (ruined ? `, in ruins since ${st.lostYear}` : '')
+          } else if (st.type === StructureType.Fort) item.textContent = `Fort on its border, built in ${st.builtYear}` + (ruined ? `, abandoned in ${st.lostYear}` : '')
+          else item.textContent = `${st.type === StructureType.Dam ? 'Dam' : 'Port'}, built in ${st.builtYear}` + (ruined ? `, in ruins since ${st.lostYear}` : '')
           structuresEl.appendChild(item)
           shown++
         }

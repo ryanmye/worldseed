@@ -84,8 +84,9 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   const p = partial as Record<string, unknown>
   for (const k of ['knownYear', 'contactYear', 'technology', 'speciesYear', 'speciesSource', 'crop', 'herd', 'cash', 'habit', 'storable', 'techniqueYear', 'techniqueSource']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
   // polities: membership, territory and danger rows, wars and raids (empty placeholders are copied, not transferred)
-  for (const k of ['polity', 'landCells', 'territory', 'danger']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.wars, partial.raids] as unknown as (Record<string, unknown> | undefined)[]) {
+  // (polities v2: tariffs, duty revenue, contraband and losses on routes, smugglers' hubs, pirate havens, bonds)
+  for (const k of ['polity', 'landCells', 'territory', 'danger', 'tariff', 'tariffRevenue', 'smuggleVolume', 'tradeLoss', 'contraband', 'piracy']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
+  for (const group of [partial.wars, partial.raids, partial.bonds] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   }

@@ -16,6 +16,19 @@
 //    the data views); on the Danger view a heat ramp of History.danger. Borders between
 //    polities at war glow red and pulse with the year. Triangles with no owned corner are
 //    culled in the vertex shader. The texture is rewritten only when a snapshot changes.
+//    Spheres (polities v2, History.bonds): a vassal's land is drawn in its overlord's colour
+//    with diagonal stripes of its own (screen-space, so they stay crisp at every zoom), so a
+//    hegemon's sphere reads as one block with its members visible inside it; a tributary
+//    keeps its colour with thin faint stripes of its overlord's; the border between an
+//    overlord and its vassal (or two vassals of one overlord) is thinner and fainter than an
+//    outer border. A small relation texture (overlord and kind per polity) is rewritten only
+//    when the set of bonds in force changes (checked once per whole year). A civil war's
+//    front (the pretender against its parent) is dashed crimson and gold, crawling with the
+//    year, unlike a foreign war's pulsing red; an embargoed border (politiesData embargoesAt:
+//    neighbours not at war whose trade is mostly contraband) is dashed amber and black. The
+//    dashes run along the border: their direction is the border's own (from the screen
+//    gradient of the owners' weight ratio) snapped to 45 degrees, so they stay steady along a
+//    stretch of border instead of scrambling with its noise.
 //  - Capitals: a small gold star over each capital's marker (rewritten when the year moves
 //    to another whole year).
 //  - Armies (JourneyKind.Army): a shield in the polity's colour, larger for bigger armies,
@@ -35,11 +48,14 @@ import { RELIEF_GLSL, relief, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
-import { capitalAt, cellPolities, landSnapNear, polityAt, PolityEvent, SACK_YEARS, type PolitiesData } from '../ui/politiesData.ts'
+import { bondActive, capitalAt, cellPolities, embargoesAt, landSnapNear, polityAt, PolityEvent, SACK_YEARS, tradeSnapNear, type PolitiesData } from '../ui/politiesData.ts'
+import { BondKind, WarKind } from '../contract.ts'
 
 const TEX_W = 512
 const PAL_W = 256
 const MAX_WARS = 16
+/** Embargoed pairs drawn at once (two per vec4). */
+const MAX_EMB = 24
 const MAX_ARMIES = 96
 const GHOSTS = 3
 /** Years the Danger view keeps showing an event's icon. */
@@ -143,6 +159,10 @@ void main() {
 
 const OVERLAY_FRAG = /* glsl */ `
 uniform sampler2D uPalette;
+uniform sampler2D uRel;
+uniform vec4 uEmb[${MAX_EMB / 2}];
+uniform int uEmbCount;
+uniform float uPxR;
 uniform int uMode;
 uniform float uFrac;
 uniform float uLandFrac;
@@ -190,13 +210,42 @@ vec3 pl_color(float id) {
 }
 // a over b, premultiplied
 vec4 pl_over(vec4 a, vec4 b) { return vec4(a.rgb + b.rgb * (1.0 - a.a), a.a + b.a * (1.0 - a.a)); }
-float pl_atWar(float a, float b) {
+// (strength, 1 for a civil war) of a war between a and b in progress, else (0, 0)
+vec2 pl_atWar(float a, float b) {
   for (int i = 0; i < ${MAX_WARS}; i++) {
     if (i >= uWarCount) break;
     vec4 w = uWars[i];
-    if ((abs(w.x - a) < 0.5 && abs(w.y - b) < 0.5) || (abs(w.x - b) < 0.5 && abs(w.y - a) < 0.5)) return w.z;
+    if ((abs(w.x - a) < 0.5 && abs(w.y - b) < 0.5) || (abs(w.x - b) < 0.5 && abs(w.y - a) < 0.5)) return w.zw;
   }
-  return 0.0;
+  return vec2(0.0);
+}
+// (overlord + 1, kind: 1 vassal, 2 tributary) of polity id, (0, 0) when it bows to nobody
+vec2 pl_rel(float id) {
+  int i = int(id + 0.5);
+  return texelFetch(uRel, ivec2(i % ${PAL_W}, i / ${PAL_W}), 0).xy;
+}
+bool pl_embargo(float a, float b) {
+  float lo = min(a, b), hi = max(a, b);
+  for (int i = 0; i < ${MAX_EMB}; i++) {
+    if (i >= uEmbCount) break;
+    vec4 e = uEmb[i / 2];
+    vec2 q = (i % 2 == 0) ? e.xy : e.zw;
+    if (abs(q.x - lo) < 0.5 && abs(q.y - hi) < 0.5) return true;
+  }
+  return false;
+}
+// position (0..1) within a dash along a border whose screen normal is g, period in pixels: the border's direction
+// snapped to 45 degrees, so the dashes hold steady along a stretch of a noisy border
+float pl_dash(vec2 g, float period, float shift) {
+  float a = atan(g.x, -g.y);
+  float k = floor(a / 0.7853982 + 0.5) * 0.7853982;
+  return fract(dot(gl_FragCoord.xy, vec2(cos(k), sin(k))) / period + shift);
+}
+// 1 on a diagonal stripe of the screen (period and stripe width in pixels), antialiased
+float pl_stripe(float period, float width) {
+  float u = (gl_FragCoord.x + gl_FragCoord.y) * 0.7071068;
+  float d = abs(mod(u, period) - 0.5 * period);
+  return 1.0 - smoothstep(0.5 * width - 0.6, 0.5 * width + 0.6, d);
 }
 vec3 pl_heat(float x) {
   vec3 c0 = vec3(0.20, 0.10, 0.30), c1 = vec3(0.55, 0.12, 0.30), c2 = vec3(0.86, 0.30, 0.12), c3 = vec3(1.0, 0.78, 0.30);
@@ -266,6 +315,11 @@ void main() {
   // derivative both grow without bound, and their ratio would draw the edge)
   float lr = min(log(max(dw, 1e-30)) - log(max(sw, 1e-30)), 7.0);
   float px = sec > -2.5 && sw > 0.0 && lr < 6.9 ? lr / max(fwidth(lr), 1e-4) : 1e5;
+  // (the border's screen normal, for dashes along it; taken here, in uniform control flow)
+  vec2 lrg = vec2(dFdx(lr), dFdy(lr));
+  // spheres: the overlord (or -1) and the kind of bond of the two owners
+  vec2 relD = dom >= -0.5 ? pl_rel(dom) : vec2(0.0);
+  float overD = relD.x - 1.0;
 
   // land mask
   float landM = 1.0;
@@ -305,7 +359,8 @@ void main() {
 
   vec4 outc = vec4(0.0);
   bool sel = uSel >= 0.0;
-  bool isSel = sel && abs(dom - uSel) < 0.5;
+  // (a selected overlord's vassals are its sphere: not dimmed)
+  bool isSel = sel && (abs(dom - uSel) < 0.5 || (relD.y > 0.5 && relD.y < 1.5 && abs(overD - uSel) < 0.5));
   // fill
   if (danger) {
     vec3 d = mix(vD0, vD1, uLandFrac);
@@ -315,6 +370,12 @@ void main() {
     outc = vec4(pl_heat(clamp(dv * 1.3, 0.0, 1.0)) * light * a, a);
   } else if (dom >= -0.5) {
     vec3 c = pl_color(dom);
+    if (overD >= -0.5) {
+      vec3 oc = pl_color(overD);
+      // a vassal: its overlord's colour with stripes of its own; a tributary: its own with thin faint stripes of its overlord's
+      if (relD.y < 1.5) c = mix(oc, c, 0.85 * pl_stripe(9.0 * uPxR, 2.8 * uPxR));
+      else c = mix(c, oc, 0.42 * pl_stripe(12.0 * uPxR, 1.3 * uPxR));
+    }
     // over the terrain a little more chroma, so a pale tint still reads against greens and sands
     if (tint) c = max(mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 1.35), vec3(0.0));
     float a = political ? 1.0 : uTint;
@@ -325,7 +386,7 @@ void main() {
       a *= 1.0 + 0.7 * near;
     }
     // a ribbon of stronger colour along the inside of a border with another polity (or stateless land)
-    if (tint && sec > -1.5) a += (sec >= 0.0 ? 0.3 : 0.16) * (1.0 - smoothstep(0.0, uBorderPx * 4.0, px));
+    if (tint && sec > -1.5) a += (sec >= 0.0 ? (abs(overD - sec) < 0.5 && relD.y < 1.5 ? 0.08 : 0.3) : 0.16) * (1.0 - smoothstep(0.0, uBorderPx * 4.0, px));
     if (sel && !isSel) {
       if (political) c = mix(c, vec3(dot(c, vec3(0.3, 0.59, 0.11))), 0.7) * 0.55;
       else a *= 0.35;
@@ -341,8 +402,19 @@ void main() {
   // borders (land to land, at least one side owned; the coast is not a border)
   if (sec > -1.5 && dom > -1.5 && (dom >= 0.0 || sec >= 0.0)) {
     bool both = dom >= 0.0 && sec >= 0.0;
-    float war = both ? pl_atWar(dom, sec) : 0.0;
-    float w = uBorderPx * (both ? 1.0 : 0.62) * (political ? 1.15 : 1.0) * (danger ? 0.7 : 1.0);
+    vec2 warK = both ? pl_atWar(dom, sec) : vec2(0.0);
+    float war = warK.x;
+    bool civil = warK.y > 0.5;
+    // inside a sphere (overlord and vassal, or two vassals of one overlord): a thinner, fainter border
+    bool inner = false;
+    if (both && war <= 0.0) {
+      vec2 relS = pl_rel(sec);
+      float overS = relS.x - 1.0;
+      bool vd = relD.y > 0.5 && relD.y < 1.5, vs = relS.y > 0.5 && relS.y < 1.5;
+      inner = (vd && abs(overD - sec) < 0.5) || (vs && abs(overS - dom) < 0.5) || (vd && vs && abs(overD - overS) < 0.5);
+    }
+    bool emb = both && war <= 0.0 && !inner && uEmbCount > 0 && pl_embargo(dom, sec);
+    float w = uBorderPx * (both ? 1.0 : 0.62) * (political ? 1.15 : 1.0) * (danger ? 0.7 : 1.0) * (inner ? 0.5 : 1.0);
     vec3 lc;
     float la;
     if (political || danger) {
@@ -353,20 +425,35 @@ void main() {
       lc = both ? mix(vec3(1.0, 0.97, 0.9), 0.5 * (pl_color(dom) + pl_color(sec)), 0.3) : mix(own, vec3(1.0), 0.45);
       la = both ? 0.95 : 0.6;
     }
-    if (war > 0.0) {
+    if (inner) la *= political ? 0.55 : 0.6;
+    if (war > 0.0 && civil) {
+      // a civil war's front: crimson and gold dashes along the border, crawling with the year
+      float f = pl_dash(lrg, 9.0 * uPxR, uYear * 0.6);
+      float gold = smoothstep(0.0, 0.08, f) * (1.0 - smoothstep(0.5, 0.58, f));
+      w *= 1.0 + 1.0 * war;
+      lc = mix(lc, mix(vec3(0.55, 0.0, 0.05), vec3(1.0, 0.66, 0.06), gold), war);
+      la = mix(la, 1.0, war);
+    } else if (war > 0.0) {
       // the front: a broader red line, pulsing with the year
       float pulse = 0.72 + 0.28 * sin(uYear * 6.2831853 / max(uPulse, 1.0));
       w *= 1.0 + 1.2 * war;
       lc = mix(lc, vec3(1.0, 0.13, 0.05) * mix(1.0, pulse, 0.6), war);
       la = mix(la, 1.0, war);
+    } else if (emb) {
+      // an embargo short of war: amber and black dashes
+      float f = pl_dash(lrg, 8.0 * uPxR, 0.0);
+      float on = smoothstep(0.0, 0.07, f) * (1.0 - smoothstep(0.55, 0.62, f));
+      w *= 1.25;
+      lc = mix(vec3(0.03, 0.025, 0.02), vec3(1.0, 0.68, 0.12), on);
+      la = 1.0;
     }
     if (sel && (abs(dom - uSel) < 0.5 || abs(sec - uSel) < 0.5)) {
       w *= 1.3;
-      if (!political && war <= 0.0) lc = vec3(1.0);
+      if (!political && war <= 0.0 && !emb) lc = vec3(1.0);
       la = 1.0;
     }
     float core = 1.0 - smoothstep(w * 0.5 - 0.6, w * 0.5 + 0.6, px);
-    float halo = (1.0 - smoothstep(w * 0.5, w * 0.5 + 1.8, px)) * (political ? 0.0 : 0.45) * (both ? 1.0 : 0.5);
+    float halo = (1.0 - smoothstep(w * 0.5, w * 0.5 + 1.8, px)) * (political ? 0.0 : 0.45) * (both ? (inner ? 0.3 : 1.0) : 0.5);
     if (war > 0.0) halo = max(halo, (1.0 - smoothstep(w * 0.5, w * 0.5 + 3.5, px)) * 0.5 * war);
     outc = pl_over(vec4(0.0, 0.0, 0.0, halo), outc);
     outc = pl_over(vec4(lc * lineLight * core * la, core * la), outc);
@@ -634,14 +721,25 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
   palTex.minFilter = palTex.magFilter = THREE.NearestFilter
   palTex.generateMipmaps = false
   palTex.needsUpdate = true
+  // spheres: overlord + 1 and bond kind per polity (rewritten when the bonds in force change)
+  const relData = new Float32Array(PAL_W * palH * 4)
+  const relTex = new THREE.DataTexture(relData, PAL_W, palH, THREE.RGBAFormat, THREE.FloatType)
+  relTex.minFilter = relTex.magFilter = THREE.NearestFilter
+  relTex.generateMipmaps = false
+  relTex.needsUpdate = true
 
   // ---- territory overlay ----
   const wars = Array.from({ length: MAX_WARS }, () => new THREE.Vector4(-9, -9, 0, 0))
+  const embs = Array.from({ length: MAX_EMB / 2 }, () => new THREE.Vector4(-9, -9, -9, -9))
   const ou = {
     uReliefK: reliefUniforms.uReliefK,
     ...flatUniforms,
     uCells: { value: cellTex },
     uPalette: { value: palTex },
+    uRel: { value: relTex },
+    uEmb: { value: embs },
+    uEmbCount: { value: 0 },
+    uPxR: { value: 1 },
     uMode: { value: 1 },
     uFrac: { value: 0 },
     uLandFrac: { value: 0 },
@@ -769,6 +867,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
   let shownDangerKey = -1
   let shownYearInt = NaN
   let shownArmyYear = NaN
+  let shownRelKey = NaN
+  let shownEmbSnap = -1
   let year = 0
   let marchYears = 6
   let cells: Int16Array | null = null
@@ -837,12 +937,53 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
         // a war fades in over its first year and out over its last
         const end = W.endYear[w] < 0 ? Infinity : W.endYear[w]
         const k = Math.min(1, (y - W.startYear[w]) / 1 + 0.35, (end - y) / 1 + 0.35)
-        wars[n].set(W.attacker[w], W.defender[w], Math.max(0, Math.min(1, k)), 0)
+        wars[n].set(W.attacker[w], W.defender[w], Math.max(0, Math.min(1, k)), W.kind[w] === WarKind.CivilWar ? 1 : 0)
         warList.push(w)
         n++
       }
     }
     ou.uWarCount.value = n
+  }
+
+  /** The bonds in force at `y` into the relation texture (uploaded only when they changed). */
+  function writeRelations(y: number) {
+    const B = pd.bonds
+    let key = 0
+    if (B) for (let k = 0; k < B.count; k++) if (B.kind[k] !== BondKind.Alliance && bondActive(pd, k, y)) key = (Math.imul(key, 31) + k + 1) | 0
+    if (key === shownRelKey) return
+    shownRelKey = key
+    relData.fill(0)
+    if (B) {
+      for (let k = 0; k < B.count; k++) {
+        if (B.kind[k] === BondKind.Alliance || !bondActive(pd, k, y)) continue
+        const a = B.a[k], o = B.b[k]
+        if (a < 0 || a >= pd.count || o < 0 || o >= pd.count || a === o) continue
+        relData[a * 4] = o + 1
+        relData[a * 4 + 1] = B.kind[k] === BondKind.Vassal ? 1 : 2
+      }
+    }
+    relTex.needsUpdate = true
+  }
+
+  /** Embargoed pairs at the trade snapshot nearest `y` (rewritten when it changes). */
+  function writeEmbargoes(y: number) {
+    const t = tradeSnapNear(pd, y)
+    if (t === shownEmbSnap) return
+    shownEmbSnap = t
+    const e = embargoesAt(pd, t)
+    const n = Math.min(MAX_EMB, e.length >> 1)
+    for (let i = 0; i < MAX_EMB / 2; i++) embs[i].set(-9, -9, -9, -9)
+    for (let i = 0; i < n; i++) {
+      const v = embs[i >> 1]
+      if (i % 2 === 0) {
+        v.x = e[i * 2]
+        v.y = e[i * 2 + 1]
+      } else {
+        v.z = e[i * 2]
+        v.w = e[i * 2 + 1]
+      }
+    }
+    ou.uEmbCount.value = n
   }
 
   const tmpA = new THREE.Vector3()
@@ -1022,6 +1163,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
         shownYearInt = yi
         writeCapitals(y)
         writeWars(y)
+        writeRelations(y)
+        writeEmbargoes(y)
       }
       if (y !== shownArmyYear) {
         shownArmyYear = y
@@ -1041,6 +1184,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       const alt = ou.uCamObj.value.length() - 1
       // borders a little bolder as the camera comes down; the tint steps back for the 3D towns up close
       ou.uBorderPx.value = (alt > 1.2 ? 1.5 : alt > 0.3 ? 1.8 : 2.2) * pixelRatio
+      ou.uPxR.value = pixelRatio
       ou.uCoastOct.value = alt < 0.12 ? 3 : 5
       // (gone at the closest zoom, where the 3D towns and fields take over: the borders stay)
       if (view === PolityView.Tint) ou.uTint.value = 0.4 * Math.min(1, Math.max(0, (alt - 0.025) / 0.06))
@@ -1056,6 +1200,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       markMat.dispose()
       cellTex.dispose()
       palTex.dispose()
+      relTex.dispose()
       for (const m of [capitals, events, armies]) m.geom.dispose()
     },
   }

@@ -15,6 +15,10 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
     case EntryKind.Raids:
     case EntryKind.SmallRaids:
     case EntryKind.Revolts:
+    case EntryKind.Bonds:
+    case EntryKind.Alliances:
+    case EntryKind.Blockades:
+    case EntryKind.Forts:
       return POLITICS
     case EntryKind.FamineBurst:
       return NATURE
@@ -29,8 +33,10 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   }
   if (!first) return TRADE
   const t = first.type as number
-  if (t >= 20 && t <= 34) return POLITICS
+  // 20-43: polities, the second version's smuggling and piracy included (they are the outlaw side of trade policy and war)
+  if (t >= 20 && t <= 43) return POLITICS
   if ((t === 4 || t === 7) && isWallEvent(h, first)) return POLITICS
+  if ((t === 4 || t === 7) && h.structures?.[first.other]?.type === 3) return POLITICS // forts
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   return SETTLEMENT

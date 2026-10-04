@@ -29,6 +29,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'technique' | 'blight' | 'habit' | 'plague'
   // polities (polityFormat.ts)
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
+  // polities, second version: civil wars, bonds, the outlaw economy, forts
+  | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -278,7 +280,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.Founded: return 'founded'
     case EventType.Abandoned: return 'abandoned'
     case EventType.Famine: return 'famine'
-    case EventType.Built: return 'built'
+    case EventType.Built: return (e.value as number) === StructureType.Fort ? 'fort' : 'built'
     case EventType.BecameTown: return 'town'
     case EventType.BecameCity: return 'city'
     case EventType.StructureLost: return 'lost'
@@ -311,7 +313,7 @@ function structureTypeOf(h: History, e: HistoryEvent): number {
 }
 
 export function structureName(type: number): string {
-  return type === StructureType.Dam ? 'dam' : 'port'
+  return type === StructureType.Dam ? 'dam' : type === StructureType.Fort ? 'fort' : 'port'
 }
 
 /** One-line description of an event for the global chronicle. */
@@ -327,6 +329,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       return `Famine in ${name}` + (e.value > 0 ? ` (−${Math.round(e.value * 100)}%)` : '')
     case EventType.Built:
       if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `${name} raises walls`
+      if (structureTypeOf(h, e) === StructureType.Fort) return `${name} builds a fort on its border`
       return structureTypeOf(h, e) === StructureType.Dam ? `${name} dams the river` : `${name} builds a port`
     case EventType.BecameTown:
       return `${name} grows into a town`
@@ -334,6 +337,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       return `${name} becomes a city`
     case EventType.StructureLost:
       if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `The walls of ${name} fall into ruin`
+      if (structureTypeOf(h, e) === StructureType.Fort) return `The fort of ${name} is abandoned`
       return structureTypeOf(h, e) === StructureType.Dam ? `The dam of ${name} falls into ruin` : `The port of ${name} falls into ruin`
     case EventType.TradeOpened: {
       const x = exchange(h, e, e.settlement)
@@ -393,6 +397,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       return 'Famine' + (e.value > 0 ? `, lost ${Math.round(e.value * 100)}% of its people` : '')
     case EventType.Built:
       if (isWallEvent(h, e)) return describePolityEventFor(h, e, id) ?? 'Raised walls'
+      if (structureTypeOf(h, e) === StructureType.Fort) return 'Built a fort on its border'
       return structureTypeOf(h, e) === StructureType.Dam ? 'Dammed the river' : 'Built a port'
     case EventType.BecameTown:
       return `Grew into a town (${formatInt(e.value)} people)`
