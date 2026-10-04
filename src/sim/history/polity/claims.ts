@@ -56,9 +56,19 @@ function claimStatic(s: HistoryState): ClaimStatic {
 const heap = new Heap(1024)
 let reach = new Float64Array(0)
 let heldN = new Int32Array(0)
+/** Per cell this pass: SEA_ICE, NOBODY (claimable), STATELESS (a stateless settlement's land) or the holding state's id. */
+let hp = new Int32Array(0)
+const CLAIMED = -4, SEA_ICE = -3, NOBODY = -2, STATELESS = -1
+/** Per landmass: 1 when some state holds land on it this pass (pockets are looked for only there). */
+let massHeld = new Uint8Array(0)
 let mark = new Int32Array(0)
 let markRun = 0
-const comp: number[] = []
+/** The current component (comp[0, compN)), the source cells (to clear), the cells claimed by reach, a pocket's fill queue. */
+let comp = new Int32Array(0)
+let compN = 0
+let src = new Int32Array(0)
+let won = new Int32Array(0)
+let queue = new Int32Array(0)
 const tallyP: number[] = [], tallyN: number[] = []
 
 /** The claims pass: cPol / cOwner over nobody's land (see the file comment). */
@@ -76,6 +86,10 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   if (ps.alive.length === 0) return
   const P = ps.P
   if (reach.length < P) { reach = new Float64Array(ps.pcap); heldN = new Int32Array(ps.pcap) }
+  if (hp.length < N) { hp = new Int32Array(N); mark = new Int32Array(N); comp = new Int32Array(N); src = new Int32Array(N); won = new Int32Array(N); queue = new Int32Array(N); markRun = 0 }
+  const mass = T.landmass
+  if (massHeld.length < T.landmassSize.length) massHeld = new Uint8Array(T.landmassSize.length)
+  massHeld.fill(0)
   reach.fill(0)
   heldN.fill(0)
   const X = CLAIM
@@ -84,48 +98,53 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
     const f = 1 + X.popBoost * (2 * smoothstep(X.popLow, X.popHigh, ps.pPop[p]) - 1)
     reach[p] = (X.share[t] * ps.pReach[p] * f) / T.cellScale
   }
-  // Sources: the edge cells of every state's held land (a cell next to nobody's land), its member's grip spent.
-  heap.size = 0
+  // Who holds each land cell.
   const cells = ps.landCells
+  hp.fill(SEA_ICE)
   for (let t = 0; t < cells.length; t++) {
     const c = cells[t]
+    if ((flag[c] & ICE) !== 0) continue
     const o = tOwner[c]
-    if (o < 0 || abandoned[o] >= 0) continue
+    if (o < 0 || abandoned[o] >= 0) { hp[c] = NOBODY; continue }
     const p = polity[o]
-    if (p < 0) continue
-    heldN[p]++
-    const r = reach[p]
-    if (!(r > 0)) continue
+    if (p >= 0) { hp[c] = p; heldN[p]++; massHeld[mass[c]] = 1 } else hp[c] = STATELESS
+  }
+  let maxHeld = 0
+  for (const p of ps.alive) if (heldN[p] > maxHeld) maxHeld = heldN[p]
+  // (no pocket larger than this can be filled)
+  const maxPocket = X.pocket * maxHeld > X.pocketChief ? X.pocket * maxHeld : X.pocketChief
+  // Sources: the edge cells of every state's held land (a cell next to nobody's land), its member's grip spent.
+  heap.size = 0
+  let srcN = 0
+  for (let t = 0; t < cells.length; t++) {
+    const c = cells[t]
+    const p = hp[c]
+    if (p < 0 || !(reach[p] > 0)) continue
     let edge = false
-    for (let k = off[c]; k < off[c + 1]; k++) {
-      const j = nb[k]
-      const oj = tOwner[j]
-      if ((oj < 0 || abandoned[oj] >= 0) && (flag[j] & ICE) === 0) { edge = true; break }
-    }
+    for (let k = off[c], e = off[c + 1]; k < e; k++) if (hp[nb[k]] === NOBODY) { edge = true; break }
     if (!edge) continue
+    const o = tOwner[c]
     const k0 = 1 - grip(ps.dist[o], ps.pReach[p])
     if (!(k0 < 1)) continue
     cKey[c] = k0; cPol[c] = p; cOwner[c] = o; cPeak[c] = 0
+    src[srcN++] = c
     heap.push(k0, c)
   }
   const crest = X.crestElev, drop = X.crestDrop
+  let wonN = 0
   while (heap.size > 0) {
     const key = heap.topKey()
     const u = heap.pop()
     if (key > cKey[u]) continue // (cheapened since)
-    const ou = tOwner[u]
-    const heldU = ou >= 0 && abandoned[ou] < 0
+    const heldU = hp[u] >= 0
     const fu = flag[u]
     if (!heldU && (fu & GREAT) !== 0) continue // (a great river: taken, not crossed)
     const p = cPol[u], r = reach[p], peak = cPeak[u], owner = cOwner[u]
     const fromDesert = !heldU && (fu & DESERT) !== 0
-    for (let k = off[u]; k < off[u + 1]; k++) {
+    for (let k = off[u], e = off[u + 1]; k < e; k++) {
       const j = nb[k]
-      const oj = tOwner[j]
-      if (oj >= 0 && abandoned[oj] < 0) continue
-      const fj = flag[j]
-      if ((fj & ICE) !== 0) continue
-      if (fromDesert && (fj & DESERT) === 0) continue
+      if (hp[j] !== NOBODY) continue // (anyone's land, ice)
+      if (fromDesert && (flag[j] & DESERT) === 0) continue
       const ej = elev[j]
       if (peak >= crest && ej < peak - drop) continue
       const nk = key + w[j] / r
@@ -135,51 +154,45 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
         if (nk >= cKey[j]) { if (pj !== p && cDisp[j] < 0) cDisp[j] = p; continue } // (another's claim, nearer: disputed)
         if (pj !== p && cDisp[j] < 0) cDisp[j] = pj
       }
+      if (pj < 0) won[wonN++] = j
       cKey[j] = nk; cPol[j] = p; cOwner[j] = owner; cPeak[j] = ej > peak ? ej : peak
       heap.push(nk, j)
     }
   }
   // (held cells were only sources)
-  for (let t = 0; t < cells.length; t++) {
-    const c = cells[t]
-    const o = tOwner[c]
-    if (o >= 0 && abandoned[o] < 0) { cPol[c] = -1; cOwner[c] = -1 }
-  }
+  for (let i = 0; i < srcN; i++) { const c = src[i]; cPol[c] = -1; cOwner[c] = -1 }
+  for (let i = 0; i < wonN; i++) hp[won[i]] = CLAIMED // (claimed by reach: cPol says by whom)
   // Pockets: components of nobody's unclaimed land (ice aside), by their border.
-  if (mark.length < N) { mark = new Int32Array(N); markRun = 0 }
   const run0 = ++markRun // (component cells)
   for (let t = 0; t < cells.length; t++) {
     const c0 = cells[t]
-    if (mark[c0] === run0 || cPol[c0] >= 0 || (flag[c0] & ICE) !== 0) continue
-    const o0 = tOwner[c0]
-    if (o0 >= 0 && abandoned[o0] < 0) continue
-    comp.length = 0
-    comp.push(c0)
+    if (hp[c0] !== NOBODY || mark[c0] === run0 || massHeld[mass[c0]] === 0) continue
+    compN = 0
+    comp[compN++] = c0
     mark[c0] = run0
-    for (let i = 0; i < comp.length; i++) {
+    for (let i = 0; i < compN; i++) {
       const c = comp[i]
-      for (let k = off[c]; k < off[c + 1]; k++) {
+      for (let k = off[c], e = off[c + 1]; k < e; k++) {
         const j = nb[k]
-        if (mark[j] === run0 || cPol[j] >= 0 || (flag[j] & ICE) !== 0) continue
-        const oj = tOwner[j]
-        if (oj >= 0 && abandoned[oj] < 0) continue
+        if (hp[j] !== NOBODY || mark[j] === run0) continue
         mark[j] = run0
-        comp.push(j)
+        comp[compN++] = j
       }
     }
-    // Border: each land cell next to the pocket once (by its state: held or claimed; -1 stateless).
+    if (compN > maxPocket) continue
+    // Border: each land cell next to the pocket once (by its state: held or claimed; stateless land counts for none).
     const runB = ++markRun
     tallyP.length = 0; tallyN.length = 0
     let border = 0
-    for (let i = 0; i < comp.length; i++) {
+    for (let i = 0; i < compN; i++) {
       const c = comp[i]
-      for (let k = off[c]; k < off[c + 1]; k++) {
+      for (let k = off[c], e = off[c + 1]; k < e; k++) {
         const j = nb[k]
-        if (mark[j] === run0 || mark[j] === runB || (flag[j] & ICE) !== 0) continue
+        const h = hp[j]
+        if (h === SEA_ICE || mark[j] === run0 || mark[j] === runB) continue
         mark[j] = runB
         border++
-        const oj = tOwner[j]
-        const q = oj >= 0 && abandoned[oj] < 0 ? polity[oj] : cPol[j]
+        const q = h === CLAIMED ? cPol[j] : h
         if (q < 0) continue
         let m = 0
         while (m < tallyP.length && tallyP[m] !== q) m++
@@ -187,15 +200,15 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
         tallyN[m]++
       }
     }
-    // (border cells are re-marked as component-free cells by runB; component cells keep run0)
+    // (border cells are re-marked by runB; component cells keep run0)
     if (border === 0) continue
     let best = -1, bestN = 0
     for (let m = 0; m < tallyP.length; m++) if (tallyN[m] > bestN) { bestN = tallyN[m]; best = tallyP[m] }
     if (best < 0 || bestN < X.enclose * border) continue
-    const size = comp.length
+    const size = compN
     const tier = tierOf(ps.pPop[best], ps.pMembers[best], ps.pMulti[best] === 1, ps.worldPop)
     if (tier === Tier.Chiefdom ? size > X.pocketChief : size > X.pocket * heldN[best] || size > X.pocketShape * bestN * bestN) continue
-    fillPocket(ps, best, abandoned, off, nb, run0)
+    fillPocket(ps, best, off, nb, run0)
   }
   disputes(s, ps)
 }
@@ -221,36 +234,36 @@ function disputes(s: HistoryState, ps: PolityState): void {
 }
 
 /**
- * Fills the component in `comp` (marked run0) with polity p, each cell taking the member of the nearest p cell on its
- * border (breadth first); cKey 2 marks a pocket's cells (a claim by enclosure, not by reach).
+ * Fills the component in comp[0, compN) (marked run0) with polity p, each cell taking the member of the nearest p cell on
+ * its border (breadth first); cKey 2 marks a pocket's cells (a claim by enclosure, not by reach).
  */
-function fillPocket(ps: PolityState, p: number, abandoned: Int32Array, off: Int32Array, nb: Int32Array, run0: number): void {
-  const { cOwner, cPol, cKey, tOwner, polity } = ps
+function fillPocket(ps: PolityState, p: number, off: Int32Array, nb: Int32Array, run0: number): void {
+  const { cOwner, cPol, cKey, tOwner } = ps
   const run = ++markRun // (cells filled)
-  const queue: number[] = []
-  for (let i = 0; i < comp.length; i++) {
+  let head = 0, tail = 0
+  for (let i = 0; i < compN; i++) {
     const c = comp[i]
-    for (let k = off[c]; k < off[c + 1]; k++) {
+    for (let k = off[c], e = off[c + 1]; k < e; k++) {
       const j = nb[k]
       if (mark[j] === run0 || mark[j] === run) continue
-      const oj = tOwner[j]
-      const heldJ = oj >= 0 && abandoned[oj] < 0
-      const q = heldJ ? polity[oj] : cPol[j]
-      if (q !== p) continue
-      cPol[c] = p; cOwner[c] = heldJ ? oj : cOwner[j]; cKey[c] = 2
+      const h = hp[j]
+      if ((h >= 0 ? h : h === CLAIMED || h === NOBODY ? cPol[j] : -1) !== p) continue
+      cPol[c] = p; cOwner[c] = h >= 0 ? tOwner[j] : cOwner[j]; cKey[c] = 2
       mark[c] = run
-      queue.push(c)
+      hp[c] = CLAIMED
+      queue[tail++] = c
       break
     }
   }
-  for (let i = 0; i < queue.length; i++) {
-    const c = queue[i]
-    for (let k = off[c]; k < off[c + 1]; k++) {
+  while (head < tail) {
+    const c = queue[head++]
+    for (let k = off[c], e = off[c + 1]; k < e; k++) {
       const j = nb[k]
       if (mark[j] !== run0) continue
       cPol[j] = p; cOwner[j] = cOwner[c]; cKey[j] = 2
       mark[j] = run
-      queue.push(j)
+      hp[j] = CLAIMED
+      queue[tail++] = j
     }
   }
 }
