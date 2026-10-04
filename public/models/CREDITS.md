@@ -36,6 +36,16 @@ temples, longhouses, stave towers), town walls and towers, market stalls, a smal
 town bridges, groves (broadleaf, conifer, palm, jungle, acacia, cactus, rocks), haystacks,
 the dam and the soft contact shadows.
 
+Generated in code (`landmarkShapes.ts`), the landmarks of the history (`History.landmarks`): the houses of
+worship of every building tradition, each in a great and a lesser size (cathedral and church, great domed
+temple with minarets and domed temple, ziggurat and stepped shrine, peripteral and prostyle columned temples,
+five- and three-tiered pagodas, great and small stave churches, great stupa and stupa, a henge and a stone
+circle, a sacred grove), keep, mud-brick citadel and timber stronghold, courtyard palace, palace of domes and
+great timber hall, market hall, guildhall, lighthouse, library, triumphal column, obelisk, domed mausoleum,
+pyramid tomb, great baths, council house, a construction scaffold and a monastery's cloister. The KayKit
+pieces of `landmarks/landmarks.glb` join them in the same atlas: the builders' yard while a landmark goes up,
+a ruined outbuilding by a neglected or ruined one, a tower by a castle.
+
 The settlement plans (`town.ts`, `plan/geom.ts`) contain portions ported from
 TownGeneratorOS by Oleg Dolya (watabou), GPL-3.0, https://github.com/watabou/TownGeneratorOS
 (Medieval Fantasy City Generator): junction optimisation, artery smoothing, the curtain wall
