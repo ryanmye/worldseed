@@ -49,9 +49,9 @@ function hashBase(hi: History): string {
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, '6a5fffc'],
-  [3, 600, undefined, '80e6198a'],
-  [9, 800, 24, '5e191d88'],
+  [42, 2000, undefined, '54f42444'],
+  [3, 600, undefined, '65b6ea87'],
+  [9, 800, 24, '32f53d06'],
 ]
 
 /** Hash of the polity fields. */

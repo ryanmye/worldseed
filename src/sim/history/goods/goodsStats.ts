@@ -236,9 +236,14 @@ export function goodsSeedStats(seed: number, off: boolean, detail: boolean, pre?
   }
   // T5: posts.
   row.posts = h.posts.length
-  let fortTown = 0
-  for (const p of h.posts) if (p.kind === PostKind.Fort && p.settlement >= 0) { for (let q = 0; q < h.snapshotCount; q++) if (h.population[q * S + p.settlement] >= TOWN_POPULATION) { fortTown = 1; break } }
-  row.fortTown = fortTown
+  // (a victualling station is a fort post too: design 4.3, Cape Town)
+  let fortTown = 0, stationTown = 0
+  for (const p of h.posts) {
+    if ((p.kind !== PostKind.Fort && p.kind !== PostKind.Station) || p.settlement < 0) continue
+    for (let q = 0; q < h.snapshotCount; q++) if (h.population[q * S + p.settlement] >= TOWN_POPULATION) { if (p.kind === PostKind.Fort) fortTown = 1; else stationTown = 1; break }
+  }
+  row.fortTown = fortTown; row.fortOrStationTown = fortTown || stationTown ? 1 : 0
+  row.forts = h.posts.filter((p) => p.kind === PostKind.Fort).length
   // T6: monopolies: years to the first leak per secret (to the end if none), per kind.
   const firstLeak = new Map<number, number>()
   for (const e of ev) if (e.type === EventType.SecretLeaked && e.extra !== 0 && !firstLeak.has(e.value)) firstLeak.set(e.value, e.year)
@@ -435,9 +440,9 @@ export function formatGoodsStats(rows: GoodsSeedStats[]): string {
   L.push(`  T1 named luxury and fine cloth distance from origin km: median ${m('distMed')} p90 ${m('distP90')} (>= 800, >= 4000)`)
   L.push(`  T2 HV share of trade value ${m('hvShare')} (.20-.35)`)
   L.push(`  T3 top luxury far / source price: median ${m('priceRatioMed')}, peak ${m('pricePeak')}; before its lane ${m('priceBefore')}, 30-60 years after ${m('priceAfter')} (a lane for it in ${sum('priceLaneOwn')}/${rows.length})`)
-  L.push(`  T4 lanes ${m('lanes')} (3-12) per world, ocean-spanning in ${col('oceanLanes').filter((x) => x > 0).length}/${rows.length} (>= 14/20); first lane ${m('firstLane')} (1250-1700); relay legs ${m('relayLegs')}, marts ${m('marts')}`)
+  L.push(`  T4 lanes ${m('lanes')} (6-30) per world, ocean-spanning in ${col('oceanLanes').filter((x) => x > 0).length}/${rows.length} (>= 14/20); first lane ${m('firstLane')} (1250-1700); relay legs ${m('relayLegs')}, marts ${m('marts')}`)
   L.push(`  trade expeditions ${m('tradeExp')} (sailed ${m('tradeSailed')}, lost ${m('tradeLost')}; after 1500 ${m('tradeExpLate')})`)
-  L.push(`  T5 posts ${m('posts')} (2-10); a fort became a town in ${sum('fortTown')}/${rows.length} (>= 6/20)`)
+  L.push(`  T5 posts ${m('posts')} (4-25), forts ${m('forts')}; a fort or station became a town in ${sum('fortOrStationTown')}/${rows.length} (>= 6/20), a fort in ${sum('fortTown')}/${rows.length}`)
   L.push(`  T6 secrets ${m('secrets')}, held >= 50 years ${m('secrets50')} (2-6), years to first leak species ${m('durSpecies')} craft ${m('durCraft')} chart ${m('durChart')}; never leak ${m('neverLeak')} (<= .3); leaks ${m('leaks')}, broken ${m('monoBroken')}`)
   L.push(`     leak channels seen across seeds: ${CH.map((c, i) => `${c} ${sum('ch' + i)}`).join(', ')} (>= 5 channels)`)
   L.push(`  T7 entrepots: top-10 relay marts' wealth a head / median hub's ${m('entrepot')} (>= 2)`)

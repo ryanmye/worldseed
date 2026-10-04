@@ -35,10 +35,10 @@ export function hashBaseFields(h: History): string {
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, '6377a0a8'],
-  [3, 600, undefined, {}, 'e689b0cb'],
-  [9, 800, 24, {}, '77e3dcab'],
-  [7, 900, undefined, { polities: false }, '764a249'],
+  [42, 2000, undefined, {}, 'b0b2465e'],
+  [3, 600, undefined, {}, '9c51d8e0'],
+  [9, 800, 24, {}, '50273a9c'],
+  [7, 900, undefined, { polities: false }, 'eb61ff8f'],
 ]
 
 function hashRulers(h: History): string {

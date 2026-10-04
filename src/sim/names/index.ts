@@ -24,7 +24,7 @@ import type { World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import type { Language, MeaningClass } from './phonology.ts'
 import { buildLanguage, deriveLanguage, MEANING_CLASSES } from './phonology.ts'
-import { buildRoot, composeName, letterCount, pickWeighted } from './words.ts'
+import { buildRoot, composeName, fluentName, letterCount, pickWeighted } from './words.ts'
 
 /** The fields `nameSettlements` needs from a settlement; a subset of the full contract type. */
 export interface SettlementLike {
@@ -116,6 +116,7 @@ export function nameSettlementsDetailed(world: World, settlements: readonly Sett
 
   const rng = createRng(world.seed, 'names-draw')
   const used = new Set<string>()
+  const taken = new Set<string>()
 
   for (let id = 0; id < n; id++) {
     const st = settlements[id]
@@ -151,7 +152,24 @@ export function nameSettlementsDetailed(world: World, settlements: readonly Sett
         break
       }
     }
+    // An awkward name (an echoed syllable, too long, one vowel throughout: words.ts isFluent) is drawn again from a stream of
+    // its own, so the shared stream above draws as before and no other settlement's name changes; the root stays (a
+    // daughter town still takes its parent's root).
+    // (`used` holds the names the shared stream gave, as before; `taken` the names given; one the stream gives that a
+    // redrawn name took is drawn again too)
     used.add(name.toLowerCase())
+    if (!fluentName(name) || taken.has(name.toLowerCase())) {
+      const r2 = createRng(world.seed, `names-fluent-${id}`)
+      for (let k = 0; k < 80; k++) {
+        const cand = st.parent >= 0 && r2.next() < PARENT_NAME_PROB
+          ? composeName(lang, roots[st.parent] ?? 'ana', lang.affixes.new[pickWeighted(r2, lang.affixes.new.map((o) => o.weight))])
+          : composeName(lang, buildRoot(lang, r2), undefined)
+        if (cand === null || (k < 60 && !fluentName(cand)) || used.has(cand.toLowerCase()) || taken.has(cand.toLowerCase())) continue
+        const lc = letterCount(cand)
+        if (lc >= 3 && lc <= 12) { name = cand; break }
+      }
+    }
+    taken.add(name.toLowerCase())
     roots[id] = root
     names[id] = name
   }

@@ -48,13 +48,16 @@ export const POLITY = {
   /** A chiefdom (fewer than absorbMembers members) whose capital would submit (at submit) to a larger neighbour joins it whole. */
   absorbMembers: 6,
   /** Reach: lambda = lambda0 * (1 + reachCrafts * (Crafts - 1)) / sqrt(1 + members / overload). */
-  lambda0: 7,
+  lambda0: 9,
   reachCrafts: 0.5,
   overload: 250,
   /** Power b = pop * q * (1 + prosperityPower * prosperity); q = 1 + qMetal (Metalworking - 1) + qCrafts (Crafts - 1). */
   prosperityPower: 0.5,
   qMetal: 0.3,
   qCrafts: 0.15,
+  /** Overstretch: a realm with more than `great` of the world's people has its mass divided by 1 + (share - great) / stretch (0: off). */
+  great: 0.2,
+  stretch: 0.1,
   /** Mass in a succession crisis, and projection loss per war beyond the first and per unit of exhaustion. */
   crisisMass: 0.6,
   multiWar: 0.5,
@@ -100,6 +103,8 @@ export const COHESION = {
   start: 0.1,
   /** Rivalry at which a neighbouring polity counts as a frontier. */
   frontierR: 0.5,
+  /** Whether a member next to a fellow member of another people is on a frontier (false: only foreigners outside the realm, rivals and enemies are). */
+  subjects: false,
   /** Events: war won (members), capital sacked or lost (members), revolt crushed (rebels). */
   warWon: 0.03,
   capitalLost: -0.05,
@@ -462,14 +467,16 @@ export const CIVIL = {
   sameFolk: 1.3,
   route: 1.2,
   /** The winner of a civil war takes back every member of the loser that would submit at alpha. */
-  alpha: 0.8,
+  alpha: 1.6,
   /** Partition: a crisis in a Kingdom or Empire with >= 2 heirs (towns of heirRatio times the capital's people, heirPop): chance partition. */
   partition: 0.15,
   heirRatio: 0.3,
   heirPop: 1000,
+  /** The heirs' bar falls with the realm's size as the rival centre's does (/ (1 + members / sizeRef)). */
+  heirSize: true,
   /** Reunification of kin (polities of one lineage and people, adjacent, at peace): the larger's Proj at the other's capital >= alphaKin * its defence, chance kinChance per slow step. */
   alphaKin: 1.2,
-  kinChance: 0.3,
+  kinChance: 0.1,
   kinRatio: 2,
 }
 

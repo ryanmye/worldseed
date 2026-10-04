@@ -20,7 +20,7 @@ import type { People, World } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
 import type { SettlementNaming } from '../names/index.ts'
-import { buildMorph, buildRoot, capitalizeName, fuseWords, letterCount } from '../names/words.ts'
+import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, letterCount } from '../names/words.ts'
 import { CRADLE, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { found, setPeoples } from './state.ts'
@@ -222,7 +222,7 @@ export function namePeoples(world: World, founders: readonly number[], cradle: r
         if (f !== null && letterCount(f) <= 9) w = f
       }
       const cand = capitalizeName(w)
-      if (letterCount(cand) >= 3 && !used.has(cand.toLowerCase())) name = cand
+      if (letterCount(cand) >= 3 && !used.has(cand.toLowerCase()) && (attempt >= 300 || fluentName(cand))) name = cand
     }
     if (!name) name = capitalizeName(naming.roots[founder] ?? 'ana') + 'i' + p // practically unreachable
     used.add(name.toLowerCase())
