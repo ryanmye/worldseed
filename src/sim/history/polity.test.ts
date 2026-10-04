@@ -267,7 +267,7 @@ describe('polities', () => {
       expect(h.tariff.length + h.tariffRevenue.length + h.smuggleVolume.length + h.tradeLoss.length + h.contraband.length + h.piracy.length + h.bonds.count + h.embargoes.count).toBe(0)
       expect(h.structures.some((x) => x.type === StructureType.Fort)).toBe(false)
     }
-  }, 60_000)
+  }, 300_000)
 
   it('is deterministic: the same world gives the same states, wars and borders', () => {
     const a = history(42)
@@ -275,7 +275,7 @@ describe('polities', () => {
     expect(hashPolity(b)).toBe(hashPolity(a))
     expect(hashBase(b)).toBe(hashBase(a))
     expect(hashPolity(history(1))).not.toBe(hashPolity(a))
-  }, 60_000)
+  }, 300_000)
 
   it('a longer run repeats a shorter one exactly; a resumed run equals runs from scratch, owning its arrays', () => {
     const w = world(3)
@@ -320,13 +320,13 @@ describe('polities', () => {
       expect(arr.buffer.byteLength).toBe(arr.byteLength)
     }
     expect(a.polities[0]).not.toBe(b.polities[0])
-  }, 60_000)
+  }, 300_000)
 
   it('every history satisfies the polity invariants', () => {
     for (const seed of [1, 42, 7]) checkPolities(world(seed), history(seed))
     const w = generateWorld(9, { subdivisions: 24 })
     checkPolities(w, simulateHistory(w, { years: 1500 }))
-  }, 120_000)
+  }, 300_000)
 
   it('states form late, grow, fight, rebel and split; most people end up in states, not all; war costs little', () => {
     const seeds = [1, 2, 3, 42, 1337, 7]

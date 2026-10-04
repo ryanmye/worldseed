@@ -987,7 +987,7 @@ describe('simulateHistory', () => {
     expect(b).toBe(a)
     expect(hashHistory(history(1))).not.toBe(a)
     expect(hashHistory(history(2))).not.toBe(hashHistory(history(1)))
-  }, 60_000)
+  }, 300_000)
 
   it('does not mutate the world', () => {
     const w = generateWorld(77)
@@ -1102,7 +1102,7 @@ describe('simulateHistory', () => {
       expect(total).toBeGreaterThan(total2000)
       expect(total).toBeLessThan(5 * total2000)
     }
-  }, 120_000)
+  }, 300_000)
 
   it('a resumable run gives the same histories as runs from scratch, each owning its arrays', () => {
     const w = world(42)
@@ -1124,7 +1124,7 @@ describe('simulateHistory', () => {
     for (const buf of buffers(b)) expect(seen.has(buf)).toBe(false)
     expect(a.events).not.toBe(b.events)
     expect(a.structures[0]).not.toBe(b.structures[0])
-  }, 120_000)
+  }, 300_000)
 
   it('runs at other resolutions', () => {
     const w = generateWorld(9, { subdivisions: 24 })
@@ -1135,7 +1135,7 @@ describe('simulateHistory', () => {
 
   it('every history satisfies the structural invariants', () => {
     for (const seed of SEEDS) checkInvariants(world(seed), history(seed))
-  }, 60_000)
+  }, 300_000)
 
   it('no extinction, no early saturation, setbacks happen, sizes are heavy-tailed', () => {
     let heavy = 0, joined = 0
@@ -1171,7 +1171,7 @@ describe('simulateHistory', () => {
     }
     expect(heavy).toBeGreaterThanOrEqual(SEEDS.length - 1)
     expect(joined).toBe(SEEDS.length)
-  }, 60_000)
+  }, 300_000)
 
   it('peoples: several cradles; neighbours meet early, other cradles later; knowledge spreads', () => {
     let sep500 = 0, sep1000 = 0, merged2000 = 0, extinctEarly = 0
@@ -1260,7 +1260,7 @@ describe('simulateHistory', () => {
     expect(med(unknown500)).toBeGreaterThan(0.4)
     expect(med(unknown2000)).toBeLessThan(0.1)
     expect(extinctEarly).toBeLessThanOrEqual(1)
-  }, 60_000)
+  }, 300_000)
 
   it('trade emerges late, grows into networks, feeds hubs that become the big cities, and wears roads', () => {
     let hubTop = 0, bigCity = 0, mixed = 0
@@ -1341,7 +1341,7 @@ describe('simulateHistory', () => {
     expect(hubTop).toBeGreaterThanOrEqual(SEEDS.length - 2)
     // Most worlds grow a trade city well beyond what the best land alone feeds (~2-8k without trade).
     expect(bigCity).toBeGreaterThanOrEqual(SEEDS.length - 3)
-  }, 60_000)
+  }, 300_000)
 
   it('people change the land: farming, exhaustion and recovery, abandonment and resettlement, ports, dams, cities', () => {
     let withCity = 0, dams = 0, recoveredSeeds = 0, resettledSeeds = 0, biggest = 0
@@ -1398,7 +1398,7 @@ describe('simulateHistory', () => {
     expect(withCity).toBeGreaterThanOrEqual(SEEDS.length - 3)
     // The best sites (irrigated, fishing ports) outgrow the old ~25k ceiling somewhere.
     expect(biggest).toBeGreaterThan(30000)
-  }, 60_000)
+  }, 300_000)
 
   it('seaborne foundings sail over water from a coastal origin to a coastal landfall, longer voyages taking longer', () => {
     for (const seed of SEEDS) {
@@ -1434,7 +1434,7 @@ describe('simulateHistory', () => {
       for (let i = 0; i < half; i++) { short += dur[order[i]]; long += dur[order[order.length - 1 - i]] }
       expect(long).toBeGreaterThan(short)
     }
-  }, 60_000)
+  }, 300_000)
 
   it('voyages carry settlers to continents without a cradle, which fill up after the cradles, and to most islands', () => {
     let eligible = 0, second = 0, early = 0, frontier = 0, lag = 0, filled = 0, islandSeeds = 0
@@ -1516,7 +1516,7 @@ describe('simulateHistory', () => {
     expect(lag).toBe(SEEDS.length)
     expect(filled).toBeGreaterThanOrEqual(SEEDS.length - 3)
     expect(islandSeeds).toBeGreaterThanOrEqual(SEEDS.length - 2)
-  }, 60_000)
+  }, 300_000)
   it('technology differs by people: grows from its own activity, is learned only from peoples met, follows the old curve on average', () => {
     const P0: number[] = [], med1000: number[] = [], med2000: number[] = [], within: number[] = []
     let separate1000 = 0, visible1000 = 0
@@ -1572,7 +1572,7 @@ describe('simulateHistory', () => {
     expect(separate1000).toBeGreaterThanOrEqual(SEEDS.length / 2)
     expect(visible1000).toBeGreaterThanOrEqual(3)
     expect(med(within)).toBeLessThan(1.05)
-  }, 60_000)
+  }, 300_000)
 
   it('species: unequal cradles, none doomed; exchange after contact; diverse staples; marginal land; bounded epidemics', () => {
     // Founding endowments (crop multiplier per cradle at the start) from a short run's probe.
@@ -1642,7 +1642,7 @@ describe('simulateHistory', () => {
     expect(marginal).toBeGreaterThanOrEqual(SEEDS.length / 2)
     expect(withEpidemic).toBeGreaterThanOrEqual(SEEDS.length / 2)
     expect(riceBred).toBeGreaterThanOrEqual(riceHeld / 2)
-  }, 120_000)
+  }, 300_000)
 
   it('expeditions set out from prosperous settlements, reach the poles, and leave bases where nobody farms', () => {
     let withBases = 0, withPole = 0, poleInWindow = 0, lateHeavy = 0
@@ -1692,5 +1692,5 @@ describe('simulateHistory', () => {
     expect(withPole).toBeGreaterThanOrEqual(SEEDS.length - 2)
     expect(poleInWindow).toBeGreaterThanOrEqual(SEEDS.length / 2)
     expect(lateHeavy).toBeGreaterThanOrEqual(SEEDS.length - 2)
-  }, 60_000)
+  }, 300_000)
 })

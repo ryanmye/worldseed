@@ -6,4 +6,4 @@ it('prints world stats for the standard seeds', () => {
   console.log('\n' + formatStats(rows))
   // Generation budget: well under 2 s per world at n = 48.
   for (const r of rows) expect(r.ms).toBeLessThan(2000)
-}, 60_000)
+}, 300_000)

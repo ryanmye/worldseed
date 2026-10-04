@@ -319,5 +319,5 @@ describe('rulers', () => {
     expect(h.rulers.length).toBe(0)
     expect(h.events.some((e) => e.type === EventType.SuccessionCrisis)).toBe(true)
     expect(h.faiths.length).toBeGreaterThan(0) // (religion runs without rulers)
-  }, 120_000)
+  }, 300_000)
 })

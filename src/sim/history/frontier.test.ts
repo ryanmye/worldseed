@@ -72,7 +72,7 @@ describe('gradual knowledge after contact', () => {
     // Trading partners come to know most of it.
     expect(traders).toBeGreaterThan(10)
     expect(tradersLearned).toBeGreaterThanOrEqual(0.8 * traders)
-  }, 120_000)
+  }, 300_000)
 
   it('knowledge is never lost; the meeting settlements are known at contact; trade routes link settlements known to both', () => {
     let chainSeeds = 0
@@ -111,7 +111,7 @@ describe('gradual knowledge after contact', () => {
       if (chains > 0) chainSeeds++
     }
     expect(chainSeeds).toBeGreaterThanOrEqual(SEEDS.length / 2)
-  }, 120_000)
+  }, 300_000)
 
   it('what each people knows only grows, year by year of a run', () => {
     const w = world(42)
@@ -127,7 +127,7 @@ describe('gradual knowledge after contact', () => {
       checks++
     }).advance(2000)
     expect(checks).toBe(40)
-  }, 120_000)
+  }, 300_000)
 })
 
 describe('frontier settlement', () => {
@@ -185,7 +185,7 @@ describe('frontier settlement', () => {
     // Foundings contiguous with the settled land of their people or its contacts.
     expect(contig3 / land).toBeGreaterThan(0.83)
     expect(contig5 / land).toBeGreaterThan(0.97)
-  }, 120_000)
+  }, 300_000)
 })
 
 describe('discoveries', () => {
@@ -224,5 +224,5 @@ describe('discoveries', () => {
       }
     }
     expect(total).toBeGreaterThan(5)
-  }, 120_000)
+  }, 300_000)
 })

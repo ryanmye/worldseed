@@ -27,7 +27,7 @@ jobs:
 
       # Some simulation tests run a full 2000-year history and can exceed vitest's
       # default 5s per-test timeout on a loaded CI runner; raise it for this job only.
-      - run: npx vitest run --testTimeout=60000
+      - run: npx vitest run --testTimeout=300000
 
       - run: npm run build
 

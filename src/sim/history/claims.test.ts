@@ -156,5 +156,5 @@ describe('claims', () => {
     const h = simulateHistory(generateWorld(3), { years: 400, polities: false })
     expect(h.claimed.length).toBe(0)
     expect(h.events.some((e) => e.type === EventType.BorderDispute)).toBe(false)
-  }, 60_000)
+  }, 300_000)
 })

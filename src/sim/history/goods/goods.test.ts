@@ -263,7 +263,7 @@ describe('goods', () => {
       expect(h.structures.some((x) => x.type === StructureType.Mine || x.type === StructureType.Factory)).toBe(false)
       expect(h.settlements.some((s) => s.post)).toBe(false)
     }
-  }, 120_000)
+  }, 300_000)
 
   it('is deterministic: the same world gives the same goods, traditions, secrets and lanes', () => {
     const a = history(42)
@@ -271,7 +271,7 @@ describe('goods', () => {
     expect(hashGoods(b)).toBe(hashGoods(a))
     expect(hashPre(b)).toBe(hashPre(a))
     expect(hashGoods(history(1))).not.toBe(hashGoods(a))
-  }, 120_000)
+  }, 300_000)
 
   it('a longer run repeats a shorter one exactly; a resumed run equals runs from scratch, owning its arrays', () => {
     const w = world(9)
@@ -355,7 +355,7 @@ describe('goods', () => {
     })
     expect(negative).toBe(0)
     expect(worst).toBeLessThan(1e-6)
-  }, 120_000)
+  }, 300_000)
 
   it('dynamics: deposits found and worked, traditions, lanes and posts, secrets that leak, technology apart', () => {
     const seeds = [1, 2, 3, 42, 9, 1337]

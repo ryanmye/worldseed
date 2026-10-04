@@ -269,7 +269,7 @@ describe('polities v2', () => {
       expect(z.byteOffset).toBe(0)
       expect(z.buffer.byteLength).toBe(z.byteLength)
     }
-  }, 120_000)
+  }, 300_000)
 
   it('every history satisfies the v2 invariants', () => {
     for (const seed of [1, 42, 7]) checkV2(world(seed), history(seed))

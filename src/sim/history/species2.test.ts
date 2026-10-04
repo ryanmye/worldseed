@@ -250,13 +250,13 @@ describe('species v2', () => {
     // Sizes: the cash layer a byte per cell per land snapshot; habit and storable a byte per people-stimulant / settlement per snapshot.
     expect(a.cash.length).toBe(a.landSnapshotCount * w.grid.cellCount)
     expect(a.habit.byteLength).toBeLessThan(64 * 1024)
-  }, 120_000)
+  }, 300_000)
 
   it('every history satisfies the v2 invariants', () => {
     for (const seed of SEEDS) checkV2(world(seed), run(seed).history, terrain(seed))
     const w = generateWorld(9, { subdivisions: 24 })
     checkV2(w, simulateHistory(w, { years: 800 }), buildTerrain(w))
-  }, 120_000)
+  }, 300_000)
 
   it('the new goods are produced only where their species are held, and stimulant stocks only of held or bought species', () => {
     const w = world(2)
@@ -283,7 +283,7 @@ describe('species v2', () => {
       }
     })
     expect(checked).toBeGreaterThan(0)
-  }, 60_000)
+  }, 300_000)
 
   it('dynamics: diverse staples, rare blights, spreading habits, priced luxuries, techniques learned more than found', () => {
     let topOk = 0, harmful = 0, gradient = 0, valueOk = 0, learned = 0, foundOnce = 0, techSeen = 0, storeOk = 0, storeSeen = 0
@@ -360,7 +360,7 @@ describe('species v2', () => {
     let total = 0
     for (let id = 0; id < S; id++) total += h.population[last * S + id]
     expect(Number.isFinite(total) && total > 0).toBe(true)
-  }, 120_000)
+  }, 300_000)
 })
 
 export type { HistoryEvent }

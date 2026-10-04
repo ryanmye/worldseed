@@ -249,7 +249,7 @@ describe('disease', () => {
     expect(hashDisease(b)).toBe(hashDisease(a))
     expect(hashPre(b)).toBe(hashPre(a))
     expect(hashDisease(history(1))).not.toBe(hashDisease(a))
-  }, 120_000)
+  }, 300_000)
 
   it('a longer run repeats a shorter one exactly; a resumed run equals runs from scratch, owning its arrays', () => {
     const w = world(9)

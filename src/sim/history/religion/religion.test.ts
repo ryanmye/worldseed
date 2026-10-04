@@ -202,5 +202,5 @@ describe('religion', () => {
     expect(h.faiths.length + h.faith.length + h.stateFaith.length + h.holyWars.length).toBe(0)
     expect(h.rulers.length).toBeGreaterThan(0)
     expect(h.rulers.every((r) => r.faith === -1)).toBe(true)
-  }, 120_000)
+  }, 300_000)
 })

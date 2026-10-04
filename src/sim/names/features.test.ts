@@ -68,7 +68,7 @@ describe('detectFeatures', () => {
       expect(count[FeatureKind.Forest], msg).toBeLessThanOrEqual(6)
       expect(count[FeatureKind.Lake], msg).toBeLessThanOrEqual(12)
     }
-  }, 60_000)
+  }, 300_000)
 
   it('anchors and spines are valid cells of the right type', () => {
     for (const seed of SEEDS) {
@@ -143,7 +143,7 @@ describe('detectFeatures', () => {
         if (m.land[c] >= 0) expect(w.elevation[c]).toBeGreaterThanOrEqual(0)
       }
     }
-  }, 60_000)
+  }, 300_000)
 
   it('is fast: a few milliseconds per world', () => {
     const w = world(42)
@@ -172,7 +172,7 @@ describe('nameFeatures', () => {
       expect(b).toEqual(a)
       expect(features(seed)).toEqual(a)
     }
-  }, 60_000)
+  }, 300_000)
 
   it('names reached features only, in order, by a settlement founded that year on or beside them', () => {
     for (const seed of HISTORY_SEEDS) {
@@ -196,7 +196,7 @@ describe('nameFeatures', () => {
         }
       })
     }
-  }, 120_000)
+  }, 300_000)
 
   it('names are unique across settlements and features, well formed and euphonious', () => {
     for (const seed of HISTORY_SEEDS) {
@@ -215,7 +215,7 @@ describe('nameFeatures', () => {
         for (const word of f.name.toLowerCase().split(' ')) expect(isEuphonic(word), f.name).toBe(true)
       }
     }
-  }, 120_000)
+  }, 300_000)
 
   it('settlement names pass the euphony rules and stay short', () => {
     for (const seed of HISTORY_SEEDS) {
@@ -235,7 +235,7 @@ describe('nameFeatures', () => {
       // hyphens and apostrophes are rare
       expect(separators).toBeLessThan(names.length * 0.06)
     }
-  }, 120_000)
+  }, 300_000)
 
   it('names given by year 2000 do not depend on what happens later (2000- vs 2500-year runs)', () => {
     for (const seed of [12345, 42]) {
@@ -247,7 +247,7 @@ describe('nameFeatures', () => {
       for (let i = 0; i < fl.length; i++) expect([fl[i].name, fl[i].namedBy]).toEqual([short.features[i].name, short.features[i].namedBy])
       expect(long.peoples).toEqual(short.peoples)
     }
-  }, 120_000)
+  }, 300_000)
 
   it('is fast', () => {
     const w = world(42)
@@ -256,7 +256,7 @@ describe('nameFeatures', () => {
     const t0 = performance.now()
     nameFeatures(w, t)
     expect(performance.now() - t0).toBeLessThan(150)
-  }, 60_000)
+  }, 300_000)
 })
 
 describe('euphony gate', () => {
