@@ -20,6 +20,8 @@ export interface PolitySnaps {
   count: number[]
   terr: Uint16Array<ArrayBuffer>
   dang: Uint8Array<ArrayBuffer>
+  /** Claims: 1 per land cell where the owner written in terr is the claiming member, not the holder (claims.ts). */
+  clm: Uint8Array<ArrayBuffer>
   landCount: number
   // v2: contraband share and pirate strength per settlement (same ragged layout as pol); tariff and revenue per polity
   // (ragged over polity ids: snapshot q holds ids [0, tCount[q]) from tOff[q]); contraband and losses per route per trade
@@ -41,7 +43,7 @@ export interface PolitySnaps {
 export function createSnaps(ps: PolityState): PolitySnaps {
   const L = ps.landCells.length
   return {
-    pol: new Int16Array(4096), used: 0, off: [], count: [], terr: new Uint16Array(16 * L), dang: new Uint8Array(16 * L), landCount: 0,
+    pol: new Int16Array(4096), used: 0, off: [], count: [], terr: new Uint16Array(16 * L), dang: new Uint8Array(16 * L), clm: new Uint8Array(16 * L), landCount: 0,
     contra: new Uint8Array(4096), pirS: new Uint8Array(4096), tar: new Uint8Array(1024), rev: new Float32Array(1024), tUsed: 0, tOff: [], tCount: [],
     smug: new Float32Array(4096), loss: new Uint8Array(4096), rUsed: 0, rOff: [], rCount: [],
   }
@@ -135,7 +137,10 @@ export function polSnapshot(s: HistoryState, ps: PolityState, sn: PolitySnaps): 
   sn.used += n
 }
 
-/** Land snapshot of territory owners and cell danger over the land cells. */
+/**
+ * Land snapshot of territory owners and cell danger over the land cells. Nobody's land that a state claims (claims.ts)
+ * is written as the claiming member's, flagged in clm, while that member is alive and in a state.
+ */
 export function polLandSnapshot(s: HistoryState, ps: PolityState, sn: PolitySnaps): void {
   fillCellDanger(s, ps)
   const L = ps.landCells.length
@@ -145,13 +150,20 @@ export function polLandSnapshot(s: HistoryState, ps: PolityState, sn: PolitySnap
     while (size < need) size *= 2
     const t = new Uint16Array(size); t.set(sn.terr); sn.terr = t
     const d = new Uint8Array(size); d.set(sn.dang); sn.dang = d
+    const m = new Uint8Array(size); m.set(sn.clm); sn.clm = m
   }
   const o = sn.landCount * L
   const cells = ps.landCells
   for (let k = 0; k < L; k++) {
     const c = cells[k]
     const w = ps.tOwner[c]
-    sn.terr[o + k] = w >= 0 && w < 65535 && s.abandoned[w] < 0 ? w + 1 : 0
+    if (w >= 0 && w < 65535 && s.abandoned[w] < 0) { sn.terr[o + k] = w + 1; sn.clm[o + k] = 0 }
+    else {
+      const m = ps.cOwner[c]
+      const on = m >= 0 && m < 65535 && s.abandoned[m] < 0 && ps.polity[m] >= 0
+      sn.terr[o + k] = on ? m + 1 : 0
+      sn.clm[o + k] = on ? 1 : 0
+    }
     sn.dang[o + k] = (ps.cellZ[c] * 255 + 0.5) | 0
   }
   sn.landCount++
@@ -162,6 +174,7 @@ export interface PolityHistory {
   polity: Int16Array
   landCells: Uint32Array
   territory: Uint16Array
+  claimed: Uint8Array
   danger: Uint8Array
   wars: Wars
   raids: RaidSummary
@@ -180,7 +193,7 @@ export function emptyPolityHistory(): PolityHistory {
     tariff: new Uint8Array(0), tariffRevenue: new Float32Array(0), smuggleVolume: new Float32Array(0), tradeLoss: new Uint8Array(0), contraband: new Uint8Array(0), piracy: new Uint8Array(0),
     bonds: { count: 0, kind: new Uint8Array(0), a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), end: new Uint8Array(0) },
     embargoes: { count: 0, a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0) },
-    polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), danger: new Uint8Array(0),
+    polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), claimed: new Uint8Array(0), danger: new Uint8Array(0),
     wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0) },
     raids: { count: 0, decade: new Int16Array(0), settlement: new Int32Array(0), raids: new Uint16Array(0), wealth: new Float32Array(0) },
   }
@@ -239,6 +252,7 @@ export function assemblePolityHistory(world: World, s: HistoryState, ps: PolityS
   const L = ps.landCells.length
   const territory = sn.terr.slice(0, landSnapshotCount * L)
   const danger = sn.dang.slice(0, landSnapshotCount * L)
+  const claimed = sn.clm.slice(0, landSnapshotCount * L)
   const landCells = Uint32Array.from(ps.landCells)
   // Polities.
   const info: { capital: number; parent: number; people: number }[] = []
@@ -276,5 +290,5 @@ export function assemblePolityHistory(world: World, s: HistoryState, ps: PolityS
     raids.raids[k] = ps.raidCount[i] > 65535 ? 65535 : ps.raidCount[i]
     raids.wealth[k] = ps.raidWealth[i]
   }
-  return { polities, polity, landCells, territory, danger, wars, raids, tariff, tariffRevenue, smuggleVolume, tradeLoss, contraband, piracy, bonds, embargoes }
+  return { polities, polity, landCells, territory, claimed, danger, wars, raids, tariff, tariffRevenue, smuggleVolume, tradeLoss, contraband, piracy, bonds, embargoes }
 }

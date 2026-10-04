@@ -333,8 +333,16 @@ export interface History {
    * Territory per land snapshot: the settlement whose land each cell is, plus 1 (0 = nobody's: wilderness, sea never),
    * row-major: territory[q * landCells.length + k] for cell landCells[k]. The cell's polity at a year is
    * polity[snapshot, owner]: borders move with membership every snapshot, territory shapes every land snapshot.
+   * Land no settlement holds but a state claims (see `claimed`) is written as the claiming member settlement's.
    */
   territory: Uint16Array
+  /**
+   * 1 where the cell is claimed but not held: no settlement's own land, but inside a state's claims (enclosed pockets,
+   * gaps between its members, hinterland out to a crest, a great river, a coast or a desert's far edge), so `territory`
+   * names the member whose claim it lies in; 0 for held land and for nobody's land. Same layout as `territory`. Draw it
+   * as the state's but lighter or hatched; claims lapse with the state (redrawn every land snapshot).
+   */
+  claimed: Uint8Array
   /** Danger (raids, war, lawlessness) 0..255 per land snapshot per land cell, same layout as `territory`. */
   danger: Uint8Array
   wars: Wars

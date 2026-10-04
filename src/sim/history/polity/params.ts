@@ -547,3 +547,32 @@ export const REFUGEE = {
   max: 0.05,
   danger: 0.25,
 }
+
+/**
+ * Claims (claims.ts): land a state claims beyond its settlements' own land, redrawn every POLITY.mapStep years after the
+ * step. From its members' land a claim spreads over nobody's land at a step cost of sqrt(terrain move cost / cellScale)
+ * (rough land is claimed more cheaply than it is crossed) out to a reach of share[tier] * lambda / cellScale times
+ * 1 -/+ popBoost over smoothstep(popLow, popHigh, the state's people); a member's land starts with 1 - grip(its distance
+ * from the capital) of that reach spent (remote members claim little). Where two claims meet a cell goes to the one that
+ * has spent the smaller share of its reach (the stronger and the nearer). Natural limits: a claim never crosses the sea,
+ * ice or anyone's land; it takes a great river (flow >= greatRiver * RIVER_FLOW_THRESHOLD) and goes no farther; it
+ * does not step out of a desert (it ends at the desert's far edge); once it has crossed ground above crestElev it does
+ * not descend more than crestDrop below the highest ground it crossed (it ends at the crest). Then the pockets: nobody's
+ * land whose border (sea and ice aside) is at least `enclose` one state's land or claims is that state's, up to
+ * `pocket` times its held cells and pocketShape * B^2 cells, B its border cells (an enclosure, not a coast's strip
+ * behind one outpost: a round pocket is about 0.08 B^2), a chiefdom's only up to pocketChief cells.
+ */
+export const CLAIM = {
+  /** Reach as a share of lambda, by tier (Chiefdom, Kingdom, Empire). */
+  share: [0.08, 0.3, 0.4],
+  popLow: 2000,
+  popHigh: 50000,
+  popBoost: 0.2,
+  greatRiver: 6,
+  crestElev: 0.45,
+  crestDrop: 0.08,
+  enclose: 0.85,
+  pocket: 1,
+  pocketShape: 0.15,
+  pocketChief: 4,
+}
