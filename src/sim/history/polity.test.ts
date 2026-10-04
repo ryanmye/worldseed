@@ -11,16 +11,17 @@ function fnv(h: number, a: ArrayBufferView): number {
   return h
 }
 
-/** Hash of every History field that existed before polities (as recorded on the base commit, see GOLDEN). */
+/** Hash of every History field that exists without polities (species included; see GOLDEN). */
 function hashBase(hi: History): string {
   let h = 0x811c9dc5
-  for (const a of [hi.population, hi.food, hi.capacity, hi.landUse, hi.degradation, hi.road, hi.wealth, hi.tradeVolume, hi.knownYear, hi.contactYear, hi.technology]) h = fnv(h, a)
+  for (const a of [hi.population, hi.food, hi.capacity, hi.landUse, hi.degradation, hi.road, hi.wealth, hi.tradeVolume, hi.knownYear, hi.contactYear, hi.technology, hi.speciesYear, hi.speciesSource, hi.crop, hi.herd]) h = fnv(h, a)
   const t = hi.trade
   for (const a of [t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]) h = fnv(h, a)
   const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount, hi.tradeInterval, hi.tradeSnapshotCount, t.count]
   for (const s of hi.settlements) { ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear, s.people, s.outpost ? 1 : 0); for (let i = 0; i < s.name.length; i++) ints.push(s.name.charCodeAt(i)) }
   for (const p of hi.peoples) { ints.push(p.id, p.founder, p.cradle); for (let i = 0; i < p.name.length; i++) ints.push(p.name.charCodeAt(i)) }
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
+  for (const x of hi.species) { ints.push(x.id, x.category, Math.round(x.yield * 1e6), ...x.origins); for (const str of [x.archetype, x.name]) for (let i = 0; i < str.length; i++) ints.push(str.charCodeAt(i)) }
   for (const f of hi.features) { ints.push(f.id, f.kind, f.namedYear, f.namedBy, f.anchorCell, f.size, ...f.spine); for (let i = 0; i < f.name.length; i++) ints.push(f.name.charCodeAt(i)) }
   h = fnv(h, Int32Array.from(ints))
   const ev = new Float64Array(hi.events.length * 5)
@@ -32,14 +33,15 @@ function hashBase(hi: History): string {
 }
 
 /**
- * Pre-change histories (base commit 3b96461, before the polity system): hashBase of simulateHistory with
- * polities off must stay equal. (An integration with other branches that change the simulation must
- * regenerate these from its own pre-polity base.)
+ * Pre-polity histories: hashBase of simulateHistory with polities off must stay equal to the history without the
+ * polity system. Recorded on the merge of main (species v1) and frontier, before polities were merged (b41d41c);
+ * the merged code with polities off was checked field by field against it. (A later merge or retune that changes
+ * the simulation outside the polity system must regenerate these from its own pre-polity state.)
  */
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, 'bf30475e'],
-  [3, 600, undefined, '30aecd74'],
-  [9, 800, 24, 'f59edf3c'],
+  [42, 2000, undefined, 'e4b1897a'],
+  [3, 600, undefined, 'd1edc8ac'],
+  [9, 800, 24, 'c0a24841'],
 ]
 
 /** Hash of the polity fields. */
