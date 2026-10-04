@@ -10,7 +10,8 @@
 //   - lets the empty-land pull (MIGRATION.emptyPull) act fully only at the frontier (contiguous sites) and overseas
 //     (another landmass); elsewhere at farPull of its strength, so it does not draw settlers past half-settled land.
 // A group bound for a new site may also stop at a town it passes (on or beside its way, at least passMinPop people)
-// that would take it in (fed, room for it, its own people or a people it has met): with chance passJoin per such town.
+// that would take it in (fed, room for it, its own people or a people it has met, polities: not at war with the group's
+// polity): with chance passJoin per such town.
 // Colonising sea voyages (voyages.ts) and expeditions (exploration.ts) are unchanged.
 //
 // State: per people and cell, how many living settlements of that people reach the cell (catchment lists, kept
@@ -20,6 +21,7 @@ import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
 import { FRONTIER, MIGRATION, WEALTH } from './params.ts'
 import type { HistoryState } from './state.ts'
+import { joinBlocked } from './polity/system.ts' // polities:
 
 export interface FrontierState {
   rng: Rng
@@ -81,7 +83,11 @@ export function syncFrontier(s: HistoryState, fs: FrontierState, full: boolean):
   fs.seen = s.count
 }
 
-/** Sets the peoples whose land counts as contiguous for a group of people p: p and those it has met. */
+/**
+ * Sets the peoples whose land counts as contiguous for a group of people p: p and those it has met.
+ * (polities: contiguity is about settled land, not joining, so enemies at war still count here; the
+ * danger near them repels through polity siteFactor. Joining an enemy town is blocked in passJoin.)
+ */
 export function setAllowed(s: HistoryState, fs: FrontierState, p: number): void {
   const k = s.know
   let n = 0
@@ -117,6 +123,7 @@ export function passJoin(s: HistoryState, fs: FrontierState, from: number, g: nu
     let ok = false
     for (let t = 0; t < fs.allowedCount; t++) if (allowed[t] === s.people[o]) ok = true
     if (!ok) return false
+    if (s.pol !== null && joinBlocked(s.pol, from, o)) return false // polities: never into an enemy at war (as migration.ts siteSearch)
     const pop = s.pop[o]
     let spare = M.joinRoom * foodBase(s, o) - pop
     const wf = prosperity(s, o)
