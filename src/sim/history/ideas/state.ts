@@ -22,8 +22,9 @@ IDEA_DEFS.forEach((d, i) => { if (d.technique >= 0) IDEA_OF_TECHNIQUE[d.techniqu
 
 /** Effects of the ideas each people holds (recomputed every step). */
 export interface IdeaEffects {
-  /** Technology cap per people per field: cap[p * 4 + f]. */
+  /** Technology cap per people per field: cap[p * 4 + f]; the highest it has been (a level falls back only after a loss). */
   cap: Float64Array
+  capPeak: Float64Array
   land: Float64Array
   seaCost: Float64Array
   range: Float64Array
@@ -61,6 +62,8 @@ export interface IdeasState {
   acc: Float64Array
   /** 1 while a refusal of the idea by the people is logged (until it takes it up). */
   refused: Uint8Array
+  /** The most use each held idea has had for the people since it took it up (its effects keep it). */
+  useMax: Float64Array
   /** Channel rates this step between each learner q and teacher h: rate[(q * P + h) * CH + c]; gateway settlements (q's side, h's side). */
   rate: Float64Array
   gwQ: Int32Array
@@ -114,14 +117,14 @@ export function createIdeas(s: HistoryState): IdeasState {
   }
   const ones = (): Float64Array => new Float64Array(P).fill(1)
   const fx: IdeaEffects = {
-    cap: new Float64Array(P * 4).fill(1), land: ones(), seaCost: ones(), range: ones(), war: ones(), defence: ones(), admin: ones(), toll: ones(), craft: ones(),
+    cap: new Float64Array(P * 4).fill(1), capPeak: new Float64Array(P * 4).fill(1), land: ones(), seaCost: ones(), range: ones(), war: ones(), defence: ones(), admin: ones(), toll: ones(), craft: ones(),
     learn: ones(), quarantine: new Uint8Array(P), farm: new Float64Array(256).fill(1),
   }
   return {
     rng: createRng(s.world.seed, 'history-ideas'),
     P, I,
     held: new Uint8Array(P * I), since: new Int16Array(P * I).fill(-1),
-    prog: f64(P * I), acc: f64(P * I * CH), refused: new Uint8Array(P * I),
+    prog: f64(P * I), acc: f64(P * I * CH), refused: new Uint8Array(P * I), useMax: f64(P * I),
     rate: f64(P * P * CH), gwQ: new Int32Array(P * P * CH).fill(-1), gwH: new Int32Array(P * P * CH).fill(-1),
     pulse: f64(P * P * CH), pgQ: new Int32Array(P * P * CH).fill(-1), pgH: new Int32Array(P * P * CH).fill(-1),
     laneVol: f64(P * P), laneQ: new Int32Array(P * P).fill(-1), laneH: new Int32Array(P * P).fill(-1),

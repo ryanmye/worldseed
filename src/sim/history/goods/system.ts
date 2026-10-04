@@ -12,6 +12,7 @@
 import { EventType, GOOD_COUNT, Good, SpeciesCategory, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
+import { tradeAbandonSystem } from '../trade.ts'
 import type { TechState } from '../technology.ts'
 import type { ExploreState } from '../exploration.ts'
 import { CASH, STIMULANTS, SPECIES_TABLE, SP, S_COUNT } from '../species.ts'
@@ -134,6 +135,7 @@ export function goodsYear(s: HistoryState, g: GoodsState, ts: TradeState, tk: Te
   buildMines(s, g)
   laneYear(s, g, ts)
   postYear(s, g)
+  if (s.ideas !== null) tradeAbandonSystem(s, ts) // ideas: a fort or station given up (failPost) closes its routes this year, not the next (kept as before with ideas off, for the off switch)
   relayYear(s, g)
   const phase = s.year % 10
   if (phase === 1) {

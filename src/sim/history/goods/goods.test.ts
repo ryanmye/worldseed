@@ -252,7 +252,7 @@ describe('goods', () => {
   it('switched off, the history is the one from before the goods system, with the goods fields empty', () => {
     for (const [seed, years, n, pol, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: pol, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false }) // (disease, rulers, religion, tourism, renaming: the pre-goods history has none of them)
+      const h = simulateHistory(w, { years, polities: pol, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false, ideas: false }) // (disease, rulers, religion, tourism, renaming, ideas: the pre-goods history has none of them)
       expect(hashPre(h)).toBe(hash)
       expect(h.varieties.length + h.deposits.length + h.traditions.length + h.secrets.length + h.posts.length + h.longHaul.count + h.secretHolds.count).toBe(0)
       expect(h.depositOutput.length + h.traditionQuality.length + h.industry.length + h.metal.length + h.priceIndex.length + h.mart.length + h.longHaulVolume.length + h.secretGuard.length).toBe(0)

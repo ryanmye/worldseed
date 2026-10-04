@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -362,6 +362,10 @@ function checkInvariants(w: World, h: History): void {
       // renaming: places renamed (checked against History.renamings in renaming/renaming.test.ts).
       case EventType.PlaceRenamed:
         break
+      // ideas: conceived, taken up, lost, refused (checked against History.ideaAdoptions in ideas/ideas.test.ts).
+      case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted:
+        expect(e.value >= 0 && e.value < h.ideas.length).toBe(true)
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -714,9 +718,11 @@ function checkSpecies(w: World, h: History, events: HistoryEvent[]): void {
   for (let i = 0; i < N; i++) if (h.crop[i] !== 0 || h.herd[i] !== 0) throw new Error(`cell ${i} has a crop or herd at year 0`)
 }
 
-/** Technology: layout, bounds, 0 for peoples that died out, non-decreasing, TechAdvance once per whole level. */
+/** Technology: layout, bounds, 0 for peoples that died out, non-decreasing (ideas: but for a people that had lost an idea), TechAdvance once per whole level. */
 function checkTechnology(h: History, advances: HistoryEvent[]): void {
   const P = h.peoples.length
+  const lostBy = new Int32Array(P).fill(1 << 30) // ideas: the first year each people lost an idea
+  for (let k = 0; k < h.ideaAdoptions.count; k++) if (h.ideaAdoptions.how[k] === IdeaHow.Lost) lostBy[h.ideaAdoptions.people[k]] = Math.min(lostBy[h.ideaAdoptions.people[k]], h.ideaAdoptions.year[k])
   const S = h.settlements.length
   const Fc = TECH_FIELD_COUNT
   expect(h.technology.length).toBe(h.snapshotCount * P * Fc)
@@ -732,7 +738,7 @@ function checkTechnology(h: History, advances: HistoryEvent[]): void {
         if (!(v >= 1 - 1e-6 && v < 20)) throw new Error(`technology ${v} out of bounds at snapshot ${q}, people ${p}, field ${f}`)
         if (q > 0) {
           const before = h.technology[((q - 1) * P + p) * Fc + f]
-          if (before > 0 && v < before - 1e-5) throw new Error(`technology fell from ${before} to ${v} (snapshot ${q}, people ${p}, field ${f})`)
+          if (before > 0 && v < before - 1e-5 && lostBy[p] > q * h.snapshotInterval) throw new Error(`technology fell from ${before} to ${v} (snapshot ${q}, people ${p}, field ${f})`)
         }
       }
     }

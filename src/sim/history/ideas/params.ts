@@ -433,10 +433,10 @@ export function easeOf(d: IdeaDef): number {
  * small = 1 - smoothstep(lossLow, lossHigh, pop), collapse = collapseMul when pop < collapseShare * peak (peak: the highest
  * population, falling by peakDecay a year), support the sum of R over the holders q has met. Ideas resting on a lost one go too.
  *
- * Effects (each held idea times useFloor + (1 - useFloor) * use): the technology caps 1 + capBase + capMul * sum of caps + general * sqrt(sum of eraWeight[era]);
+ * Effects (each held idea times useFloor + (1 - useFloor) * use, use the most it has had since taken up): the technology caps 1 + capBase + capMul * sum of caps + general * sqrt(sum of eraWeight[era]);
  * the levers as multipliers 1 + lever * sum of the shares (toll 1 + sum, at least tollMin; farm per settlement). The technology system slows growth above the
- * cap: practice * growth / (1 + ((L - C) / soft)^2) (below it practice * growth + catchUp * (C - L)), gains by diffusion at most up to C + slack, and a level above C + slack falls back by
- * decay * (L - C - slack) a year (an idea lost).
+ * cap: practice * growth / (1 + ((L - C) / soft)^2) (below it practice * growth + catchUp * (C - L)), gains by diffusion at most up to C + slack, and a level above C + slack
+ * whose cap fell below its peak (ideas lost) falls back by decay * (L - C - slack) a year; otherwise levels never fall.
  */
 export const IDEA = {
   step: 5,

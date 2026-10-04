@@ -255,7 +255,7 @@ describe('polities', () => {
   it('switched off, the history is the one from before polities, with the new fields empty', () => {
     for (const [seed, years, n, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: false, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false }) // (goods, disease, rulers, religion, tourism, renaming: the pre-polity history has none of them)
+      const h = simulateHistory(w, { years, polities: false, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false, ideas: false }) // (goods, disease, rulers, religion, tourism, renaming, ideas: the pre-polity history has none of them)
       expect(hashBase(h)).toBe(hash)
       expect(h.polities.length).toBe(0)
       expect(h.polity.length + h.landCells.length + h.territory.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)

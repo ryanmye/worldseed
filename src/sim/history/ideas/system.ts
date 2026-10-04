@@ -44,7 +44,7 @@ export function createIdeasSystem(s: HistoryState): IdeasState {
 /** Scratch per people and per pair (sized on first use). */
 let BEST = new Int32Array(0), BESTV = new Float64Array(0), ROUTEV = new Float64Array(0), ROUTEQ = new Int32Array(0), ROUTEH = new Int32Array(0)
 let RSUM = new Float64Array(0), PSUM = new Float64Array(0), VIS = new Float64Array(0), VISQ = new Int32Array(0), VISH = new Int32Array(0), LANEBEST = new Float64Array(0)
-let PCOUNT = new Float64Array(0), BACK = new Float64Array(0)
+let PCOUNT = new Float64Array(0), BACK = new Float64Array(0), TIERS = new Int32Array(0)
 const ACCW = new Float64Array(CH)
 
 function scratch(P: number): void {
@@ -154,6 +154,7 @@ function context(s: HistoryState, ix: IdeasState, ts: TradeState, tk: TechState)
   BEST.fill(-1, 0, P * SITES)
   BESTV.fill(0, 0, P * SITES)
   const living = s.living
+  if (ps !== null) { if (TIERS.length < ps.pPop.length) TIERS = new Int32Array(ps.pPop.length); TIERS.fill(-2) }
   const site = (p: number, k: number, id: number, x: number): void => { const j = p * SITES + k; if (x > BESTV[j]) { BESTV[j] = x; BEST[j] = id } }
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
@@ -182,7 +183,8 @@ function context(s: HistoryState, ix: IdeasState, ts: TradeState, tk: TechState)
       c.danger[p] += x * ps.danger[id]
       const q = ps.polity[id]
       if (q >= 0) {
-        const tr = tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1, ps.worldPop)
+        let tr = TIERS[q]
+        if (tr === -2) { tr = tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1, ps.worldPop); TIERS[q] = tr } // (once per polity and step)
         if (tr > c.tier[p]) c.tier[p] = tr
       }
     }
@@ -427,6 +429,7 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
       ACCW.fill(0)
       for (let h = 0; h < P; h++) {
         if (h === q || !held[h * I + i] || !(c.pop[h] > 0) || k.contact[q * P + h] < 0) continue
+        if (!met) bestH = h // (the first holder met, should no channel carry anything)
         met = true
         const pp = q * P + h
         const o = pp * CH
@@ -536,6 +539,7 @@ function lose(s: HistoryState, ix: IdeasState, q: number, i: number, cause: numb
   ix.since[qi] = -1
   ix.prog[qi] = 0
   ix.acc.fill(0, qi * CH, (qi + 1) * CH)
+  ix.useMax[qi] = 0
   const at = ix.largest[q]
   ix.aIdea.push(i); ix.aPeople.push(q); ix.aYear.push(s.year); ix.aHow.push(IdeaHow.Lost); ix.aFrom.push(-1); ix.aVia.push(at); ix.aSource.push(-1)
   ix.diag.lost++

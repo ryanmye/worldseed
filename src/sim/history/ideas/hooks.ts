@@ -22,6 +22,7 @@ export function record(s: HistoryState, ix: IdeasState, i: number, q: number, ho
   ix.prog[qi] = 0
   ix.refused[qi] = 0
   ix.acc.fill(0, qi * CH, (qi + 1) * CH)
+  ix.useMax[qi] = 0
   ix.aIdea.push(i); ix.aPeople.push(q); ix.aYear.push(s.year); ix.aHow.push(how); ix.aFrom.push(from); ix.aVia.push(via); ix.aSource.push(src)
   if (how === IdeaHow.Invented) {
     const first = ix.firstAt[i]
@@ -78,7 +79,11 @@ export function recompute(s: HistoryState, ix: IdeasState): void {
     for (let i = 0; i < I; i++) {
       if (!ix.held[p * I + i]) continue
       const d = DEFS[i]
-      const u = d.use && c.pop[p] > 0 ? d.use(c, p) : 1
+      // (the most use it has had since it was taken up: a people that held its ports keeps what the compass taught it)
+      let u = d.use && c.pop[p] > 0 ? d.use(c, p) : 1
+      const pi = p * I + i
+      if (u < ix.useMax[pi]) u = ix.useMax[pi]
+      else ix.useMax[pi] = u
       const m = uf + (1 - uf) * u
       const cm = m * X.capMul
       score += m * X.eraWeight[d.era] * (d.weight ?? 1)
@@ -96,7 +101,7 @@ export function recompute(s: HistoryState, ix: IdeasState): void {
       if (d.quarantine) quar = 1
     }
     const gen = X.general * Math.sqrt(score) // (the general part: a people that knows more can do more, with diminishing returns)
-    for (let f = 0; f < 4; f++) fx.cap[o + f] += gen * X.generalField[f]
+    for (let f = 0; f < 4; f++) { fx.cap[o + f] += gen * X.generalField[f]; if (fx.cap[o + f] > fx.capPeak[o + f]) fx.capPeak[o + f] = fx.cap[o + f] }
     fx.land[p] = land; fx.seaCost[p] = sea; fx.range[p] = range; fx.war[p] = war; fx.defence[p] = def; fx.admin[p] = admin
     fx.toll[p] = toll > X.tollMin ? toll : X.tollMin
     fx.craft[p] = craft; fx.learn[p] = learn; fx.quarantine[p] = quar
@@ -124,7 +129,7 @@ export function ideaGrowth(ix: IdeasState, j: number, L: number, inc: number, dt
   if (!(d > 0)) return inc - X.catchUp * dt * d // (below the cap: the practice of ideas newly held catches up)
   const x = d / X.soft
   let g = inc / (1 + x * x)
-  if (d > X.slack) g -= X.decay * dt * (d - X.slack)
+  if (d > X.slack && ix.fx.cap[j] < ix.fx.capPeak[j]) g -= X.decay * dt * (d - X.slack) // (only after ideas were lost)
   return g
 }
 

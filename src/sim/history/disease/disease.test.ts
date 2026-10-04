@@ -8,7 +8,7 @@ import { runHistory } from '../index.ts'
 import { DZ, FEVER } from './params.ts'
 
 const DISEASE_KEYS = new Set(['diseases', 'epidemics', 'outbreaks', 'fever', 'feverTolerance', 'endemic', 'quarantines'])
-const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows', 'renamings']) // tourism, renaming: (later than the disease system; the golden runs have them off)
+const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows', 'renamings', 'ideas', 'ideaAdoptions']) // tourism, renaming, ideas: (later than the disease system; the golden runs have them off)
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -233,7 +233,7 @@ describe('disease', () => {
   it('switched off, the history is the one from before the disease system, with the disease fields empty', () => {
     for (const [seed, years, n, pol, goods, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: pol, goods, disease: false, tourism: false, renaming: false })
+      const h = simulateHistory(w, { years, polities: pol, goods, disease: false, tourism: false, renaming: false, ideas: false }) // (ideas: later, off here too)
       expect(hashPre(h)).toBe(hash)
       expect(h.diseases.length + h.epidemics.length + h.outbreaks.count + h.quarantines.count + h.fever.length + h.feverTolerance.length + h.endemic.length).toBe(0)
       expect(h.events.some((e) => e.type >= 66 && e.type <= 79)).toBe(false)
@@ -328,9 +328,10 @@ describe('disease', () => {
     expect(endemic / n).toBeGreaterThan(3)
     expect(stricken / n).toBeGreaterThan(5)
     expect(withQuarantine).toBeGreaterThanOrEqual(2)
-    // Against the same worlds without the system: the fever belt thinner, the world not much smaller.
+    // Against the same worlds without the system: the fever belt thinner, the world not much smaller (ideas off in both: the disease
+    // system's own effect, not the different paths ideas would take in the two worlds).
     for (const seed of [42, 1]) {
-      const on = history(seed), off = simulateHistory(world(seed), { disease: false })
+      const on = simulateHistory(world(seed), { ideas: false }), off = simulateHistory(world(seed), { disease: false, ideas: false })
       const fev = on.fever
       const at = (h: History, ground: boolean) => {
         const S = h.settlements.length, q = Math.floor(1500 / h.snapshotInterval)

@@ -202,7 +202,7 @@ describe('rulers', () => {
   it('switched off (rulers and religion), every field of the history is the one without them, and the new fields are empty', () => {
     for (const [seed, years, n, o, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false, tourism: false, renaming: false }) // (tourism, renaming: later, off here too)
+      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false, tourism: false, renaming: false, ideas: false }) // (tourism, renaming, ideas: later, off here too)
       expect(hashBaseFields(h)).toBe(hash)
       expect(h.rulers.length + h.dynasties.length + h.reignIds.length + h.marriages.count + h.unions.count + h.successionWars.length).toBe(0)
       expect(h.faiths.length + h.faith.length + h.faithShare.length + h.stateFaith.length + h.holyWars.length).toBe(0)
