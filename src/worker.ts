@@ -93,9 +93,9 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   for (const group of [partial.marriages, partial.unions] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   // disease: fever per cell, fever tolerance and endemic sickness per snapshot per people, outbreaks and quarantines
   for (const k of ['fever', 'feverTolerance', 'endemic']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows)
+  // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows); renaming: the renamings table (its typed columns, fresh per run)
   for (const k of ['scenery', 'sceneryKind']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows] as unknown as (Record<string, unknown> | undefined)[]) {
+  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows, partial.renamings] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   }

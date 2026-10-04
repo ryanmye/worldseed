@@ -14,7 +14,8 @@
 // and sections stay hidden. DOM writes happen only when a shown value changes.
 
 import { SpeciesCategory, type History } from '../contract.ts'
-import { goodName } from './format.ts'
+import { goodName, settlementName } from './format.ts'
+import { namesEpoch } from './renamingData.ts'
 import { CASH_VIEW, cropSnapshotAt, habitLevel, habitSnapshotAt, heldAt, holdersAt, inViewCategory, isHabitForming, techHoldersAt, type SpeciesData } from './speciesData.ts'
 import { loadFlag, saveFlag } from './panels.ts'
 import { ViewMode } from '../render/palette.ts'
@@ -702,6 +703,7 @@ export function createSpeciesView(deps: SpeciesViewDeps): SpeciesView {
     }
     const origins = selected >= 0 && history ? d.originNear[selected] : []
     for (const order of origins) key = (key * 4099 + firstFounded(order) + 1) % 1e15
+    key = (key * 64 + (namesEpoch() % 64)) % 1e15 // renaming: the towns named as at the year
     if (rowEl.nextSibling !== detail) rowEl.after(detail)
     if (key === shownDetailKey) return
     shownDetailKey = key
@@ -719,7 +721,7 @@ export function createSpeciesView(deps: SpeciesViewDeps): SpeciesView {
       detail.appendChild(el)
       return el
     }
-    const name = (i: number) => (history ? history.settlements[i]?.name ?? '' : '')
+    const name = (i: number) => (history && history.settlements[i] ? settlementName(history, i) : '')
     if (selected >= 0) {
       const x = d.list[selected]
       // who first held it, and how (by the year shown)

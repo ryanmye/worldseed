@@ -18,6 +18,7 @@ import { buildLongHaulLayer, type LongHaulLayer } from '../render/longhaul.ts'
 import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatPopulation, settlementName } from './format.ts'
+import { namesEpoch } from './renamingData.ts'
 import {
   aliveAt, CHANNEL_WORDS, CRAFT_WORDS, DEPOSIT_WORDS, depositOutputAt, depositsNear, depositState, goodsOf, guardAt, holderName, holdersAt, industryAt, industryWords,
   INDUSTRY_LIST, legOpen, legVolumeAt, martAt, metalAt, metalWords, mineAt, POST_WORDS, postLives, PRICE_GOODS, PRICE_WORDS, priceAt, priceSpread, qualityAt,
@@ -184,6 +185,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
   let shownHlKey = ''
   let shownCount = ''
   let shownLegendKey = ''
+  /** renaming: the names in force last shown (renamingData.ts namesEpoch): its lines name towns as at the year. */
+  let shownNames = -1
   /** What lies at each cell: deposits, and posts (factory hosts, forts and stations). */
   let depositAt = new Map<number, number>()
   let postsAt = new Map<number, number[]>()
@@ -926,6 +929,11 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       if (layer) {
         layer.setTime(y, sa, sb, frac, effectAlpha)
         layer.update(camera, drawSize, pixelRatio)
+      }
+      // renaming: a name in force changed: rewrite the lines that name towns
+      if (namesEpoch() !== shownNames) {
+        shownNames = namesEpoch()
+        shownPaneKey = shownDetailKey = shownInspKey = ''
       }
       updateHighlight()
       updateCount()

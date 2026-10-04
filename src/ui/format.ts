@@ -7,11 +7,16 @@ import { describeGoodsEvent, describeGoodsEventFor, describeMineBuilt, goodsEven
 import { describeDiseaseEvent, describeDiseaseEventFor, diseaseEventKind } from './diseaseFormat.ts'
 import { describeTourismEvent, describeTourismEventFor, tourismEventKind } from './tourismFormat.ts'
 import { describeRulersEvent, describeRulersEventFor, rulersEventKind } from './rulersFormat.ts'
+import { renamedName } from './renamingData.ts'
+import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
 
-/** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
+/**
+ * Display name of a settlement (its procedural name; a numbered fallback for histories without names). renaming: the name it
+ * bears at the year shown, or at the event's year inside withEventNames (renamingData.ts); the founding name without renamings.
+ */
 export function settlementName(history: History, id: number): string {
   const s = history.settlements[id] as { name?: string } | undefined
-  return s?.name || `Settlement #${id}`
+  return (s ? renamedName(history, id) : null) ?? (s?.name || `Settlement #${id}`)
 }
 
 /** 812, 4.3k, 56k, 1.2M */
@@ -43,6 +48,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'sickness' | 'quarantine'
   // tourism (tourismFormat.ts): leisure travel, resorts and fashion, sights
   | 'travel' | 'resort' | 'sight'
+  // renaming (renamingFormat.ts): a place renamed
+  | 'renamed'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -321,6 +328,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.HabitSpreads:
     case EventType.Drain: return 'habit'
     case EventType.Panzootic: return 'plague'
+    case EventType.PlaceRenamed: return 'renamed'
     default: return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (tourismEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
@@ -373,6 +381,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Migration:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
     default:
+      if (isRenamingEvent(e.type as number)) return describeRenamingEvent(h, e) ?? `${name} is renamed`
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
@@ -445,6 +454,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.TradeClosed:
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
+      if (isRenamingEvent(e.type as number)) return describeRenamingEventFor(h, e, id) ?? 'Renamed'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)

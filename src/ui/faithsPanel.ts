@@ -18,6 +18,7 @@ import { ViewMode } from '../render/palette.ts'
 import type { GlobeMesh } from '../render/globe.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, peopleName, settlementName } from './format.ts'
+import { namesEpoch } from './renamingData.ts'
 import { faithAt, faithLives, faithName, faithShareAt, faithSnap, faithsOf, stateFaithAt, type FaithsData } from './faithsData.ts'
 import { capitalAt, politiesOf, polityAtYear, polityLives, type PolitiesData } from './politiesData.ts'
 import { warOutcomeWords } from './polityFormat.ts'
@@ -158,6 +159,8 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
   let shownCount = ''
   let shownLegendKey = ''
   let shownViewKey = ''
+  /** renaming: the names in force last shown (renamingData.ts namesEpoch): its lines name towns as at the year. */
+  let shownNames = -1
   let viewRgb: Uint8Array | null = null
   /** Playing fast: the view's snapshot steps by five (it is exact again once paused). */
   let coarseShown = false
@@ -684,6 +687,12 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
       if (coarse !== coarseShown) {
         coarseShown = coarse
         dirty = true // (stopped: the exact snapshot again)
+      }
+      // renaming: a name in force changed (holy cities, seats): rewrite the lines that name towns
+      if (namesEpoch() !== shownNames) {
+        shownNames = namesEpoch()
+        shownPaneKey = shownDetailKey = shownInspKey = ''
+        dirty = true
       }
       const yi = Math.floor(y + 1e-6)
       if (yi === tickedYear && !dirty) return

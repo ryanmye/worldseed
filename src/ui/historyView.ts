@@ -43,6 +43,7 @@ import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
 import { routeNetwork } from '../render/routeCurves.ts'
 import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
+import { setNamesYear } from './renamingData.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
 import { describePlaces, formatPopulation } from './format.ts'
 import { ANYONE, buildPeoplesData } from './peoplesData.ts'
@@ -1294,6 +1295,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       }
       if (!index || !layer) return
       const h = index.history
+      setNamesYear(h, year) // renaming: the names in force at the year (renamingData.ts; a binary search, no strings)
       snapshotAt(h, year, pos)
       const snapshotChanged = pos.s0 !== shownS0 || pos.s1 !== shownS1
       if (snapshotChanged) {

@@ -15,6 +15,8 @@ import { createTradeSection } from './tradePanel.ts'
 import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
 import { describeOutpostSite } from './expeditionsData.ts'
 import { politiesOf, wallSlighted } from './politiesData.ts'
+import { namesEpoch, withEventNames } from './renamingData.ts'
+import { namesLine } from './renamingFormat.ts'
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -71,6 +73,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       <button type="button" class="insp-close" title="Close (Esc)" aria-label="Close the inspector">×</button>
     </div>
     <div class="insp-body">
+    <div class="insp-names hidden"></div>
     <div class="insp-origin"></div>
     <div class="insp-outpost hidden"></div>
     <div class="insp-places hidden"></div>
@@ -116,6 +119,9 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const structuresEl = q<HTMLDivElement>('.insp-structures')
   const originEl = q<HTMLDivElement>('.insp-origin')
   const placesEl = q<HTMLDivElement>('.insp-places')
+  // renaming: "Formerly Ilchanak (until 1202) · called Tiboi by the Leko" (renamingFormat.ts)
+  const namesEl = q<HTMLDivElement>('.insp-names')
+  let shownNames = -1
   const statusEl = q<HTMLDivElement>('.insp-status')
   const popEl = q<HTMLSpanElement>('.insp-pop')
   // where its people live, as the close-up view draws them (dioramas/census.ts)
@@ -255,7 +261,12 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     return lines
   }
 
+  /** renaming: an event line names towns as during its year (the latest of a gathered decade). */
   function renderLine(h: History, line: Line): HTMLLIElement {
+    return withEventNames(line.members[0].year, () => renderLineAt(h, line))
+  }
+
+  function renderLineAt(h: History, line: Line): HTMLLIElement {
     const li = document.createElement('li')
     const yr = document.createElement('span')
     yr.className = 'ev-year'
@@ -327,23 +338,26 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       const h = ix.history
       const s = h.settlements[id]
       nameEl.textContent = settlementName(h, id)
+      shownNames = -1
       originEl.replaceChildren()
       // an expedition base: whose it is, where it stands, how it is kept up
       outpost = ix.isOutpost[id] === 1
       root.classList.toggle('is-outpost', outpost)
       outpostEl.classList.toggle('hidden', !outpost)
       outpostEl.replaceChildren()
-      if (outpost) {
+      // (renaming: its founders' town named as it was at the founding)
+      if (outpost) withEventNames(s.foundedYear, () => {
         originEl.append(`Founded in year ${s.foundedYear} by an expedition`)
         if (s.parent >= 0) originEl.append(' from ', link(s.parent))
         outpostEl.append('Expedition base' + (s.parent >= 0 ? ' of ' : ''))
         if (s.parent >= 0) outpostEl.append(link(s.parent))
         outpostEl.append(`, ${describeOutpostSite(world, s.cell)}. It farms nothing: its people live on what ${s.parent >= 0 ? settlementName(h, s.parent) : 'its founders'} sends.`)
-      } else {
+      })
+      else withEventNames(s.foundedYear, () => {
         originEl.append(`Founded in year ${s.foundedYear} · `)
         if (s.parent >= 0) originEl.append('by migrants from ', link(s.parent))
         else originEl.append('Original tribe')
-      }
+      })
       capEl.textContent = formatInt(h.capacity[s.cell] ?? 0)
       biomeEl.textContent = (BIOME_NAMES[world.biome[s.cell]] ?? 'Unknown') + (world.lake[s.cell] === 1 ? ' (lake)' : '')
       yearsEl.textContent = String(h.years)
@@ -376,6 +390,20 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       const h = index.history
       const s = h.settlements[selected]
       const alive = isAlive(s, year)
+
+      // renaming: the name it bears at the year, its former names, the towns it names (once per change of the names in force)
+      const ne = namesEpoch()
+      if (ne !== shownNames) {
+        nameEl.textContent = settlementName(h, selected)
+        if (shownNames >= 0) {
+          shownChildren = -1
+          trade.show(index, selected)
+        }
+        shownNames = ne
+        const nl = namesLine(h, selected, year)
+        namesEl.textContent = nl
+        namesEl.classList.toggle('hidden', nl === '')
+      }
 
       const pop = alive ? Math.round(population) : -2
       if (pop !== shownPop) {

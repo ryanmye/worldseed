@@ -16,6 +16,7 @@ import { ViewMode } from '../render/palette.ts'
 import type { GlobeMesh } from '../render/globe.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatPopulation, settlementName } from './format.ts'
+import { namesEpoch } from './renamingData.ts'
 import {
   causeWords, fameWords, inFashion, lastDecline, placesAt, resortState, sceneryGrade, sceneryWords, SIGHT_CSS, SIGHT_GLYPH, SIGHT_SHORT, sightPhrase, sightsBy,
   snapAt, sourcesAt, sourcesUpTo, spendAt, tourismOf, TRAVEL_CSS, tripsFrom, visitorsAt, worldVisitors, type TourismData,
@@ -231,6 +232,8 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
   let shownInspKey = ''
   let shownCount = ''
   let shownSceneryKey = ''
+  /** renaming: the names in force last shown (renamingData.ts namesEpoch): its lines name towns as at the year. */
+  let shownNames = -1
   let sceneryRgbData: Uint8Array | null = null
   /** Living settlements per cell (for the hover readout), rebuilt per history. */
   let atCell = new Map<number, number[]>()
@@ -681,6 +684,12 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       if (layer) {
         layer.setTime(y, effect)
         layer.update(camera, drawSize, pixelRatio)
+      }
+      // renaming: a name in force changed: rewrite the lines that name towns
+      if (namesEpoch() !== shownNames) {
+        shownNames = namesEpoch()
+        shownPaneKey = shownInspKey = ''
+        dirty = true
       }
       // the panels change with the whole year (events) and the trade snapshot: nothing to look at in between
       const yi = Math.floor(y + 1e-6)

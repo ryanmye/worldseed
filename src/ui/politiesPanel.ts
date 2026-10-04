@@ -38,6 +38,7 @@ import type { LabelLayer, RegionLabel } from '../render/labels.ts'
 import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
+import { namesEpoch, withEventNames } from './renamingData.ts'
 import { assignPolityColors, blockadesAt, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, saveFlag } from './panels.ts'
@@ -203,6 +204,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
   let shownRowsKey = ''
   let shownDetailKey = ''
   let shownInspKey = ''
+  /** renaming: the names in force last shown (renamingData.ts namesEpoch): capitals and towns are named as at the year. */
+  let shownNames = -1
   let shownRegionsKey = -1
   let shownCount = -1
   let statStates = 0
@@ -606,19 +609,21 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       line(`Founded in ${x.foundedYear} (not yet)`)
       return
     }
-    // founding
+    // founding (renaming: its first capital named as it was then)
     const cap0 = x.capitals?.[0] ?? -1
     const how = (ORIGIN_WORDS[x.origin] ?? '').split(/(\{cap\}|\{parent\})/)
     const f = line(`Founded in ${x.foundedYear}` + (cap0 >= 0 ? ' at ' : ''))
-    if (cap0 >= 0) f.append(settLink(cap0))
-    if (how.length > 1 || how[0]) {
-      f.append(' ')
-      for (const part of how) {
-        if (part === '{cap}') f.append(cap0 >= 0 ? settLink(cap0) : 'its capital')
-        else if (part === '{parent}') f.append(x.parent >= 0 ? polityLink(x.parent, pd.names[x.parent]) : 'its overlord')
-        else if (part) f.append(part)
+    withEventNames(x.foundedYear, () => {
+      if (cap0 >= 0) f.append(settLink(cap0))
+      if (how.length > 1 || how[0]) {
+        f.append(' ')
+        for (const part of how) {
+          if (part === '{cap}') f.append(cap0 >= 0 ? settLink(cap0) : 'its capital')
+          else if (part === '{parent}') f.append(x.parent >= 0 ? polityLink(x.parent, pd.names[x.parent]) : 'its overlord')
+          else if (part) f.append(part)
+        }
       }
-    }
+    })
     // now
     if (lives && k >= 0) {
       const capNow = capitalAt(pd, selected, year)
@@ -1181,6 +1186,14 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
           bondsChanged = true
         }
       }
+      // renaming: a name in force changed: the rows' "ruled from" titles, the detail and the inspector lines are rewritten
+      const namesChanged = namesEpoch() !== shownNames
+      if (namesChanged) {
+        shownNames = namesEpoch()
+        for (const r of rows) r.shown.tier = -1
+        shownDetailKey = ''
+        shownInspKey = ''
+      }
       // counts for the timeline and the panel head (whole years)
       let wars = 0
       const W = data.wars
@@ -1192,7 +1205,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         shownS0 = s0
         updateRows()
         updateRegions()
-      } else if (shownCount !== statStates * 1000 + statWars) updateRows()
+      } else if (shownCount !== statStates * 1000 + statWars || namesChanged) updateRows()
       updateDetail()
       updateInspector()
     },

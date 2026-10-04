@@ -15,6 +15,8 @@ import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from 
 import { describeTourismGroup, FASHION_BUCKET_YEARS, isSightGroup, isTourismHeadline } from './tourismFormat.ts'
 import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, rulersGroupKey } from './rulersFormat.ts'
 import { addShortcut } from './shortcuts.ts'
+import { withEventNames } from './renamingData.ts'
+import { isRenamingHeadline } from './renamingFormat.ts'
 
 const ROWS = 40
 
@@ -306,6 +308,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     r.li.className = ek === 'town' || ek === 'city' || ek === 'contact' || ek === 'landfall' || ek === 'discovery' ? `ev-${ek} notable` : `ev-${ek}`
     // polities: states founded and fallen, wars and peace, capitals taken, cities sacked, secessions
     if (kind === EntryKind.Single && isPolityHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
+    // renaming: a capital or a city renamed
+    else if (kind === EntryKind.Single && isRenamingHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
     // rulers, religion: contested and dynastic successions, unions, wars of succession, faiths founded, schisms, holy wars, holy cities fallen
@@ -396,7 +400,9 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
         if (entry === r.entry && m === r.shown) continue
         r.entry = entry
         r.shown = m
-        render(index, r, entry, m)
+        // (renaming: towns named as during the year of the entry's latest member shown, so the text is a function of the entry)
+        const ix = index
+        withEventNames(ix.notableMemberYear[lo + m - 1], () => render(ix, r, entry, m))
       }
     },
   }

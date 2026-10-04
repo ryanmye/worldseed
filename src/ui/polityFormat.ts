@@ -4,6 +4,7 @@
 
 import { BondKind, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
+import { renamedName } from './renamingData.ts'
 import { capitalAt, isPolityEventType, polityAt, polityAtYear, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, TRIBUTE_BASE, wallSlighted, type PolitiesData } from './politiesData.ts'
 
 /** Good names (lower case) for the smuggling lines, indexed by Good (as format.ts GOOD_NAMES). */
@@ -32,7 +33,8 @@ function laneWords(h: History, r: number): string | null {
   return `the ${settlementName(h, T.a[r])}–${settlementName(h, T.b[r])} lane`
 }
 
-const settlementName = (h: History, id: number) => (id >= 0 && id < h.settlements.length ? h.settlements[id].name || `Settlement #${id}` : 'a settlement')
+// (renaming: the name borne at the year shown, or at the event's year inside withEventNames: renamingData.ts)
+const settlementName = (h: History, id: number) => (id >= 0 && id < h.settlements.length ? renamedName(h, id) ?? (h.settlements[id].name || `Settlement #${id}`) : 'a settlement')
 
 /** Short name of polity p ("North Vashtar"), or a fallback. */
 export function polityName(pd: PolitiesData, p: number, fallback = 'its neighbours'): string {

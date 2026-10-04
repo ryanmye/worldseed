@@ -1,0 +1,16 @@
+/* renaming: chronicle and inspector dots for a place renamed, the inspector's former names (renamingFormat.ts, inspector.ts) */
+.ev-renamed .ev-text::before {
+  border-radius: 1px;
+  background: #e8b15a;
+  box-shadow: inset 0 0 0 1.5px #6b4a1c;
+}
+.insp-names {
+  margin: -5px 0 8px;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+.insp-names.hidden {
+  display: none;
+}

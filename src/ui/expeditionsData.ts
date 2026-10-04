@@ -14,6 +14,7 @@
 
 import { Biome, JourneyKind, type History, type HistoryEvent, type Journeys, type World } from '../contract.ts'
 import { featureNoun, PeoplesEvent, setDiscoveryPlace, settlementName } from './format.ts'
+import { withEventNames } from './renamingData.ts'
 
 /** What a discovery was. */
 export const DiscoveryKind = { NorthPole: 0, SouthPole: 1, Summit: 2, Desert: 3, Land: 4, Feature: 5 } as const
@@ -290,7 +291,8 @@ export function discoveryNote(d: ExpeditionData, world: World, h: History, cell:
       const x = d.discoveries[k]
       if (x.year > year) continue
       const what = x.place.charAt(0).toUpperCase() + x.place.slice(1)
-      lines.push(`${what}: first reached in ${x.year} by an expedition from ${settlementName(h, x.sender)}`)
+      // (renaming: the sender named as it was then)
+      lines.push(`${what}: first reached in ${x.year} by an expedition from ${withEventNames(x.year, () => settlementName(h, x.sender))}`)
     }
   }
   add(cell)

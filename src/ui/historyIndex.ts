@@ -10,6 +10,7 @@ import type { ExpeditionData } from './expeditionsData.ts'
 import { goodsGroupKey, goodsOtherIsSettlement, isGoodsEvent } from './goodsFormat.ts'
 import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './diseaseFormat.ts'
 import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
+import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
@@ -372,7 +373,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) // 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) // 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -392,7 +393,9 @@ function otherIsSettlement(type: number): boolean {
     // disease: where a great epidemic or a city's sickness came from, the port's capital, the army's base
     diseaseOtherIsSettlement(type) ||
     // tourism: the place visited, the town a resort drew on, a sight's own settlement
-    tourismOtherIsSettlement(type)
+    tourismOtherIsSettlement(type) ||
+    // renaming: the capital of the realm behind it, the ruin whose name it took
+    isRenamingEvent(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -666,6 +669,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     while (nextSmallRaid < smallRaids.length && smallRaids[nextSmallRaid].year < e.year) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
     if (!isShownType(e.type)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
+    if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)

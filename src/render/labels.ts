@@ -27,6 +27,7 @@ import { surfaceRadius } from './globe.ts'
 import { reliefRadius } from './terrainHeight.ts'
 import { equalEarthKx, equalEarthLat, equalEarthY, flat, flatLam, placeFlat } from './mapProjection.ts'
 import { requestRender } from './invalidate.ts'
+import { renamingsOf } from '../ui/renamingData.ts'
 
 /** A newly named feature's label fades in over this many years, and glows for GLOW_YEARS. */
 const FADE_YEARS = 18
@@ -147,6 +148,16 @@ interface SettlementLabel {
   tier: number
   /** Last placement side (0 right, 1 left, 2 above, 3 below), kept while it fits. */
   side: number
+  /** renaming: a renamed town's names (null for the rest), and which one `texts` shows. */
+  names: NameVariants | null
+  shownName: number
+}
+
+/** renaming: the names a town bears (the founding name first) from their years on, measured when first shown. */
+interface NameVariants {
+  from: number[]
+  names: string[]
+  texts: ([Text, Text, Text] | null)[]
 }
 
 /** One placed (or fading) label for drawing: straight text or glyphs along a path. */
@@ -341,18 +352,37 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     if (!l) {
       const s = history.settlements[id]
       const name = s.name || `Settlement #${id}`
+      // renaming: a renamed town's later names (a Distinguished one is its name from the founding)
+      const rn = renamingsOf(history)?.places.get(id)
+      const names: NameVariants | null = rn ? { from: [-Infinity, ...rn.years.map((y, k) => (rn.always[k] ? -Infinity : y))], names: [name, ...rn.names], texts: [null, ...rn.names.map(() => null)] } : null
       l = {
         id,
         pos: cellPos(s.cell, new THREE.Vector3()),
-        texts: [measure(name, VILLAGE_STYLE, VILLAGE_STYLE.size[0]), measure(name, TOWN_STYLE, TOWN_STYLE.size[0]), measure(name, CITY_STYLE, CITY_STYLE.size[0])],
+        texts: measureAll(name),
         alpha: 0,
         shown: false,
         tier: 0,
         side: 0,
+        names,
+        shownName: 0,
       }
+      if (names) names.texts[0] = l.texts
       settlementLabels[id] = l
     }
+    // renaming: the name borne at the year (a swap of measured texts; only renamed towns have variants)
+    const v = l.names
+    if (v) {
+      let k = 0
+      for (let i = 1; i < v.from.length; i++) if (v.from[i] <= year) k = i
+      if (k !== l.shownName) {
+        l.shownName = k
+        l.texts = v.texts[k] ??= measureAll(v.names[k])
+      }
+    }
     return l
+  }
+  function measureAll(name: string): [Text, Text, Text] {
+    return [measure(name, VILLAGE_STYLE, VILLAGE_STYLE.size[0]), measure(name, TOWN_STYLE, TOWN_STYLE.size[0]), measure(name, CITY_STYLE, CITY_STYLE.size[0])]
   }
 
   let visible = true

@@ -17,6 +17,7 @@ import { ViewMode } from '../render/palette.ts'
 import type { GlobeMesh } from '../render/globe.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatPopulation, settlementName } from './format.ts'
+import { namesEpoch } from './renamingData.ts'
 import {
   activeEpidemics, diseaseOf, endemicAt, epidemicExtent, epidemicNoun, epidemicTitle, feverWords, KIND_CSS, KIND_WORDS, mortalityWords, peopleLosses, quarantinesOf,
   rowsOfSettlement, shareWords, sickRow, snapOf, toleranceAt, toleranceWords, viaPhrase, type DiseaseData,
@@ -236,6 +237,8 @@ export function createDiseaseView(deps: DiseaseViewDeps): DiseaseView {
   let shownCursor = -1
   let shownFeverKey = ''
   let shownFeverNote = ''
+  /** renaming: the names in force last shown (renamingData.ts namesEpoch): its lines name towns as at the year. */
+  let shownNames = -1
   let feverRgb: Uint8Array | null = null
   /** Living settlements per cell (for the hover readout), rebuilt per history. */
   let atCell = new Map<number, number[]>()
@@ -882,6 +885,12 @@ export function createDiseaseView(deps: DiseaseViewDeps): DiseaseView {
       if (layer) {
         layer.setTime(y, pulseYears, effect, playing)
         layer.update(camera, drawSize, pixelRatio)
+      }
+      // renaming: a name in force changed: rewrite the lines that name towns
+      if (namesEpoch() !== shownNames) {
+        shownNames = namesEpoch()
+        shownPaneKey = shownDetailKey = shownInspKey = ''
+        dirty = true
       }
       // the panels change with the whole year (and with selections, tabs, the view): nothing to look at in between
       const yi = Math.floor(y + 1e-6)

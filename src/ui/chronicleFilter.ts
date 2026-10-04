@@ -56,6 +56,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t === 19 || (t >= 66 && t <= 72)) return SICKNESS
   // tourism (100-105): leisure travel, resorts and their fashion, sights
   if (t >= 100 && t <= 105) return TRAVEL
+  // renaming (110): a place renamed by conquest, cession, a new capital, a faith, trade or restoration
+  if (t === 110) return POLITICS
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration
