@@ -298,9 +298,9 @@ function checkInvariants(w: World, h: History): void {
       case EventType.ExpeditionReturned:
         expect(e.value).toBeGreaterThanOrEqual(0)
         if (e.other >= 0) {
-          // The base it founded, this year.
+          // The base it founded, this year (or a goods fort at the far end of a lane: goods/routes.ts logs it here too).
           const b = h.settlements[e.other]
-          expect(b.outpost).toBe(true)
+          expect(b.outpost || b.post).toBe(true)
           expect(b.parent).toBe(e.settlement)
           expect(b.foundedYear).toBe(e.year)
         }
@@ -349,6 +349,10 @@ function checkInvariants(w: World, h: History): void {
       // disease: epidemics, endemic sickness, quarantine, armies (checked against their tables in disease/disease.test.ts).
       case EventType.DiseaseAppeared: case EventType.GreatEpidemic: case EventType.EpidemicEnded: case EventType.CityStricken:
       case EventType.Quarantine: case EventType.Endemic: case EventType.ArmyStricken:
+        break
+      // tourism: leisure travel, resorts and sights (checked against their tables in tourism/tourism.test.ts).
+      case EventType.LeisureTravel: case EventType.ResortFounded: case EventType.ResortInFashion: case EventType.ResortDeclined:
+      case EventType.ResortAbandoned: case EventType.SightRecognised:
         break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
@@ -473,7 +477,8 @@ function checkInvariants(w: World, h: History): void {
         expect(h.settlements[to].foundedYear).toBe(J.arriveYear[j])
       }
       expect(sent.some((e) => e.year === J.arriveYear[j] && e.settlement === J.from[j] && e.value === J.size[j])).toBe(true)
-      if (to >= 0) expect(returned.some((e) => e.year === J.arriveYear[j] && e.settlement === J.from[j] && e.other === (to === J.from[j] ? -1 : to))).toBe(true)
+      // (a goods trade expedition that came home may name the fort it founded at the far end: goods/routes.ts)
+      if (to >= 0) expect(returned.some((e) => e.year === J.arriveYear[j] && e.settlement === J.from[j] && (e.other === (to === J.from[j] ? -1 : to) || (to === J.from[j] && e.other >= 0 && h.settlements[e.other].post)))).toBe(true)
     } else expect(J.path[off1 - 1]).toBe(h.settlements[J.to[j]].cell)
     for (let k = off0 + 1; k < off1; k++) {
       expect(isNeighbor(J.path[k - 1], J.path[k])).toBe(true)

@@ -35,6 +35,8 @@ import { SP } from '../species.ts'
 import type { DiseaseState } from './state.ts'
 import { ensureDisease } from './state.ts'
 import { DZ, FEVER, QUARANTINE } from './params.ts'
+import type { TourismState } from '../tourism/state.ts' // tourism:
+import { TRAVEL } from '../tourism/params.ts' // tourism:
 
 // (Set at the start of each yearly call: the year's per-people figures from the technology system.)
 let TK: TechState | null = null
@@ -407,6 +409,23 @@ function journeys(s: HistoryState, dz: DiseaseState): void {
   dz.jSeen = J.length
 }
 
+/**
+ * tourism: the year's leisure travellers carry sickness both ways between their home towns and the places they visit, a
+ * journey-like link of weight TRAVEL.diseaseW * v / (v + TRAVEL.diseaseHalf) for v visitors a year (DiseaseVia.Visitors).
+ */
+function visitorCarriers(s: HistoryState, dz: DiseaseState, tz: TourismState): void {
+  const n = tz.fFrom.length
+  const year = s.year
+  for (let f = 0; f < n; f++) {
+    const u = tz.fFrom[f], v = tz.fTo[f]
+    if (u >= dz.act.length || v >= dz.act.length) continue
+    const vis = tz.fVis[f]
+    const jw = TRAVEL.diseaseW * vis / (vis + TRAVEL.diseaseHalf)
+    if (dz.act[u] !== 0 && year <= dz.actEnd[u] + 1 && dz.actEpi[u] >= 0) { const d = dz.act[u] - 1; tryInfect(s, dz, u, v, d, dz.defs[d].beta * dz.actForce[u] * jw, DiseaseVia.Visitors, false, dz.actEpi[u]) }
+    else if (dz.act[v] !== 0 && year <= dz.actEnd[v] + 1 && dz.actEpi[v] >= 0) { const d = dz.act[v] - 1; tryInfect(s, dz, v, u, d, dz.defs[d].beta * dz.actForce[v] * jw, DiseaseVia.Visitors, false, dz.actEpi[v]) }
+  }
+}
+
 /** First contacts of the year: each people's crowd diseases (endemic, or sick at the meeting place) pass to the other. */
 function contacts(s: HistoryState, dz: DiseaseState): void {
   const C = dz.contacts
@@ -667,6 +686,7 @@ export function diseaseSystem(s: HistoryState, dz: DiseaseState, ts: TradeState,
   }
   if (year % 2 === 0) endemicSeeds(s, dz)
   journeys(s, dz)
+  if (s.tz !== null && s.tz.fFrom.length > 0) visitorCarriers(s, dz, s.tz) // tourism: visitors carry sickness
   contacts(s, dz)
   spills(s, dz, ts, tk)
   // Deaths, labour, the end of outbreaks.

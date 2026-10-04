@@ -55,8 +55,10 @@ export function foodSystem(s: HistoryState): void {
   claim.fill(0)
   const living = s.living
   const smallPop = CATCHMENT.reachLow
+  const resort = s.tz !== null && s.tz.anyResort ? s.tz.resort : null // tourism: resorts farm nothing
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
+    if (resort !== null && resort[id] === 1) continue // tourism:
     const c = s.cell[id]
     const p = s.pop[id]
     const st = claimStrength(p)
@@ -97,6 +99,7 @@ export function foodSystem(s: HistoryState): void {
   let activeCount = s.activeCount
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
+    if (resort !== null && resort[id] === 1) { s.expected[id] = 0; s.supply[id] = 0; s.food[id] = 0; continue } // tourism: food by trade or bought (tourismProvision)
     const c = s.cell[id]
     const p = s.pop[id]
     // Farming tech and the crop multiplier cm multiply the whole catchment; the fishing part is instead worth

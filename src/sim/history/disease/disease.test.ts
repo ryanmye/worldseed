@@ -8,6 +8,7 @@ import { runHistory } from '../index.ts'
 import { DZ, FEVER } from './params.ts'
 
 const DISEASE_KEYS = new Set(['diseases', 'epidemics', 'outbreaks', 'fever', 'feverTolerance', 'endemic', 'quarantines'])
+const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows']) // tourism: (later than the disease system; the golden runs have it off)
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -24,11 +25,11 @@ function hv(h: number, v: unknown): number {
   if (typeof v === 'object') { for (const k of Object.keys(v as object).sort()) { h = fnvBytes(h, enc.encode(k)); h = hv(h, (v as Record<string, unknown>)[k]) } return h }
   return h
 }
-/** Hash of every History field that exists without the disease system (all of them, every key). */
+/** Hash of every History field that exists without the disease system (all of them, every key; the later tourism fields and resort flags left out). */
 function hashPre(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => !DISEASE_KEYS.has(x)).sort()) h = hv(h, r[k])
+  for (const k of Object.keys(r).filter((x) => !DISEASE_KEYS.has(x) && !TOURISM_KEYS.has(x)).sort()) h = hv(h, k === 'settlements' ? hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : r[k])
   return (h >>> 0).toString(16)
 }
 /** Hash of the disease fields. */
@@ -228,7 +229,7 @@ describe('disease', () => {
   it('switched off, the history is the one from before the disease system, with the disease fields empty', () => {
     for (const [seed, years, n, pol, goods, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: pol, goods, disease: false })
+      const h = simulateHistory(w, { years, polities: pol, goods, disease: false, tourism: false })
       expect(hashPre(h)).toBe(hash)
       expect(h.diseases.length + h.epidemics.length + h.outbreaks.count + h.quarantines.count + h.fever.length + h.feverTolerance.length + h.endemic.length).toBe(0)
       expect(h.events.some((e) => e.type >= 66 && e.type <= 79)).toBe(false)

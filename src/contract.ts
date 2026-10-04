@@ -92,6 +92,8 @@ export interface Settlement {
   outpost: boolean
   /** goods: true for a trading post's own settlement (a fort or a victualling station founded for a long-haul lane; see TradingPost). */
   post: boolean
+  /** tourism: true for a resort town founded for its visitors (it farms nothing and buys its food with their money; see History.visitorFlows). */
+  resort: boolean
 }
 
 export const EventType = {
@@ -174,6 +176,13 @@ export const EventType = {
   Quarantine: 70, // the port `settlement` began to hold incoming ships in quarantine; `other` the capital of its polity; `value` the polity id
   Endemic: 71, // a crowd disease settled among the people of `settlement` (its largest settlement) as a steady childhood sickness; `other` -1; `value` the disease id
   ArmyStricken: 72, // sickness struck the army that marched from `other` on `settlement` (camp fever, an epidemic at the target, or fever ground); `value` the war id (History.wars); `extra` the war exhaustion it added
+  // tourism: leisure travel and resort towns (none when HistoryOptions.tourism is false).
+  LeisureTravel: 100, // the first leisure travellers of a people set out: `settlement` is the town they came from, `other` the settlement they visited; `value` the people id
+  ResortFounded: 101, // a resort town was founded for visitors at `settlement`; `other` is the town most of them came from (its parent); `value` visitors a year; `extra` the SightKind of the place, or -1 for scenery alone
+  ResortInFashion: 102, // `settlement` came into fashion: its visitors crossed RESORT.fashionOn a year (again after a decline); `other` the town most of them came from; `value` visitors a year
+  ResortDeclined: 103, // `settlement`, once in fashion, lost most of its visitors; `other` -1; `value` visitors a year left; `extra` the cause: 0 fashion moved, 1 war or danger on the way, 2 an epidemic, 3 the towns it drew on declined
+  ResortAbandoned: 104, // the resort town `settlement` was given up when its visitors failed for good (the Abandoned event follows); `other` -1; `value` years without visitors
+  SightRecognised: 105, // a place became a sight worth the journey: `settlement` the living settlement by it (its own, the town that hosts its visitors, or the nearest); `other` the sight's own settlement (a ruin's abandoned one) or -1; `value` the sight id (History.sights, which has its cell); `extra` the SightKind
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -392,6 +401,88 @@ export interface History {
   endemic: Uint8Array
   /** Ports holding ships in quarantine. */
   quarantines: Quarantines
+
+  // tourism: scenery, sights, leisure travel and resort towns (all empty when HistoryOptions.tourism is false).
+  /**
+   * Scenery per cell, 0..255, length grid.cellCount (0 at sea and on lakes); static. Rank-based over land: 255 * u^3 for the
+   * cell's rank u in [0, 1] among land cells by raw scenic value, so only a minority of cells are truly scenic (u 0.9 is 186).
+   */
+  scenery: Uint8Array
+  /** What makes each cell scenic (SceneryBit flags), length grid.cellCount; static. */
+  sceneryKind: Uint16Array
+  /** Sights: places worth the journey that history made (ruins, old capitals, first ascents, ...), in order of recognition (Sight.id is the index). */
+  sights: Sight[]
+  /** Leisure travel between towns and the places their people visit. */
+  visitorFlows: VisitorFlows
+}
+
+// ---------------------------------------------------------------------------
+// tourism: scenery, sights, leisure travel and resorts.
+
+/** What makes a cell scenic (History.sceneryKind bits). */
+export const SceneryBit = {
+  Relief: 1, // mountains beside lowland or water
+  Lake: 2, // a lake shore
+  Coast: 4, // a sea coast (capes and peninsulas score more)
+  Island: 8, // a small island
+  River: 16, // a great river or its mouth
+  Forest: 32, // woodland
+  Snow: 64, // snowy peaks or glaciers within reach
+  Pleasant: 128, // mild climate: moderate warmth and rainfall
+  Cold: 256, // a striking cold place (ice, fjord, tundra coast)
+  Spring: 512, // hot springs (volcanic or plate-boundary ground)
+  GreatLake: 1024, // shore of the world's largest lakes
+  GreatRange: 2048, // beside the world's highest range
+} as const
+export type SceneryBit = (typeof SceneryBit)[keyof typeof SceneryBit]
+
+/** Kind of sight (History.sights). */
+export const SightKind = {
+  Ruin: 0, // the ruins of a town that was once large
+  OldCapital: 1, // a former capital (held for a century or more), perhaps walled, with its old palaces
+  Summit: 2, // a summit first reached by an expedition (a famous ascent)
+  PolarBase: 3, // a former expedition base in the polar cold
+  MineTown: 4, // a mining boom town gone quiet
+  FormerResort: 5, // a resort that went out of fashion long ago: quaint
+  Holy: 6, // a holy city (pilgrimage; from the religion system)
+} as const
+export type SightKind = (typeof SightKind)[keyof typeof SightKind]
+
+export interface Sight {
+  /** Index into History.sights. */
+  id: number
+  kind: SightKind
+  cell: number
+  /** The settlement it belongs to (a ruin's abandoned settlement, the old capital, the mine town), or -1. */
+  settlement: number
+  /** Year it became a sight. */
+  fromYear: number
+  /** How famous, 0..1 (the pull it adds to the place). */
+  fame: number
+  /** Its settlement's name, or the name of the feature it is on (a summit's range), or ''. */
+  name: string
+}
+
+/**
+ * Leisure travel: pairs (home town `from`, visited settlement `to`) in order of first travel, struct-of-arrays, and their
+ * visitors per trade snapshot as sparse rows sorted by snapshot then pair (pairs without visitors at a snapshot have no
+ * row). Pair k's travellers follow cells path[pathOffsets[k] .. pathOffsets[k + 1]) from `from` to `to`.
+ */
+export interface VisitorFlows {
+  count: number
+  from: Int32Array
+  to: Int32Array
+  firstYear: Int16Array
+  pathOffsets: Uint32Array
+  path: Uint32Array
+  rowCount: number
+  /** Trade snapshot index of each row (year rowSnapshot * tradeInterval). */
+  rowSnapshot: Uint16Array
+  /** Pair index of each row. */
+  rowPair: Int32Array
+  /** Visitors a year, and the wealth they spend there a year. */
+  visitors: Float32Array
+  spend: Float32Array
 }
 
 // ---------------------------------------------------------------------------
@@ -469,6 +560,7 @@ export const DiseaseVia = {
   Army: 6, // with an army on the march, or home again
   Contact: 7, // at the first contact between two peoples
   Focus: 8, // returned from where it lingered (a plague focus)
+  Visitors: 9, // tourism: with leisure travellers, between their home town and the resort they visited
 } as const
 export type DiseaseVia = (typeof DiseaseVia)[keyof typeof DiseaseVia]
 
@@ -888,6 +980,8 @@ export interface HistoryOptions {
   goods?: boolean
   /** disease: simulate epidemics (crowd diseases, plague, camp fever) and place-bound fever. Default true; false gives the history without them (the disease fields empty; first contacts bring the species system's own epidemics). */
   disease?: boolean
+  /** tourism: simulate scenery, sights, leisure travel and resort towns. Default true; false gives the history without them (the tourism fields empty). */
+  tourism?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */

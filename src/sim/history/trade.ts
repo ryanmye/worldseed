@@ -76,6 +76,7 @@ import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
 import { noteIncome } from './goods/state.ts'
 import { STOCK } from './goods/params.ts'
 import { diseaseTradeMul } from './disease/system.ts' // disease:
+import { tourismDemand } from './tourism/system.ts' // tourism:
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -720,13 +721,14 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   const workHalf = GOODS.workHalf
   const tech = s.tech
   const gx = s.goods // goods:
+  const tz = s.tz // tourism:
   let traders = 0
   trader.fill(0, 0, s.count) // (abandoned settlements never trade)
   if (TRADERS.length < living.length) TRADERS = new Int32Array(2 * living.length)
   const tl = TRADERS // (the traders in living order: the loops below that only touch traders)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
-    const on = s.pop[id] >= TRADE.minPop || (gx !== null && id < gx.cap && gx.postOf[id] >= 0) ? 1 : 0 // goods: trading posts always trade
+    const on = s.pop[id] >= TRADE.minPop || (gx !== null && id < gx.cap && gx.postOf[id] >= 0) || (tz !== null && id < tz.cap && tz.resort[id] === 1) ? 1 : 0 // goods: trading posts always trade; tourism: so do resorts
     trader[id] = on
     if (on) tl[traders] = id
     traders += on
@@ -768,6 +770,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     ts.pack[id] = packOf(s, id)
     marketGoods(s, ts, id, o, demTech) // species-v2: Cloth, Luxury, Stimulant (and bamboo timber)
     if (gx !== null) goodsStock(s, ts, gx, id, o, demTech) // goods: held stocks, class units by variety, the new classes
+    if (tz !== null && id < tz.cap && tz.visitors[id] > 0) tourismDemand(tz, id, p, demand, o) // tourism: luxuries and finery where visitors stay
     ts.perish[id] = perishOf(s, id) // species-v2
     setFoodPrices(s, ts, id)
     for (let g = FOOD; g < G; g++) setGoodPrice(ts, id, g)

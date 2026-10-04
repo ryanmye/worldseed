@@ -114,6 +114,12 @@ import { createDisease } from './disease/state.ts'
 import type { DiseaseDiag, DiseaseState } from './disease/state.ts'
 import { diseaseSnapshot, diseaseSystem } from './disease/system.ts'
 import { assembleDisease, emptyDiseaseHistory } from './disease/assemble.ts'
+// tourism: scenery, sights, leisure travel and resort towns (tourism/).
+import { TOURISM_ON } from './tourism/params.ts'
+import { createTourism } from './tourism/state.ts'
+import type { TourismDiag } from './tourism/state.ts'
+import { tourismProvision, tourismRoads, tourismSnapshot, tourismYear } from './tourism/system.ts'
+import { assembleTourism, emptyTourismHistory } from './tourism/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -170,6 +176,8 @@ export interface HistoryDiagnostics {
   /** disease: the disease system's records, and its state at the end (absent when it is off; the state is the live one: read only). */
   disease2?: DiseaseDiag
   diseaseState?: DiseaseState
+  /** tourism: the tourism system's counters (absent when it is off). */
+  tourism?: TourismDiag
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -345,6 +353,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // goods: the goods system, unless switched off.
   const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
   s.goods = gx
+  // tourism: scenery and the scenic spots, unless switched off.
+  const tz = (options?.tourism ?? TOURISM_ON) ? createTourism(world, terrain, P, createRng(seed, 'history-tourism-springs'), createRng(seed, 'history-tourism')) : null
+  s.tz = tz
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -430,6 +441,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let g = 0; g < GOOD_COUNT; g++) goodVolume.push(trade.goodYear[g])
     if (pol && polSnaps) polTradeSnapshot(pol, trade, polSnaps) // polities: (v2) contraband and losses per route
     if (gx) goodsSnapshot(s, gx, trade) // goods:
+    if (tz) tourismSnapshot(s, tz, volOff.length - 1) // tourism: visitors per pair
   }
 
   snapshot()
@@ -443,6 +455,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (gx) goodsProduce(s, gx, explore) // goods: mines and furs, before the market
     tradeSystem(s, trade)
     if (pol) taxSystem(s, pol) // polities: grain tax to capitals
+    if (tz) tourismProvision(s, tz) // tourism: visitor income buys food for resorts and their hosts
     populationSystem(s)
     migrationSystem(s, search)
     voyageSystem(s, voyages)
@@ -454,7 +467,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       landUseSystem(s)
       degradationSystem(s)
     }
-    if (year % ROAD.step === 0) roadSystem(s, trade)
+    if (year % ROAD.step === 0) {
+      if (tz) tourismRoads(s, tz, trade) // tourism: visitors wear their ways
+      roadSystem(s, trade)
+    }
     milestoneSystem(s)
     explorationSystem(s, explore)
     technologySystem(s, trade, techState)
@@ -463,6 +479,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
+    if (tz) tourismYear(s, tz, trade, explore) // tourism: sights, destinations, leisure travel, resorts
     if (dz) { diseaseSystem(s, dz, trade, techState); milestoneSystem(s) } // disease: outbreaks spread and take their toll; endemic sickness, fever (refugees may lift a town over a milestone)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
@@ -492,7 +509,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let id = 0; id < S; id++) through[id] = s.through[id]
     const settlements: Settlement[] = []
     for (let id = 0; id < S; id++) {
-      settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id], outpost: s.outpost[id] === 1, post: false })
+      settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id], outpost: s.outpost[id] === 1, post: false, resort: tz !== null && id < tz.cap && tz.resort[id] === 1 })
     }
     // Settlement names and named geography, in the order things are founded and reached (names/featureNames.ts).
     const featureMap = detectFeatures(world)
@@ -513,6 +530,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const goodsHist = gx ? assembleGoods(gx, years, tradeSnapshotCount, S, names, peoples.map((p) => p.name)) : emptyGoodsHistory()
     for (const x of goodsHist.posts) if (x.settlement >= 0 && (x.kind === 1 || x.kind === 2)) settlements[x.settlement].post = true
     const diseaseHist = dz ? assembleDisease(world, dz, naming, peoples.map((p) => p.name), snapshotCount) : emptyDiseaseHistory() // disease:
+    const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -531,6 +549,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...polHist, // polities:
         ...goodsHist, // goods:
         ...diseaseHist, // disease:
+        ...tourismHist, // tourism:
       },
       terrain,
       diag: {
@@ -548,6 +567,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         goods: gx ? copyGoodsDiag(gx.diag) : undefined, // goods:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
+        tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
       },
     }
   }
