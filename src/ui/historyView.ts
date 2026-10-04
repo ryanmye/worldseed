@@ -47,6 +47,8 @@ import { buildSpeciesLayer, type SpeciesLayer } from '../render/species.ts'
 import { createSpeciesView } from './speciesPanel.ts'
 import { buildContactPulses, type ContactPulses } from '../render/knownWorld.ts'
 import { buildPopulationDensity, type PopulationDensity } from './populationDensity.ts'
+import { createPolitiesView, type PolitiesBuilt } from './politiesPanel.ts'
+import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -69,6 +71,8 @@ export interface HistoryViewDeps {
   setCloudsOverFog?(on: boolean): void
   /** Offer a view mode or not (the Crops and Herds views need the history's crop and herd layers). */
   setViewModeAvailable?(mode: ViewMode, available: boolean): void
+  /** Add a layer toggle (the Factions toggle appears with the first history that has factions). */
+  addLayerToggle?(t: LayerToggle): HTMLInputElement
 }
 
 export interface InitialHistoryState {
@@ -80,6 +84,9 @@ export interface InitialHistoryState {
   knownAll?: boolean
   /** Species to select (species=<id>). */
   species?: number | null
+  /** Faction (polity) to select (polity=<id>), and whether the Factions layer is on (factions=0 hides it). */
+  polity?: number | null
+  factions?: boolean
 }
 
 /** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
@@ -231,6 +238,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   /** Population view: per-cell density (populationDensity.ts), and the snapshot it last showed. */
   let popDensity: PopulationDensity | null = null
   let shownPopS0 = -1
+  /** Faction stats last given to the timeline (states * 10000 + wars, -1 none), and the routes open with them. */
+  let shownPolStats = -1
+  let statRoutes: number | undefined = undefined
   const pos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
   const tmp = new THREE.Vector3()
   // ---- extension state ----
@@ -249,7 +259,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   const timeline = createTimeline(deps.bottom, {
     onSettled(year: number, playing: boolean) {
       if (!index) return
-      deps.setUrlParam('year', playing ? null : String(Math.round(year)))
+      deps.setUrlParam('year', playing ? null : String(Math.floor(year + 1e-6)))
       deps.setUrlParam('play', playing ? null : '0')
     },
     onWantMore() {
@@ -304,6 +314,19 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     planetGroup: deps.planetGroup,
     setUrlParam: deps.setUrlParam,
     onSelectionChange: () => applyKnownWorld(),
+  })
+  // factions: panel, layer, inspector section (its Esc deselects the faction before the settlement)
+  const polities = createPolitiesView({
+    right: deps.right,
+    inspectorSlot: inspector.politySlot,
+    planetGroup: deps.planetGroup,
+    getGlobe: deps.getGlobe,
+    setUrlParam: deps.setUrlParam,
+    onSelectSettlement: (id) => api.select(id, true),
+    addLayerToggle: deps.addLayerToggle,
+    setViewModeAvailable: deps.setViewModeAvailable,
+    layerOn: initial.factions ?? true,
+    initialPolity: initial.polity ?? null,
   })
   addShortcut({
     keys: ['Escape'],
@@ -374,6 +397,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     outposts?.setKnownMask(cells)
     discoveries?.setKnownMask(cells)
     speciesLayer?.setKnownMask(cells)
+    epidemics?.setKnownMask(cells)
+    polities.setKnownMask(cells)
     const on = cells !== null
     // the clouds go over the mist; the masked markers over the clouds (nothing unknown is drawn by them)
     if (layer) layer.mesh.renderOrder = on ? 9.7 : 8
@@ -397,6 +422,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     discoveries?: DiscoveryLayer | null
     speciesLayer?: SpeciesLayer | null
     epidemics?: ContactPulses | null
+    polities?: PolitiesBuilt | null
   }
 
   function disposeBuilt(b: Built) {
@@ -414,6 +440,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     drop(b.discoveries, b.discoveries?.mesh)
     drop(b.speciesLayer, b.speciesLayer?.object)
     drop(b.epidemics, b.epidemics?.mesh)
+  }
+  /** A staged build that was never committed: its faction layer too. */
+  function disposeStaged(b: Built) {
+    disposeBuilt(b)
+    polities.disposeBuilt(b.polities)
   }
 
   function clearLayer() {
@@ -436,6 +467,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labels.dispose()
       labels = null
     }
+    polities.commit(null, null, false)
     geo = null
   }
 
@@ -488,6 +520,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         },
       },
       { name: 'population', run: () => (b.population = buildPopulationDensity(w, b.index!)) },
+      { name: 'polities', run: () => (b.polities = polities.build(w, h)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
       { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
@@ -617,6 +650,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     labels?.dispose()
     labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, w, h, { population: (id) => settlementLayer.displayedPopulation(id) }, NORM_YEARS)
     labels.setVisible(labelsVisible)
+    polities.commit(b.polities ?? null, labels, extend)
     globe?.setCapacity(h.capacity)
     popDensity = b.population ?? null
     shownPopS0 = -1
@@ -653,6 +687,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     inspector.show(index, world, id)
     peoples.showSettlement(id)
     speciesView.showSettlement(id, index.isOutpost[id] === 1)
+    polities.showSettlement(id)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -669,7 +704,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     const cancel = () => {
       cancelled = true
       window.clearTimeout(timer)
-      disposeBuilt(b)
+      disposeStaged(b)
     }
     const next = () => {
       timer = 0
@@ -681,7 +716,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
           step.run()
         } catch (err) {
           staging = null
-          disposeBuilt(b)
+          disposeStaged(b)
           api.extendFailed(`building the ${step.name} layer failed: ${err instanceof Error ? err.message : String(err)}`)
           return
         }
@@ -869,6 +904,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       hovered = -1
       inspector.hide()
       peoples.setWorld(w)
+      polities.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
@@ -958,6 +994,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       selPlacesShown = -1
       peoples.showSettlement(selected)
       speciesView.showSettlement(selected, selected >= 0 && index.isOutpost[selected] === 1)
+      polities.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -987,6 +1024,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       requestRender()
       applyMarkerStyle()
       speciesView.setViewMode(mode)
+      polities.setViewMode(mode)
       speciesLayer?.setOriginCategory(mode === ViewMode.Crops ? 0 : mode === ViewMode.Herds ? 1 : -1)
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
@@ -1038,10 +1076,14 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labelsVisible = show
       requestRender()
       labels?.setVisible(show)
+      polities.setLabelsVisible(show)
     },
     placesAt(cell: number) {
       if (peoples.hidesCell(cell)) return ''
-      const places = describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+      // the faction holding the cell first ("Kingdom of Vashtar")
+      const faction = polities.describeCell(cell)
+      const named = describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+      const places = faction ? (named ? `${faction} · ${named}` : faction) : named
       const ed = index?.expeditions
       const note = ed && world ? discoveryNote(ed, world, index!.history, cell, year) : ''
       return note ? (places ? `${places}. ${note}` : note) : places
@@ -1069,7 +1111,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         updateCityLights(pos.s0)
         const td = index.trade
         const routesOpen = td ? td.openCount[Math.min(td.count - 1, Math.round((pos.s0 * h.snapshotInterval) / td.interval))] : undefined
-        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], routesOpen)
+        const ps = polities.stats()
+        statRoutes = routesOpen
+        timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], routesOpen, ps?.states, ps?.wars)
         shownS0 = pos.s0
         shownS1 = pos.s1
       }
@@ -1142,6 +1186,18 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       }
       chronicle.update(year)
       peoples.tick(year, pos.s0, pulseYears, deps.camera, drawSize, pixelRatio)
+      // factions: effects step back at high playback speed (as the merchants do)
+      const fx = !timeline.playing ? 1 : timeline.speed >= 16 ? 0.35 : timeline.speed >= 4 ? 0.75 : 1
+      polities.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio)
+      {
+        // states and wars in the timeline's stats (wars start and end between snapshots)
+        const ps = polities.stats()
+        const key = ps ? ps.states * 10000 + ps.wars : -1
+        if (key !== shownPolStats) {
+          shownPolStats = key
+          timeline.setStats(index.aliveCount[pos.s0], index.totalPopulation[pos.s0], index.townCount[pos.s0], index.cityCount[pos.s0], statRoutes, ps?.states, ps?.wars)
+        }
+      }
       if (labels && labelsVisible) {
         labels.setYear(year, timeline.playing)
         labels.update(deps.camera, deps.planetGroup, drawSize.x / pixelRatio, drawSize.y / pixelRatio)

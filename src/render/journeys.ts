@@ -26,6 +26,7 @@
 import * as THREE from 'three'
 import type { Journeys, World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of the routes above the ground (settlement markers sit at 0.004). */
@@ -37,6 +38,13 @@ const SAMPLES_PER_CELL = 3
 /** Group marker radius range in CSS pixels; settlement markers are 1.7..6.5. */
 const GROUP_MIN_RADIUS = 1.45
 const GROUP_MAX_RADIUS = 2.5
+/**
+ * An expedition's round trip is brief (about 2 simulated years) next to the shared
+ * settler/migrant thread duration (uThreadYears, scaled with playback speed): its trail
+ * keeps at least this many years of fade after the group arrives home, so recent
+ * exploration stays readable instead of flashing by.
+ */
+const EXPEDITION_THREAD_YEARS = 45
 
 export interface JourneyLayer {
   /** Container of the trail, highlight and group meshes; add it to the planet group. */
@@ -356,6 +364,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
   highlightGeom.setDrawRange(0, 0)
 
   const shared = {
+    uReliefK: reliefUniforms.uReliefK,
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
@@ -387,6 +396,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
   } as const
 
   const trailVertex = /* glsl */ `
+      ${RELIEF_GLSL}
     attribute vec4 aSide; // side direction, across (-1|1)
     attribute vec4 aTime; // depart year, arrive year, fraction of the route, arc length
     attribute vec2 aKind; // kind (0 settlers, 1 migrants), water
@@ -413,9 +423,12 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     varying float vFacing;
     varying float vNight;
     void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
       float passYear = mix(aTime.x, aTime.y, aTime.z);
+      // expeditions are brief next to the shared thread duration: keep a minimum of their own
+      float threadYears = aKind.x > 1.5 ? max(uThreadYears, ${EXPEDITION_THREAD_YEARS.toFixed(1)}) : uThreadYears;
       // whole journeys only, so no triangle is ever half culled
-      if ((uMode == 0 && (uYear < aTime.x || uYear > aTime.y + uThreadYears)) || (aKind.x > 1.5 && uExpeditions < 0.5)) {
+      if ((uMode == 0 && (uYear < aTime.x || uYear > aTime.y + threadYears)) || (aKind.x > 1.5 && uExpeditions < 0.5)) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
       }
@@ -425,7 +438,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       float core = (uMode == 1 ? 1.25 : mix(0.62, 1.0, head)) * mix(0.45, 1.0, uClose);
       if (aKind.x > 1.5) core *= 0.72; // expeditions: a finer line
       float rim = uMode == 1 ? mix(0.3, 1.1, uClose) : 0.0;
-      vec3 base = position - normalize(position) * uDrop;
+      vec3 base = positionR - normalize(positionR) * uDrop;
       vec4 mv = modelViewMatrix * vec4(base, 1.0);
       float pix = -mv.z * uPixel * uPixelRatio;
       float outer = core + rim + 0.6;
@@ -434,8 +447,8 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       vAcross = aSide.w;
       vec3 p = base + aSide.xyz * aSide.w * outer * pix;
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-      vec3 up = normalize(position);
-      vFacing = dot(up, normalize(uCamObj - position));
+      vec3 up = normalize(positionR);
+      vFacing = dot(up, normalize(uCamObj - positionR));
       vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       vFrac = aTime.z;
       vArc = aTime.w;
@@ -478,7 +491,8 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
         if (sea) a *= mix(0.45, 1.0, step(0.45, fract(vArc / 0.007)));
       } else {
         float head = exp(-max(vAge, 0.0) / uHeadYears);
-        float thread = 1.0 - smoothstep(0.0, uThreadYears, vAge);
+        float threadYears = expedition ? max(uThreadYears, ${EXPEDITION_THREAD_YEARS.toFixed(1)}) : uThreadYears;
+        float thread = 1.0 - smoothstep(0.0, threadYears, vAge);
         col = mix(threadC, headC, head);
         a = max(0.9 * head, 0.46 * thread) * coreMask;
         if (expedition) {
@@ -539,6 +553,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
   const groupMaterial = new THREE.ShaderMaterial({
     uniforms: groupUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
       attribute vec4 aInfo; // kind, size (0..1), at sea, opacity
@@ -557,8 +572,9 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       varying float vAlpha;
       varying float vNight;
       void main() {
-        vec3 up = normalize(aPos);
-        vec3 at = aPos - up * uDrop;
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
+        vec3 up = normalize(aPosR);
+        vec3 at = aPosR - up * uDrop;
         float facing = dot(up, normalize(uCamObj - at));
         if (facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);

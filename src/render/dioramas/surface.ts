@@ -1,17 +1,19 @@
-// Where exactly the rendered ground is. The globe is a flat-shaded triangulation of
-// the cell centres lifted to surfaceRadius (see globe.ts), so a model placed between
-// cell centres must sit on the plane of the triangle under it, not on a sphere.
-// probe() casts a ray from the planet centre through a unit direction and returns the
-// hit radius, the triangle's outward normal and the barycentric blend of elevation and
-// the lake flag there (to keep models out of the sea and lakes).
+// Where exactly the rendered ground is: the shared height function of the planet surface
+// (terrainHeight.ts: rounded cell relief plus mountain detail, flattened at towns, fields
+// and rivers; the globe and its close-zoom detail tiles draw the same ground). probe()
+// looks along a unit direction from the planet centre and returns the ground radius there
+// (at the stored relief, which is the rendered one up close where models show), the
+// ground's outward normal and the barycentric blend of elevation and the lake flag (to
+// keep models out of the sea and lakes).
 
 import type { World } from '../../contract.ts'
-import { lakeArray, surfaceRadius } from '../globe.ts'
+import { lakeArray } from '../globe.ts'
+import { DETAIL_OCTAVES, evalGround, locate, located, newGroundSample, RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
 
 export interface Probe {
   /** Distance of the ground from the planet centre along the probed direction. */
   radius: number
-  /** Outward normal of the ground triangle. */
+  /** Outward normal of the ground. */
   nx: number
   ny: number
   nz: number
@@ -24,7 +26,7 @@ export interface Probe {
 }
 
 export interface Surface {
-  /** Probe the ground along unit direction (x, y, z); `start` is a cell near it. False if no triangle was found. */
+  /** Probe the ground along unit direction (x, y, z); `start` is a cell near it. False if no triangle was found (the nearest cell's ground is used). */
   probe(x: number, y: number, z: number, start: number, out: Probe): boolean
   /** Nearest cell to unit direction (x, y, z), walking greedily from `start`. */
   nearestCell(x: number, y: number, z: number, start: number): number
@@ -73,62 +75,29 @@ export function createSurface(world: World, reservoir: Float32Array | null = nul
   }
   const cellFreq = 1 / Math.sqrt((4 * Math.PI) / cellCount)
   const tri = { a: 0, b: 0, d: 0, la: 0, lb: 0, ld: 0, x: 0, y: 0, z: 0 }
-
-  /** Tests the fan of triangles around cell c; fills out on a hit. */
-  const fan = (c: number, x: number, y: number, z: number, out: Probe): boolean => {
-    const ra = surfaceRadius(world, c)
-    const ax = P[c * 3] * ra, ay = P[c * 3 + 1] * ra, az = P[c * 3 + 2] * ra
-    const n0 = off[c], n1 = off[c + 1]
-    for (let k = n0; k < n1; k++) {
-      const b = nb[k]
-      const d = nb[k + 1 < n1 ? k + 1 : n0]
-      const rb = surfaceRadius(world, b), rd = surfaceRadius(world, d)
-      const bx = P[b * 3] * rb, by = P[b * 3 + 1] * rb, bz = P[b * 3 + 2] * rb
-      const dx = P[d * 3] * rd, dy = P[d * 3 + 1] * rd, dz = P[d * 3 + 2] * rd
-      // signed volumes of (u, edge) wedges: all >= 0 inside (triangle a, b, d is CCW from outside)
-      const wA = x * (by * dz - bz * dy) + y * (bz * dx - bx * dz) + z * (bx * dy - by * dx) // u . (B x D)
-      const wB = x * (dy * az - dz * ay) + y * (dz * ax - dx * az) + z * (dx * ay - dy * ax) // u . (D x A)
-      const wD = x * (ay * bz - az * by) + y * (az * bx - ax * bz) + z * (ax * by - ay * bx) // u . (A x B)
-      if (wA < -1e-12 || wB < -1e-12 || wD < -1e-12) continue
-      const s = wA + wB + wD
-      if (s <= 0) continue
-      const la = wA / s, lb = wB / s, ld = wD / s
-      const hx = la * ax + lb * bx + ld * dx, hy = la * ay + lb * by + ld * dy, hz = la * az + lb * bz + ld * dz
-      out.radius = Math.hypot(hx, hy, hz)
-      // normal of the triangle (B - A) x (D - A)
-      const ux = bx - ax, uy = by - ay, uz = bz - az
-      const vx = dx - ax, vy = dy - ay, vz = dz - az
-      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-      const l = Math.hypot(nx, ny, nz) || 1
-      const sgn = nx * x + ny * y + nz * z < 0 ? -1 : 1
-      nx *= sgn / l; ny *= sgn / l; nz *= sgn / l
-      out.nx = nx; out.ny = ny; out.nz = nz
-      out.elev = la * E[c] + lb * E[b] + ld * E[d]
-      out.lake = lake ? la * lake[c] + lb * lake[b] + ld * lake[d] : 0
-      out.cell = c
-      tri.a = c; tri.b = b; tri.d = d
-      tri.la = la; tri.lb = lb; tri.ld = ld
-      tri.x = hx; tri.y = hy; tri.z = hz
-      return true
-    }
-    return false
-  }
+  const field = terrainOf(world)
+  const g = newGroundSample()
 
   return {
     nearestCell,
     probe(x, y, z, start, out) {
-      const c = nearestCell(x, y, z, start)
-      if (fan(c, x, y, z, out)) return true
-      for (let k = off[c]; k < off[c + 1]; k++) if (fan(nb[k], x, y, z, out)) return true
-      out.radius = surfaceRadius(world, c)
-      out.nx = x; out.ny = y; out.nz = z
-      out.elev = E[c]
-      out.lake = lake ? lake[c] : 0
-      out.cell = c
-      tri.a = tri.b = tri.d = c
-      tri.la = 1; tri.lb = tri.ld = 0
-      tri.x = x * out.radius; tri.y = y * out.radius; tri.z = z * out.radius
-      return false
+      const found = locate(world, x, y, z, start)
+      const { a, b, c, la, lb, lc } = located
+      evalGround(field, a, b, c, la, lb, lc, DETAIL_OCTAVES, g)
+      const r = 1 + RELIEF_NEAR * g.h
+      out.radius = r
+      // normal of the height field r = 1 + RELIEF_NEAR h
+      let nx = g.ux - RELIEF_NEAR * g.gx, ny = g.uy - RELIEF_NEAR * g.gy, nz = g.uz - RELIEF_NEAR * g.gz
+      const l = Math.hypot(nx, ny, nz) || 1
+      nx /= l; ny /= l; nz /= l
+      out.nx = nx; out.ny = ny; out.nz = nz
+      out.elev = g.e
+      out.lake = lake ? la * lake[a] + lb * lake[b] + lc * lake[c] : 0
+      out.cell = located.cell
+      tri.a = a; tri.b = b; tri.d = c
+      tri.la = la; tri.lb = lb; tri.ld = lc
+      tri.x = g.ux * r; tri.y = g.uy * r; tri.z = g.uz * r
+      return found
     },
     wet(p: Probe, margin: number) {
       const { a, b, d, la, lb, ld } = tri

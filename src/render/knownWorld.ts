@@ -29,6 +29,7 @@
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, RELIEF_NEAR, reliefUniforms, terrainOf } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Years over which a newly known cell clears. */
@@ -92,7 +93,8 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
   const seeds = new Uint8Array(vCount * 4)
   for (let v = 0; v < vCount; v++) {
     const c = triangles[v]
-    const r = surfaceRadius(world, c)
+    // above the highest ground around the cell (the mountains' detail stays under the mist)
+    const r = terrainOf(world).cellMaxRadius[c] + RELIEF_NEAR * 0.06
     position[v * 3] = P[c * 3] * r
     position[v * 3 + 1] = P[c * 3 + 1] * r
     position[v * 3 + 2] = P[c * 3 + 2] * r
@@ -106,7 +108,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
   geometry.setAttribute('position', new THREE.BufferAttribute(position, 3))
   geometry.setAttribute('aCorners', new THREE.BufferAttribute(corners, 3))
   geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4, true))
-  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1.03)
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1.08)
 
   const texH = Math.ceil(cellCount / TEX_W)
   const yearData = new Float32Array(TEX_W * texH).fill(NEVER)
@@ -117,6 +119,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
   yearTex.needsUpdate = true
 
   const uniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uKnownTex: { value: yearTex },
     uYear: { value: 0 },
     uFade: { value: FADE_YEARS },
@@ -128,6 +131,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aCorners;
       attribute vec4 aSeed;
       uniform sampler2D uKnownTex;
@@ -154,7 +158,7 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
         vSeed = aSeed.xyz;
         vec3 p = position + normalize(position) * uLift;
         vObj = p;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(ws_relief(p), 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
@@ -262,6 +266,8 @@ export interface ContactPulses {
   /** Per frame: year and pulse length in years (a first contact's ring lasts PULSE_SCALE times that). */
   setTime(year: number, pulseYears: number): void
   update(camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
+  /** Per cell, the year from which it is known (1e9 never); null shows all. */
+  setKnownMask(cellYear: Float32Array | null): void
   dispose(): void
 }
 
@@ -277,6 +283,7 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
   quad.setIndex([0, 1, 2, 0, 2, 3])
   const pos = new Float32Array(n * 3)
   const yr = new Float32Array(n)
+  const known = new Float32Array(n)
   for (let i = 0; i < n; i++) {
     const c = cells[i]
     const r = surfaceRadius(world, c) + 0.004
@@ -289,42 +296,51 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
   quad.setAttribute('aYear', new THREE.InstancedBufferAttribute(yr, 1))
   quad.setAttribute('aColA', new THREE.InstancedBufferAttribute(colA.slice(0, n * 3), 3))
   quad.setAttribute('aColB', new THREE.InstancedBufferAttribute(colB.slice(0, n * 3), 3))
+  const knownAttr = new THREE.InstancedBufferAttribute(known, 1)
+  quad.setAttribute('aKnown', knownAttr)
   quad.instanceCount = n
   const uniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: { value: 0 },
     uPulse: { value: 40 },
     uViewport: { value: new THREE.Vector2(1, 1) },
     uPixelRatio: { value: 1 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
+    uMaskOn: { value: 0 },
   }
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute float aYear;
       attribute vec3 aColA;
       attribute vec3 aColB;
+      attribute float aKnown;
       uniform float uYear;
       uniform float uPulse;
       uniform vec2 uViewport;
       uniform float uPixelRatio;
       uniform vec3 uCamObj;
+      uniform float uMaskOn;
       varying vec2 vPx;
       varying float vT;
       varying float vAlpha;
       varying vec3 vA;
       varying vec3 vB;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         float age = uYear - aYear;
-        vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
-        if (age < 0.0 || age > uPulse || facing <= 0.0) {
+        vec3 up = normalize(aPosR);
+        float facing = dot(up, normalize(uCamObj - aPosR));
+        bool hidden = uMaskOn > 0.5 && uYear < aKnown;
+        if (age < 0.0 || age > uPulse || facing <= 0.0 || hidden) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
         vT = age / uPulse;
         float ext = 66.0;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPos, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosR, 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;
@@ -387,6 +403,12 @@ export function buildContactPulses(world: World, cells: ArrayLike<number>, years
       mesh.worldToLocal(uniforms.uCamObj.value)
       uniforms.uViewport.value.copy(drawSize)
       uniforms.uPixelRatio.value = pixelRatio
+    },
+    setKnownMask(cellYear: Float32Array | null) {
+      uniforms.uMaskOn.value = cellYear ? 1 : 0
+      if (!cellYear) return
+      for (let i = 0; i < n; i++) known[i] = cellYear[cells[i]] ?? NEVER
+      knownAttr.needsUpdate = true
     },
     dispose() {
       quad.dispose()

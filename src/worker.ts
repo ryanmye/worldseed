@@ -83,6 +83,12 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   // knowledge, contact, technology and species tables (newer sims)
   const p = partial as Record<string, unknown>
   for (const k of ['knownYear', 'contactYear', 'technology', 'speciesYear', 'speciesSource', 'crop', 'herd']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
+  // polities: membership, territory and danger rows, wars and raids (empty placeholders are copied, not transferred)
+  for (const k of ['polity', 'landCells', 'territory', 'danger']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
+  for (const group of [partial.wars, partial.raids] as unknown as (Record<string, unknown> | undefined)[]) {
+    if (!group) continue
+    for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
+  }
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend }, [...transfer])
 }

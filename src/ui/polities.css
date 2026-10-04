@@ -1,0 +1,307 @@
+/* Factions panel, inspector faction section, chronicle headlines and filter, political event dots (politiesPanel.ts, chronicle.ts) */
+
+.factions {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(380px, 40vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.fp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.fp-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.fp-count {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.factions.collapsed .fp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.factions.collapsed .fp-body {
+  display: none;
+}
+.fp-body {
+  margin-top: 4px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.fp-cols,
+.fp-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 34px 40px;
+  align-items: center;
+  column-gap: 5px;
+}
+.fp-cols {
+  padding: 0 4px 2px 2px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.fp-cols span:nth-child(n + 3) {
+  text-align: right;
+}
+.fp-row {
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 4px 2px 2px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.fp-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.fp-row.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.fp-namecell {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.fp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fp-war {
+  flex: none;
+  font-size: 10px;
+  color: #ff8a6a;
+}
+.fp-war.hidden {
+  display: none;
+}
+.fp-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fp-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+  vertical-align: -1px;
+  margin-right: 4px;
+}
+.fp-row .fp-swatch {
+  margin-right: 0;
+}
+.fp-note {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.fp-note.hidden,
+.fp-detail.hidden {
+  display: none;
+}
+.fp-detail {
+  margin-top: 6px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.fp-d-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+.fp-d-close {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--ctl-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fp-d-line.fp-ended {
+  color: #e9b29a;
+}
+.fp-d-cap {
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.fp-tree .fp-node {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fp-node.self {
+  color: var(--text);
+  font-weight: 600;
+}
+.fp-node.ended {
+  color: var(--text-faint);
+}
+.fp-years {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.fp-war-line.ongoing {
+  color: #ffb39b;
+}
+.fp-faint {
+  color: var(--text-faint);
+}
+.fp-link {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #9fd6ea;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(159, 214, 234, 0.35);
+  text-underline-offset: 2px;
+}
+.fp-link:hover {
+  color: #d4f0fa;
+}
+.fp-link.sett {
+  display: inline;
+}
+@media (max-height: 760px) {
+  .factions {
+    flex-shrink: 1 !important;
+  }
+}
+
+/* inspector: the settlement's faction and danger */
+.insp-faction {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.insp-faction.hidden,
+.if-danger.hidden {
+  display: none;
+}
+.if-danger {
+  color: var(--text-dim);
+}
+
+/* chronicle: the filter, and headline entries (states founded and fallen, wars, capitals taken, cities sacked, secessions) */
+.chr-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.chr-filter.hidden {
+  display: none;
+}
+.chr-filter-select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: 5px;
+  padding: 1px 4px;
+}
+.chr-list li.headline {
+  background: rgba(255, 206, 140, 0.07);
+  box-shadow: inset 2px 0 0 #e8b15a;
+}
+.chr-list li.headline .ev-text {
+  color: #fff0d2;
+  font-weight: 600;
+}
+.chr-list li.ev-faint .ev-text {
+  color: var(--text-faint);
+}
+.ev-polity .ev-text::before {
+  border-radius: 1px;
+  background: #e8b15a;
+  transform: rotate(45deg) scale(0.9);
+}
+.ev-joined .ev-text::before {
+  background: #c9b48a;
+}
+.ev-war .ev-text::before {
+  border-radius: 1px;
+  background: #ff5a3c;
+}
+.ev-peace .ev-text::before {
+  background: #f2f2e6;
+  box-shadow: inset 0 0 0 1px #9ab;
+}
+.ev-conquest .ev-text::before {
+  border-radius: 1px;
+  background: #e0735a;
+}
+.ev-sack .ev-text::before {
+  background: #ff9a3c;
+  box-shadow: 0 0 0 1.5px #3a1a10;
+}
+.ev-raid .ev-text::before {
+  background: #b0584c;
+}
+.ev-revolt .ev-text::before {
+  background: #ffd24a;
+}
+.ev-walls .ev-text::before {
+  border-radius: 1px;
+  background: #a7a199;
+  box-shadow: inset 0 0 0 1px #e6dfd2;
+}

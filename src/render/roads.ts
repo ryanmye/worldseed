@@ -27,6 +27,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
 import { TOWN_MASK_GLSL, townMaskUniforms } from './dioramas/townMask.ts'
@@ -307,6 +308,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   roadTex.needsUpdate = true
 
   const uniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uRoad: { value: roadTex },
     uFrac: { value: 0 },
     uSunObj: { value: SUN_DIRECTION.clone() },
@@ -348,6 +350,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec4 aSide;
       attribute vec4 aCells; // the link's two cells, position along the half, unused
       uniform float uPixel;
@@ -361,13 +364,14 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       varying float vLevel;
       varying vec3 vObjPos;
       void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         float l = min(roadAt(aCells.x), roadAt(aCells.y));
         float vis = smoothstep(0.035, 0.14, l);
         if (vis <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 ground = position + normalize(position) * uLift;
+        vec3 ground = positionR + normalize(positionR) * uLift;
         vec4 mv = modelViewMatrix * vec4(ground, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         // half width: a track a cart or two wide up close, the map's width further out
@@ -446,6 +450,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const glyphMaterial = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
       attribute vec4 aInfo; // span (world), the road link's two cells (twice the second)
@@ -461,16 +466,17 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       varying float vAlpha;
       varying vec3 vObjPos;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         float l = min(min(roadAt(aInfo.y), roadAt(aInfo.z)), roadAt(aInfo.w));
         float vis = smoothstep(${(BRIDGE_LEVEL / 255).toFixed(4)}, ${((BRIDGE_LEVEL + 20) / 255).toFixed(4)}, l) * uBridgeZoom;
-        vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
-        if (uYield.y > 0.0) vis *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        vec3 up = normalize(aPosR);
+        float facing = dot(up, normalize(uCamObj - aPosR));
+        if (uYield.y > 0.0) vis *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPosR));
         if (vis <= 0.0 || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 c = aPos * (1.0 + uLift + 0.00006);
+        vec3 c = aPosR * (1.0 + uLift + 0.00006);
         vec4 mv = modelViewMatrix * vec4(c, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio; // world size of a CSS pixel here
         // a deck about as wide as the road (the 3D bridge is 0.00045 wide)

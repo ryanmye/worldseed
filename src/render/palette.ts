@@ -20,6 +20,10 @@ export const ViewMode = {
   Crops: 'crops',
   /** Main herd animal per cell (History.herd). */
   Herds: 'herds',
+  /** polities: flat political map (render/polities.ts draws the factions over a neutral base; hidden without polity data). */
+  Factions: 'factions',
+  /** polities: danger (raids, war, lawlessness) per land cell as a heat map (render/polities.ts), over a neutral base. */
+  Danger: 'danger',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -35,6 +39,8 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.LandUse,
   ViewMode.Crops,
   ViewMode.Herds,
+  ViewMode.Factions,
+  ViewMode.Danger,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -59,7 +65,9 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Population:
     case ViewMode.Capacity:
     case ViewMode.Crops:
-    case ViewMode.Herds: return BlendStyle.Categorical
+    case ViewMode.Herds:
+    case ViewMode.Factions:
+    case ViewMode.Danger: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
 }
@@ -260,6 +268,10 @@ export function densityRampCss(frac: number): string {
 }
 /** Land use view: the base under the shader's cultivation / degradation ramp (which needs the year). */
 const LANDUSE_WILD = rgb(46, 52, 50)
+/** Factions view: stateless land (the factions are drawn over it); Danger view: land under the heat ramp. */
+const FACTIONS_STATELESS = rgb(96, 97, 92)
+const FACTIONS_WATER = rgb(18, 30, 52)
+const DANGER_LAND = rgb(42, 46, 48)
 
 export function colorForMode(
   mode: ViewMode,
@@ -329,6 +341,12 @@ export function colorForMode(
         out[o + 1] = (c[i * 3 + 1] / 255) * scale
         out[o + 2] = (c[i * 3 + 2] / 255) * scale
       } else write(LANDUSE_WILD, out, o, scale)
+      return
+    }
+    case ViewMode.Factions:
+    case ViewMode.Danger: {
+      const water = e < 0 || world.lake?.[i] === 1
+      write(water ? (mode === ViewMode.Factions ? FACTIONS_WATER : CAPACITY_WATER) : mode === ViewMode.Factions ? FACTIONS_STATELESS : DANGER_LAND, out, o, scale)
       return
     }
   }

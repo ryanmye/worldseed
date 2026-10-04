@@ -14,6 +14,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import { createSurface, type Probe } from './dioramas/surface.ts'
 
@@ -204,9 +205,11 @@ export function buildRiverLines(world: World): RiverLines {
       uSunColor: { value: SUN_COLOR.clone() },
       uPixel: { value: 0.001 },
       uLift: { value: RIVER_LIFT },
+      uReliefK: reliefUniforms.uReliefK,
       uFar: { value: 1 },
     },
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aSide;
       attribute vec4 aData; // across (-1|1), half width (map zoom), alpha (map zoom), half width up close
       uniform float uPixel; // world size of a pixel at unit view depth
@@ -217,7 +220,8 @@ export function buildRiverLines(world: World): RiverLines {
       varying float vAlpha;
       varying vec3 vObjPos;
       void main() {
-        vec3 ground = position + normalize(position) * uLift;
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
+        vec3 ground = positionR + normalize(positionR) * uLift;
         vec4 mv = modelViewMatrix * vec4(ground, 1.0);
         float pix = -mv.z * uPixel;
         float w = mix(aData.w, aData.y, uFar);

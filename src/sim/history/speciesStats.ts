@@ -15,6 +15,9 @@ import type { HistoryState } from './state.ts'
 import type { Terrain } from './terrain.ts'
 import { SPECIES } from './params.ts'
 import { cropOf, K_COUNT, S_COUNT, SPECIES_TABLE, TECHNIQUES } from './species.ts'
+import { HABIT } from './params.ts' // species-v2
+import { formatSpecies2Stats, newProbe2, species2Detail, species2Probe, species2SeedStats } from './species2Stats.ts' // species-v2
+import type { Species2SeedStats } from './species2Stats.ts'
 
 export const SPECIES_STATS_SEEDS = [1, 2, 3, 42, 1337, 2024, 31337, 77, 99999, 123456, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
 /** Years at which the per-cradle crop multiplier and herd effect are sampled. */
@@ -402,7 +405,7 @@ export function asciiCropMap(world: World, h: History, year: number, W = 120, H 
     const row = Math.min(H - 1, Math.floor((1 - (lat / (Math.PI / 2) + 1) / 2) * H))
     return row * W + col
   }
-  const letters = 'WBRMPCS'
+  const letters = 'WBRMPCS.....LTYNU' // (species-v2: L millet, T sweet potato, Y yam / taro, N plantain, U pulse)
   const q = Math.min(h.landSnapshotCount - 1, Math.round(year / h.landInterval))
   for (let i = 0; i < N; i++) {
     const p = at(i)
@@ -414,7 +417,7 @@ export function asciiCropMap(world: World, h: History, year: number, W = 120, H 
     if (u > 0) { ch = c > 0 ? letters[c - 1] : ','; r = 2 + u / 255 }
     if (r > rank[p]) { rank[p] = r; grid[p] = ch }
   }
-  const lines = [`year ${year} main staple: W wheat B barley R paddy rice M maize P potato C cassava S sorghum  , farmed but no staple held grows there   (. land ^ mountain : desert)`]
+  const lines = [`year ${year} main staple: W wheat B barley R paddy rice M maize P potato C cassava S sorghum L millet T sweet potato Y yam/taro N plantain U pulse  , farmed but no staple held grows there   (. land ^ mountain : desert)`]
   for (let row = 0; row < H; row++) lines.push(grid.slice(row * W, row * W + W).join(''))
   return lines.join('\n')
 }
@@ -462,13 +465,27 @@ export function speciesDetail(world: World, h: History, diag: HistoryDiagnostics
   return L.join('\n')
 }
 
-export function runSpeciesStats(seeds: number[], detail: boolean, counterfactual = true): string {
+export function runSpeciesStats(seeds: number[], detail: boolean, counterfactual = true, harmOff = false): string {
   const rows: SpeciesSeedStats[] = []
+  const rows2: Species2SeedStats[] = []
   const extra: string[] = []
   for (const seed of seeds) {
     const w = generateWorld(seed)
     const probe: SpeciesProbe = { pop: [], crop: [], herd: [], popP: [], cmP: [], marginal: [] }
-    const run = runHistory(w, undefined, speciesProbe(probe))
+    const p2 = newProbe2()
+    const f1 = speciesProbe(probe), f2 = species2Probe(p2)
+    const run = runHistory(w, undefined, (s, t) => { f1(s); f2(s, t) })
+    // species-v2: the same world with stimulants' harm off.
+    let off: ReturnType<typeof newProbe2> | undefined
+    if (harmOff) {
+      off = newProbe2()
+      const g = species2Probe(off)
+      const H = HABIT as { harm: boolean }
+      H.harm = false
+      try { runHistory(w, undefined, (s, t) => g(s, t)) } finally { H.harm = true }
+    }
+    const st2 = species2SeedStats(w, run.history, run.terrain, run.diag, p2, off)
+    rows2.push(st2)
     let alone: SpeciesProbe | undefined
     if (counterfactual) {
       // The same world without species exchange between peoples.
@@ -480,10 +497,11 @@ export function runSpeciesStats(seeds: number[], detail: boolean, counterfactual
     rows.push(speciesSeedStats(w, run.history, run.terrain, run.diag, probe, alone))
     if (detail) {
       extra.push(speciesDetail(w, run.history, run.diag))
+      extra.push(species2Detail(w, run.history, run.diag, st2))
       for (const y of [500, 1000, 1500, 2000]) extra.push(asciiCropMap(w, run.history, y))
     }
   }
-  return formatSpeciesStats(rows) + (extra.length ? '\n\n' + extra.join('\n\n') : '')
+  return formatSpeciesStats(rows) + '\n' + formatSpecies2Stats(rows2) + (extra.length ? '\n\n' + extra.join('\n\n') : '')
 }
 
 if (typeof import.meta !== 'undefined' && (import.meta as { main?: boolean }).main) {
@@ -491,5 +509,5 @@ if (typeof import.meta !== 'undefined' && (import.meta as { main?: boolean }).ma
   const args = argv.slice(2)
   const detail = args.includes('--detail')
   const seeds = args.map(Number).filter((s) => Number.isFinite(s))
-  console.log(runSpeciesStats(seeds.length > 0 ? seeds : SPECIES_STATS_SEEDS, detail, !args.includes('--fast')))
+  console.log(runSpeciesStats(seeds.length > 0 ? seeds : SPECIES_STATS_SEEDS, detail, !args.includes('--fast'), args.includes('--harm')))
 }

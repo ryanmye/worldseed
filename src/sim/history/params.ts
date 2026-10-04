@@ -609,11 +609,11 @@ export const MOVE_COST = {
  */
 export const GOODS = {
   /** Worth of one unit (a unit of food feeds one person for a year). Trade volume is counted in loads: units * value. */
-  value: [1, 1.2, 1.4, 2, 5, 6],
-  /** Need per person per year (food needs sum to 1: the preferred diet). */
-  need: [0.55, 0.15, 0.3, 0.08, 0.03, 0.025],
+  value: [1, 1.2, 1.4, 2, 5, 6, 2.5, 14, 9], // (species-v2: Cloth, Luxury, Stimulant appended)
+  /** Need per person per year (food needs sum to 1: the preferred diet); Cloth, Luxury, Stimulant scaled by wealth, size and habit (CASHCROP). */
+  need: [0.55, 0.15, 0.3, 0.08, 0.03, 0.025, 0.05, 0.008, 0.004],
   /** Transport cost per unit per cell unit of route cost, at productivity 1. */
-  transport: [0.035, 0.045, 0.04, 0.05, 0.06, 0.06],
+  transport: [0.035, 0.045, 0.04, 0.05, 0.06, 0.06, 0.05, 0.06, 0.055],
   /** Transport gets cheaper with technology: divided by 1 + transportTech * (productivity - 1). */
   transportTech: 0.6,
   /** Non-food needs grow with technology: need * (1 + demandTech * (productivity - 1)). */
@@ -757,9 +757,9 @@ export const SPECIES = {
    * Normalisation: the food system multiplies a settlement's farm part by its raw crop multiplier / norm. Chosen so a
    * typical cradle with a decent founding set starts near 1 (the old calibration); see the stats harness.
    */
-  norm: 1.17,
+  norm: 1.26, // (species-v2: was 1.17; the staples yield more now)
   /** Above the old calibration, gains count at this share (the best land and crops do not compound without limit: the top settlements stay near the old sizes). */
-  above: 0.6,
+  above: 0.5, // (species-v2: was 0.6)
   /** Neighbours a settlement exchanges with: settlements within this catchment distance (n = 48 hops) of it. */
   linkHops: 2,
   /** A settlement's reckoning of what a species would bring it holds this many years (or until its species change). */
@@ -815,7 +815,7 @@ export const SPECIES = {
  */
 export const TECHNIQUE = {
   /** Chance per decade a settlement takes up each technique from a link that has it (benefit 1, same people), in TECHNIQUES order. */
-  adopt: [0.3, 0.2, 0.2],
+  adopt: [0.3, 0.2, 0.2, 0.15, 0.15, 0.05, 0.1, 0.15, 0.15, 0.2], // (species-v2: was [0.3, 0.2, 0.2] for the first three)
   /** earlyRice: once a people has grown paddy rice for heldYears, chance * (share of its people in hot paddy settlements); paddy yield + yield on cells of t >= hot, wetter water rule. */
   riceHeld: 300,
   riceChance: 0.012,
@@ -852,4 +852,208 @@ export const DISEASE = {
   /** A people struck by an epidemic suffers no other for cooldown years (new sicknesses pass with no great dying); loads seep toward share * the heaviest among peoples met at seep a year. */
   cooldown: 250,
   seep: 0.004,
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// species-v2: storage, cash crops, habit, blight, techniques (speciesV2.ts and the files it runs). Catalogue values
+// (yield, storability, wear, habit, harm, cash yield) are in species.ts SPECIES_TABLE.
+
+/** Storage and harvest stability (storage.ts, species.ts cropOf), the land under cash crops (cashCrops.ts), and the other v2 mechanics' small constants. */
+export const SPECIES2 = {
+  /** Storage on (false only in the stats harness's counterfactual). */
+  storage: true,
+  /**
+   * A bad harvest's shortfall is weighted by sum over the staples of share * sigma * (1 - storeDamp * store) / dampRef
+   * (store: what counts against drought; cassava keeps in the ground), so grain-eaters ride out droughts that ruin tuber-eaters.
+   */
+  storeDamp: 0.4,
+  dampRef: 0.66,
+  /** Minor crops and the wild (the floor): storability. */
+  minorStore: 0.5,
+  /** Crop choice on a cell ranks staples by yield * (1 - storePref * (1 - storability)): a harvest that keeps is worth more than its calories. */
+  storePref: 0.2,
+  /** Freeze-dried potato keeps this well. */
+  chunoStore: 0.65,
+  /** Grain from a settlement with storable share x costs 1 / (perishLow + (1 - perishLow) * x) times as much to carry. */
+  perishLow: 0.35,
+  /** Terracing: the highland penalty of a cell's fields is cut by this share. */
+  terraceCut: 0.5,
+  /** A cereal field beside a legume (pulse held and fitting): yield * (1 + pulseBonus * pulse fit). */
+  pulseBonus: 0.1,
+  /** Selective breeding: herd yield * (1 + breedYield). */
+  breedYield: 0.15,
+  /** Founding sets: with this chance one cash crop fitting the tribes' land at least cashFoundingFit. */
+  cashFounding: 0.4,
+  cashFoundingFit: 0.45,
+  /** Cash benefit: gain = cashGain * smoothstep(0, 1, price * cash yield * catchment fit / max(grain price, minFoodPrice) - 1) for traders; else homeCloth / homeCash; stimulants + habitGain * the people's habit. */
+  cashGain: 0.35,
+  minFoodPrice: 0.3,
+  homeCloth: 0.04,
+  homeCash: 0.06,
+  habitGain: 0.3,
+  /** Bamboo: benefit gain bambooGain * catchment fit; timber output * (1 + bambooTimber * catchment fit). */
+  bambooGain: 0.2,
+  bambooTimber: 0.6,
+  /** Ornamentals: taken up by settlements of at least ornamentPop, benefit smoothstep(ornamentLow, ornamentHigh, prosperity). */
+  ornamentPop: 1500,
+  ornamentLow: 0.15,
+  ornamentHigh: 0.5,
+  /** Crop multipliers of labour-heavy staples' holders are refreshed (SPECIES.refresh) only once the land pressure moved by pressMove. */
+  pressMove: 0.05,
+  /** A staple growing where none a settlement holds does: benefit at least coverBen * smoothstep(coverLow, coverHigh, share of its fields so uncovered). */
+  coverBen: 0.5,
+  coverLow: 0.02,
+  coverHigh: 0.2,
+  /** Cash layer: a settlement's cash crop shows on its cells from this share of its fields. */
+  cashShown: 0.03,
+}
+
+/**
+ * Cash crops (cashCrops.ts): every `step` years per settlement (staggered by id) the share x_c of its fields under each
+ * cash crop c it holds that fits its land (catchment fit >= minFit) moves toward
+ *   x*_c = xMax * smoothstep(0, 1, (price of c's good * cash yield * fit) / max(grain price, SPECIES2.minFoodPrice) - 1) / max(1, sum)
+ * at `rate` a year, xMax = base + prosperous * prosperity, times smoothstep(fedLow, fedHigh, food) (a hungry settlement grows food);
+ * settlements that do not trade grow only home share of stimulants (habit). Output: x_c * crop food * cash yield * fit units a
+ * year of c's good; wool: the herds' wool share of the livestock food, in Cloth. The fields' soil wears at
+ * 1 + sum x_c * (wear_c - 1) (and the staples' own wear on their shares).
+ */
+export const CASHCROP = {
+  step: 10,
+  rate: 0.1,
+  minFit: 0.3,
+  base: 0.08,
+  prosperous: 0.4,
+  fedLow: 0.85,
+  fedHigh: 0.98,
+  home: 0.003,
+  /** Soil wear per cell is reckoned every wearStep years (a multiple of LAND.step). */
+  wearStep: 20,
+  /** Wear of the staples counts at this share of its deviation from 1 (paddy keeps its soil, maize wears it); cattle and buffalo manure: wear * (1 - manure). */
+  stapleWear: 0.5,
+  manure: 0.08,
+  /** Demand (trade.ts needs, per person a year, times 1 + GOODS.demandTech * (Crafts - 1)):
+   *  Cloth: need * (1 + clothWealth * w / (w + WEALTH.half));
+   *  Luxury: need * (luxBase + luxTown * smoothstep(luxTownLow, luxTownHigh, pop) + luxWealth * w / (w + WEALTH.half));
+   *  Stimulant: need * (stimBase + stimWealth * w / (w + WEALTH.half)) * (1 + stimHabit * H), H the people's habit (summed, at most habitMax).
+   *  Worth: Luxury * the food bid (prosperous settlements outbid others), Stimulant * (1 + premium * H). */
+  clothWealth: 0.6,
+  luxBase: 0.03,
+  luxTown: 1,
+  luxTownLow: 1500,
+  luxTownHigh: 15000,
+  luxWealth: 1.2,
+  stimBase: 0.15,
+  stimWealth: 0.5,
+  stimHabit: 3,
+  habitMax: 1.5,
+  premium: 1,
+  /** Merchants carry light, dear goods off in bulk: at most maxShare of a settlement's Cloth, Luxury or Stimulant leaves in one flow step (TRADE.maxShare for the rest). */
+  maxShare: 0.7,
+  /** Buyers of Luxury and Stimulant pay this share of their value (at the buyer's price) out of their wealth, at most payMax of it a year. */
+  pay: 0.5,
+  payMax: 0.1,
+}
+
+/**
+ * Habit (habit.ts): per people and stimulant, habit h moves every `step` years toward habit_s * e / (e + half),
+ * e = consumption per head / GOODS.need[Stimulant], at `up` a year when rising and `down` when falling (quick to form,
+ * slow to fade); consumption is sampled in the step year. Effects at habit h: farm food * (1 - harmEcon * h) and deaths
+ * harmDeath * h a year (applied every step; catalogue values; `harm` false only in the stats harness's counterfactual).
+ * HabitSpreads when h first passes `spreads`. Drain: the people's net import value of a stimulant (smoothed at `smooth` a
+ * year) above drainShare of its trade income (wealth gained a year over the last step) for drainYears in a row (and at
+ * least drainMin), once per people and stimulant. Buyers pay CASHCROP.pay of what they buy out of their wealth.
+ */
+export const HABIT = {
+  step: 5,
+  half: 0.4,
+  up: 0.02,
+  down: 0.006,
+  harm: true,
+  spreads: 0.2,
+  smooth: 0.1,
+  drainShare: 0.1,
+  drainMin: 20,
+  drainYears: 30,
+}
+
+/**
+ * Blight (blight.ts): every `step` years per people and staple, chance
+ *   base * clone * share^3 * (1 + v / (v + tradeHalf)) * (pests present ? 1 : release) / strains
+ * share = the staple's share of the people's crop food, v its trade with other peoples (loads a year), strains = 1 + blights
+ * survived. Pests are present on the landmasses of the staple's origins and arrive with contact with a people holding it
+ * there. A blight takes loss (U(lossLow, lossHigh) for clonal crops, U(seedLow, seedHigh) for seed crops) of that staple's
+ * harvest for U(yearsLow, yearsHigh) years; it jumps to each people in contact holding it with chance share * (jump + jumpTrade * v / (v + tradeHalf)).
+ * Panzootic: a people taking up a herd animal from a people that has kept it at least panzooticAge years loses U(herdLow, herdHigh)
+ * of its herds with chance panzootic, regrowing over herdYears.
+ */
+export const BLIGHT = {
+  step: 20,
+  base: 0.009,
+  /** Seed crops' exposure relative to clonal ones' clone factor; risk / resist^(blights survived); none below cropLow people on the staple's land, full from cropHigh. */
+  seed: 0.35,
+  resist: 3,
+  cropLow: 1500,
+  cropHigh: 15000,
+  tradeHalf: 500,
+  release: 0.3,
+  lossLow: 0.6,
+  lossHigh: 0.9,
+  seedLow: 0.3,
+  seedHigh: 0.55,
+  yearsLow: 4,
+  yearsHigh: 7,
+  jump: 0.05,
+  jumpTrade: 0.3,
+  panzootic: 0.25,
+  panzooticAge: 400,
+  herdLow: 0.5,
+  herdHigh: 0.85,
+  herdYears: 15,
+}
+
+/**
+ * Techniques (techniques.ts): found every `step` years per people by trigger (chances per decade below), far less often
+ * (contactFactor) while a people it has met holds it (it would rather learn it); spread as species do (TECHNIQUE.adopt), between
+ * peoples over links at bridge TECHNIQUE.cross + TECHNIQUE.crossTrade * v / (v + TECHNIQUE.tradeHalf).
+ */
+export const TECHNIQUE2 = {
+  step: 20,
+  contactFactor: 0.1,
+  /** Only settlements of at least minPop people meet a trigger (and are where a technique is found). */
+  minPop: 300,
+  /** Within a people a technique spreads at inPeople (per decade, benefit 1) like SPECIES.inPeople; between peoples over links at bridge cross + crossTrade * v / (v + tradeHalf). */
+  inPeople: 0.05,
+  cross: 0.3,
+  crossTrade: 0.8,
+  tradeHalf: 200,
+  /** Vines and orchards spread graftAdopt times as fast once grafting is held. */
+  graftAdopt: 3,
+  /** terrace: Farming >= terraceFarming, chance * share of the people in crowded (pop / food >= crowd) hill settlements (relief < hill). */
+  terraceFarming: 2.2,
+  terraceChance: 0.03,
+  crowd: 0.75,
+  hill: 0.85,
+  /** paddyIrrigation: paddy held and a dam in use. */
+  irrigationChance: 0.03,
+  /** nixtamal: only peoples that tamed maize or had it from the start, held >= nixHeld years. */
+  nixHeld: 100,
+  nixChance: 0.03,
+  /** Pellagra: farm food * (1 - pellagra * smoothstep(pellagraLow, pellagraHigh, maize share)) without nixtamal. */
+  pellagra: 0.1,
+  pellagraLow: 0.35,
+  pellagraHigh: 0.75,
+  /** freezeDrying: potato held, chance * share of the people on cold highland (t < coldT, elevation > coldE). */
+  chunoChance: 0.04,
+  coldT: 0.5,
+  coldE: 0.2,
+  /** grafting: Crafts >= graftCrafts, holding a vine or orchard species. */
+  graftCrafts: 2,
+  graftChance: 0.02,
+  /** breeding: Farming >= breedFarming, at least two herd animals. */
+  breedFarming: 2.8,
+  breedChance: 0.02,
+  /** hardyGrain: barley held hardyHeld years, chance * share of the people on cold margins (t < hardyT). */
+  hardyHeld: 200,
+  hardyT: 0.4,
+  hardyChance: 0.02,
 }

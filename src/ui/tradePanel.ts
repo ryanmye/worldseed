@@ -6,6 +6,7 @@
 import { formatInt, formatPopulation, goodName } from './format.ts'
 import { isAlive, type HistoryIndex } from './historyIndex.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
+import { GOOD_COUNT } from '../contract.ts'
 import './trade.css'
 
 /** Partners listed by name; the rest are counted. */
@@ -86,7 +87,7 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
     if (rows.length === 0) return
 
     let sea = 0
-    const exported = new Float64Array(8), imported = new Float64Array(8)
+    const exported = new Float64Array(GOOD_COUNT), imported = new Float64Array(GOOD_COUNT)
     for (const { r, v } of rows) {
       if (td.bySea[r]) sea++
       const isA = T.a[r] === id

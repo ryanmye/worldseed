@@ -38,13 +38,14 @@
 import * as THREE from 'three'
 import { GOOD_COUNT, type TradeRoutes, type World } from '../contract.ts'
 import { SUN_DIRECTION } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, networkRouteSamples, routeNetwork } from './routeCurves.ts'
 
-/** Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt. Chosen to read on water and land alike. */
-export const GOOD_COLORS: readonly string[] = ['#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee']
-/** Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. */
-const GOOD_PALETTE = [3, 6, 5, 4, 2, 7]
+/** Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury, stimulant. Chosen to read on water and land alike. */
+export const GOOD_COLORS: readonly string[] = ['#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#ff5fb0', '#c9712e']
+/** Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. The palette has no spare slots, so cloth, luxury and stimulant reuse the closest existing tints. */
+const GOOD_PALETTE = [3, 6, 5, 4, 2, 7, 1, 5, 7]
 
 /** Height of the routes above the ground (as the journey trails, so ships and carts sit right). */
 const LIFT = 0.0032
@@ -265,6 +266,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   lineGeom.setIndex(new THREE.BufferAttribute(index, 1))
 
   const shared = {
+    uReliefK: reliefUniforms.uReliefK,
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
@@ -297,6 +299,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const lineMaterial = new THREE.ShaderMaterial({
     uniforms: lineUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec4 aSide; // side direction, across (-1|1)
       attribute vec4 aLink; // link texel, node texel, position along the half (0 node .. 1 midpoint), sea
       attribute float aArc; // arc length from the link midpoint
@@ -327,6 +330,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         return texelFetch(uVol, ivec2(i - (i / ${TEX_W}) * ${TEX_W}, i / ${TEX_W}), 0);
       }
       void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         vec4 lk = texel(aLink.x);
         float s = mix(level(lk.x), level(lk.y), uFrac);
         vSea = aLink.w;
@@ -343,7 +347,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         vStrength = mix(max(s, sn), s, smoothstep(0.0, 0.45, aLink.z));
         // half widths in CSS pixels: hairlines for minor links, a couple of pixels for arteries
         float core = (0.3 + 1.15 * vStrength * vStrength) * mix(0.45, 1.0, uClose);
-        vec3 base = position - normalize(position) * uDrop;
+        vec3 base = positionR - normalize(positionR) * uDrop;
         vec4 mv = modelViewMatrix * vec4(base, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + 0.6;
@@ -352,8 +356,8 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         vAcross = aSide.w;
         vec3 p = base + aSide.xyz * aSide.w * outer * pix;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        vec3 up = normalize(position);
-        vFacing = dot(up, normalize(uCamObj - position));
+        vec3 up = normalize(positionR);
+        vFacing = dot(up, normalize(uCamObj - positionR));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vArc = aArc;
       }
@@ -405,6 +409,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const highlightMaterial = new THREE.ShaderMaterial({
     uniforms: highlightUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec4 aSide; // side direction, across (-1|1)
       attribute vec4 aRoute; // route id, year first opened, sea, arc length
       uniform sampler2D uRouteVol;
@@ -425,6 +430,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       varying float vGhost;
       ${LEVEL_GLSL}
       void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         int id = int(aRoute.x + 0.5);
         vec4 t = texelFetch(uRouteVol, ivec2(id - (id / ${TEX_W}) * ${TEX_W}, id / ${TEX_W}), 0);
         float s = mix(level(t.x), level(t.y), uFrac);
@@ -436,7 +442,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         }
         float strength = max(s, vGhost * 0.15);
         float core = (1.05 + 0.75 * strength) * mix(0.4, 1.0, uClose);
-        vec3 base = position - normalize(position) * uDrop;
+        vec3 base = positionR - normalize(positionR) * uDrop;
         vec4 mv = modelViewMatrix * vec4(base, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float outer = core + mix(0.3, 1.0, uClose) + 0.6;
@@ -445,7 +451,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         vAcross = aSide.w;
         vec3 p = base + aSide.xyz * aSide.w * outer * pix;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        vFacing = dot(normalize(position), normalize(uCamObj - position));
+        vFacing = dot(normalize(positionR), normalize(uCamObj - positionR));
         vArc = aRoute.w;
         vSea = aRoute.z;
       }
@@ -559,6 +565,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const merchantMaterial = new THREE.ShaderMaterial({
     uniforms: merchantUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
       attribute vec4 aInfo; // good, size (0..1), at sea, opacity
@@ -578,8 +585,9 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       varying float vNight;
       varying vec3 vFill;
       void main() {
-        vec3 up = normalize(aPos);
-        vec3 at = aPos - up * uDrop;
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
+        vec3 up = normalize(aPosR);
+        vec3 at = aPosR - up * uDrop;
         float facing = dot(up, normalize(uCamObj - at));
         if (facing <= 0.0 || aInfo.w <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);

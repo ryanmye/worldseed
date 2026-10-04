@@ -22,6 +22,7 @@
 import * as THREE from 'three'
 import { Biome, type History, type World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, reliefRadius, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import type { ExpeditionData } from '../ui/expeditionsData.ts'
 import { DIORAMA_FAR, DIORAMA_NEAR } from './dioramas/layer.ts'
@@ -310,6 +311,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   quad.instanceCount = n
 
   const glyphUniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: { value: 0 },
     uPulseYears: { value: 20 },
     uViewport: { value: new THREE.Vector2(1, 1) },
@@ -331,6 +333,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   const glyphMaterial = new THREE.ShaderMaterial({
     uniforms: glyphUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec2 aLife;
       attribute vec4 aInfo;
@@ -363,6 +366,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
       varying float vNight;
       varying float vYield;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         bool lost = aInfo.x > 0.5;
         vSel = abs(aInfo.y - uSelected) < 0.5 ? 1.0 : 0.0;
         vHov = abs(aInfo.y - uHovered) < 0.5 ? 1.0 : 0.0;
@@ -370,8 +374,8 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         bool alive = uYear >= aLife.x && uYear < aLife.y;
         if (uMaskOn > 0.5 && uYear < aKnown) alive = false;
         if ((lost ? uLost : uFlags) < 0.5) alive = false;
-        vec3 up = normalize(aPos);
-        vec3 at = aPos - up * uDrop;
+        vec3 up = normalize(aPosR);
+        vec3 at = aPosR - up * uDrop;
         float facing = dot(up, normalize(uCamObj - at));
         float zoom = max(uZoom, special);
         if (!alive || facing <= 0.0 || zoom <= 0.01) {
@@ -541,6 +545,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   const lineKnownAttr = new THREE.BufferAttribute(lineKnown, 1)
   lineGeom.setAttribute('aKnown', lineKnownAttr)
   const lineUniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: glyphUniforms.uYear,
     uCamObj: glyphUniforms.uCamObj,
     uSelected: glyphUniforms.uSelected,
@@ -557,6 +562,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   const lineMaterial = new THREE.ShaderMaterial({
     uniforms: lineUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec4 aSide; // side direction, across (-1|1)
       attribute float aArc;
       attribute vec4 aInfo; // base id, parent id, founded, abandoned
@@ -577,12 +583,13 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
       varying float vAcross;
       varying float vSel;
       void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         bool alive = uYear >= aInfo.z && uYear < aInfo.w;
         if (uMaskOn > 0.5 && uYear < aKnown) alive = false;
         float sel = abs(aInfo.x - uSelected) < 0.5 || abs(aInfo.y - uSelected) < 0.5 ? 1.0 : 0.0;
         float hov = abs(aInfo.x - uHovered) < 0.5 || abs(aInfo.y - uHovered) < 0.5 ? 0.7 : 0.0;
-        vec3 up = normalize(position);
-        float facing = dot(up, normalize(uCamObj - position));
+        vec3 up = normalize(positionR);
+        float facing = dot(up, normalize(uCamObj - positionR));
         float night = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
         vSel = max(sel, hov);
         vA = max(vSel * 0.95, uFaint) * smoothstep(0.0, 0.25, facing) * mix(1.0, 0.6, night);
@@ -590,7 +597,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 base = position - up * uDrop;
+        vec3 base = positionR - up * uDrop;
         vec4 mv = modelViewMatrix * vec4(base, 1.0);
         float pix = -mv.z * uPixel * uPixelRatio;
         float halfW = vSel > 0.5 ? 2.1 : 1.5; // CSS px: a light core of about 1-1.5 px and a dark rim
@@ -660,6 +667,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
   const campKnownAttr = new THREE.BufferAttribute(campKnown, 1)
   campGeom.setAttribute('aKnown', campKnownAttr)
   const campUniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: glyphUniforms.uYear,
     uCamObj: glyphUniforms.uCamObj,
     uSunObj: glyphUniforms.uSunObj,
@@ -671,6 +679,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
     uniforms: campUniforms,
     side: THREE.DoubleSide,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aColor;
       attribute vec3 aAnchor;
       attribute vec2 aLife;
@@ -692,7 +701,7 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 p = aAnchor + (position - aAnchor) * s;
+        vec3 p = ws_relief(aAnchor) + (position - aAnchor) * s;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         vC = aColor;
         vN = normal;
@@ -800,7 +809,8 @@ export function buildOutpostLayer(world: World, h: History, data: ExpeditionData
         if (zoom < 0.2 && !special) continue
         const cx = gPos[k * 3], cy = gPos[k * 3 + 1], cz = gPos[k * 3 + 2]
         if ((camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
-        tmp.set(cx, cy, cz).multiplyScalar(1 - dropNow / Math.hypot(cx, cy, cz)).applyMatrix4(mvp)
+        const cr = Math.hypot(cx, cy, cz), crr = reliefRadius(cr) // as drawn (ws_relief)
+        tmp.set(cx, cy, cz).multiplyScalar((crr - dropNow) / cr).applyMatrix4(mvp)
         const sx = ((tmp.x + 1) / 2) * width, sy = ((1 - tmp.y) / 2) * height
         // the flag stands above its foot: aim at its middle
         const ext = 8.5 * sizeScale

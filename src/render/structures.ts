@@ -15,6 +15,7 @@
 import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, StructureType, type Settlement, type Structure, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, PLANET_RADIUS, SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of icon anchors above the ground (settlement markers sit at 0.004). */
@@ -181,6 +182,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
   quad.instanceCount = n
 
   const uniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: { value: 0 },
     uAnimYears: { value: 20 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
@@ -196,6 +198,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
       attribute vec4 aInfo; // built year, lost year, type (0 port, 1 dam)
@@ -217,13 +220,14 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       varying float vRuin;
       varying float vNight;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         float built = aInfo.x;
         float lost = aInfo.y;
-        vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
+        vec3 up = normalize(aPosR);
+        float facing = dot(up, normalize(uCamObj - aPosR));
         float age = uYear - built;
         float gone = uYear - lost;
-        vec4 mv = modelViewMatrix * vec4(aPos, 1.0);
+        vec4 mv = modelViewMatrix * vec4(aPosR, 1.0);
         // on-screen size of a grid cell here, in CSS pixels
         float cellPx = uCellSpacing / max(-mv.z * uPixel, 1e-9) / uPixelRatio;
         float zoomA = smoothstep(13.0, 24.0, cellPx);
@@ -254,7 +258,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vec2 ax = vec2(1.0, 0.0);
         if (vType > 0.5) {
           vec4 clip0 = projectionMatrix * mv;
-          vec4 clip1 = projectionMatrix * modelViewMatrix * vec4(aPos + aDir * 0.005, 1.0);
+          vec4 clip1 = projectionMatrix * modelViewMatrix * vec4(aPosR + aDir * 0.005, 1.0);
           vec2 dd = (clip1.xy / clip1.w - clip0.xy / clip0.w) * uViewport;
           vec2 fwd = length(dd) > 1e-6 ? normalize(dd) : vec2(0.0, 1.0);
           ax = vec2(fwd.y, -fwd.x);
@@ -267,7 +271,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vPx = position.xy * ext;
         vAlpha = zoomA * smoothstep(0.0, 0.3, facing) * (1.0 - vRuin);
         // up close the dock or dam model stands in for the icon
-        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPos));
+        if (uYield.y > 0.0) vAlpha *= smoothstep(uYield.x, uYield.y, length(uCamObj - aPosR));
         vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
       }
     `,

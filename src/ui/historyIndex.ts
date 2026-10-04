@@ -7,6 +7,7 @@ import { LAST_SHOWN_EVENT, PeoplesEvent } from './format.ts'
 import type { PeoplesData } from './peoplesData.ts'
 import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
+import { gainKey, isMinorGain, revoltPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -28,6 +29,14 @@ export const EntryKind = {
   Burst: 7,
   /** Landfalls on small islands (under SMALL_ISLAND_CELLS) in one decade; landfalls on larger land stay single entries. */
   Landfalls: 8,
+  /** polities: minor gains (towns joining, settlements taken that are not capitals) of one polity from one other in one decade (polityFormat.ts gainKey). */
+  PolityGains: 9,
+  /** polities: raids on towns in one decade. */
+  Raids: 10,
+  /** polities: the small raids of one decade (History.raids); members are -(RAID_MEMBER_BASE + summary row). */
+  SmallRaids: 11,
+  /** polities: revolts against one polity, and their crushing, in one decade. */
+  Revolts: 12,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -262,6 +271,7 @@ function thinJourneys(J: Journeys, years: number): Journeys {
   const keep = new Uint8Array(n)
   const chunks: number[][] = []
   for (let j = 0; j < n; j++) {
+    if (J.kind[j] === JourneyKind.Army) continue // armies are drawn by the polities layer (render/polities.ts)
     if (J.kind[j] !== JourneyKind.Migrants) keep[j] = 1
     else if (J.size[j] >= MIGRANT_MIN_SIZE) {
       const c = Math.max(0, Math.ceil(J.arriveYear[j] / HISTORY_CHUNK_YEARS) - 1)
@@ -337,18 +347,28 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return type >= EventType.Founded && type <= LAST_SHOWN_EVENT
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 34) // 20-34: polities
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
 function otherIsSettlement(type: number): boolean {
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
     type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
-    type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic
+    type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic ||
+    // polities: the conqueror's, old, defending or receiving capital (not the capital of every town that joins)
+    type === 21 || type === 22 || type === 24 || type === 25 || type === 30 || type === 32 || type === 33
 }
 
-/** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per decade. */
+/** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
 const SMALL_ISLAND_CELLS = 25
+
+/**
+ * Island landfalls are gathered per this many years rather than per FOUNDING_BUCKET_YEARS:
+ * they happen roughly once every 38 years, so the finer decade grouping rarely sees two in
+ * the same bucket and the chronicle lists them one by one.
+ */
+export const ISLAND_BUCKET_YEARS = 50
+const islandBucketOf = (year: number) => Math.floor(year / ISLAND_BUCKET_YEARS)
 
 /** Whether naming a feature is worth a chronicle line: continents and oceans, the larger seas, rivers, ranges and so on. */
 export function isMajorFeature(f: GeoFeature, cellCount: number): boolean {
@@ -378,6 +398,34 @@ function namingEntries(h: History): { year: number; members: number[] }[] {
     const last = out[out.length - 1]
     if (last && last.year === f.namedYear && last.by === f.namedBy) last.members.push(-f.id - 1)
     else out.push({ year: f.namedYear, members: [-f.id - 1], by: f.namedBy })
+  }
+  out.sort((a, b) => a.year - b.year)
+  return out
+}
+
+/** Chronicle members standing for rows of History.raids are -(RAID_MEMBER_BASE + row). */
+export const RAID_MEMBER_BASE = 1 << 24
+
+/** Year a decade's small raids appear in the chronicle: its last year. */
+export function smallRaidYear(h: History, row: number): number {
+  return h.raids.decade[row] * 10 + 9
+}
+
+/** Chronicle entries for the small raids (History.raids), one per decade with two raids or more, in year order. */
+function smallRaidEntries(h: History): { year: number; members: number[] }[] {
+  const R = (h as Partial<History>).raids
+  if (!R || !(R.count > 0) || !R.decade || !R.raids) return []
+  const out: { year: number; members: number[] }[] = []
+  let k = 0
+  while (k < R.count) {
+    const d = R.decade[k]
+    const members: number[] = []
+    let raids = 0
+    for (; k < R.count && R.decade[k] === d; k++) {
+      members.push(-(RAID_MEMBER_BASE + k))
+      raids += R.raids[k]
+    }
+    if (raids >= 2) out.push({ year: d * 10 + 9, members })
   }
   out.sort((a, b) => a.year - b.year)
   return out
@@ -449,9 +497,9 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const foundingsPerBucket = new Map<number, number>()
   for (const e of h.events) if (isColony(e.type, e.other, e.settlement)) foundingsPerBucket.set(bucketOf(e.year), (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) + 1)
   // trade routes open by the dozen once trade takes off, migrations too: per decade as well
-  const perBucket = (type: number, keep: (value: number) => boolean) => {
+  const perBucket = (type: number, keep: (value: number) => boolean, bucket: (year: number) => number = bucketOf) => {
     const m = new Map<number, number>()
-    for (const e of h.events) if (e.type === type && keep(e.value)) m.set(bucketOf(e.year), (m.get(bucketOf(e.year)) ?? 0) + 1)
+    for (const e of h.events) if (e.type === type && keep(e.value)) m.set(bucket(e.year), (m.get(bucket(e.year)) ?? 0) + 1)
     return m
   }
   const openingsPerBucket = perBucket(EventType.TradeOpened, () => true)
@@ -461,7 +509,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const burstEntry = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, new Map<number, number>()]))
   const smallIsland = SMALL_ISLAND_CELLS * ((h.capacity?.length ?? 23042) / 23042)
   const isIslandLandfall = (type: number, value: number) => type === PeoplesEvent.Landfall && value > 0 && value < smallIsland
-  const islandLandfallsPerBucket = perBucket(PeoplesEvent.Landfall, (v) => v > 0 && v < smallIsland)
+  const islandLandfallsPerBucket = perBucket(PeoplesEvent.Landfall, (v) => v > 0 && v < smallIsland, islandBucketOf)
   const landfallEntry = new Map<number, number>()
   const entries: { kind: EntryKind; members: number[] }[] = []
   const famineEntry = new Map<number, number>()
@@ -477,11 +525,37 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     } else entries[at].members.push(i)
   }
   // named geography goes in after the events of its year (its namer's founding comes first)
+  // polities: minor gains per (gainer, loser, decade) and raids on towns per decade, gathered when two or more
+  const gainKeyOf = (e: { year: number }, g: number, l: number) => ((g + 2) * 40000 + (l + 2)) * 1000 + bucketOf(e.year)
+  const gainsPerKey = new Map<number, number>()
+  const gainKeyOfEvent = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    if (!isShownType(e.type) || !isMinorGain(h, e)) return
+    const [g, l] = gainKey(h, e)
+    const k = gainKeyOf(e, g, l)
+    gainKeyOfEvent.set(i, k)
+    gainsPerKey.set(k, (gainsPerKey.get(k) ?? 0) + 1)
+  })
+  const gainEntry = new Map<number, number>()
+  const revoltKeyOfEvent = new Map<number, number>()
+  const revoltsPerKey = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    if ((e.type as number) !== 30 && (e.type as number) !== 31) return
+    const k = (revoltPolity(h, e) + 2) * 1000 + bucketOf(e.year)
+    revoltKeyOfEvent.set(i, k)
+    revoltsPerKey.set(k, (revoltsPerKey.get(k) ?? 0) + 1)
+  })
+  const revoltEntry = new Map<number, number>()
+  const raidsPerBucket = perBucket(29, () => true)
+  const raidEntry = new Map<number, number>()
+  const smallRaids = smallRaidEntries(h)
+  let nextSmallRaid = 0
   const namings = namingEntries(h)
   let nextNaming = 0
   for (const i of order) {
     const e = h.events[i]
     while (nextNaming < namings.length && namings[nextNaming].year < e.year) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
+    while (nextSmallRaid < smallRaids.length && smallRaids[nextSmallRaid].year < e.year) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
     if (!isShownType(e.type)) continue
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
@@ -490,11 +564,15 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (e.type === EventType.TradeOpened && (openingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(openingEntry, bucketOf(e.year), EntryKind.TradeOpenings, i)
     else if (e.type === EventType.TradeClosed && (closingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(closingEntry, bucketOf(e.year), EntryKind.TradeClosings, i)
     else if ((burstPerBucket.get(e.type)?.get(bucketOf(e.year)) ?? 0) >= 2) join(burstEntry.get(e.type)!, bucketOf(e.year), EntryKind.Burst, i)
-    else if (isIslandLandfall(e.type, e.value) && (islandLandfallsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(landfallEntry, bucketOf(e.year), EntryKind.Landfalls, i)
+    else if (isIslandLandfall(e.type, e.value) && (islandLandfallsPerBucket.get(islandBucketOf(e.year)) ?? 0) >= 2) join(landfallEntry, islandBucketOf(e.year), EntryKind.Landfalls, i)
+    else if (gainKeyOfEvent.has(i) && (gainsPerKey.get(gainKeyOfEvent.get(i)!) ?? 0) >= 2) join(gainEntry, gainKeyOfEvent.get(i)!, EntryKind.PolityGains, i)
+    else if ((e.type as number) === 29 && (raidsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(raidEntry, bucketOf(e.year), EntryKind.Raids, i)
+    else if (revoltKeyOfEvent.has(i) && (revoltsPerKey.get(revoltKeyOfEvent.get(i)!) ?? 0) >= 2) join(revoltEntry, revoltKeyOfEvent.get(i)!, EntryKind.Revolts, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
-  const memberYear = (m: number) => (m >= 0 ? h.events[m].year : h.features[-m - 1].namedYear)
+  while (nextSmallRaid < smallRaids.length) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
+  const memberYear = (m: number) => (m >= 0 ? h.events[m].year : m <= -RAID_MEMBER_BASE ? smallRaidYear(h, -m - RAID_MEMBER_BASE) : h.features[-m - 1].namedYear)
   const notableKind = Uint8Array.from(entries, (en) => en.kind)
   const notableYear = Float64Array.from(entries, (en) => memberYear(en.members[0]))
   const notableOffsets = new Uint32Array(entries.length + 1)

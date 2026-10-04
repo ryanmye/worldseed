@@ -9,23 +9,31 @@
 // Coastlines are the zero iso-line of the interpolated elevation, displaced
 // by noise scaled to the local slope.
 //
-// Relief comes from lighting: normals are computed from an exaggerated
-// elevation mesh, while the rendered geometry is only displaced slightly.
-// All noise is evaluated on object-space positions (seamless, anchored).
+// Relief: the ground is the shared height function of terrainHeight.ts (cell elevations
+// with rounded, Phong-style interpolation, plus band-limited ridged detail that grows with
+// elevation and slope, flattened at towns, fields and rivers). The base mesh carries it
+// at the cell centres; near the camera the land triangles are replaced by finer detail
+// tiles (terrainDetail.ts) in the same geometry, index range after the base triangles, so
+// the planet stays one draw call (and the diorama shadow receiver, which redraws this
+// geometry, gets the same ground). Positions are stored at the close-zoom relief and
+// moved to the zoom's relief in the vertex shader (ws_relief); shading normals come from
+// the gradient attribute with a zoom-dependent exaggeration. All noise is evaluated on
+// the stored object-space positions (seamless, anchored, unchanged by the zoom).
 
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
-import { ViewMode, blendStyleFor, colorForMode, seaIceFactor, snowFactor, type ModeData } from './palette.ts'
+import { ViewMode, blendStyleFor, colorForMode, seaIceFactor, type ModeData } from './palette.ts'
 import { BAKE_TARGETS, bakeFrag, bakedFrag, bakeTargetSize, LIGHT_TEX_WIDTH, NEVER, PLANET_FRAG, PLANET_VERT } from './planetShaders.ts'
 import { createCubeBake, type CubeBake } from './surfaceBake.ts'
 import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { closeDetailUniforms } from './dioramas/townMask.ts'
+import { evalGround, newGroundSample, relief, RELIEF_NEAR, reliefUniforms, setReliefAltitude, terrainOf } from './terrainHeight.ts'
+import { createDetailPatch } from './terrainDetail.ts'
+import { requestRender } from './invalidate.ts'
 
 export const PLANET_RADIUS = 1
-/** Geometric displacement of land (fraction of radius). Kept subtle: no lumpy limb. */
-export const RELIEF_SCALE = 0.011
-/** Exaggerated displacement used only to derive shading normals. */
-const NORMAL_RELIEF_SCALE = 0.065
+/** Stored relief of the ground (fraction of radius per unit of height; terrainHeight.ts): CPU placements use it. */
+export const RELIEF_SCALE = RELIEF_NEAR
 
 /** Sun direction in world space (shared, mutable: see sun.ts) and colour. */
 export { SUN_COLOR, SUN_DIRECTION }
@@ -39,9 +47,13 @@ export function isWaterCell(world: World, lake: Uint8Array | null, i: number): b
   return world.elevation[i] < 0 || (lake !== null && lake[i] === 1)
 }
 
-/** Radius of the rendered surface at cell i (the sea is flat at sea level; lakes keep their land height). */
+/**
+ * Radius of the ground at cell centre i, at the stored relief (terrainHeight.ts: the sea is
+ * flat at sea level, lakes keep their land height, towns sit in their valley floors). Layer
+ * shaders move it to the zoom's relief with ws_relief (RELIEF_GLSL); CPU code with reliefRadius.
+ */
 export function surfaceRadius(world: World, i: number): number {
-  return PLANET_RADIUS + Math.max(0, world.elevation[i]) * RELIEF_SCALE
+  return terrainOf(world).cellRadius[i]
 }
 
 export interface GlobeMesh {
@@ -99,6 +111,8 @@ export interface GlobeMesh {
   /** Draw up to `maxFaces` bake faces; returns true while a bake is in progress. */
   bakeStep(renderer: THREE.WebGLRenderer, maxFaces: number, sync?: boolean): boolean
   readonly bakeInfo: { ready: boolean; pending: boolean; count: number; lastMs: number; bytes: number; size: number }
+  /** Close-zoom detail tiles (perf=1): vertices and triangles drawn for them, tiles, finest level, last build ms, builds. */
+  readonly detailInfo: { vertices: number; triangles: number; tiles: number; maxLevel: number; buildMs: number; builds: number; relief: number }
   /** Debug: output noise calls per pixel instead of colour (see glsl.ts). */
   setNoiseCount(on: boolean): void
   /** Debug: false draws the procedural shader even when the bake is ready (A/B timing). */
@@ -112,35 +126,6 @@ function hash01(i: number): number {
   h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0
   h = (h ^ (h >>> 16)) >>> 0
   return h / 4294967296
-}
-
-/** Area-weighted vertex normals of the exaggerated relief surface (triangles are CCW from outside). */
-function reliefNormals(world: World): Float32Array {
-  const { positions, triangles, cellCount } = world.grid
-  const p = new Float32Array(cellCount * 3)
-  for (let i = 0; i < cellCount; i++) {
-    const h = Math.max(0, world.elevation[i])
-    const r = PLANET_RADIUS + h * NORMAL_RELIEF_SCALE
-    p[i * 3] = positions[i * 3] * r
-    p[i * 3 + 1] = positions[i * 3 + 1] * r
-    p[i * 3 + 2] = positions[i * 3 + 2] * r
-  }
-  const n = new Float32Array(cellCount * 3)
-  for (let t = 0; t < triangles.length; t += 3) {
-    const a = triangles[t] * 3, b = triangles[t + 1] * 3, c = triangles[t + 2] * 3
-    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
-    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
-    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-    for (const k of [a, b, c]) {
-      n[k] += nx; n[k + 1] += ny; n[k + 2] += nz
-    }
-  }
-  for (let i = 0; i < cellCount; i++) {
-    const x = n[i * 3], y = n[i * 3 + 1], z = n[i * 3 + 2]
-    const l = Math.hypot(x, y, z) || 1
-    n[i * 3] = x / l; n[i * 3 + 1] = y / l; n[i * 3 + 2] = z / l
-  }
-  return n
 }
 
 /** Elevation blurred over the cell graph (used for soft sea-floor colour, not for the coastline). */
@@ -166,71 +151,254 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   const cellOfVertex = triangles
 
   // ----- per-cell data -----
-  const cellPos = new Float32Array(cellCount * 3)
-  const cellSurf = new Float32Array(cellCount * 4)
+  const field = terrainOf(world)
+  let fieldVersion = field.version
+  const cellSurf = new Float32Array(cellCount * 4) // signed elevation, snow line, sea ice, detail displacement
+  const cellTerr = new Float32Array(cellCount * 4) // h, detail amplitude x wildness, octaves (0: none), ridge
+  const cellGrad = new Float32Array(cellCount * 3)
   const cellSeed = new Uint8Array(cellCount)
   const cellSlope = new Uint8Array(cellCount)
+  const cellSeaIce = new Float32Array(cellCount)
   const { neighborOffsets: off, neighbors: nb } = world.grid
   for (let i = 0; i < cellCount; i++) {
     // mean elevation step to neighbours: scales coastline noise so it moves the shore by ~a fraction of a cell
     let sum = 0
     for (let k = off[i]; k < off[i + 1]; k++) sum += Math.abs(world.elevation[nb[k]] - world.elevation[i])
     cellSlope[i] = Math.min(255, Math.round((sum / Math.max(1, off[i + 1] - off[i])) * 2 * 255))
-    const r = surfaceRadius(world, i)
-    cellPos[i * 3] = positions[i * 3] * r
-    cellPos[i * 3 + 1] = positions[i * 3 + 1] * r
-    cellPos[i * 3 + 2] = positions[i * 3 + 2] * r
-    cellSurf[i * 4] = world.elevation[i]
-    cellSurf[i * 4 + 1] = snowFactor(world, i)
-    cellSurf[i * 4 + 2] = seaIceFactor(world, i)
-    cellSurf[i * 4 + 3] = 0 // unused
+    cellSeaIce[i] = seaIceFactor(world, i)
     cellSeed[i] = Math.floor(hash01(i) * 256)
   }
-  const cellNormal = reliefNormals(world)
   const cellDepth = smoothedElevation(world, 2)
-
-  // ----- expand to non-indexed vertices -----
-  const position = new Float32Array(vCount * 3)
-  const normal = new Float32Array(vCount * 3)
-  const surf = new Float32Array(vCount * 4)
-  const seeds = new Uint8Array(vCount * 4)
-  const depth = new Float32Array(vCount)
-  const corners = new Float32Array(vCount * 3) // the triangle's three cell indices, on every vertex
-  for (let v = 0; v < vCount; v++) {
-    const c = cellOfVertex[v]
-    depth[v] = cellDepth[c]
-    position[v * 3] = cellPos[c * 3]
-    position[v * 3 + 1] = cellPos[c * 3 + 1]
-    position[v * 3 + 2] = cellPos[c * 3 + 2]
-    normal[v * 3] = cellNormal[c * 3]
-    normal[v * 3 + 1] = cellNormal[c * 3 + 1]
-    normal[v * 3 + 2] = cellNormal[c * 3 + 2]
-    surf[v * 4] = cellSurf[c * 4]
-    surf[v * 4 + 1] = cellSurf[c * 4 + 1]
-    surf[v * 4 + 2] = cellSurf[c * 4 + 2]
-    surf[v * 4 + 3] = cellSurf[c * 4 + 3]
-    const tri = v - (v % 3)
-    seeds[v * 4] = cellSeed[cellOfVertex[tri]]
-    seeds[v * 4 + 1] = cellSeed[cellOfVertex[tri + 1]]
-    seeds[v * 4 + 2] = cellSeed[cellOfVertex[tri + 2]]
-    seeds[v * 4 + 3] = cellSlope[c]
-    corners[v * 3] = cellOfVertex[tri]
-    corners[v * 3 + 1] = cellOfVertex[tri + 1]
-    corners[v * 3 + 2] = cellOfVertex[tri + 2]
+  /** The ground at every cell centre (no detail octaves: the base mesh carries none). */
+  const fillCells = () => {
+    const g = newGroundSample()
+    const done = new Uint8Array(cellCount)
+    for (let t = 0; t < triangles.length; t += 3) {
+      for (let k = 0; k < 3; k++) {
+        const c = triangles[t + k]
+        if (done[c]) continue
+        done[c] = 1
+        evalGround(field, triangles[t], triangles[t + 1], triangles[t + 2], k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0, 0, g)
+        cellSurf[c * 4] = world.elevation[c]
+        cellSurf[c * 4 + 1] = g.snow
+        cellSurf[c * 4 + 2] = cellSeaIce[c]
+        cellSurf[c * 4 + 3] = g.d
+        cellTerr[c * 4] = g.h
+        cellTerr[c * 4 + 1] = g.aw
+        cellTerr[c * 4 + 2] = 0
+        cellTerr[c * 4 + 3] = g.ridge
+        cellGrad[c * 3] = g.gx
+        cellGrad[c * 3 + 1] = g.gy
+        cellGrad[c * 3 + 2] = g.gz
+      }
+    }
   }
+  fillCells()
 
+  // ----- geometry: the base triangles (three vertices each, indices 0..vCount-1), then the detail tiles -----
+  let cap = vCount + 65536 // vertex capacity (grows with the detail patch)
+  let icap = vCount + 3 * 131072 // index capacity
   const geometry = new THREE.BufferGeometry()
-  geometry.setAttribute('position', new THREE.BufferAttribute(position, 3))
-  geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3))
-  geometry.setAttribute('aSurf', new THREE.BufferAttribute(surf, 4))
-  geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 4, true))
-  geometry.setAttribute('aDepth', new THREE.BufferAttribute(depth, 1))
-  geometry.setAttribute('aCorners', new THREE.BufferAttribute(corners, 3))
-  const corner = [0, 1, 2].map(() => new THREE.BufferAttribute(new Uint8Array(vCount * 4), 4, true))
-  geometry.setAttribute('aC0', corner[0])
-  geometry.setAttribute('aC1', corner[1])
-  geometry.setAttribute('aC2', corner[2])
-  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS * (1 + RELIEF_SCALE) + 1e-3)
+  const attr = (array: Float32Array | Uint8Array, size: number, normalized = false) => {
+    const a = new THREE.BufferAttribute(array, size, normalized)
+    a.setUsage(THREE.DynamicDrawUsage)
+    return a
+  }
+  let aPosition = attr(new Float32Array(cap * 3), 3)
+  let aGrad = attr(new Float32Array(cap * 3), 3)
+  let aBary = attr(new Float32Array(cap * 3), 3)
+  let aSurf = attr(new Float32Array(cap * 4), 4)
+  let aTerr = attr(new Float32Array(cap * 4), 4)
+  let aSeed = attr(new Uint8Array(cap * 4), 4, true)
+  let aDepth = attr(new Float32Array(cap), 1)
+  let aCorners = attr(new Float32Array(cap * 3), 3)
+  let corner = [0, 1, 2].map(() => attr(new Uint8Array(cap * 4), 4, true))
+  let indexAttr = new THREE.BufferAttribute(new Uint32Array(icap), 1)
+  indexAttr.setUsage(THREE.DynamicDrawUsage)
+  /** Base triangle of each detail-tile vertex (its corner colours). */
+  let patchTri = new Uint32Array(0)
+  let patchVerts = 0
+  let patchIndices = 0
+  let patchTiles = 0
+  let patchMaxLevel = 0
+  const hidden = new Uint8Array(vCount / 3)
+  const bindAttributes = () => {
+    geometry.setAttribute('position', aPosition)
+    geometry.setAttribute('aGrad', aGrad)
+    geometry.setAttribute('aBary', aBary)
+    geometry.setAttribute('aSurf', aSurf)
+    geometry.setAttribute('aTerr', aTerr)
+    geometry.setAttribute('aSeed', aSeed)
+    geometry.setAttribute('aDepth', aDepth)
+    geometry.setAttribute('aCorners', aCorners)
+    geometry.setAttribute('aC0', corner[0])
+    geometry.setAttribute('aC1', corner[1])
+    geometry.setAttribute('aC2', corner[2])
+    geometry.setIndex(indexAttr)
+  }
+  {
+    const idx = indexAttr.array as Uint32Array
+    for (let v = 0; v < vCount; v++) idx[v] = v
+  }
+  /** Writes the base vertices (all, or restores the ones the patch no longer hides). */
+  const writeBase = () => {
+    const position = aPosition.array as Float32Array, grad = aGrad.array as Float32Array, bary = aBary.array as Float32Array
+    const surf = aSurf.array as Float32Array, terr = aTerr.array as Float32Array, seeds = aSeed.array as Uint8Array
+    const depth = aDepth.array as Float32Array, corners = aCorners.array as Float32Array
+    for (let v = 0; v < vCount; v++) {
+      const c = cellOfVertex[v]
+      const r = PLANET_RADIUS + RELIEF_NEAR * cellTerr[c * 4]
+      position[v * 3] = positions[c * 3] * r
+      position[v * 3 + 1] = positions[c * 3 + 1] * r
+      position[v * 3 + 2] = positions[c * 3 + 2] * r
+      grad[v * 3] = cellGrad[c * 3]
+      grad[v * 3 + 1] = cellGrad[c * 3 + 1]
+      grad[v * 3 + 2] = cellGrad[c * 3 + 2]
+      const k = v % 3
+      bary[v * 3] = k === 0 ? 1 : 0
+      bary[v * 3 + 1] = k === 1 ? 1 : 0
+      bary[v * 3 + 2] = k === 2 ? 1 : 0
+      for (let q = 0; q < 4; q++) {
+        surf[v * 4 + q] = cellSurf[c * 4 + q]
+        terr[v * 4 + q] = cellTerr[c * 4 + q]
+      }
+      depth[v] = cellDepth[c]
+      const tri = v - k
+      seeds[v * 4] = cellSeed[cellOfVertex[tri]]
+      seeds[v * 4 + 1] = cellSeed[cellOfVertex[tri + 1]]
+      seeds[v * 4 + 2] = cellSeed[cellOfVertex[tri + 2]]
+      seeds[v * 4 + 3] = cellSlope[c]
+      corners[v * 3] = cellOfVertex[tri]
+      corners[v * 3 + 1] = cellOfVertex[tri + 1]
+      corners[v * 3 + 2] = cellOfVertex[tri + 2]
+    }
+    // triangles the detail patch replaces collapse to a point (nothing to rasterise)
+    for (let t = 0; t < hidden.length; t++) if (hidden[t]) collapse(t)
+    for (const a of [aPosition, aGrad, aBary, aSurf, aTerr, aSeed, aDepth, aCorners]) {
+      a.clearUpdateRanges()
+      a.addUpdateRange(0, vCount * a.itemSize)
+      a.needsUpdate = true
+    }
+  }
+  const collapse = (t: number) => {
+    const position = aPosition.array as Float32Array
+    for (let k = 1; k < 3; k++) {
+      position[(t * 3 + k) * 3] = position[t * 9]
+      position[(t * 3 + k) * 3 + 1] = position[t * 9 + 1]
+      position[(t * 3 + k) * 3 + 2] = position[t * 9 + 2]
+    }
+  }
+  writeBase()
+  bindAttributes()
+  geometry.setDrawRange(0, vCount)
+  geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS + RELIEF_NEAR * 1.6 + 1e-3)
+
+  const patch = createDetailPatch(world, field, { seaIce: cellSeaIce, depth: cellDepth, seed: cellSeed })
+  /** Grows every attribute (and the index) to hold `nv` vertices and `ni` indices; rebinds them. */
+  const ensureCapacity = (nv: number, ni: number) => {
+    if (nv <= cap && ni <= icap) return
+    const ncap = Math.max(cap, nv) === cap ? cap : Math.ceil(Math.max(nv, cap * 1.5))
+    const nicap = Math.max(icap, ni) === icap ? icap : Math.ceil(Math.max(ni, icap * 1.5))
+    const regrow = (a: THREE.BufferAttribute, normalized = false) => {
+      const old = a.array as Float32Array | Uint8Array
+      const arr = new (old.constructor as { new (n: number): Float32Array | Uint8Array })(ncap * a.itemSize)
+      arr.set(old.subarray(0, Math.min(old.length, arr.length)))
+      return attr(arr, a.itemSize, normalized)
+    }
+    if (ncap !== cap) {
+      aPosition = regrow(aPosition); aGrad = regrow(aGrad); aBary = regrow(aBary); aSurf = regrow(aSurf); aTerr = regrow(aTerr)
+      aSeed = regrow(aSeed, true); aDepth = regrow(aDepth); aCorners = regrow(aCorners)
+      corner = corner.map((c) => regrow(c, true))
+      cap = ncap
+    }
+    if (nicap !== icap) {
+      const arr = new Uint32Array(nicap)
+      arr.set((indexAttr.array as Uint32Array).subarray(0, Math.min(icap, nicap)))
+      indexAttr = new THREE.BufferAttribute(arr, 1)
+      indexAttr.setUsage(THREE.DynamicDrawUsage)
+      icap = nicap
+    }
+    bindAttributes()
+    for (const a of [aPosition, aGrad, aBary, aSurf, aTerr, aSeed, aDepth, aCorners, ...corner]) {
+      a.clearUpdateRanges()
+      a.needsUpdate = true
+    }
+    indexAttr.clearUpdateRanges()
+    indexAttr.needsUpdate = true
+  }
+  /** Swaps a finished detail patch into the geometry (one upload of the used ranges). */
+  const commitPatch = () => {
+    const r = patch.result
+    ensureCapacity(vCount + r.vertexCount, vCount + r.indexCount)
+    const nv = r.vertexCount, ni = r.indexCount
+    ;(aPosition.array as Float32Array).set(r.position.subarray(0, nv * 3), vCount * 3)
+    ;(aGrad.array as Float32Array).set(r.grad.subarray(0, nv * 3), vCount * 3)
+    ;(aBary.array as Float32Array).set(r.bary.subarray(0, nv * 3), vCount * 3)
+    ;(aSurf.array as Float32Array).set(r.surf.subarray(0, nv * 4), vCount * 4)
+    ;(aTerr.array as Float32Array).set(r.terr.subarray(0, nv * 4), vCount * 4)
+    ;(aSeed.array as Uint8Array).set(r.seed.subarray(0, nv * 4), vCount * 4)
+    ;(aDepth.array as Float32Array).set(r.depth.subarray(0, nv), vCount)
+    ;(aCorners.array as Float32Array).set(r.corners.subarray(0, nv * 3), vCount * 3)
+    const idx = indexAttr.array as Uint32Array
+    const src = r.index
+    for (let i = 0; i < ni; i++) idx[vCount + i] = src[i] + vCount
+    if (patchTri.length < nv) patchTri = new Uint32Array(Math.max(nv, patchTri.length * 2))
+    patchTri.set(r.tri.subarray(0, nv))
+    patchVerts = nv
+    patchIndices = ni
+    patchTiles = r.tiles
+    patchMaxLevel = r.maxLevel
+    writePatchColors()
+    // base triangles: restore the ones no longer covered, collapse the newly covered
+    let baseChanged = false
+    const position = aPosition.array as Float32Array
+    for (let t = 0; t < hidden.length; t++) {
+      if (hidden[t] === r.hidden[t]) continue
+      baseChanged = true
+      hidden[t] = r.hidden[t]
+      if (hidden[t]) collapse(t)
+      else {
+        for (let k = 0; k < 3; k++) {
+          const v = t * 3 + k
+          const c = cellOfVertex[v]
+          const rr = PLANET_RADIUS + RELIEF_NEAR * cellTerr[c * 4]
+          position[v * 3] = positions[c * 3] * rr
+          position[v * 3 + 1] = positions[c * 3 + 1] * rr
+          position[v * 3 + 2] = positions[c * 3 + 2] * rr
+        }
+      }
+    }
+    for (const a of [aPosition, aGrad, aBary, aSurf, aTerr, aSeed, aDepth, aCorners, ...corner]) {
+      a.clearUpdateRanges()
+      if (a === aPosition && baseChanged) a.addUpdateRange(0, (vCount + nv) * 3)
+      else if (nv > 0) a.addUpdateRange(vCount * a.itemSize, nv * a.itemSize)
+      a.needsUpdate = nv > 0 || (a === aPosition && baseChanged)
+    }
+    indexAttr.clearUpdateRanges()
+    if (ni > 0) {
+      indexAttr.addUpdateRange(vCount, ni)
+      indexAttr.needsUpdate = true
+    }
+    geometry.setDrawRange(0, vCount + ni)
+    requestRender()
+  }
+  /** Corner colours of the detail-tile vertices, from the current view's cell colours. */
+  const writePatchColors = () => {
+    if (patchVerts === 0) return
+    const arrays = corner.map((a) => a.array as Uint8Array)
+    for (let v = 0; v < patchVerts; v++) {
+      const t = patchTri[v] * 3
+      for (let k = 0; k < 3; k++) {
+        const c = cellOfVertex[t + k] * 4
+        const o = (vCount + v) * 4
+        const dst = arrays[k]
+        dst[o] = cellColor[c]
+        dst[o + 1] = cellColor[c + 1]
+        dst[o + 2] = cellColor[c + 2]
+        dst[o + 3] = cellColor[c + 3]
+      }
+    }
+  }
 
   // Per-cell city-light intensity, fetched by cell index in the vertex shader.
   const lightH = Math.ceil(cellCount / LIGHT_TEX_WIDTH)
@@ -240,13 +408,17 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   lightTex.magFilter = THREE.NearestFilter
   lightTex.generateMipmaps = false
   lightTex.needsUpdate = true
-  // Cell centre positions (surface radius), so light glows can be radial around them.
+  // Cell centre positions (on the ground), so light glows can be radial around them.
   const cellPosData = new Float32Array(LIGHT_TEX_WIDTH * lightH * 4)
-  for (let i = 0; i < cellCount; i++) {
-    cellPosData[i * 4] = cellPos[i * 3]
-    cellPosData[i * 4 + 1] = cellPos[i * 3 + 1]
-    cellPosData[i * 4 + 2] = cellPos[i * 3 + 2]
+  const writeCellPos = () => {
+    for (let i = 0; i < cellCount; i++) {
+      const r = PLANET_RADIUS + RELIEF_NEAR * cellTerr[i * 4]
+      cellPosData[i * 4] = positions[i * 3] * r
+      cellPosData[i * 4 + 1] = positions[i * 3 + 1] * r
+      cellPosData[i * 4 + 2] = positions[i * 3 + 2] * r
+    }
   }
+  writeCellPos()
   const cellPosTex = new THREE.DataTexture(cellPosData, LIGHT_TEX_WIDTH, lightH, THREE.RGBAFormat, THREE.FloatType)
   cellPosTex.minFilter = THREE.NearestFilter
   cellPosTex.magFilter = THREE.NearestFilter
@@ -303,7 +475,12 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
         }
       }
     }
-    for (const a of corner) a.needsUpdate = true
+    writePatchColors()
+    for (const a of corner) {
+      a.clearUpdateRanges()
+      a.addUpdateRange(0, (vCount + patchVerts) * 4)
+      a.needsUpdate = true
+    }
     material.uniforms.uStyle.value = blendStyleFor(m)
     syncLandUniforms()
     if (bakedMaterial) pickMaterial()
@@ -337,12 +514,20 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     uDaylight: sunUniforms.uDaylight,
     // close-zoom field detail, on while the 3D layer shows (dioramas/townMask.ts)
     uFieldDetail: closeDetailUniforms.uFieldDetail,
+    // the zoom's relief (terrainHeight.ts), set in update()
+    uReliefK: reliefUniforms.uReliefK,
+    uShade: { value: relief.shade },
+    uDetailShade: { value: relief.detailShade },
+    uDetailFreq: { value: field.detailFreq },
   }
   // procedural: data views, and the Terrain view until its bake is ready
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader: PLANET_VERT, fragmentShader: PLANET_FRAG })
 
   const mesh = new THREE.Mesh(geometry, material)
   const tmpQ = new THREE.Quaternion()
+  const camDir = new THREE.Vector3()
+  /** Wall-clock budget per frame for building detail tiles (ms). */
+  const PATCH_BUDGET_MS = 6
 
   // ----- surface bake (Terrain view) -----
   let bake: CubeBake | null = null
@@ -356,6 +541,8 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     uLandOn: { value: 0 },
     uResOn: { value: 0 },
     uCityLights: { value: 0 },
+    uReliefK: { value: 1 },
+    uDetailFreq: { value: field.detailFreq },
   }
   const disposeBake = () => {
     bake?.dispose()
@@ -464,6 +651,24 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       const cam = material.uniforms.uCamObj.value as THREE.Vector3
       camera.getWorldPosition(cam)
       mesh.worldToLocal(cam)
+      // the zoom's relief (shared with every layer on the ground through reliefUniforms)
+      setReliefAltitude(cam.length() - PLANET_RADIUS)
+      material.uniforms.uShade.value = relief.shade
+      material.uniforms.uDetailShade.value = relief.detailShade
+      // the history reshaped the ground (towns, fields): base vertices again, and a new patch
+      if (field.version !== fieldVersion) {
+        fieldVersion = field.version
+        fillCells()
+        writeBase()
+        writeCellPos()
+        cellPosTex.needsUpdate = true
+        patch.invalidate()
+      }
+      // close-zoom detail tiles: plan when the view has moved enough (built in bakeStep)
+      camera.getWorldDirection(camDir).applyQuaternion(tmpQ)
+      const persp = camera as THREE.PerspectiveCamera
+      const halfFov = persp.isPerspectiveCamera ? Math.atan(Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2) * Math.hypot(1, persp.aspect)) : 0.6
+      patch.update(cam.x, cam.y, cam.z, camDir.x, camDir.y, camDir.z, halfFov)
     },
     setBakeSize(size: number) {
       if (size === bakeSize && (bake || size <= 0)) return
@@ -477,7 +682,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       for (let t = 0; t < BAKE_TARGETS; t++) {
         passes.push({
           size: bakeTargetSize(t, size),
-          format: t === BAKE_TARGETS - 1 ? THREE.RedFormat : THREE.RGBAFormat,
+          format: THREE.RGBAFormat,
           material: new THREE.ShaderMaterial({
             uniforms: bakeUniforms,
             vertexShader: PLANET_VERT,
@@ -491,7 +696,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       bake = createCubeBake(geometry, passes, 0.2, 4)
       const tex = bake.textures
       bakedMaterial = new THREE.ShaderMaterial({
-        uniforms: { ...uniforms, uBake0: { value: tex[0] }, uBake1: { value: tex[1] }, uBake2: { value: tex[2] }, uBake3: { value: tex[3] }, uBake4: { value: tex[4] } },
+        uniforms: { ...uniforms, uBake0: { value: tex[0] }, uBake1: { value: tex[1] }, uBake2: { value: tex[2] }, uBake3: { value: tex[3] }, uBake4: { value: tex[4] }, uBake5: { value: tex[5] } },
         vertexShader: PLANET_VERT,
         fragmentShader: bakedFrag(size),
       })
@@ -500,6 +705,11 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       pickMaterial()
     },
     bakeStep(renderer: THREE.WebGLRenderer, maxFaces: number, sync = false) {
+      // close-zoom detail tiles first, a few milliseconds per frame (any view)
+      if (patch.pending) {
+        if (patch.step(performance.now() + PATCH_BUDGET_MS)) commitPatch()
+        if (patch.pending) return true
+      }
       // the bake reads the Terrain corner colours from the vertex attributes
       if (!bake || !bake.pending || currentMode !== ViewMode.Terrain) return false
       const more = bake.step(renderer, maxFaces, sync)
@@ -508,6 +718,10 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
         pickMaterial()
       }
       return more
+    },
+    get detailInfo() {
+      const st = patch.stats
+      return { vertices: patchVerts, triangles: patchIndices / 3, tiles: patchTiles, maxLevel: patchMaxLevel, buildMs: +st.ms.toFixed(1), builds: st.builds, relief: +relief.scale.toFixed(4) }
     },
     get bakeInfo() {
       return {

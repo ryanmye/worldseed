@@ -56,8 +56,8 @@ const townHouseholds = (p: number) => urbanPopulation(p) / HOUSEHOLD
  * terraces and courtyard blocks in a city core. Only sizes the plan; the lots decide.
  */
 export function householdsPerPatch(p: number): number {
-  if (p >= CITY_POPULATION * 0.85) return 19 + 9 * Math.min(1, Math.max(0, p - CITY_POPULATION) / 60000)
-  if (p >= TOWN_POPULATION * 0.8) return 11
+  if (p >= CITY_POPULATION * 0.85) return 13 + 9 * Math.min(1, Math.max(0, p - CITY_POPULATION) / 60000)
+  if (p >= TOWN_POPULATION * 0.8) return 8
   return 5
 }
 /** Whether a patch seed stands on buildable ground: dry land, off the river (rivers as drawn up close are wide). */
@@ -134,6 +134,8 @@ export interface PlanItem {
   ward: number
   /** Households it houses (census.ts; 0 for landmarks and everything else). */
   homes: number
+  /** A terrace: the houses that stand for it, side by side (each its own instance and colours). */
+  units?: PlanItem[]
 }
 
 /** What the generator needs to know about the site (all coordinates in KayKit units in the settlement's tangent frame). */
@@ -435,13 +437,13 @@ const MONUMENT: Record<number, boolean> = { [Role.Church]: true, [Role.Hall]: tr
 
 /**
  * Footprint scale of the town of peak population p: a village's houses at full size, a
- * town's and a city's narrower and closer (0.62 from 10,000 up), so a city is a dense
+ * town's and a city's narrower and closer (0.7 from 10,000 up), so a city is a dense
  * fabric of many buildings rather than a village blown up. Heights shrink by its square
  * root only (storeys stay readable).
  */
 export function planScale(p: number): number {
   const t = Math.min(1, Math.max(0, Math.log10(Math.max(1, p) / 1000)))
-  return 1 - 0.38 * t
+  return 1 - 0.3 * t
 }
 
 /** The site seen in plan units (scaled by 1/U). */
@@ -1336,7 +1338,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
           let st = 1
           if (isTown && !(ward === Ward.Slum || farm || outer)) {
             const zone = dCore < 0.38 ? 2 : dCore < 0.72 ? 1 : 0
-            st = (isCity ? [2, 2.5, 3.2][zone] + (peak >= 40000 ? 0.6 : 0) : [1, 2, 2.4][zone]) + (ward === Ward.Merchant || ward === Ward.Patrician ? 0.4 : 0)
+            st = (isCity ? [1.2, 1.8, 2.4][zone] + (peak >= 40000 ? 0.7 : 0) : [1, 1, 1.5][zone]) + (ward === Ward.Merchant || ward === Ward.Patrician ? (isCity ? 0.4 : 0.2) : 0)
             const r3 = rnd(k, 0x58)
             st = Math.max(1, Math.floor(st + (r3 < 0.15 ? -1 : r3 > 0.9 ? 1 : 0) + rnd(k, 0x59) * 0.99))
             // detached houses: two storeys at most (the hut styles' one), their roofs not drawn out into spires
@@ -1350,7 +1352,30 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
           let yaw = Math.atan2(uy, ux)
           if (Math.sin(yaw) * vxd - Math.cos(yaw) * vyd > 0) yaw += Math.PI
           const homes = households(roofUnits(hs, kind as Kind), storeys(fac[0], fac[1], sy * hScale))
-          return { role: Role.House, kind, style: hs, x: cx, y: cy, yaw, sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward, homes }
+          const item: PlanItem = { role: Role.House, kind, style: hs, x: cx, y: cy, yaw, sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward, homes }
+          if (kind === Kind.Row) {
+            // a terrace is three narrow houses wall to wall, each its own height and colours,
+            // so its houses can be counted
+            const W = 2 * KIND_HALF[Kind.Row][0] * sxk, D = 2 * KIND_HALF[Kind.Row][1] * szk
+            const [thw, thd] = KIND_HALF[Kind.Tall]
+            const ft = houseFacade(hs, Kind.Tall)
+            const cu = Math.cos(yaw), su = Math.sin(yaw)
+            const units: PlanItem[] = []
+            let total = 0
+            for (let q = 0; q < 3; q++) {
+              const kq = k * 3 + q
+              const o = ((q - 1) * W) / 3
+              const r4 = rnd(kq, 0x5b)
+              const stq = Math.max(1, Math.min(hutStyle(hs) ? 3 : 4, st + (r4 < 0.22 ? -1 : r4 > 0.82 ? 1 : 0)))
+              const syq = Math.min(2.3, (STOREY_H * stq + 0.12 - 0.06 * rnd(kq, 0x5d)) / (ft[1] - ft[0]) / hScale)
+              const hq = households(1, storeys(ft[0], ft[1], syq * hScale))
+              units.push({ ...item, kind: Kind.Tall, x: cx + cu * o, y: cy + su * o, sx: (W / 3) / (2 * thw), sz: D / (2 * thd), sy: syq, roof: hash4(seed, id, kq, 0x53) % 5, wall: hash4(seed, id, kq, 0x54) % 4, jitter: rnd(kq, 0x55), homes: hq })
+              total += hq
+            }
+            item.units = units
+            item.homes = total
+          }
+          return item
         }
       }
       // narrower first (a terrace twice), then a smaller kind, then free-standing
@@ -1429,7 +1454,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
         // walls enclose what stands when the population first passes their threshold
         for (const w of walls) if (!w.done && pop >= w.threshold) { w.done = true; placeWall(w.threshold) }
         // the first craftsman's lot becomes the smithy, the first merchant's (or a big village's) the inn
-        if (!smithy && pop >= 1200 && (it.ward === Ward.Craftsmen || (it.ward === Ward.Village && peak >= 1500))) {
+        if (it.units) { /* a terrace stays houses */ }
+        else if (!smithy && pop >= 1200 && (it.ward === Ward.Craftsmen || (it.ward === Ward.Village && peak >= 1500))) {
           smithy = true
           it.role = Role.Blacksmith
           it.sx = it.sz = it.sy = 0.72
@@ -1440,10 +1466,11 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
           it.sx = it.sz = it.sy = 0.7
           it.homes = 0
         }
-        items.push(it)
+        if (it.units) for (const u of it.units) { u.threshold = it.threshold; items.push(u) }
+        else items.push(it)
         homes += it.homes
         diag.byWard[it.ward] = (diag.byWard[it.ward] ?? 0) + it.homes
-        diag.byKind[it.kind] = (diag.byKind[it.kind] ?? 0) + 1
+        diag.byKind[it.kind] = (diag.byKind[it.kind] ?? 0) + (it.units ? it.units.length : 1)
         lastPop = pop
         built++
         builtPerPatch[nextPatch]++

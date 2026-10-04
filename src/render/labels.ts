@@ -24,6 +24,7 @@
 import * as THREE from 'three'
 import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
 import { surfaceRadius } from './globe.ts'
+import { reliefRadius } from './terrainHeight.ts'
 import { requestRender } from './invalidate.ts'
 
 /** A newly named feature's label fades in over this many years, and glows for GLOW_YEARS. */
@@ -79,6 +80,34 @@ const FEATURE_STYLE: Record<number, Style> = {
 const CITY_STYLE: Style = { italic: false, weight: 700, family: SANS, size: [12.5, 12.5], tracking: 0.01, upper: false, rgb: '255,250,240', alpha: 1, halo: 0.8, priority: 800 }
 const TOWN_STYLE: Style = { italic: false, weight: 500, family: SANS, size: [11.5, 11.5], tracking: 0, upper: false, rgb: '242,236,224', alpha: 0.95, halo: 0.75, priority: 500 }
 const VILLAGE_STYLE: Style = { italic: false, weight: 400, family: SANS, size: [10.5, 10.5], tracking: 0, upper: false, rgb: '226,220,208', alpha: 0.85, halo: 0.7, priority: 300 }
+/** Region labels (polities): wide-spaced capitals across the territory, in a pale tint of the region's colour; sized by area and rank. */
+const REGION_SIZE: [number, number] = [10.5, 18.5]
+const REGION_BASE: Omit<Style, 'rgb'> = { italic: false, weight: 600, family: SERIF, size: REGION_SIZE, tracking: 0.42, upper: true, alpha: 0.9, halo: 0.72, priority: 860 }
+
+/** A label across a region (a polity's territory); see LabelLayer.setRegions. */
+export interface RegionLabel {
+  /** Stable key (the polity id) for fades and hysteresis. */
+  key: number
+  name: string
+  /** Anchor cell, well inside the region. */
+  cell: number
+  /** Area in cells (sizes the text and decides whether it fits). */
+  cells: number
+  /** Text colour "r,g,b" (0..255). */
+  rgb: string
+  /** 0 small (a chiefdom) .. 2 large (an empire): larger, and placed first. */
+  rank: number
+}
+
+interface RegionState {
+  r: RegionLabel
+  style: Style
+  text: Text
+  pos: THREE.Vector3
+  extent: number
+  alpha: number
+  shown: boolean
+}
 
 /** Rendered text of one label at one style. */
 interface Text {
@@ -150,6 +179,8 @@ export interface LabelLayer {
   setHovered(id: number): void
   /** Known-world mask: per cell, the year from which labels anchored there show (1e9 never); null shows all. */
   setKnownMask(cellYear: Float32Array | null): void
+  /** Region labels (polity names across their territory), replaced whenever the regions change (null: none). */
+  setRegions?(regions: readonly RegionLabel[] | null): void
   /** Redraw if anything changed. cssWidth/cssHeight: viewport in CSS pixels. */
   update(camera: THREE.PerspectiveCamera, planet: THREE.Object3D, cssWidth: number, cssHeight: number): void
   dispose(): void
@@ -328,6 +359,8 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   let selected = -1
   let hovered = -1
   let knownMask: Float32Array | null = null
+  /** Region labels by key (kept across updates for their fades). */
+  const regionLabels = new Map<number, RegionState>()
   let dirty = true
   let lastTime = -1
   let dpr = 1
@@ -348,6 +381,12 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   const proj = { x: 0, y: 0, w: 1, facing: 0 }
   let W = 1, H = 1
   const project = (x: number, y: number, z: number): boolean => {
+    // where the ground under the anchor is drawn at the zoom's relief (terrainHeight.ts ws_relief)
+    const rr = Math.hypot(x, y, z)
+    if (rr > 1) {
+      const f = reliefRadius(rr) / rr
+      x *= f; y *= f; z *= f
+    }
     v4.set(x, y, z, 1).applyMatrix4(mvp)
     if (v4.w <= 1e-6) return false
     proj.x = (v4.x / v4.w + 1) * 0.5 * W
@@ -484,7 +523,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
 
   const newPlacement = (text: Text, style: Style): Placement => ({ text, style, alpha: 0, glow: 0, x: 0, y: 0, align: 'center', angle: 0, gx: null, gy: null, ga: null, selected: false })
 
-  interface Cand { pri: number; feature: FeatureLabel | null; settlement: SettlementLabel | null; pl: Placement; ok: boolean; facing: number; r: number }
+  interface Cand { pri: number; feature: FeatureLabel | null; settlement: SettlementLabel | null; region?: RegionState; pl: Placement; ok: boolean; facing: number; r: number }
 
   const cands: Cand[] = []
 
@@ -515,6 +554,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     if (fresh) {
       for (const l of featureLabels) { l.shown = false; l.alpha = 0 }
       for (const l of settlementLabels) if (l) { l.shown = false; l.alpha = 0; l.side = 0 }
+      for (const l of regionLabels.values()) { l.shown = false; l.alpha = 0 }
     }
 
     // features named by now
@@ -572,6 +612,23 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       cands.push({ pri, feature: l, settlement: null, pl, ok, facing, r: 0 })
     }
 
+    // regions (polities): across their territory when it is wide enough on screen for the name
+    for (const l of regionLabels.values()) {
+      if (knownMask !== null && year < knownMask[l.r.cell]) { l.alpha = 0; l.shown = false; continue }
+      if (!project(l.pos.x, l.pos.y, l.pos.z) || proj.facing < 0.05) { l.alpha = 0; l.shown = false; continue }
+      const hyst = l.shown ? 0.85 : 1
+      const ext = l.extent * pxPerUnit(proj.w)
+      const ok = ext >= l.text.width * 0.92 * hyst && ext < (3.5 * vmax) / hyst
+      if (!ok && l.alpha <= 0) { l.shown = false; continue }
+      const pl = newPlacement(l.text, l.style)
+      pl.x = proj.x
+      pl.y = proj.y
+      pl.alpha = smoothstep(0.08, 0.4, proj.facing)
+      let pri = l.style.priority + 45 * l.r.rank + 40 * Math.min(1, Math.sqrt(l.r.cells / 600))
+      if (l.shown) pri += 120
+      cands.push({ pri, feature: null, settlement: null, region: l, pl, ok, facing: proj.facing, r: 0 })
+    }
+
     // living settlements, by tier and zoom
     const sizeScale = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / camDist)))
     for (let id = 0; id < history.settlements.length; id++) {
@@ -582,8 +639,9 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
         continue
       }
       const special = id === selected || id === hovered
+      const isOutpostBase = (history.settlements[id] as { outpost?: boolean }).outpost === true
       // an expedition base is no village: named only while selected or hovered
-      if (!special && (history.settlements[id] as { outpost?: boolean }).outpost === true) {
+      if (!special && isOutpostBase) {
         if (existing) { existing.alpha = 0; existing.shown = false }
         continue
       }
@@ -601,8 +659,12 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       pl.alpha = smoothstep(0.04, 0.32, facing)
       pl.x = proj.x
       pl.y = proj.y
-      // keep clear of the marker (radius by tier, as in settlements.ts)
-      const r = (tier === 2 ? 8 : tier === 1 ? 5.5 : 3) * sizeScale * (0.55 + 0.45 * Math.sqrt(facing)) + 3
+      // keep clear of the marker (radius by tier, as in settlements.ts); an expedition base's
+      // pennant stands on a pole well above its foot (outposts.ts), so it needs a much wider
+      // berth than a settlement's flat marker or the name sits on top of the flag
+      const r = isOutpostBase
+        ? 18 * sizeScale * (0.55 + 0.45 * Math.sqrt(facing)) + 6
+        : (tier === 2 ? 8 : tier === 1 ? 5.5 : 3) * sizeScale * (0.55 + 0.45 * Math.sqrt(facing)) + 3
       let pri = style.priority + Math.min(60, pop / (tier === 2 ? 2000 : tier === 1 ? 200 : 20))
       if (special) pri = 10000
       if (l.shown) pri += 120
@@ -628,7 +690,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       } else if (c.ok) placed = tryPlace(c.pl, true)
       else if (c.settlement) placeSide(c.pl, c.pl.x, c.pl.y, c.r, c.settlement.side)
       const target = placed ? 1 : 0
-      const holder = (c.feature ?? c.settlement)!
+      const holder = (c.feature ?? c.settlement ?? c.region)!
       holder.shown = placed
       if (fresh) holder.alpha = target
       else if (holder.alpha !== target) {
@@ -735,6 +797,26 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     },
     setHovered(id: number) {
       if (id !== hovered) { hovered = id; dirty = true }
+    },
+    setRegions(regions: readonly RegionLabel[] | null) {
+      const keep = new Set<number>()
+      for (const r of regions ?? []) {
+        if (r.cell < 0 || r.cell >= N) continue
+        keep.add(r.key)
+        const size = Math.round((REGION_SIZE[0] + (REGION_SIZE[1] - REGION_SIZE[0]) * Math.min(1, Math.sqrt(r.cells / 700)) + r.rank * 1.2) * 2) / 2
+        let l = regionLabels.get(r.key)
+        if (!l || l.r.name !== r.name || l.text.size !== size || l.r.rgb !== r.rgb) {
+          const style: Style = { ...REGION_BASE, rgb: r.rgb }
+          const text = measure(r.name, style, size)
+          l = { r, style, text, pos: l?.pos ?? new THREE.Vector3(), extent: 0, alpha: l?.alpha ?? 0, shown: l?.shown ?? false }
+          regionLabels.set(r.key, l)
+        }
+        l.r = r
+        cellPos(r.cell, l.pos)
+        l.extent = 2 * Math.sqrt((r.cells * cellArea) / Math.PI)
+      }
+      for (const k of [...regionLabels.keys()]) if (!keep.has(k)) regionLabels.delete(k)
+      dirty = true
     },
     setKnownMask(cellYear: Float32Array | null) {
       knownMask = cellYear && cellYear.length >= N ? cellYear : null

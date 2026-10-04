@@ -14,6 +14,7 @@ import { countUpTo, isAlive, landSnapshotAt, Tier, TIER_NAMES, tierOf, type Hist
 import { createTradeSection } from './tradePanel.ts'
 import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
 import { describeOutpostSite } from './expeditionsData.ts'
+import { politiesOf, wallSlighted } from './politiesData.ts'
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -32,6 +33,8 @@ export interface Inspector {
   readonly peopleSlot: HTMLElement
   /** Empty element under the people for the cell's crop and herd and the people's species (filled by speciesPanel.ts). */
   readonly speciesSlot: HTMLElement
+  /** Empty element under the people for the settlement's faction and danger (filled by politiesPanel.ts; hidden while empty). */
+  readonly politySlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -64,6 +67,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-outpost hidden"></div>
     <div class="insp-places hidden"></div>
     <div class="insp-people hidden"></div>
+    <div class="insp-faction hidden"></div>
     <div class="insp-species hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
@@ -287,10 +291,12 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
 
   const peopleSlot = q<HTMLDivElement>('.insp-people')
   const speciesSlot = q<HTMLDivElement>('.insp-species')
+  const politySlot = q<HTMLDivElement>('.insp-faction')
 
   return {
     peopleSlot,
     speciesSlot,
+    politySlot,
     get selected() {
       return selected
     },
@@ -416,7 +422,17 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
           const ruined = st.lostYear >= 0 && year >= st.lostYear
           const item = document.createElement('div')
           if (ruined) item.className = 'lost'
-          item.textContent = `${st.type === StructureType.Dam ? 'Dam' : 'Port'}, built in ${st.builtYear}` + (ruined ? `, in ruins since ${st.lostYear}` : '')
+          if (st.type === StructureType.Walls) {
+            // walls: the rings in use, numbered from the innermost; slighted ones (taken down after the town fell) said so
+            let ring = 0
+            for (let j = s0s; j < k; j++) {
+              const o = index.structures[index.structureList[j]]
+              if (o.type === StructureType.Walls && year >= o.builtYear && !(o.lostYear >= 0 && year >= o.lostYear)) ring++
+            }
+            item.textContent = ruined
+              ? `Walls built in ${st.builtYear}, ${wallSlighted(politiesOf(index.history), selected, st.lostYear) ? 'slighted' : 'abandoned'} in ${st.lostYear}`
+              : `Walls${ring > 0 ? ` (ring ${ring + 1})` : ''}, built in ${st.builtYear}`
+          } else item.textContent = `${st.type === StructureType.Dam ? 'Dam' : 'Port'}, built in ${st.builtYear}` + (ruined ? `, in ruins since ${st.lostYear}` : '')
           structuresEl.appendChild(item)
           shown++
         }

@@ -1,6 +1,7 @@
 // Text formatting shared by the timeline, inspector and chronicle.
 
 import { EventType, FeatureKind, StructureType, type GeoFeature, type History, type HistoryEvent } from '../contract.ts'
+import { describePolityEvent, describePolityEventFor, isWallEvent, polityEventKind } from './polityFormat.ts'
 
 /** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
@@ -23,6 +24,8 @@ export function formatInt(n: number): string {
 }
 
 export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd' | 'contact' | 'landfall' | 'voyage' | 'expedition' | 'discovery' | 'tech' | 'species' | 'epidemic'
+  // polities (polityFormat.ts)
+  | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -85,7 +88,7 @@ export function setDiscoveryPlace(e: HistoryEvent, place: string): void {
 /** Chronicle line for `count` landfalls on small islands in one decade, naming `example`'s sender, or all senders when there is one. */
 export function describeLandfallBurst(h: History, example: HistoryEvent, count: number, oneSender: boolean): string {
   const from = example.other >= 0 ? settlementName(h, example.other) : settlementName(h, example.settlement)
-  return oneSender ? `Settlers from ${from} make landfall on ${count} small islands` : `Settlers make landfall on ${count} small islands, among them from ${from}`
+  return oneSender ? `Settlers from ${from} reach ${count} more islands` : `Settlers reach ${count} more islands, among them from ${from}`
 }
 
 /** Where a Discovery event's expedition got to: "the sea Oru Tal", "the southern ice" (`southern` null: "the polar ice"). */
@@ -242,7 +245,7 @@ function describePeoplesEventFor(h: History, e: HistoryEvent, id: number): strin
 }
 
 /** Good names (lower case), indexed by Good. */
-export const GOOD_NAMES: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt']
+export const GOOD_NAMES: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants']
 
 export function goodName(g: number): string {
   return GOOD_NAMES[g] ?? 'goods'
@@ -288,7 +291,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case PeoplesEvent.Domesticated:
     case PeoplesEvent.SpeciesAdopted: return 'species'
     case PeoplesEvent.Epidemic: return 'epidemic'
-    default: return 'migration'
+    default: return (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
 
@@ -314,12 +317,14 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Famine:
       return `Famine in ${name}` + (e.value > 0 ? ` (−${Math.round(e.value * 100)}%)` : '')
     case EventType.Built:
+      if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `${name} raises walls`
       return structureTypeOf(h, e) === StructureType.Dam ? `${name} dams the river` : `${name} builds a port`
     case EventType.BecameTown:
       return `${name} grows into a town`
     case EventType.BecameCity:
       return `${name} becomes a city`
     case EventType.StructureLost:
+      if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `The walls of ${name} fall into ruin`
       return structureTypeOf(h, e) === StructureType.Dam ? `The dam of ${name} falls into ruin` : `The port of ${name} falls into ruin`
     case EventType.TradeOpened: {
       const x = exchange(h, e, e.settlement)
@@ -330,7 +335,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Migration:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
     default:
-      return describePeoplesEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
+      return describePeoplesEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
 
@@ -378,12 +383,14 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.Famine:
       return 'Famine' + (e.value > 0 ? `, lost ${Math.round(e.value * 100)}% of its people` : '')
     case EventType.Built:
+      if (isWallEvent(h, e)) return describePolityEventFor(h, e, id) ?? 'Raised walls'
       return structureTypeOf(h, e) === StructureType.Dam ? 'Dammed the river' : 'Built a port'
     case EventType.BecameTown:
       return `Grew into a town (${formatInt(e.value)} people)`
     case EventType.BecameCity:
       return `Became a city (${formatInt(e.value)} people)`
     case EventType.StructureLost:
+      if (isWallEvent(h, e)) return describePolityEventFor(h, e, id) ?? 'Its walls fell into ruin'
       return `Its ${structureName(structureTypeOf(h, e))} fell into ruin`
     case EventType.TradeOpened: {
       const partner = e.settlement === id ? e.other : e.settlement
@@ -395,7 +402,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.TradeClosed:
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
-      return describePeoplesEventFor(h, e, id) ?? (e.settlement === id
+      return describePeoplesEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)
   }

@@ -43,6 +43,10 @@
 // 'history-ore' seeds the ore-richness noise; people names come from
 // 'names-people-<founder>' (peoples.ts), species names from
 // 'names-species-<id>'. Knowledge, contact and technology draw nothing.
+// species-v2: after the species system, speciesV2.ts runs cash crops, habit,
+// storage, blight and techniques ('history-species-hazard' for blight and
+// livestock plague, 'history-species-techniques' for techniques found;
+// technique names from 'names-technique-<id>').
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -77,6 +81,8 @@ import type { TradeState } from './trade.ts'
 import { createTech, technologySystem } from './technology.ts'
 import { createExplore, explorationSystem } from './exploration.ts'
 import { assembleSpecies, createSpecies, speciesLandSnapshot, speciesSystem, speciesTables } from './species.ts'
+import { assembleV2, createSpeciesV2, speciesV2Snapshot, speciesV2System, v2Diag } from './speciesV2.ts' // species-v2
+import type { SpeciesV2Diag } from './speciesV2.ts' // species-v2
 import { Place } from './exploration.ts'
 import type { ExpeditionLog } from './exploration.ts'
 import { detectFeatures } from '../names/features.ts'
@@ -129,6 +135,8 @@ export interface HistoryDiagnostics {
   epiLog?: number[]
   /** Disease load per people at the end. */
   disease?: Float64Array
+  /** species-v2: blights, plagues, drains, pellagra, drain balances, loanword names (speciesV2.ts). */
+  speciesV2?: SpeciesV2Diag
 }
 
 function copyLog(l: ExpeditionLog): ExpeditionLog {
@@ -280,6 +288,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   s.year = 0
   const cradles = seedPeoples(s, createRng(seed, 'history-cradles'), (plan) => {
     s.sp = createSpecies(s, plan, createRng(seed, 'history-species-origins'), createRng(seed, 'history-species-spread'))
+    s.sp.v2 = createSpeciesV2(s, createRng(seed, 'history-species-hazard'), createRng(seed, 'history-species-techniques')) // species-v2
   })
   const voyages = createVoyages(s, createRng(seed, 'history-voyages'))
   const trade = createTrade(N)
@@ -294,6 +303,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   let road = new Uint8Array(16 * N)
   let crop = new Uint8Array(16 * N)
   let herd = new Uint8Array(16 * N)
+  let cash = new Uint8Array(16 * N) // species-v2
   let landCount = 0
   const landSnapshot = (): void => {
     const q = landCount++
@@ -302,7 +312,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     road = ensureU8(road, landCount * N)
     crop = ensureU8(crop, landCount * N)
     herd = ensureU8(herd, landCount * N)
-    speciesLandSnapshot(s, crop, herd, q * N)
+    cash = ensureU8(cash, landCount * N) // species-v2
+    speciesLandSnapshot(s, crop, herd, q * N, cash)
     const cells = terrain.landCells
     const o = q * N
     for (let t = 0; t < cells.length; t++) {
@@ -347,6 +358,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let t = 0; t < s.living.length; t++) peopleAlive[s.people[s.living[t]]] = 1
     for (let i = 0; i < PF; i++) snapTech[techUsed + i] = peopleAlive[(i / TECH_FIELD_COUNT) | 0] ? s.tech[i] : 0
     techUsed += PF
+    speciesV2Snapshot(s) // species-v2: habit, storable
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -390,6 +402,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
     speciesSystem(s, trade)
+    speciesV2System(s, trade) // species-v2
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -425,8 +438,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const { names, features, naming } = nameWorld(world, settlements, featureMap)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)
-    const species = assembleSpecies(world, s.sp, naming, peoples, s.founders, (id) => s.cell[id])
+    const usedNames = new Set<string>() // species-v2: technique names unique among species names too
+    const species = assembleSpecies(world, s.sp, naming, peoples, s.founders, (id) => s.cell[id], usedNames)
     const spT = speciesTables(s.sp)
+    const v2 = assembleV2(world, s, naming, usedNames, snapshotCount, S, spT.techYear.slice(), spT.techSource) // species-v2
     const capacity = new Float32Array(terrain.cellCount)
     for (let i = 0; i < terrain.cellCount; i++) capacity[i] = terrain.capacity[i]
     const journeys = assembleJourneys(s.journeys)
@@ -445,6 +460,11 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         technology: snapTech.slice(0, snapshotCount * PF),
         species, speciesYear: spT.year, speciesSource: spT.source,
         crop: crop.slice(0, landSnapshotCount * N), herd: herd.slice(0, landSnapshotCount * N),
+        cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
+        // polities-merge: placeholders, replaced when the polity branch is merged
+        polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), danger: new Uint8Array(0),
+        wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0) },
+        raids: { count: 0, decade: new Int16Array(0), settlement: new Int32Array(0), raids: new Uint16Array(0), wealth: new Float32Array(0) },
       },
       terrain,
       diag: {
@@ -454,6 +474,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         firstLearn: techState.firstLearn.slice(), peopleVolume: techState.pairVol.slice(), near: s.know.near.slice(),
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
         cradleSets: s.sp.cradleSet.map((x) => x.slice()), techYear: spT.techYear, techLog: s.sp.techLog.slice(), epiLog: s.sp.epiLog.slice(), disease: s.sp.disease.slice(),
+        speciesV2: v2Diag(s, species.map((x) => x.name), v2.techniques.map((x) => x.name), naming), // species-v2
       },
     }
   }

@@ -6,8 +6,10 @@
 
 import { EventType } from '../contract.ts'
 import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeLandfallBurst, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
-import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, type HistoryIndex } from './historyIndex.ts'
-import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
+import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
+import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { describeGains, describeRaids, describeRevolts, describeSmallRaids, isPolityHeadline } from './polityFormat.ts'
+import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
 import { addShortcut } from './shortcuts.ts'
 
 const ROWS = 40
@@ -53,7 +55,27 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   const empty = document.createElement('div')
   empty.className = 'chr-empty'
   empty.textContent = 'Nothing has happened yet.'
-  root.append(head, list, empty)
+  // a filter by kind of event (shown once the history has political events; remembered)
+  const filterRow = document.createElement('label')
+  filterRow.className = 'chr-filter hidden'
+  const filterLabel = document.createElement('span')
+  filterLabel.textContent = 'Show'
+  const filterSelect = document.createElement('select')
+  filterSelect.className = 'chr-filter-select'
+  filterSelect.title = 'Which events the chronicle lists'
+  CHRONICLE_FILTERS.forEach((f, i) => {
+    const o = document.createElement('option')
+    o.value = String(i)
+    o.textContent = f
+    filterSelect.appendChild(o)
+  })
+  let filter = Math.max(0, Math.min(CHRONICLE_FILTERS.length - 1, Number(loadPref('worldseed.chronicle.filter')) || 0))
+  filterSelect.value = String(filter)
+  filterRow.append(filterLabel, filterSelect)
+  /** Per filter (index > 0), the entries of that category and their years; built per index. */
+  let catEntries: Int32Array[] = []
+  let catYears: Float64Array[] = []
+  root.append(head, filterRow, list, empty)
   container.appendChild(root)
 
   /** `entry` and `shown` (members counted) identify what the row displays; `target` is the settlement a click selects. */
@@ -81,6 +103,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   collapsed = loadFlag('worldseed.chronicle.collapsed', false)
   root.classList.toggle('collapsed', collapsed)
   head.setAttribute('aria-expanded', String(!collapsed))
+
+  filterSelect.addEventListener('change', () => {
+    filter = Number(filterSelect.value) || 0
+    savePref('worldseed.chronicle.filter', String(filter))
+    for (const r of rows) r.entry = -1
+    shownMembers = -1
+    api.update(lastYear)
+  })
 
   const toggle = () => {
     collapsed = !collapsed
@@ -114,6 +144,26 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     const h = ix.history
     const lo = ix.notableOffsets[k]
     const kind = ix.notableKind[k]
+    if (kind === EntryKind.SmallRaids) {
+      // small raids of one decade (History.raids rows)
+      const R = h.raids
+      let raids = 0
+      const places = new Set<number>()
+      for (let q = lo; q < lo + m; q++) {
+        const row = -ix.notableMembers[q] - RAID_MEMBER_BASE
+        raids += R.raids[row]
+        places.add(R.settlement[row])
+      }
+      const row0 = -ix.notableMembers[lo] - RAID_MEMBER_BASE
+      const line = describeSmallRaids(raids, places.size)
+      r.target = R.settlement[row0]
+      r.li.hidden = false
+      r.li.className = 'ev-raid ev-faint'
+      r.year.textContent = `${R.decade[row0] * 10}s`
+      r.text.textContent = line
+      r.li.title = `The ${R.decade[row0] * 10}s: ${line}`
+      return
+    }
     if (kind === EntryKind.Named) {
       // named geography: members are -(feature id + 1), all named in one year by one settlement
       const ids: number[] = []
@@ -192,9 +242,16 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       let oneSender = true
       for (let q = lo + 1; q < lo + m; q++) if (h.events[ix.notableMembers[q]].other !== h.events[ev].other) oneSender = false
       text = describeLandfallBurst(h, h.events[ev], m, oneSender)
+      yearText = `${Math.floor(h.events[ev].year / ISLAND_BUCKET_YEARS) * ISLAND_BUCKET_YEARS}s`
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if ((kind === EntryKind.PolityGains || kind === EntryKind.Raids || kind === EntryKind.Revolts) && m > 1) {
+      // a polity's minor gains, or raids on towns, in one decade
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = kind === EntryKind.PolityGains ? describeGains(h, members) : kind === EntryKind.Raids ? describeRaids(h, members) : describeRevolts(h, members)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
-    } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost) {
+    } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost && (h.events[ev].type as number) < 20) {
       const e = h.events[ev]
       text = (e.type as number) === PeoplesEvent.Landfall
         ? describeLandfall(h, e, callbacks.landName?.(e.settlement, e.year) ?? null)
@@ -209,9 +266,38 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     r.li.hidden = false
     const ek = eventKind(h.events[ev])
     r.li.className = ek === 'town' || ek === 'city' || ek === 'contact' || ek === 'landfall' || ek === 'discovery' ? `ev-${ek} notable` : `ev-${ek}`
+    // polities: states founded and fallen, wars and peace, capitals taken, cities sacked, secessions
+    if (kind === EntryKind.Single && isPolityHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`
+  }
+
+  /** Entry lists per filter category; the filter shows only when there are political events. */
+  function buildCategories(ix: HistoryIndex | null) {
+    catEntries = []
+    catYears = []
+    let politics = 0
+    if (ix) {
+      const E = ix.notableKind.length
+      const cat = new Uint8Array(E)
+      const counts = new Uint32Array(CHRONICLE_FILTERS.length)
+      for (let k = 0; k < E; k++) {
+        const kind = ix.notableKind[k]
+        const m0 = ix.notableMembers[ix.notableOffsets[k]]
+        cat[k] = entryCategory(ix.history, kind, m0 >= 0 ? ix.history.events[m0] : null)
+        counts[cat[k]]++
+      }
+      politics = counts[1]
+      for (let c = 0; c < CHRONICLE_FILTERS.length; c++) {
+        const list = new Int32Array(c === 0 ? 0 : counts[c])
+        let j = 0
+        if (c > 0) for (let k = 0; k < E; k++) if (cat[k] === c) list[j++] = k
+        catEntries.push(list)
+        catYears.push(Float64Array.from(list, (k) => ix.notableYear[k]))
+      }
+    }
+    filterRow.classList.toggle('hidden', politics === 0)
   }
 
   const api: Chronicle = {
@@ -221,6 +307,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       if (keep && ix) {
         // re-render each row in place on the next update (same entry ids, possibly new text)
         for (const r of rows) r.shown = -1
+        buildCategories(ix)
         return
       }
       for (const r of rows) {
@@ -230,6 +317,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       }
       root.classList.toggle('hidden', ix === null)
       count.textContent = ''
+      buildCategories(ix)
     },
     update(year: number) {
       lastYear = year
@@ -238,13 +326,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       const members = countUpTo(index.memberYearsSorted, year)
       if (members === shownMembers) return
       shownMembers = members
-      const n = countUpTo(index.notableYear, year)
+      const f = filterRow.classList.contains('hidden') ? 0 : filter
+      const n = f > 0 ? countUpTo(catYears[f], year) : countUpTo(index.notableYear, year)
       count.textContent = n > 0 ? String(n) : ''
       empty.hidden = n > 0 || collapsed
       if (collapsed) return
       for (let k = 0; k < ROWS; k++) {
         const r = rows[k]
-        const entry = n - 1 - k
+        const entry = n - 1 - k < 0 ? -1 : f > 0 ? catEntries[f][n - 1 - k] : n - 1 - k
         if (entry < 0) {
           if (r.entry !== -1) {
             r.entry = -1

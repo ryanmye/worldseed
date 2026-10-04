@@ -150,6 +150,17 @@ class TownGround {
   geometry = new THREE.BufferGeometry()
   mesh: THREE.Mesh
   count = 0
+  // what the buffer holds, settlement by settlement (a rebuild that appends the same pieces
+  // in the same order reuses them: a camera move does not copy or upload a big city's ground)
+  private ids: number[] = []
+  private ns: number[] = []
+  private offs: number[] = []
+  private grs: number[] = []
+  private k = 0
+  private matching = true
+  private epoch = -1
+  private window = -1
+  private dirtyFrom = 0
   constructor(material: THREE.Material, capacity = 8192) {
     this.data = new Float32Array(capacity * TownGround.STRIDE)
     this.buffer = new THREE.InterleavedBuffer(this.data, TownGround.STRIDE).setUsage(THREE.DynamicDrawUsage)
@@ -217,13 +228,47 @@ class TownGround {
     }
     return Math.sqrt(far2)
   }
-  commit() {
+  /** Starts a rebuild (`epoch`: bumped when the history changes; `window`: the snapshot window the lives are for). */
+  begin(epoch: number, window: number) {
+    if (epoch !== this.epoch || window !== this.window) {
+      this.epoch = epoch
+      this.window = window
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = 0
+      this.count = 0
+    }
+    this.k = 0
+    this.matching = true
+    this.dirtyFrom = Infinity
+  }
+  /** append() for settlement id's ground, reused if the buffer already holds it at this place in the order. */
+  appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number): number {
+    const k = this.k++
+    if (this.matching && k < this.ids.length && this.ids[k] === id && this.ns[k] === g.n) return this.grs[k]
+    if (this.matching) {
+      this.matching = false
+      if (k < this.offs.length) this.count = this.offs[k]
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = k
+      this.dirtyFrom = this.count
+    }
+    this.offs[k] = this.count
+    const gr = this.append(g, life, cx, cy, cz)
+    this.ids[k] = id
+    this.ns[k] = g.n
+    this.grs[k] = gr
+    return gr
+  }
+  /** Ends a rebuild: drops what was not appended again and uploads what changed. */
+  end() {
+    if (this.matching && this.k < this.ids.length) {
+      this.count = this.offs[this.k]
+      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.k
+    }
     const n = this.count
     this.geometry.setDrawRange(0, n)
     this.mesh.visible = n > 0
-    if (n === 0) return
+    if (n === 0 || this.dirtyFrom >= n) return
     this.buffer.clearUpdateRanges()
-    this.buffer.addUpdateRange(0, n * TownGround.STRIDE)
+    this.buffer.addUpdateRange(this.dirtyFrom * TownGround.STRIDE, (n - this.dirtyFrom) * TownGround.STRIDE)
     this.buffer.needsUpdate = true
   }
   dispose() {
@@ -403,6 +448,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   object.add(shadowSys.receiver)
   /** Bumped whenever the instance set changes (the shadow map redraws). */
   let instanceVersion = 0
+  /** Bumped when the history changes (the town ground is laid again). */
+  let groundEpoch = 0
 
   let lib: ModelLibrary | null = null
   let layouts: Layouts | null = null
@@ -451,10 +498,13 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   /** Per settlement in the work list: whether its town (not just its villages) can be in view. */
   let visTown = new Uint8Array(N)
   const byDist = (a: number, b: number) => visD[a] - visD[b]
+  /** (perf=1) What kept the last rebuild pending. */
+  const pendWhy = { vnull: 0, vgen: 0, snull: 0, sgen: 0, farm: 0, forest: 0 }
   const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0 }
   if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) {
     (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
     ;(globalThis as unknown as { __dioramaPlans: object }).__dioramaPlans = {}
+    ;(globalThis as unknown as { __dioramaPending: object }).__dioramaPending = pendWhy
   }
 
   // owner palette for travelling groups: the journey's origin is not exposed per group, so use a neutral team colour
@@ -562,12 +612,16 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   function rebuild() {
     if (!lib || !layouts) return
     const t0 = performance.now()
-    const deadline = t0 + LAYOUT_BUDGET_MS
+    // the layout budget counts layout work only (not the instance and ground writes between)
+    let spent = 0
+    const budget = () => performance.now() + Math.max(0, LAYOUT_BUDGET_MS - spent)
+    let tl = 0
     let pending = false
+    pendWhy.vnull = pendWhy.vgen = pendWhy.snull = pendWhy.sgen = pendWhy.farm = pendWhy.forest = 0
     for (const b of batches) if (b) b.count = 0
     if (shadows) shadows.count = 0
     if (ground) ground.count = 0
-    townGround.count = 0
+    townGround.begin(groundEpoch, snapOf(year))
     pickCount = 0
     let masks = 0
     stats.settlements = 0
@@ -608,10 +662,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         const r = surfaceRadius(world, s.cell)
         const end = s.abandonedYear >= 0 ? s.abandonedYear : NEVER
         // its satellite villages and hamlets (census.ts): each culled on its own, low detail far away
-        const vg = layouts.villages(id, deadline)
-        if (!vg) pending = true
-        else {
-          if (!vg.done) pending = true
+        tl = performance.now()
+        const vg = layouts.villages(id, budget())
+        spent += performance.now() - tl
+        if (!vg) { pending = true; pendWhy.vnull++ } else {
+          if (!vg.done) { pending = true; pendWhy.vgen++ }
           const V = vg.set
           for (let v = 0; v < V.n && stats.villageInstances < VILLAGE_CAP; v++) {
             const vc = V.cell[v]
@@ -639,12 +694,14 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           }
         }
         if (!visTown[id]) continue
-        const got = layouts.settlement(id, Math.max(pA, pB, pP), deadline)
+        tl = performance.now()
+        const got = layouts.settlement(id, Math.max(pA, pB, pP), budget())
+        spent += performance.now() - tl
         if (!got) {
-          pending = true
+          { pending = true; pendWhy.snull++ }
           continue
         }
-        if (!got.done) pending = true
+        if (!got.done) { pending = true; pendWhy.sgen++ }
         const slots = got.set
         stats.settlements++
         if (slots.n > 0) {
@@ -672,7 +729,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         }
         // the settlement's streets, squares and yards, with its houses; the road ribbons give way inside them
         if (got.ground.n > 0) {
-          const gr = townGround.append(got.ground, (t) => {
+          const gr = townGround.appendFor(id, got.ground, (t) => {
             if (!crossing(t, pP, pA, pB, yP, y0, y1, cross)) return null
             cross[0] = Math.max(cross[0], s.foundedYear)
             cross[1] = Math.min(cross[1], end)
@@ -706,9 +763,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         visCells.subarray(0, nc).sort(byDist)
         for (let q = 0; q < nc; q++) {
           const c = visCells[q]
-          const slots = layouts.farm(c, deadline)
+          tl = performance.now()
+          const slots = layouts.farm(c, budget())
+          spent += performance.now() - tl
           if (!slots) {
-            pending = true
+            { pending = true; pendWhy.farm++ }
             continue
           }
           stats.farmCells++
@@ -725,9 +784,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         for (let q = 0; q < nc; q++) {
           const c = visCells[q]
           if (visD[c] > FOREST_DIST + 0.018) break
-          const slots = layouts.forest(c, deadline)
+          tl = performance.now()
+          const slots = layouts.forest(c, budget())
+          spent += performance.now() - tl
           if (!slots) {
-            pending = true
+            { pending = true; pendWhy.forest++ }
             continue
           }
           const uA = U ? U[l0 * cellCount + c] : 0, uB = U ? U[l1 * cellCount + c] : 0, uP = U ? U[lP * cellCount + c] : 0
@@ -744,6 +805,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         const { list, pos, dir } = structures
         for (let k = 0; k < list.length; k++) {
           const st = list[k]
+          // only ports and dams here (walls belong to the town: see ui/politiesData.ts townPolityState)
+          if (st.type !== StructureType.Port && st.type !== StructureType.Dam) continue
           if (st.builtYear > y1 + interval) continue
           const lost = st.lostYear >= 0 ? st.lostYear : NEVER
           if (lost < yP) continue
@@ -804,7 +867,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     }
     shadows?.commit()
     ground?.commit()
-    townGround.commit()
+    townGround.end()
     townMaskUniforms.uTownCount.value = masks
     instanceVersion++
     stats.groundTriangles = townGround.count / 3
@@ -1023,6 +1086,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       if (visTown.length < N) visTown = new Uint8Array(N)
       if (visD.length < Math.max(N, cellCount)) visD = new Float32Array(Math.max(N, cellCount))
       layouts?.setHistory(h)
+      groundEpoch++
       shownS0 = -1
       shownL0 = -1
       dirty = true

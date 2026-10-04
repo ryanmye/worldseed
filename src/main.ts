@@ -18,6 +18,7 @@ import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIs
 import { loadQuality, Quality, QUALITY_SETTINGS, saveQuality } from './render/quality.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
+import { located, renderedGroundRadius, setTerrainHistory } from './render/terrainHeight.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -29,7 +30,8 @@ import { createPerfMonitor } from './render/perfTools.ts'
 // surface every frame, for comparison), perf=1 (frame-rate readout and window.__worldseed tools),
 // people=<id> (show the world as that people knew it), known=all (show what no people knew), tint=1 (markers coloured by people),
 // expeditions=0 (no expedition trails, supply lines, lost-expedition marks or discoveries), species=<id> (select a species),
-// view=crops|herds (main staple / herd animal per cell, when the history has them)
+// view=crops|herds (main staple / herd animal per cell, when the history has them),
+// factions=0 (no faction tint and borders on the Terrain view), polity=<id> (select a faction), view=factions|danger (when the history has them)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -69,6 +71,8 @@ app.appendChild(canvas)
 
 /** Closest camera distance from the planet centre (radius 1): low enough to see the 3D settlements (src/render/dioramas) house by house, above where the surface detail runs out. */
 const MIN_DISTANCE = 1.025
+/** Closest camera height above the ground under it (mountains rise well above sea level up close). */
+const MIN_CLEARANCE = 0.021
 
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.05, 300)
@@ -103,7 +107,19 @@ controls.maxDistance = 8
 controls.rotateSpeed = 0.6
 controls.zoomSpeed = 0.8
 controls.enablePan = false // right-drag and shift-drag move the sun instead (pointer.ts)
-if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings) // leans the view toward the horizon up close
+/** Rendered ground radius under a world-space point (terrainHeight.ts), or 1 before the world arrives. */
+const groundTmp = new THREE.Vector3()
+let groundStart = 0
+function groundUnder(x: number, y: number, z: number): number {
+  const w = currentWorld
+  if (!w) return 1
+  groundTmp.set(x, y, z)
+  planetGroup.worldToLocal(groundTmp).normalize()
+  const r = renderedGroundRadius(w, groundTmp.x, groundTmp.y, groundTmp.z, groundStart)
+  groundStart = located.cell
+  return r
+}
+if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings, groundUnder) // leans the view toward the horizon up close
 
 // The planet turns beneath a sun fixed in world space; the first drag stops it.
 let spinning = numParam('spin', 1) !== 0
@@ -164,6 +180,7 @@ let showTrade = layerOn('trade', 'trade') // trade=0: no trade routes or merchan
 let showRoads = layerOn('roads', 'roads') // roads=0: no roads or bridges
 let showLabels = layerOn('labels', 'labels') // labels=0: no place names
 let showExpeditions = layerOn('expeditions', 'expeditions') // expeditions=0: no expedition trails, supply lines or discoveries
+const showFactions = layerOn('factions', 'factions') // factions=0: no faction tint, borders, capitals and armies
 /** While a known world is shown its mist goes under the clouds (historyView.ts). */
 let cloudsOverFog = false
 let viewMode: ViewModeT = isViewMode(params.get('view')) ? (params.get('view') as ViewModeT) : ViewMode.Terrain
@@ -243,6 +260,8 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
     showWorld(msg.world)
   } else if (msg.type === 'history') {
     console.info(`history: ${msg.history.years} years, ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
+    // towns and fields flatten the ground (terrainHeight.ts) before any layer is placed on it
+    if (currentWorld) setTerrainHistory(currentWorld, msg.history)
     if (msg.extend) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
@@ -297,6 +316,7 @@ function clearHistoryParams() {
   setUrlParam('people', null)
   setUrlParam('known', null)
   setUrlParam('species', null)
+  setUrlParam('polity', null)
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -405,12 +425,16 @@ const historyView = createHistoryView(
       requestRender()
     },
     setViewModeAvailable: (mode, available) => overlay.setViewModeAvailable(mode, available),
+    addLayerToggle: (t) => overlay.addLayerToggle(t),
   },
-  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species') },
+  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
 )
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Crops, false)
 overlay.setViewModeAvailable(ViewMode.Herds, false)
+// the Factions and Danger views need the history's polities (offered once they arrive)
+overlay.setViewModeAvailable(ViewMode.Factions, false)
+overlay.setViewModeAvailable(ViewMode.Danger, false)
 overlay.addLayerToggle({
   key: 'expeditions',
   label: 'Expeditions',
@@ -638,8 +662,8 @@ function applySize() {
 /** Advance time-based state and draw one frame. */
 function draw(ts: number) {
   if (sizeDirty) applySize()
-  // near plane follows the altitude, so the ground up close is not clipped
-  const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - 1) * 0.12))
+  // near plane follows the height above the ground, so the ground up close is not clipped
+  const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundUnder(camera.position.x, camera.position.y, camera.position.z)) * 0.12))
   if (Math.abs(camera.near - nearWant) > camera.near * 0.15) {
     camera.near = nearWant
     camera.updateProjectionMatrix()
@@ -677,6 +701,8 @@ function frame(ts: number) {
   controls.dampingFactor = 1 - Math.pow(1 - DAMPING_PER_60HZ_FRAME, Math.min(Math.max(dt * 60, 0.25), 6))
   // drag speed eases off near the ground, where the view is a few houses across
   controls.rotateSpeed = 0.6 * Math.min(1, Math.max(0.025, (camera.position.length() - 1) / 0.5))
+  // keep clear of the ground under the camera (tall mountains up close)
+  controls.minDistance = Math.max(MIN_DISTANCE, groundUnder(camera.position.x, camera.position.y, camera.position.z) + MIN_CLEARANCE)
   inLoopControlsUpdate = true
   const moved = controls.update()
   inLoopControlsUpdate = false

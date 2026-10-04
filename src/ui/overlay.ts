@@ -88,6 +88,8 @@ const MODE_LABELS: Record<ViewMode, string> = {
   landuse: 'Land use',
   crops: 'Crops',
   herds: 'Herds',
+  factions: 'Factions',
+  danger: 'Danger',
 }
 
 const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }

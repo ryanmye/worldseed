@@ -57,13 +57,15 @@
 
 import { EventType, GOOD_COUNT, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import { Heap } from './heap.ts'
-import { GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
+import { CASHCROP, GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
 import { prosperity } from './migration.ts'
 import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent, techOf } from './state.ts'
 import { ContactVia, learnPath, meet } from './knowledge.ts'
 import { moveMuls, packOf } from './species.ts'
+import { marketGoods, stimFlow } from './cashCrops.ts' // species-v2
+import { perishOf } from './storage.ts' // species-v2
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -139,6 +141,9 @@ export interface TradeState {
   bid: Float64Array
   /** Pack-animal transport factor this year (species.packOf). */
   pack: Float64Array
+  // species-v2: worth of Cloth, Luxury and Stimulant at each settlement this year ([id * G + g], g >= 6; cashCrops.ts), and the transport factor of its grain (storage.ts).
+  worth: Float64Array
+  perish: Float64Array
 
   // Settlement-graph search.
   gDist: Float64Array
@@ -204,6 +209,8 @@ export function createTrade(cellCount: number): TradeState {
     trader: new Uint8Array(S),
     bid: new Float64Array(S),
     pack: new Float64Array(S),
+    worth: new Float64Array(S * G), // species-v2
+    perish: new Float64Array(S).fill(1), // species-v2
     gDist: new Float64Array(S),
     gPrev: new Int32Array(S),
     gStamp: new Int32Array(S),
@@ -252,6 +259,8 @@ function ensureSettlements(ts: TradeState, count: number): void {
   ts.trader = growU(ts.trader, size)
   ts.bid = growF(ts.bid, size)
   ts.pack = growF(ts.pack, size)
+  ts.worth = growF(ts.worth, size * G) // species-v2
+  ts.perish = growF(ts.perish, size) // species-v2
   ts.gDist = growF(ts.gDist, size)
   ts.gPrev = growI(ts.gPrev, size)
   ts.gStamp = growI(ts.gStamp, size)
@@ -268,6 +277,8 @@ function ensureRoutes(ts: TradeState, count: number): void {
   ts.rGood = growF(ts.rGood, size * G * 2)
 }
 
+/** species-v2: goods traded this year (scratch). */
+const GOODS_LIST = new Int32Array(G)
 /** Travel cost multipliers by species move class (species.moveMuls), scratch. */
 const LINK_MUL = new Float64Array(3)
 const ROUTE_MUL = new Float64Array(3)
@@ -638,7 +649,7 @@ function setGoodPrice(ts: TradeState, i: number, g: number): void {
   const k = i * G + g
   const D = ts.demand[k]
   const inv = 1 / (1 + ts.stock[k] / D)
-  const V = GOODS.value[g]
+  const V = g >= 6 ? ts.worth[k] : GOODS.value[g] // species-v2: the new goods' worth varies (wealth, habit)
   ts.price[k] = V * 2 * inv
   ts.deriv[k] = (V * 2 * inv * inv) / D
 }
@@ -735,6 +746,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     food0[id] = F
     ts.bid[id] = 1 + WEALTH.bid * prosperity(s, id)
     ts.pack[id] = packOf(s, id)
+    marketGoods(s, ts, id, o, demTech) // species-v2: Cloth, Luxury, Stimulant (and bamboo timber)
+    ts.perish[id] = perishOf(s, id) // species-v2
     setFoodPrices(s, ts, id)
     for (let g = FOOD; g < G; g++) setGoodPrice(ts, id, g)
   }
@@ -751,6 +764,15 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   pairFlow.fill(0)
   const damping = TRADE.damping, maxShare = TRADE.maxShare, margin = TRADE.margin
   const probeOff = s.year % TRADE.probeStep !== 0
+  // species-v2: goods nobody trading holds this year move nowhere (their price is the same everywhere): skipped.
+  const goods = GOODS_LIST
+  let nGoods = 0
+  for (let g = 0; g < G; g++) {
+    let any = g < 6
+    for (let t = 0; t < living.length && !any; t++) { const id = living[t]; if (trader[id] && stock[id * G + g] > 0) any = true }
+    if (any) goods[nGoods++] = g
+  }
+  const perish = ts.perish, cashShare = CASHCROP.maxShare, v2 = s.sp.v2 // species-v2 (hoisted)
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
@@ -762,9 +784,11 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       // Pack animals at the two ends carry it cheaper.
       const c = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle) * 0.5 * (ts.pack[a] + ts.pack[b])) / (1 + tt * (cr - 1))
       const oa = a * G, ob = b * G
-      for (let g = 0; g < G; g++) {
-        const tr = tUnit[g] * c
+      for (let gi = 0; gi < nGoods; gi++) {
+        const g = goods[gi]
+        if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         const gap = price[ob + g] - price[oa + g]
+        const tr = g === 0 ? tUnit[0] * c * (gap > 0 ? perish[a] : perish[b]) : tUnit[g] * c // species-v2: perishable grain
         let from: number, to: number, net: number, dir: number
         const tm = tr + minGap[g]
         if (gap > tm) { from = a; to = b; net = gap - tr; dir = 0 }
@@ -772,11 +796,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         else continue
         const kf = from * G + g, kt = to * G + g
         let q = (damping * net) / (deriv[kf] + deriv[kt])
-        const cap = maxShare * stock[kf]
+        const cap = (g >= 6 ? cashShare : maxShare) * stock[kf] // species-v2: light, dear goods leave in bulk
         if (q > cap) q = cap
         if (!(q > 1e-6)) continue
         stock[kf] -= q
         stock[kt] += q
+        if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt]) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
         income[from] += q * (0.5 * net + margin * V[g])
         pairFlow[(p * G + g) * 2 + dir] += q
         if (g < FOOD) { setFoodPrices(s, ts, from); setFoodPrices(s, ts, to) }

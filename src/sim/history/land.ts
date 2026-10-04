@@ -84,7 +84,7 @@ export function degradationSystem(s: HistoryState): void {
     if (e < 0) e = 0
     let wear = 0
     if (e > 0) {
-      const load = e * e * fragility[j] * (D.stressBase + (1 - D.stressBase) * smoothstep(D.crowdLow, D.crowdHigh, stress[j]))
+      const load = e * e * fragility[j] * (D.stressBase + (1 - D.stressBase) * smoothstep(D.crowdLow, D.crowdHigh, stress[j])) * s.sp.wear[j] // species-v2: crop wear (cashCrops.ts)
       if (load > D.tolerance) wear = D.rate * (load - D.tolerance)
     }
     d += dt * (wear * (1 - d) - d * (D.recovery * (1 - x) + D.renewal))

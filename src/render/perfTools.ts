@@ -106,6 +106,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
           triangles,
           bakes: (h.getGlobe()?.bakeInfo.count ?? 0) + (h.getClouds()?.bakeInfo.count ?? 0),
           globeBake: h.getGlobe()?.bakeInfo ?? null,
+          globeDetail: h.getGlobe()?.detailInfo ?? null,
           cloudBake: h.getClouds()?.bakeInfo ?? null,
           pixelRatio: h.pixelRatio(),
           quality: h.quality(),

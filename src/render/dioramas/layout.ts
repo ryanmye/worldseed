@@ -671,12 +671,8 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
         return probe.radius
       },
       clear(x, y, r) {
-        const D = (globalThis as { __dioramaClear?: Record<number, number[]> }).__dioramaClear
-        const dd = D ? (D[id] ??= [0, 0, 0]) : null
-        if (!riverClear(segs, x * KK, y * KK, r * KK)) { if (dd) dd[0]++; return false }
-        const ok = dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, r * KK, c)
-        if (dd) dd[ok ? 2 : 1]++
-        return ok
+        if (!riverClear(segs, x * KK, y * KK, r * KK)) return false
+        return dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, r * KK, c)
       },
       riverSegs: segsKK,
       // the town stays within about a cell of its centre
@@ -698,7 +694,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   }
 
   // (perf=1: the centre of a settlement's plan, for aiming test shots)
-  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaOrigin: (id: number) => number[] }).__dioramaOrigin = (id) => [...Array.from(originOf(id)), extentOf(id)]
+  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaOrigin: (id: number) => number[] }).__dioramaOrigin = (id) => [...Array.from(originOf(id)), extentOf(id), states.get(id)?.writer.radius ?? 0]
 
   const stateOf = (id: number): SettlementState => {
     let st = states.get(id)
@@ -1339,7 +1335,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     const small = styleModel(style, Kind.Small), barn = styleModel(style, Kind.Long)
     const hay = style === Style.Temperate || style === Style.Savanna
     let windmills = 0
-    for (let k = 0; k < FARM_THRESHOLDS.length; k++) {
+    // in a settlement's territory its villages hold the countryside's people (census.ts):
+    // the lone farmsteads stand only on land no settlement claims
+    const ownedBy = ownerOf(cell)
+    const nFarms = ownedBy >= 0 && !settlements[ownedBy].outpost ? 0 : FARM_THRESHOLDS.length
+    for (let k = 0; k < nFarms; k++) {
       const t = FARM_THRESHOLDS[k] + (rand4(seed, cell, k, 0x84) - 0.5) * 20
       const r = footprint(small) * 2.4
       const p = spot(k, 0x85, r, 0.08, 0.52)

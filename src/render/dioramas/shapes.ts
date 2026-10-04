@@ -495,11 +495,11 @@ function dwelling(b: Builder, style: Style, size: number, cx: number, cz: number
       if (size === 2) {
         b.box(cx - 0.34, -0.15, cz - 0.22, cx + 0.34, 0.26, cz + 0.22, W, M_WALL)
         b.hip(cx - 0.34, cx + 0.34, cz - 0.22, cz + 0.22, 0.26, 0.54, far ? 0 : 0.07)
-      } else {
-        // a household: its hut and a granary
-        roundHut(b, cx - 0.05, cz, size === 0 ? 0.2 : 0.24, 0.24, size === 0 ? 0.54 : 0.6, far ? 5 : 7)
-        if (!far) granary(b, cx + (size === 0 ? 0.2 : 0.25), cz - 0.12)
-      }
+      } else if (size === 1) {
+        // a rectangular house under a hipped thatch
+        b.box(cx - hw * 0.9, -0.15, cz - hd, cx + hw * 0.9, 0.24, cz + hd, W, M_WALL)
+        b.hip(cx - hw * 0.9, cx + hw * 0.9, cz - hd, cz + hd, 0.24, 0.5, far ? 0 : 0.06)
+      } else roundHut(b, cx, cz, 0.22, 0.24, 0.56, far ? 5 : 7)
       break
     default:
       // rainforest: on stilts

@@ -13,20 +13,26 @@
 //    linear between those anchors). urbanPopulation(p) and ruralPopulation(p) both rise
 //    with p, so growth and decline stay monotone in town and countryside alike.
 //  - Households: one dwelling unit (one roof, one storey) houses HOUSEHOLD = 6 people. A
-//    building houses roof units x storeys households: a detached village house or hut 6
-//    people, a two-storey town house 12, a terrace of three two-storey houses 36, a
-//    courtyard block of six roofs on three storeys 108. Storeys are what the facade shader
-//    draws (a row of windows per 0.3 model units of wall), so height carries population.
-//    Landmarks (temples, halls, markets, mills, forts) house nobody.
+//    building houses roof units x storeys households, counted the way a viewer counts
+//    them: a detached house, a hut (with or without its granary), a pair of huts or a
+//    fenced compound is one household; a terrace is drawn as separate narrow houses side
+//    by side, each its own roof and height; a courtyard block of six roofs on three storeys
+//    houses 18. Storeys are what the facade shader draws (a row of windows per 0.3 model
+//    units of wall), so height carries population; they are kept low where a viewer would
+//    not credit them (one in villages and outer wards, one or two in a town, up to three or
+//    four only in a city's core). Landmarks (temples, halls, markets, mills, forts) house
+//    nobody. Town buildings are drawn narrower as the town grows (town.ts planScale), so a
+//    city is a denser fabric of more buildings, not a village blown up.
 //  - Countryside: the rest live in satellite villages and hamlets of 6-person houses,
 //    spread over the settlement's territory (its own cell and the land cells within 2
-//    hops, 3 for a settlement that ever passes 6,000, nearer to it than to any other
-//    settlement). Villages fill one after another in a fixed order (sizes from the seed and
-//    the settlement id), each made of clusters of 4-6 houses. The countryside shows at most
-//    RURAL_HOUSES_PER_CELL houses per land cell of the territory: beyond that (only the
-//    very largest cities on small territories) the picture under-counts the countryside.
-//  - The scattered farmsteads of the land-use layer (a few per cultivated cell) are extra:
-//    they stand for the land being worked, not for anyone's headcount.
+//    hops, 3 past 6,000, 4 past 25,000 and 5 past 100,000 people, that it claims more
+//    strongly than any other settlement, the larger reaching further). Villages fill one
+//    after another in a fixed order (sizes from the seed and the settlement id), each made
+//    of clusters of 4-6 houses, a well, church and market as they grow. The countryside
+//    shows at most RURAL_HOUSES_PER_CELL houses per land cell of its territory: beyond
+//    that (only the largest cities) the picture under-counts the countryside.
+//  - The lone farmsteads of the land-use layer stand only on land no settlement claims;
+//    inside a territory its villages are the countryside.
 
 import type { History, World } from '../../contract.ts'
 

@@ -11,6 +11,7 @@
 import * as THREE from 'three'
 import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, reliefRadius, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 
 /** Height of marker centres above the ground. */
@@ -120,6 +121,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   quad.instanceCount = N
 
   const uniforms = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: { value: 0 },
     uFrac: { value: 0 },
     uPulseYears: { value: 20 },
@@ -141,6 +143,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aCenter;
       attribute vec2 aLife;
       attribute float aId;
@@ -176,12 +179,13 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       varying float vNight;
       varying float vTier;
       void main() {
+        vec3 aCenterR = ws_relief(aCenter); // the ground at the zoom's relief (terrainHeight.ts)
         bool alive = uYear >= aLife.x && uYear < aLife.y;
         if (uMaskOn > 0.5 && uYear < aMask.x) alive = false; // unknown to the people whose world is shown
         vPeople = aPeople;
         vContact = uMaskOn > 0.5 && uYear >= aMask.y ? 1.0 : 0.0;
-        vec3 up = normalize(aCenter);
-        float facing = dot(up, normalize(uCamObj - aCenter));
+        vec3 up = normalize(aCenterR);
+        float facing = dot(up, normalize(uCamObj - aCenterR));
         if (!alive || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // outside the clip volume
           return;
@@ -197,7 +201,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         // foreshortened toward the limb, like the ground they sit on
         float r = r0 * uSizeScale * grow * mix(0.55, 1.0, sqrt(facing));
         // up close the buildings take over: 1 = marker fully yielded
-        vYield = uYield.y > 0.0 ? 1.0 - smoothstep(uYield.x, uYield.y, length(uCamObj - aCenter)) : 0.0;
+        vYield = uYield.y > 0.0 ? 1.0 - smoothstep(uYield.x, uYield.y, length(uCamObj - aCenterR)) : 0.0;
         r *= mix(1.0, 0.55, vYield);
         vSel = abs(aId - uSelected) < 0.5 ? 1.0 : 0.0;
         vHov = abs(aId - uHovered) < 0.5 ? 1.0 : 0.0;
@@ -207,7 +211,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         else if (vContact > 0.5) ext = r + 4.5;
         if (vPulse >= 0.0) ext = max(ext, r + 20.0);
         if (vTier > 1.5) ext = max(ext, r + 7.0); // glow
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aCenter, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aCenterR, 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;
@@ -384,7 +388,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         const cl = Math.hypot(cx, cy, cz)
         const dx = camLocal.x - cx, dy = camLocal.y - cy, dz = camLocal.z - cz
         const facing = (dx * cx + dy * cy + dz * cz) / (cl * Math.hypot(dx, dy, dz))
-        tmpV.set(cx, cy, cz).applyMatrix4(mvp)
+        tmpV.set(cx, cy, cz).multiplyScalar(reliefRadius(cl) / cl).applyMatrix4(mvp) // as drawn (ws_relief)
         const sx = ((tmpV.x + 1) / 2) * width
         const sy = ((1 - tmpV.y) / 2) * height
         const d = Math.hypot(sx - x, sy - y)

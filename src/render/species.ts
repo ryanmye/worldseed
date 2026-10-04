@@ -18,12 +18,15 @@
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
+import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { sunUniforms } from './sun.ts'
 import type { SpeciesData } from '../ui/speciesData.ts'
 
 const NEVER = 1e9
 const ARC_SEGMENTS = 40
 const ARC_RECENT_YEARS = 60
+/** A brief warm emphasis on an adoption right after it happens (shorter than ARC_RECENT_YEARS, which only governs overall fade-in). */
+const ARC_EMPHASIS_YEARS = 20
 
 export interface SpeciesLayer {
   object: THREE.Group
@@ -55,12 +58,15 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
   const N = world.grid.cellCount
   const object = new THREE.Group()
   const shared = {
+    uReliefK: reliefUniforms.uReliefK,
     uYear: { value: 0 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
     uMaskOn: { value: 0 },
     uSelected: { value: -1 },
+    uPixel: { value: 0.001 },
+    uPixelRatio: { value: 1 },
   }
   let mask: Float32Array | null = null
 
@@ -101,6 +107,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
   const originMaterial = new THREE.ShaderMaterial({
     uniforms: oUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec2 aInfo;
       attribute vec3 aCol;
@@ -119,18 +126,19 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
       varying vec3 vCol;
       varying float vAlpha;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         vSel = abs(aInfo.x - uSelected) < 0.5 ? 1.0 : 0.0;
         bool shown = vSel > 0.5 || abs(aInfo.y - uCategory) < 0.5;
         if (uMaskOn > 0.5 && uYear < aKnown) shown = false;
-        vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
+        vec3 up = normalize(aPosR);
+        float facing = dot(up, normalize(uCamObj - aPosR));
         if (!shown || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
         float r = (vSel > 0.5 ? 6.5 : 4.6) * uSizeScale * mix(0.6, 1.0, sqrt(facing));
         float ext = r + 6.0;
-        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPos, 1.0);
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(aPosR, 1.0);
         clip.xy += position.xy * ext * uPixelRatio * 2.0 / uViewport * clip.w;
         gl_Position = clip;
         vPx = position.xy * ext;
@@ -176,47 +184,84 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
   object.add(origins)
 
   // ---------- exchange arcs (rebuilt per selection) ----------
+  // a thin ribbon (pixel-space width, like the trade and journey layers) with a soft dark
+  // rim, paling and flaring into an arrowhead toward the taker, and a brief warm emphasis
+  // right after the adoption.
   const arcUniforms = { ...shared, uColor: { value: new THREE.Vector3(1, 1, 1) } }
   const arcMaterial = new THREE.ShaderMaterial({
     uniforms: arcUniforms,
     vertexShader: /* glsl */ `
-      attribute vec3 aArc; // along (0..1), year, known year (both ends)
+      ${RELIEF_GLSL}
+      attribute vec4 aSide; // side direction, across (-1|1)
+      attribute vec4 aArc; // along (0..1), year, known year (both ends), unused
       uniform float uYear;
       uniform vec3 uCamObj;
       uniform float uMaskOn;
-      uniform vec3 uSunObj;
-      uniform float uDaylight;
+      uniform float uPixel;
+      uniform float uPixelRatio;
+      varying float vAcross;
+      varying float vCore;
+      varying float vSoft;
       varying float vA;
       varying float vT;
+      varying float vEmphasis;
       void main() {
+        vec3 positionR = ws_relief(position); // the ground at the zoom's relief (terrainHeight.ts)
         bool shown = uYear >= aArc.y;
         if (uMaskOn > 0.5 && uYear < aArc.z) shown = false;
-        vec3 up = normalize(position);
-        float facing = dot(up, normalize(uCamObj - position)) + 0.25; // lifted arcs show a little past the limb
+        vec3 up = normalize(positionR);
+        float facing = dot(up, normalize(uCamObj - positionR)) + 0.25; // lifted arcs show a little past the limb
         if (!shown || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
         float recent = 1.0 - smoothstep(0.0, ${ARC_RECENT_YEARS.toFixed(1)}, uYear - aArc.y);
+        float emphasis = 1.0 - smoothstep(0.0, ${ARC_EMPHASIS_YEARS.toFixed(1)}, uYear - aArc.y);
+        vEmphasis = emphasis;
         vT = aArc.x;
         vA = mix(0.6, 1.0, recent) * smoothstep(0.0, 0.3, facing) * mix(0.5, 1.0, aArc.x);
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        // a steady ribbon that widens into a flare and tapers to a point just before the taker's end
+        float widen = smoothstep(0.80, 0.92, aArc.x);
+        float narrow = smoothstep(0.92, 1.0, aArc.x);
+        float arrow = mix(1.0, mix(2.6, 0.0, narrow), widen);
+        float core = 0.55 * arrow + 0.5 * emphasis;
+        vec4 mv = modelViewMatrix * vec4(positionR, 1.0);
+        float pix = -mv.z * uPixel * uPixelRatio;
+        float outer = core + 0.7;
+        vCore = core / outer;
+        vSoft = 0.85 / outer;
+        vAcross = aSide.w;
+        vec3 p = positionR + aSide.xyz * aSide.w * outer * pix;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
+      varying float vAcross;
+      varying float vCore;
+      varying float vSoft;
       varying float vA;
       varying float vT;
+      varying float vEmphasis;
       void main() {
-        // the species' colour, paling toward the taker (it reads apart from the discs below)
-        vec3 c = mix(uColor, vec3(1.0), 0.35 + 0.4 * vT);
-        gl_FragColor = vec4(c * vA, vA);
+        float x = abs(vAcross);
+        float core = 1.0 - smoothstep(vCore - vSoft, vCore, x);
+        float body = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
+        // the species' colour at the core, paling toward the taker, a soft dark rim at the edge,
+        // and a brief warm glow on a just-happened adoption
+        vec3 fill = mix(uColor, vec3(1.0), 0.35 + 0.4 * vT);
+        fill = mix(fill, vec3(1.0, 0.95, 0.72), 0.55 * vEmphasis);
+        vec3 rim = vec3(0.04, 0.03, 0.02);
+        vec3 col = mix(rim, fill, core);
+        float a = body * mix(0.5, 1.0, core) * vA * mix(1.0, 1.35, vEmphasis);
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(col * a, a);
       }
     `,
     ...blend,
   })
   let arcGeom = new THREE.BufferGeometry()
-  const arcs = new THREE.LineSegments(arcGeom, arcMaterial)
+  const arcs = new THREE.Mesh(arcGeom, arcMaterial)
   arcs.frustumCulled = false
   arcs.renderOrder = 8.1
   arcs.visible = false
@@ -229,8 +274,12 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
     arcs.geometry = arcGeom
     arcs.visible = false
     if (selected < 0) return
-    const pos: number[] = [], info: number[] = []
-    const a = new THREE.Vector3(), b = new THREE.Vector3(), p = new THREE.Vector3(), q = new THREE.Vector3()
+    const pos: number[] = [], side: number[] = [], info: number[] = []
+    const idx: number[] = []
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), tang = new THREE.Vector3(), sideV = new THREE.Vector3()
+    const pts: THREE.Vector3[] = []
+    for (let i = 0; i <= ARC_SEGMENTS; i++) pts.push(new THREE.Vector3())
+    let vBase = 0
     for (let k = 0; k < d.arcSpecies.length; k++) {
       if (d.arcSpecies[k] !== selected) continue
       const ca = d.arcFrom[k], cb = d.arcTo[k]
@@ -246,16 +295,29 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
         out.copy(a).multiplyScalar(Math.sin((1 - t) * ang) / s).addScaledVector(b, Math.sin(t * ang) / s)
         return out.multiplyScalar(1.004 + lift * 4 * t * (1 - t))
       }
-      for (let i = 0; i < ARC_SEGMENTS; i++) {
-        at(i / ARC_SEGMENTS, p)
-        at((i + 1) / ARC_SEGMENTS, q)
-        pos.push(p.x, p.y, p.z, q.x, q.y, q.z)
-        info.push(i / ARC_SEGMENTS, d.arcYear[k], known, (i + 1) / ARC_SEGMENTS, d.arcYear[k], known)
+      for (let i = 0; i <= ARC_SEGMENTS; i++) at(i / ARC_SEGMENTS, pts[i])
+      for (let i = 0; i <= ARC_SEGMENTS; i++) {
+        const t = i / ARC_SEGMENTS
+        const pA = pts[Math.max(0, i - 1)], pB = pts[Math.min(ARC_SEGMENTS, i + 1)]
+        tang.copy(pB).sub(pA)
+        sideV.crossVectors(pts[i], tang).normalize()
+        for (const across of [-1, 1]) {
+          pos.push(pts[i].x, pts[i].y, pts[i].z)
+          side.push(sideV.x, sideV.y, sideV.z, across)
+          info.push(t, d.arcYear[k], known, 0)
+        }
+        if (i > 0) {
+          const v = vBase + i * 2
+          idx.push(v - 2, v, v - 1, v - 1, v, v + 1)
+        }
       }
+      vBase += (ARC_SEGMENTS + 1) * 2
     }
     if (!pos.length) return
     arcGeom.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(pos), 3))
-    arcGeom.setAttribute('aArc', new THREE.BufferAttribute(Float32Array.from(info), 3))
+    arcGeom.setAttribute('aSide', new THREE.BufferAttribute(Float32Array.from(side), 4))
+    arcGeom.setAttribute('aArc', new THREE.BufferAttribute(Float32Array.from(info), 4))
+    arcGeom.setIndex(idx)
     arcs.visible = true
     arcUniforms.uColor.value.set(d.rgb[selected * 3], d.rgb[selected * 3 + 1], d.rgb[selected * 3 + 2])
   }
@@ -278,11 +340,14 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
   gQuad.setAttribute('aPos', new THREE.InstancedBufferAttribute(gPos, 3))
   gQuad.setAttribute('aOn', gOnAttr)
   gQuad.instanceCount = nl
-  const cellRadius = Math.sqrt((4 * Math.PI) / N) * 0.62
+  // sized and feathered to tile edge-to-edge (a per-cell tint) rather than leave gaps between
+  // soft-edged discs, which read as a faint dotted moire where "grown here" cells adjoin
+  const cellRadius = Math.sqrt((4 * Math.PI) / N) * 0.92
   const gUniforms = { ...shared, uColor: arcUniforms.uColor, uRadius: { value: cellRadius } }
   const grownMaterial = new THREE.ShaderMaterial({
     uniforms: gUniforms,
     vertexShader: /* glsl */ `
+      ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute float aOn;
       uniform vec3 uCamObj;
@@ -294,10 +359,11 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
       varying vec2 vUv;
       varying float vA;
       void main() {
+        vec3 aPosR = ws_relief(aPos); // the ground at the zoom's relief (terrainHeight.ts)
         // aOn: 0 not grown; else grown, and (with the mask on) shown from that year
         bool on = aOn > 0.5 && (uMaskOn < 0.5 || uYear >= aOn);
-        vec3 up = normalize(aPos);
-        float facing = dot(up, normalize(uCamObj - aPos));
+        vec3 up = normalize(aPosR);
+        float facing = dot(up, normalize(uCamObj - aPosR));
         if (!on || facing <= 0.0) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -305,7 +371,7 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
         // a disc lying on the ground, a little smaller than its cell
         vec3 e = normalize(abs(up.y) > 0.95 ? cross(vec3(0.0, 0.0, 1.0), up) : cross(vec3(0.0, 1.0, 0.0), up));
         vec3 n = cross(up, e);
-        vec3 p = aPos + (e * position.x + n * position.y) * uRadius;
+        vec3 p = aPosR + (e * position.x + n * position.y) * uRadius;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
         vUv = position.xy;
         float night = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
@@ -317,9 +383,10 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
       varying vec2 vUv;
       varying float vA;
       void main() {
-        // soft discs that run together into a tinted area where the species is grown
+        // near-flat per-cell tiles (only a thin feather at the edge) so contiguous "grown
+        // here" cells read as one tinted area instead of overlapping soft discs
         float d = length(vUv);
-        float a = (1.0 - smoothstep(0.55, 1.0, d)) * 0.36 * vA;
+        float a = (1.0 - smoothstep(0.82, 1.0, d)) * 0.4 * vA;
         if (a < 0.004) discard;
         vec3 c = uColor;
         gl_FragColor = vec4(c * a, a);
@@ -374,6 +441,8 @@ export function buildSpeciesLayer(world: World, d: SpeciesData): SpeciesLayer {
       oUniforms.uViewport.value.copy(drawSize)
       oUniforms.uPixelRatio.value = pixelRatio
       oUniforms.uSizeScale.value = Math.min(1.4, Math.max(0.85, Math.sqrt(3.25 / camera.position.length())))
+      shared.uPixel.value = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, drawSize.y)
+      shared.uPixelRatio.value = pixelRatio
     },
     setKnownMask(cellYear: Float32Array | null) {
       mask = cellYear

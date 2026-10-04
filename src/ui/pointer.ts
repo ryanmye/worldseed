@@ -5,12 +5,14 @@
 // Hover work (terrain pick, marker pick, readout) runs at most once per animation frame,
 // and the readout is rewritten only when the cell under the pointer changes.
 //
-// Terrain picking: ray vs. the unit sphere in planet space, then a greedy walk over
-// the cell graph to the nearest cell centre (cheap even at 100k+ cells).
+// Terrain picking: the ray is marched against the rendered ground (terrainHeight.ts, at
+// the zoom's relief: mountains up close stand well above the sea-level sphere), then a
+// greedy walk over the cell graph finds the nearest cell centre (cheap even at 100k+ cells).
 
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
 import { lakeArray, type GlobeMesh } from '../render/globe.ts'
+import { located, RELIEF_NEAR, reliefRadius, renderedGroundRadius } from '../render/terrainHeight.ts'
 import type { Readout } from './overlay.ts'
 
 export interface PointerDeps {
@@ -76,6 +78,50 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     shownCell = -1
   }
 
+  const outerSphere = new THREE.Sphere(new THREE.Vector3(), 1)
+  const tmpA = new THREE.Vector3()
+  /** First point where the ray meets the rendered ground (into `out`); false if it misses the planet. */
+  function groundHit(w: World, ray: THREE.Ray, out: THREE.Vector3): boolean {
+    outerSphere.radius = reliefRadius(1 + RELIEF_NEAR * 1.4)
+    // from where the ray enters the shell the ground can reach (or from the camera, inside it)
+    let t0 = 0
+    if (ray.origin.length() > outerSphere.radius) {
+      if (!ray.intersectSphere(outerSphere, tmpA)) return false
+      t0 = Math.max(0, tmpA.sub(ray.origin).dot(ray.direction))
+    }
+    // beyond the sea-level sphere nothing can be hit; a grazing ray may miss it and still meet a peak
+    const t1 = ray.intersectSphere(planetSphere, out) ? out.sub(ray.origin).dot(ray.direction) : t0 + 2 * outerSphere.radius
+    let start = hoverCell
+    const above = (t: number) => {
+      ray.at(t, tmpA)
+      const r = tmpA.length()
+      const g = renderedGroundRadius(w, tmpA.x / r, tmpA.y / r, tmpA.z / r, start)
+      start = located.cell
+      return r - g
+    }
+    const STEPS = 40
+    let a = t0
+    if (above(t0) <= 0) { ray.at(t0, out); return true }
+    for (let k = 1; k <= STEPS; k++) {
+      const b = t0 + ((t1 - t0) * k) / STEPS
+      const fb = above(b)
+      if (fb <= 0) {
+        // refine between a (above) and b (below)
+        let lo = a, hi = b
+        for (let i = 0; i < 10; i++) {
+          const m = (lo + hi) / 2
+          if (above(m) > 0) lo = m
+          else hi = m
+        }
+        ray.at(hi, out)
+        return true
+      }
+      a = b
+    }
+    if (t1 < t0 + 2 * outerSphere.radius) { ray.at(t1, out); return true }
+    return false
+  }
+
   function setRay(clientX: number, clientY: number) {
     const rect = canvas.getBoundingClientRect()
     pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
@@ -101,7 +147,7 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     globe.mesh.updateWorldMatrix(true, false)
     invMatrix.copy(globe.mesh.matrixWorld).invert()
     localRay.copy(raycaster.ray).applyMatrix4(invMatrix)
-    if (!localRay.intersectSphere(planetSphere, hitPoint)) {
+    if (!groundHit(w, localRay, hitPoint)) {
       hideReadout()
       return
     }

@@ -325,6 +325,14 @@ function checkInvariants(w: World, h: History): void {
         // Checked with the species below.
         speciesEvents.push(e)
         break
+      case EventType.TechniqueFound:
+      case EventType.TechniqueAdopted:
+      case EventType.Blight:
+      case EventType.HabitSpreads:
+      case EventType.Drain:
+      case EventType.Panzootic:
+        // species-v2: checked in species2.test.ts.
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
