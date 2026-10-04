@@ -157,6 +157,7 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       let share = 0
       const oo = (h * M + mi) * K
       for (let k = 0; k < K; k++) if (g.mixV[oo + k] === v) share = S > 0 ? g.mixA[oo + k] / S : 0
+      if (share < LANE.hear && !(exo > 0)) continue // (it must reach h already, through the middlemen)
       const cells = chord(s, s.cell[h], s.cell[o]) / hop
       if (cells < LANE.minCells) continue // (a direct way is for a far source)
       if (share < LANE.hear) {

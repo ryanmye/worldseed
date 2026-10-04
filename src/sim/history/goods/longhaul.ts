@@ -503,7 +503,7 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
   const order = g.legOrder
   const stock = ts.stock, price = ts.price, deriv = ts.deriv, income = ts.income
   const ps = s.pol
-  for (let i = 0; i < g.legCount; i++) g.legVol[i] = 0
+  g.legVol.fill(0, 0, g.legCount)
   if (!FLAGS.longhaul) return
   const lp = ps !== null && order.length > 0 ? legPolicy(s, ps, g) : null
   if (lp !== null) lp.loads.fill(0)

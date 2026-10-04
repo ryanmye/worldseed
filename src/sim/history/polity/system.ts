@@ -336,8 +336,7 @@ export function refugeeKnowledge(s: HistoryState, ps: PolityState, from: number,
 export function harvestLeft(ps: PolityState, id: number): number {
   if (id >= ps.seen) return 1
   const za = ps.dangerAvg[id]
-  const r = 1 - ps.ravage[id]
-  return za > DANGER.fleeLow ? r * (1 - DANGER.fieldsLost * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, za)) : r
+  return za > DANGER.fleeLow ? (1 - ps.ravage[id]) * (1 - DANGER.fieldsLost * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, za)) : 1 - ps.ravage[id]
 }
 
 /**
