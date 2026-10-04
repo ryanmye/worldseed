@@ -103,6 +103,16 @@ import { GOODS_ON } from './goods/params.ts'
 import { createGoodsSystem, goodsProduce, goodsYear } from './goods/system.ts'
 import { assembleGoods, emptyGoodsHistory, goodsSnapshot } from './goods/assemble.ts'
 import type { GoodsDiag } from './goods/state.ts'
+// rulers: named rulers, houses, successions, marriages and unions (rulers/).
+import { RULERS } from './rulers/params.ts'
+import { createRulers } from './rulers/state.ts'
+import type { RulerDiag } from './rulers/state.ts'
+import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
+// religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
+import { RELIGION } from './religion/params.ts'
+import { createReligionSystem, religionSnapshot, religionYear } from './religion/system.ts'
+import type { ReligionDiag } from './religion/state.ts'
+import { assembleReligion, emptyReligionHistory } from './religion/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -156,6 +166,10 @@ export interface HistoryDiagnostics {
   polity?: PolityDiag
   /** goods: records of the goods system (absent when it is off). */
   goods?: GoodsDiag
+  /** rulers: counters of the rulers system (absent when it is off). */
+  rulers?: RulerDiag
+  /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
+  religion?: ReligionDiag & { firstUniversal: Int32Array }
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -328,6 +342,12 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // goods: the goods system, unless switched off.
   const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
   s.goods = gx
+  // rulers: rulers and houses (they need the polities), unless switched off.
+  const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
+  s.rul = rul
+  // religion: faiths, unless switched off.
+  const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
+  s.rel = rel
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -394,6 +414,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     techUsed += PF
     speciesV2Snapshot(s) // species-v2: habit, storable
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
+    if (rel) religionSnapshot(s, rel) // religion:
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -445,6 +466,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
+    if (rel) religionYear(s, rel, trade) // religion: spread, conversion, churches, schism, persecution, pilgrims
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -493,6 +515,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     // goods: (empty when the system is off); forts and stations are flagged on their settlements.
     const goodsHist = gx ? assembleGoods(gx, years, tradeSnapshotCount, S, names, peoples.map((p) => p.name)) : emptyGoodsHistory()
     for (const x of goodsHist.posts) if (x.settlement >= 0 && (x.kind === 1 || x.kind === 2)) settlements[x.settlement].post = true
+    // rulers, religion: (empty when off).
+    const rulHist = rul ? assembleRulers(world, rul, pol ? pol.P : 0, naming) : emptyRulerHistory()
+    const relHist = rel ? assembleReligion(world, rel, naming, peoples.map((p) => p.name), snapshotCount, S, pol ? pol.P : 0) : emptyReligionHistory()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -510,6 +535,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
         ...goodsHist, // goods:
+        ...rulHist, // rulers:
+        ...relHist, // religion:
       },
       terrain,
       diag: {
@@ -525,6 +552,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
           yRev: pol.diag.yRev.slice(), yCapInc: pol.diag.yCapInc.slice(), yLegal: pol.diag.yLegal.slice(), ySmug: pol.diag.ySmug.slice(), yPir: pol.diag.yPir.slice(), yBand: pol.diag.yBand.slice(), yPirates: pol.diag.yPirates.slice(),
         } : undefined, // polities:
         goods: gx ? copyGoodsDiag(gx.diag) : undefined, // goods:
+        rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
       },
     }
   }

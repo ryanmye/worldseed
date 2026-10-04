@@ -31,6 +31,7 @@ import { crisisOpened, lowCohesion } from './civil.ts'
 import { chooseCapital, membersOf, successors } from './realm.ts'
 import { FAR, clampAsab, endPolity, grip, inCrisis, moveCapital, projAt, setPolity, submits } from './state.ts'
 import type { PolityState } from './state.ts'
+import { faithGrievance } from '../religion/system.ts' // religion:
 
 /** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
@@ -48,7 +49,7 @@ export function cohesionStep(s: HistoryState, ps: PolityState): void {
 }
 
 /** Grievance terms of member i of polity p, grouped: [peasant, provincial, ethnic, colonial]. */
-const terms = new Float64Array(4)
+const terms = new Float64Array(5) // (religion: [4] religious)
 function grievance(s: HistoryState, ps: PolityState, i: number, p: number): number {
   const U = UNREST
   const g = ps.dist[i] < FAR ? grip(ps.dist[i], ps.pReach[p]) : 0
@@ -63,13 +64,14 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; return peasant + provincial + ethnic + colonial + r } // religion: a ruler of another faith, persecution
   return peasant + provincial + ethnic + colonial
 }
 
 function causeOf(): number {
   let c = 0
-  for (let k = 1; k < 4; k++) if (terms[k] > terms[c]) c = k
-  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : RevoltCause.Colonial
+  for (let k = 1; k < 5; k++) if (terms[k] > terms[c]) c = k // (religion: terms[4] stays 0 without it)
+  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : c === 3 ? RevoltCause.Colonial : RevoltCause.Religious
 }
 
 /** System part (every step): grievance, unrest and assimilation of members. */
@@ -203,7 +205,8 @@ export function realmStep(s: HistoryState, ps: PolityState, ts: TradeState): voi
     // Dwindled.
     if (ps.pMembers[p] <= 0 || ps.pPop[p] < POLITY.dwindlePop) { endPolity(s, ps, p, PolityEnd.Dwindled, -1); continue }
     // Succession.
-    if (s.year >= ps.pNextSucc[p]) {
+    if (s.rul !== null) { if (!inCrisis(s, ps, p)) lowCohesion(s, ps, ts, p) } // rulers: successions come with the rulers' deaths (rulers/system.ts)
+    else if (s.year >= ps.pNextSucc[p]) {
       ps.pNextSucc[p] = s.year + U.next + Math.floor(rng.next() * U.spreadYears)
       const chance = U.crisisBase + U.crisisAsab * (1 - ps.pAsab[p]) + (ps.pMulti[p] ? U.crisisMulti : 0)
       if (!inCrisis(s, ps, p) && rng.next() < chance) {

@@ -38,6 +38,7 @@ import { logEvent } from './state.ts'
 import type { TradeState } from './trade.ts'
 import { empireLinks } from './polity/system.ts' // polities:
 import { capGain, goodsTechActivity } from './goods/system.ts' // goods:
+import { faithLinks } from './religion/system.ts' // religion:
 
 const F = TECH_FIELD_COUNT
 
@@ -200,6 +201,7 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
     }
   }
   if (s.pol !== null) empireLinks(s, s.pol, link, P) // polities: empires link their peoples
+  if (s.rel !== null) faithLinks(s.rel, link, P) // religion: monasteries link peoples of one faith
 
   // Growth from each people's own activity and part of that of the peoples it is linked with.
   const tech = s.tech
