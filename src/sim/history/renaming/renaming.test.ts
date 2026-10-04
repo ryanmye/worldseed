@@ -49,12 +49,15 @@ function hashRenaming(hi: History): string {
  * c4375b1 with the trade and siting fixes merged, before it (every key of History), recorded there. The system is a pure consequence layer, so with it on the same
  * holds. A later change outside the renaming system must regenerate these.
  */
+// (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
+// polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
+// hashes take in); fixed-field hashes of runs with polities off keep their values.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '38f85a6a'],
-  [3, 600, undefined, {}, 'f2aa2bcb'],
-  [7, 900, undefined, { polities: false, goods: false }, '7ef42c7a'],
-  [1, 1500, undefined, { disease: false }, '46618b37'],
-  [9, 800, 24, {}, 'c401fefc'],
+  [42, 2000, undefined, {}, 'ad65f44e'],
+  [3, 600, undefined, {}, 'ada67609'],
+  [7, 900, undefined, { polities: false, goods: false }, '7ea4d902'],
+  [1, 1500, undefined, { disease: false }, 'bed9a0c6'],
+  [9, 800, 24, {}, '3896bb1d'],
 ]
 
 const worlds = new Map<number, World>()

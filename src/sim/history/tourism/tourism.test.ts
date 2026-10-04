@@ -55,12 +55,15 @@ function hashTourism(hi: History): string {
  */
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
+// (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
+// polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
+// hashes take in); fixed-field hashes of runs with polities off keep their values.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '6911c406'],
-  [3, 600, undefined, {}, '2334e9b6'],
-  [7, 900, undefined, { polities: false, goods: false }, 'bdb93c3d'],
-  [1, 1500, undefined, { disease: false }, '17ed56c9'],
-  [9, 800, 24, {}, 'efa9d9da'],
+  [42, 2000, undefined, {}, 'e2c732e2'],
+  [3, 600, undefined, {}, '3acd23f4'],
+  [7, 900, undefined, { polities: false, goods: false }, '9e5b88b5'],
+  [1, 1500, undefined, { disease: false }, '3fb1053b'],
+  [9, 800, 24, {}, 'bd670f71'],
 ]
 
 const worlds = new Map<number, World>()

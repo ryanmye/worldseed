@@ -133,7 +133,7 @@ export function goodsYear(s: HistoryState, g: GoodsState, ts: TradeState, tk: Te
   scanEvents(s, g)
   buildMines(s, g)
   laneYear(s, g, ts)
-  postYear(s, g)
+  postYear(s, g, ts)
   relayYear(s, g)
   const phase = s.year % 10
   if (phase === 1) {

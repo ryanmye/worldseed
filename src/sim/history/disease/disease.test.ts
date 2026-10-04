@@ -48,12 +48,15 @@ function hashDisease(hi: History): string {
  */
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
+// (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
+// polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
+// hashes take in); fixed-field hashes of runs with polities off keep their values.)
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, '622e1995'],
-  [3, 600, undefined, true, true, '3168bf38'],
-  [7, 900, undefined, false, false, '489735b7'],
-  [1, 1500, undefined, true, false, '93ba8080'],
-  [9, 800, 24, true, true, '7f3ad6dd'],
+  [42, 2000, undefined, true, true, '4c54d0a8'],
+  [3, 600, undefined, true, true, 'e151da6a'],
+  [7, 900, undefined, false, false, '947ffbea'],
+  [1, 1500, undefined, true, false, '85353069'],
+  [9, 800, 24, true, true, 'd7b996c'],
 ]
 
 const worlds = new Map<number, World>()

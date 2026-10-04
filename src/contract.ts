@@ -205,6 +205,8 @@ export const EventType = {
   SightRecognised: 105, // a place became a sight worth the journey: `settlement` the living settlement by it (its own, the town that hosts its visitors, or the nearest); `other` the sight's own settlement (a ruin's abandoned one) or -1; `value` the sight id (History.sights, which has its cell); `extra` the SightKind
   // renaming: places renamed by history (110-119; none when HistoryOptions.renaming is false).
   PlaceRenamed: 110, // `settlement` took the name History.renamings.name[`value`] (`value` the renaming id); `other` the capital of the polity behind it at the time, the ruin whose name it revived (RenameCause.Revived), or -1; `extra` the RenameCause
+  // claims (polities): 130.
+  BorderDispute: 130, // the claims of the polities ruled from `settlement` and `other` came to meet over a stretch of unsettled land (History.claimed), a cause of rivalry between them; `value` is the polity id of `other`'s polity; `extra` the number of land cells both claim. Logged when the dispute begins (again after it lapsed)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -333,8 +335,16 @@ export interface History {
    * Territory per land snapshot: the settlement whose land each cell is, plus 1 (0 = nobody's: wilderness, sea never),
    * row-major: territory[q * landCells.length + k] for cell landCells[k]. The cell's polity at a year is
    * polity[snapshot, owner]: borders move with membership every snapshot, territory shapes every land snapshot.
+   * Land no settlement holds but a state claims (see `claimed`) is written as the claiming member settlement's.
    */
   territory: Uint16Array
+  /**
+   * 1 where the cell is claimed but not held: no settlement's own land, but inside a state's claims (enclosed pockets,
+   * gaps between its members, hinterland out to a crest, a great river, a coast or a desert's far edge), so `territory`
+   * names the member whose claim it lies in; 0 for held land and for nobody's land. Same layout as `territory`. Draw it
+   * as the state's but lighter or hatched; claims lapse with the state (redrawn every land snapshot).
+   */
+  claimed: Uint8Array
   /** Danger (raids, war, lawlessness) 0..255 per land snapshot per land cell, same layout as `territory`. */
   danger: Uint8Array
   wars: Wars

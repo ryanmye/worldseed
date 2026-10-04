@@ -8,7 +8,8 @@
 //   v2 bonds (vassals, tribute, alliances), coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
 //   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, v2 alliances, v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
-//   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger.
+//   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger; [claims every mapStep years:
+//   the land states claim beyond their settlements' (claims.ts)].
 // The tax (taxSystem) runs between trade and population: grain flows from members to capitals (v2: and from vassals
 // and tributaries to their overlords). The market (trade.ts) reads the trade policy (policy.ts) every year.
 //
@@ -25,10 +26,11 @@ import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { controlPass } from './control.ts'
+import { claimPass } from './claims.ts'
 import { cellDanger, linkNew, mapPass, createMapHeap, zCell } from './territory.ts'
 import { dangerStep, loseFort, loseWalls, wallStep } from './danger.ts'
 import { absorption, accretion, atWar, formation, leagues } from './formation.ts'
-import { COHESION, DANGER, PIRACY, POLITY, REFUGEE, UNREST } from './params.ts'
+import { CLAIM, COHESION, DANGER, PIRACY, POLITY, REFUGEE, UNREST } from './params.ts'
 import { relationOf, relationStep } from './relations.ts'
 import { FAR, createPolityState, ensureSettlements, grainShare, grip, setPolity, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
@@ -164,6 +166,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   }
   cellDanger(s, ps)
   taxShares(s, ps)
+  if (s.year % POLITY.mapStep === 0) claimPass(s, ps) // claims: the land the states call theirs, as membership now stands
 }
 
 /** Share of its food each member sends its capital until the next step: tax * gamma * g / T. */
@@ -248,6 +251,9 @@ export function fleeChance(ps: PolityState, id: number): number {
  * and danger makes defensible sites sought after; zr is the cell's danger or, for a group fleeing danger, part of its
  * own (fear sends people to hilltops and islands even where it is quiet for now), while the repulsion still tells
  * quiet land from raided borderlands and pirate coasts.
+ * Claims (claims.ts): settlers keep off land another state claims (a stateless people's or another state's settlers),
+ * * (1 - CLAIM.deter); the claiming state's own are neither deterred nor drawn in (a pull drew them into the fever
+ * country that had stayed empty for a reason).
  */
 export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: number): number {
   const z = zCell(s, ps, c)
@@ -255,7 +261,11 @@ export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: nu
   if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > zr) zr = zf }
   const D = ps.defenseD[c]
   const rep = z > DANGER.siteFree ? 1 - DANGER.siteNew * (z - DANGER.siteFree) * (1 - D) : 1
-  return (rep > DANGER.siteMin ? rep : DANGER.siteMin) * (1 + DANGER.refuge * zr * D)
+  const f = (rep > DANGER.siteMin ? rep : DANGER.siteMin) * (1 + DANGER.refuge * zr * D)
+  const q = ps.cPol[c]
+  if (q < 0 || ps.pEnded[q] >= 0) return f
+  const home = from < ps.seen && s.outpost[from] && s.parent[from] >= 0 ? s.parent[from] : from // (an expedition base: its parent's state)
+  return (home < ps.seen ? ps.polity[home] : -1) === q ? f : f * (1 - CLAIM.deter)
 }
 
 /** The sites a group weighs (migration's search), for PolityDiag.site*: the best of them by its score without danger. */

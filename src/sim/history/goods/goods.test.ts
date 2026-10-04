@@ -76,10 +76,13 @@ function hashGoods(hi: History): string {
  */
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
+// (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
+// polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
+// hashes take in); fixed-field hashes of runs with polities off keep their values.)
 const GOLDEN: [number, number, number | undefined, boolean, string][] = [
-  [42, 2000, undefined, true, '2fe47b4b'],
-  [3, 600, undefined, true, '7a50128f'],
-  [9, 800, 24, true, 'cb96a62'],
+  [42, 2000, undefined, true, 'e75dc829'],
+  [3, 600, undefined, true, '36cbe584'],
+  [9, 800, 24, true, 'c9d22df9'],
   [7, 900, undefined, false, '561d5fb4'],
 ]
 

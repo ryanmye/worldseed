@@ -34,10 +34,13 @@ export function hashBaseFields(h: History): string {
 /** hashBaseFields of the history without rulers and religion (the base commit 7bdbe75; since the merge, the disease system's main, verified by hashing every field against it; tourism, merged later, off): [seed, years, subdivisions, options, hash]. */
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
+// (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
+// polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
+// hashes take in); fixed-field hashes of runs with polities off keep their values.)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, 'b0b2465e'],
-  [3, 600, undefined, {}, '9c51d8e0'],
-  [9, 800, 24, {}, '50273a9c'],
+  [42, 2000, undefined, {}, 'fc1bad4e'],
+  [3, 600, undefined, {}, '50ad524'],
+  [9, 800, 24, {}, 'daac5dea'],
   [7, 900, undefined, { polities: false }, 'eb61ff8f'],
 ]
 

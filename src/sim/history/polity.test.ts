@@ -57,7 +57,7 @@ const GOLDEN: [number, number, number | undefined, string][] = [
 /** Hash of the polity fields. */
 function hashPolity(hi: History): string {
   let h = 0x811c9dc5
-  for (const a of [hi.polity, hi.landCells, hi.territory, hi.danger]) h = fnv(h, a)
+  for (const a of [hi.polity, hi.landCells, hi.territory, hi.claimed, hi.danger]) h = fnv(h, a)
   const w = hi.wars
   for (const a of [w.kind, w.attacker, w.defender, w.startYear, w.endYear, w.outcome, w.taken, w.dead]) h = fnv(h, a)
   const r = hi.raids
@@ -100,6 +100,7 @@ function checkPolities(w: World, h: History): void {
   const NP = h.peoples.length
   expect(h.polity.length).toBe(h.snapshotCount * S)
   expect(h.territory.length).toBe(h.landSnapshotCount * L)
+  expect(h.claimed.length).toBe(h.landSnapshotCount * L)
   expect(h.danger.length).toBe(h.landSnapshotCount * L)
   let land = 0
   for (let c = 0; c < w.grid.cellCount; c++) if (w.elevation[c] >= 0) land++
@@ -258,7 +259,7 @@ describe('polities', () => {
       const h = simulateHistory(w, { years, polities: false, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false }) // (goods, disease, rulers, religion, tourism, renaming: the pre-polity history has none of them)
       expect(hashBase(h)).toBe(hash)
       expect(h.polities.length).toBe(0)
-      expect(h.polity.length + h.landCells.length + h.territory.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)
+      expect(h.polity.length + h.landCells.length + h.territory.length + h.claimed.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)
       expect(h.structures.some((x) => x.type === StructureType.Walls)).toBe(false)
       // (Polity events are 20-43; species v2's are 44 and up.)
       expect(h.events.some((e) => e.type >= EventType.PolityFounded && e.type <= EventType.Blockade)).toBe(false)
@@ -284,7 +285,7 @@ describe('polities', () => {
     for (let q = 0; q < short.snapshotCount; q++) for (let i = 0; i < S0; i++) if (short.polity[q * S0 + i] !== long.polity[q * S1 + i]) throw new Error(`polity differs at snapshot ${q}, settlement ${i}`)
     const L = short.landCells.length
     expect(Array.from(long.landCells)).toEqual(Array.from(short.landCells))
-    for (let k = 0; k < short.landSnapshotCount * L; k++) if (short.territory[k] !== long.territory[k] || short.danger[k] !== long.danger[k]) throw new Error(`land layer differs at ${k}`)
+    for (let k = 0; k < short.landSnapshotCount * L; k++) if (short.territory[k] !== long.territory[k] || short.claimed[k] !== long.claimed[k] || short.danger[k] !== long.danger[k]) throw new Error(`land layer differs at ${k}`)
     expect(short.polities.length).toBeGreaterThan(0)
     for (const p of short.polities) {
       const q = long.polities[p.id]
@@ -311,10 +312,10 @@ describe('polities', () => {
     const b = run.advanceTo(1700)
     expect(hashPolity(b)).toBe(hashPolity(long))
     expect(hashPolity(a)).toBe(hashPolity(short)) // (untouched by the extension)
-    const bufs = (h: History) => [h.polity, h.landCells, h.territory, h.danger, h.wars.attacker, h.wars.dead, h.raids.decade, h.raids.wealth].map((x) => x.buffer)
+    const bufs = (h: History) => [h.polity, h.landCells, h.territory, h.claimed, h.danger, h.wars.attacker, h.wars.dead, h.raids.decade, h.raids.wealth].map((x) => x.buffer)
     const seen = new Set(bufs(a))
     for (const x of bufs(b)) expect(seen.has(x)).toBe(false)
-    for (const arr of [b.polity, b.landCells, b.territory, b.danger, b.wars.kind, b.wars.attacker, b.wars.defender, b.wars.startYear, b.wars.endYear, b.wars.outcome, b.wars.taken, b.wars.dead, b.raids.decade, b.raids.settlement, b.raids.raids, b.raids.wealth]) {
+    for (const arr of [b.polity, b.landCells, b.territory, b.claimed, b.danger, b.wars.kind, b.wars.attacker, b.wars.defender, b.wars.startYear, b.wars.endYear, b.wars.outcome, b.wars.taken, b.wars.dead, b.raids.decade, b.raids.settlement, b.raids.raids, b.raids.wealth]) {
       expect(arr.byteOffset).toBe(0)
       expect(arr.buffer.byteLength).toBe(arr.byteLength)
     }

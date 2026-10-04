@@ -362,6 +362,9 @@ function checkInvariants(w: World, h: History): void {
       // renaming: places renamed (checked against History.renamings in renaming/renaming.test.ts).
       case EventType.PlaceRenamed:
         break
+      // claims: border disputes (checked against History.polities in claims.test.ts).
+      case EventType.BorderDispute:
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
