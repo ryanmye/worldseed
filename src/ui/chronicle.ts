@@ -9,7 +9,7 @@ import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
-import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
+import { entryCategory, CHRONICLE_FILTERS, isOptionalFilter } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
 import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
 import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, rulersGroupKey } from './rulersFormat.ts'
@@ -324,6 +324,9 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
         counts[cat[k]]++
       }
       politics = counts[1]
+      // rulers, religion: their filters only with entries of their kind (a remembered one left empty falls back to All)
+      ;[...filterSelect.options].forEach((o, i) => (o.hidden = isOptionalFilter(i) && counts[i] === 0))
+      if (filterSelect.options[filter]?.hidden) filterSelect.value = String((filter = 0))
       for (let c = 0; c < CHRONICLE_FILTERS.length; c++) {
         const list = new Int32Array(c === 0 ? 0 : counts[c])
         let j = 0
