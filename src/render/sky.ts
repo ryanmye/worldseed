@@ -232,8 +232,11 @@ export function buildStarfield(count = 3200): THREE.Points {
   const points = new THREE.Points(geometry, material)
   points.renderOrder = -1
   points.frustumCulled = false
+  const cssSize = new THREE.Vector2()
   points.onBeforeRender = (renderer) => {
-    material.uniforms.uPixelRatio.value = renderer.getPixelRatio()
+    // (a frame drawn into a smaller target while the view moves: that target's ratio)
+    const rt = renderer.getRenderTarget()
+    material.uniforms.uPixelRatio.value = rt ? rt.width / Math.max(1, renderer.getSize(cssSize).x) : renderer.getPixelRatio()
   }
   return points
 }

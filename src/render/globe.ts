@@ -29,6 +29,7 @@ import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { closeDetailUniforms } from './dioramas/townMask.ts'
 import { evalGround, newGroundSample, relief, RELIEF_NEAR, reliefUniforms, setReliefAltitude, terrainOf } from './terrainHeight.ts'
 import { createDetailPatch } from './terrainDetail.ts'
+import { traceAdd } from './perfTrace.ts'
 import { requestRender } from './invalidate.ts'
 import { cellDirTexture, flatUniforms, seamCopy } from './mapProjection.ts'
 
@@ -746,7 +747,14 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     bakeStep(renderer: THREE.WebGLRenderer, maxFaces: number, sync = false) {
       // close-zoom detail tiles first, a few milliseconds per frame (any view)
       if (patch.pending) {
-        if (patch.step(performance.now() + PATCH_BUDGET_MS)) commitPatch()
+        const tp = performance.now()
+        const done = patch.step(tp + PATCH_BUDGET_MS)
+        const tc = performance.now()
+        traceAdd('patch.build', tc - tp)
+        if (done) {
+          commitPatch()
+          traceAdd('patch.commit', performance.now() - tc)
+        }
         if (patch.pending) return true
       }
       // the bake reads the Terrain corner colours from the vertex attributes

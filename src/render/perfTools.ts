@@ -8,6 +8,8 @@
 import * as THREE from 'three'
 import type { GlobeMesh } from './globe.ts'
 import type { Clouds } from './sky.ts'
+import { trace, type TraceRecord } from './perfTrace.ts'
+import type { GpuTimer } from './gpuTimer.ts'
 
 interface Hooks {
   renderer: THREE.WebGLRenderer
@@ -21,6 +23,10 @@ interface Hooks {
   quality(): string
   /** Atmosphere ray-march steps (A/B timing). */
   setAtmosphereSteps(n: number): void
+  /** The render loop's GPU timer (paused while a tool here runs its own queries). */
+  gpuTimer: GpuTimer
+  /** Motion resolution: 'auto', 'interval' (no GPU timer), 'off' (always the cap). */
+  setMotionRes(mode: 'auto' | 'interval' | 'off'): void
 }
 
 export interface PerfMonitor {
@@ -31,7 +37,37 @@ export interface PerfMonitor {
   readonly holdBake: boolean
   /** After each drawn frame: timestamp, CPU ms spent in renderer.render. */
   frame(ts: number, cpuMs: number, renderer: THREE.WebGLRenderer): void
+  /** Around each animation frame: opens and closes its trace record while one is recording. */
+  traceBegin(ts: number): void
+  traceEnd(pixelRatio: number): void
   expose(hooks: Hooks): void
+}
+
+/** Buffer and texture uploads, in kB per traced frame (perf=1 traces): the context's upload calls wrapped once. */
+const counted = new WeakSet<object>()
+function countUploads(gl: WebGL2RenderingContext) {
+  if (counted.has(gl)) return
+  counted.add(gl)
+  const g = gl as unknown as Record<string, (...a: unknown[]) => unknown>
+  const wrap = (name: string, bytes: (a: unknown[]) => number) => {
+    const f = g[name].bind(gl)
+    g[name] = (...a: unknown[]) => {
+      const r = trace.cur
+      if (!r) return f(...a)
+      const t = performance.now()
+      const out = f(...a)
+      r.upMs = (r.upMs ?? 0) + performance.now() - t
+      r.upKB = (r.upKB ?? 0) + bytes(a) / 1024
+      return out
+    }
+  }
+  const view = (x: unknown) => (x && typeof (x as ArrayBufferView).byteLength === 'number' ? (x as ArrayBufferView).byteLength : 0)
+  // bufferSubData(target, offset, src, srcOffset, length): length in elements of src
+  wrap('bufferSubData', (a) => (typeof a[4] === 'number' && a[2] ? (a[4] as number) * ((a[2] as Float32Array).BYTES_PER_ELEMENT ?? 1) : view(a[2])))
+  wrap('bufferData', (a) => (typeof a[1] === 'number' ? 0 : view(a[1])))
+  wrap('texSubImage2D', (a) => view(a[a.length - 1]) || view(a[a.length - 2]))
+  wrap('texImage2D', (a) => view(a[a.length - 1]) || view(a[a.length - 2]))
+  wrap('texSubImage3D', (a) => view(a[a.length - 1]) || view(a[a.length - 2]))
 }
 
 export function createPerfMonitor(enabled: boolean, container: HTMLElement): PerfMonitor {
@@ -49,6 +85,11 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
   let hooks: Hooks | null = null
   let el: HTMLDivElement | null = null
   let last = performance.now()
+  // per-frame trace (window.__worldseed.trace)
+  let tracing = false
+  let traceRecs: TraceRecord[] = []
+  let traceT0 = 0
+  let traceCalls0 = 0
 
   if (enabled) {
     el = document.createElement('div')
@@ -95,6 +136,25 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
       windowCpu += cpuMs
       calls = renderer.info.render.calls
       triangles = renderer.info.render.triangles
+      if (trace.cur) {
+        trace.cur.drawn = 1
+        trace.cur.calls = calls
+        trace.cur.tris = triangles
+      }
+    },
+    traceBegin(ts: number) {
+      if (!tracing) return
+      trace.cur = { ts, t: performance.now() }
+      traceCalls0 = frames
+    },
+    traceEnd(pixelRatio: number) {
+      const r = trace.cur
+      if (!tracing || !r) return
+      r.ms = performance.now() - r.t
+      r.pr = pixelRatio
+      if (frames === traceCalls0) r.drawn = 0
+      trace.cur = null
+      traceRecs.push(r)
     },
     expose(h: Hooks) {
       hooks = h
@@ -121,6 +181,39 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
         setContinuous: (on: boolean) => {
           forceContinuous = on
         },
+        /**
+         * Per-frame trace: start() records every animation frame (ms of the whole frame
+         * callback, its parts and the layers' named work, draw calls, triangles, pixel
+        /** The scene, renderer and camera (measurement experiments). */
+        three: () => ({ scene: h.scene, renderer: h.renderer, camera: h.camera }),
+        /**
+         * Per-frame trace: start() records every animation frame (ms of the whole frame
+         * callback, its parts and the layers' named work, draw calls, triangles, pixel
+         * ratio, GPU ms of its draw from the render loop's timer); stop() returns them.
+         */
+        trace: {
+          start: () => {
+            countUploads(h.renderer.getContext() as WebGL2RenderingContext)
+            traceRecs = []
+            traceT0 = performance.now()
+            tracing = true
+          },
+          stop: async () => {
+            tracing = false
+            const nextFrame = () => new Promise((res) => requestAnimationFrame(res))
+            // the last frames' GPU times arrive a frame or two later
+            for (let k = 0; k < 8; k++) {
+              h.gpuTimer.poll()
+              await nextFrame()
+            }
+            h.gpuTimer.poll()
+            const recs = traceRecs
+            traceRecs = []
+            for (const r of recs) r.t -= traceT0
+            return recs
+          },
+        },
+        motionRes: (mode: 'auto' | 'interval' | 'off') => h.setMotionRes(mode),
         bench: (n = 10) => {
           const gl = h.renderer.getContext()
           const px = new Uint8Array(4)
@@ -139,6 +232,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
          * the procedural and baked surface and clouds, 'atmo' 12 against `steps` atmosphere steps.
          */
         ab: (n = 8, what = 'bake', steps = 8) => {
+          h.gpuTimer.suspended = true
           const gl = h.renderer.getContext()
           const px = new Uint8Array(4)
           const set = (b: boolean) => {
@@ -162,6 +256,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
             set(true); b.push(time())
           }
           set(true)
+          h.gpuTimer.suspended = false
           const med = (x: number[]) => +x.sort((p, q) => p - q)[x.length >> 1].toFixed(1)
           return { what, before: med(a), after: med(b), ratio: +(med(a) / med(b)).toFixed(2) }
         },
@@ -174,6 +269,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
           const gl = h.renderer.getContext() as WebGL2RenderingContext
           const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2') as { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null
           if (!ext) return null
+          h.gpuTimer.suspended = true
           const nextFrame = () => new Promise((r) => requestAnimationFrame(r))
           const set = (b: boolean) => {
             if (variant === 'ab-bake') {
@@ -212,6 +308,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
           }
           const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT)
           const b = await read(qb)
+          h.gpuTimer.suspended = false
           const med = (x: number[]) => +x[x.length >> 1].toFixed(3)
           if (!ab) return { gpuMs: med(b), min: +b[0].toFixed(3), disjoint }
           const a = await read(qa)
@@ -226,6 +323,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
           const nextFrame = () => new Promise((r) => requestAnimationFrame(r))
           const gs = globe.bakeInfo.size, cs = clouds.bakeInfo.size
           holdBake = true
+          h.gpuTimer.suspended = true
           globe.setBakeSize(0); globe.setBakeSize(gs)
           clouds.setBakeSize(0); clouds.setBakeSize(cs)
           const qs: [string, WebGLQuery][] = []
@@ -252,6 +350,7 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
             maxFace = Math.max(maxFace, ms)
             gl.deleteQuery(q)
           }
+          h.gpuTimer.suspended = false
           h.drawNow()
           return { surfaceGpuMs: +sum.surface.toFixed(1), cloudsGpuMs: +sum.clouds.toFixed(1), maxFaceGpuMs: +maxFace.toFixed(2), faces: qs.length, wallMs: +wall.toFixed(0), surfaceMB: +(globe.bakeInfo.bytes / 1048576).toFixed(1), cloudsMB: +(clouds.bakeInfo.bytes / 1048576).toFixed(1) }
         },

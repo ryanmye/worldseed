@@ -163,6 +163,34 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const NN = net.nodeCount
   const smp = networkRouteSamples(net, R, LIFT)
   const { offsets: sOff, pos: sPos, frac: sFrac, water: sWater, link: sLink } = smp
+  // per route, a cap on the sphere round its samples (centre direction, cosine and sine of
+  // its angular radius): a route wholly out of view is skipped without placing its merchants
+  // (they would all fail the view test), so writeMerchants does work only for routes in view
+  const capDir = new Float32Array(R * 3)
+  const capCos = new Float32Array(R).fill(-1)
+  const capSin = new Float32Array(R)
+  for (let r = 0; r < R; r++) {
+    let cx = 0, cy = 0, cz = 0
+    for (let k = sOff[r]; k < sOff[r + 1]; k++) {
+      const l = Math.hypot(sPos[k * 3], sPos[k * 3 + 1], sPos[k * 3 + 2]) || 1
+      cx += sPos[k * 3] / l; cy += sPos[k * 3 + 1] / l; cz += sPos[k * 3 + 2] / l
+    }
+    const cl = Math.hypot(cx, cy, cz)
+    if (cl < 1e-9) continue
+    cx /= cl; cy /= cl; cz /= cl
+    let minDot = 1
+    for (let k = sOff[r]; k < sOff[r + 1]; k++) {
+      const l = Math.hypot(sPos[k * 3], sPos[k * 3 + 1], sPos[k * 3 + 2]) || 1
+      minDot = Math.min(minDot, (sPos[k * 3] * cx + sPos[k * 3 + 1] * cy + sPos[k * 3 + 2] * cz) / l)
+    }
+    // (a cap of 90 degrees or more is not convex: such a route is never skipped)
+    if (minDot <= 0.01) continue
+    capDir[r * 3] = cx; capDir[r * 3 + 1] = cy; capDir[r * 3 + 2] = cz
+    // a little margin for rounding
+    const c = Math.max(0, minDot - 1e-4)
+    capCos[r] = c
+    capSin[r] = Math.sqrt(1 - c * c)
+  }
 
   // ---------- active routes per trade-snapshot pair (s, s + 1), largest first ----------
   const pairOff = new Uint32Array(S + 1)
@@ -760,8 +788,11 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       // (continuous in the zoom, so merchants fade in as the camera nears)
       const zoomFactor = Math.min(1, Math.max(0.35, (cl - 1.5) / 1.3))
       const g = Math.exp((Math.log(scaleAt(s0)) * (1 - frac) + Math.log(scaleAt(s1)) * frac) * zoomFactor)
+      const sinView = Math.sqrt(Math.max(0, 1 - cosView * cosView))
       outer: for (let q = pairOff[s0]; q < pairOff[s0 + 1]; q++) {
         const r = pairList[q]
+        // the route's cap and the view's cap apart: none of its merchants can be in view
+        if (capCos[r] > 0 && cosView > 0 && capDir[r * 3] * cx + capDir[r * 3 + 1] * cy + capDir[r * 3 + 2] * cz < cosView * capCos[r] - sinView * capSin[r]) continue
         const v0 = vol[s0 * R + r], v1 = vol[s1 * R + r]
         const presence = (v0 > 0 ? 1 - frac : 0) + (v1 > 0 ? frac : 0)
         const L = smp.length[r]

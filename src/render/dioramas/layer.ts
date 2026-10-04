@@ -45,6 +45,7 @@ import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type Tow
 import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
 import { WorksKind } from './town.ts'
 import { resortQuarters } from './resort.ts'
+import { traceAdd } from '../perfTrace.ts'
 
 /**
  * Camera distance (to each instance) at which models are full size, and where they are
@@ -168,30 +169,45 @@ const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace']
 /**
  * The ground of every settlement near the view in one triangle list (layout.ts GroundSet
  * pieces with their life years over the snapshot window), rebuilt with the instance set.
- * Interleaved per vertex: position, normal, colour, pattern uv, kind, appear, disappear.
+ * Interleaved per vertex: position, normal, colour, pattern uv, kind, sack; the life years
+ * (appear, disappear) are an attribute of their own.
+ *
+ * Each settlement keeps its own range of the buffer from one rebuild to the next, whatever
+ * order the rebuild visits them in (nearest first, which changes as the camera moves), with
+ * every triangle of its set: one not shown in the window has the life (NEVER, NEVER), which
+ * the shader drops. So a camera move copies and uploads only the ground of settlements that
+ * came into view, and a new snapshot window (playback, scrubbing) rewrites only the life
+ * years. A settlement that left the view leaves a hole (hidden by its life years) that is
+ * closed up when holes make up much of the buffer. A new history lays everything again.
  */
 class TownGround {
-  static readonly STRIDE = 16
+  static readonly STRIDE = 14
   data: Float32Array
+  life: Float32Array
   buffer: THREE.InterleavedBuffer
+  lifeAttr: THREE.BufferAttribute
   geometry = new THREE.BufferGeometry()
   mesh: THREE.Mesh
+  /** Vertices in the draw range (live ranges and holes). */
   count = 0
-  // what the buffer holds, settlement by settlement (a rebuild that appends the same pieces
-  // in the same order reuses them: a camera move does not copy or upload a big city's ground)
-  private ids: number[] = []
-  private ns: number[] = []
-  private offs: number[] = []
-  private grs: number[] = []
-  private sc: number[] = []
-  private k = 0
-  private matching = true
+  /** Vertices of live ranges. */
+  live = 0
+  // per settlement: its range (first vertex, vertex count), what it was laid from, the
+  // window its life years are for, its farthest shown vertex, and the rebuild that last kept it
+  private entries = new Map<number, { off: number; len: number; n: number; sc: number; window: number; gr: number; pass: number }>()
+  /** Room a new range gets beyond its set (a town that grows is laid again in place). */
+  static readonly SLACK = 0.25
+  private pass = 0
   private epoch = -1
   private window = -1
-  private dirtyFrom = 0
+  /** Vertex ranges written since the last upload (start, end pairs): all attributes, and the life years only. */
+  private dirty: number[] = []
+  private lifeDirty: number[] = []
   constructor(material: THREE.Material, capacity = 8192) {
     this.data = new Float32Array(capacity * TownGround.STRIDE)
+    this.life = new Float32Array(capacity * 2)
     this.buffer = new THREE.InterleavedBuffer(this.data, TownGround.STRIDE).setUsage(THREE.DynamicDrawUsage)
+    this.lifeAttr = new THREE.BufferAttribute(this.life, 2).setUsage(THREE.DynamicDrawUsage)
     this.bind()
     this.mesh = new THREE.Mesh(this.geometry, material)
     this.mesh.frustumCulled = false
@@ -206,8 +222,8 @@ class TownGround {
     this.geometry.setAttribute('aCol', new THREE.InterleavedBufferAttribute(b, 3, 6))
     this.geometry.setAttribute('aUv', new THREE.InterleavedBufferAttribute(b, 2, 9))
     this.geometry.setAttribute('aKind', new THREE.InterleavedBufferAttribute(b, 1, 11))
-    this.geometry.setAttribute('aLife', new THREE.InterleavedBufferAttribute(b, 2, 12))
-    this.geometry.setAttribute('aScorch', new THREE.InterleavedBufferAttribute(b, 2, 14))
+    this.geometry.setAttribute('aScorch', new THREE.InterleavedBufferAttribute(b, 2, 12))
+    this.geometry.setAttribute('aLife', this.lifeAttr)
   }
   private reserve(n: number) {
     const S = TownGround.STRIDE
@@ -217,21 +233,21 @@ class TownGround {
     const d = new Float32Array(cap * S)
     d.set(this.data.subarray(0, this.count * S))
     this.data = d
-    // a new GPU buffer of the larger size
+    const l = new Float32Array(cap * 2)
+    l.set(this.life.subarray(0, this.count * 2))
+    this.life = l
+    // new GPU buffers of the larger size: everything uploads again
     this.geometry.dispose()
     this.buffer = new THREE.InterleavedBuffer(d, S).setUsage(THREE.DynamicDrawUsage)
+    this.lifeAttr = new THREE.BufferAttribute(l, 2).setUsage(THREE.DynamicDrawUsage)
     this.bind()
+    this.dirty.length = 0
+    this.dirty.push(0, this.count)
   }
-  /**
-   * Appends the triangles of g whose threshold the value crosses in the window (life from
-   * `life(threshold)`, null: not shown); returns the farthest appended vertex from (cx, cy, cz).
-   */
-  append(g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0): number {
-    if (g.n === 0) return 0
-    this.reserve(g.n)
+  /** Writes the life years of g's triangles at vertex `off` (NEVER, NEVER: not shown); returns the farthest shown vertex from (cx, cy, cz). */
+  private writeLife(off: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number): number {
     let far2 = 0
-    const S = TownGround.STRIDE
-    const d = this.data
+    const L = this.life
     let lastT = NaN
     let lf: Float64Array | null = null
     for (let v = 0; v + 2 < g.n; v += 3) {
@@ -240,67 +256,155 @@ class TownGround {
         lastT = t
         lf = life(t)
       }
+      const a = lf ? lf[0] : NEVER, b = lf ? lf[1] : NEVER
+      const o = (off + v) * 2
+      L[o] = L[o + 2] = L[o + 4] = a
+      L[o + 1] = L[o + 3] = L[o + 5] = b
       if (!lf) continue
-      const a = lf[0], b = lf[1]
-      for (let k = v; k < v + 3; k++) {
-        const o = this.count * S
-        d[o] = g.pos[k * 3]; d[o + 1] = g.pos[k * 3 + 1]; d[o + 2] = g.pos[k * 3 + 2]
-        d[o + 3] = g.nrm[k * 3]; d[o + 4] = g.nrm[k * 3 + 1]; d[o + 5] = g.nrm[k * 3 + 2]
-        d[o + 6] = g.col[k * 3]; d[o + 7] = g.col[k * 3 + 1]; d[o + 8] = g.col[k * 3 + 2]
-        d[o + 9] = g.uv[k * 2]; d[o + 10] = g.uv[k * 2 + 1]
-        d[o + 11] = g.kind[k]
-        d[o + 12] = a; d[o + 13] = b
-        d[o + 14] = scorchYear; d[o + 15] = scorch
-        this.count++
-      }
       const dx = g.pos[v * 3] - cx, dy = g.pos[v * 3 + 1] - cy, dz = g.pos[v * 3 + 2] - cz
       far2 = Math.max(far2, dx * dx + dy * dy + dz * dz)
     }
     return Math.sqrt(far2)
   }
+  /**
+   * Writes every triangle of g at vertex `off` (the life years from `life(threshold)`, null:
+   * not shown) and hides the rest of the range up to `len`; returns the farthest shown vertex from (cx, cy, cz).
+   */
+  private writeAt(off: number, len: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear: number, scorch: number): number {
+    const n = g.n - (g.n % 3)
+    const S = TownGround.STRIDE
+    const d = this.data
+    this.life.fill(NEVER, (off + n) * 2, (off + len) * 2)
+    for (let k = 0; k < n; k++) {
+      const o = (off + k) * S
+      d[o] = g.pos[k * 3]; d[o + 1] = g.pos[k * 3 + 1]; d[o + 2] = g.pos[k * 3 + 2]
+      d[o + 3] = g.nrm[k * 3]; d[o + 4] = g.nrm[k * 3 + 1]; d[o + 5] = g.nrm[k * 3 + 2]
+      d[o + 6] = g.col[k * 3]; d[o + 7] = g.col[k * 3 + 1]; d[o + 8] = g.col[k * 3 + 2]
+      d[o + 9] = g.uv[k * 2]; d[o + 10] = g.uv[k * 2 + 1]
+      d[o + 11] = g.kind[k]
+      d[o + 12] = scorchYear; d[o + 13] = scorch
+    }
+    return this.writeLife(off, g, life, cx, cy, cz)
+  }
   /** Starts a rebuild (`epoch`: bumped when the history changes; `window`: the snapshot window the lives are for). */
   begin(epoch: number, window: number) {
-    if (epoch !== this.epoch || window !== this.window) {
+    if (epoch !== this.epoch) {
       this.epoch = epoch
-      this.window = window
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = 0
+      this.entries.clear()
       this.count = 0
+      this.live = 0
+      this.dirty.length = 0
+      this.lifeDirty.length = 0
     }
-    this.k = 0
-    this.matching = true
-    this.dirtyFrom = Infinity
+    this.window = window
+    this.pass++
   }
-  /** append() for settlement id's ground, reused if the buffer already holds it at this place in the order. */
+  /** Settlement id's ground for this rebuild: kept where the buffer already holds it (its life years rewritten for a new window), else appended. */
   appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0): number {
-    const k = this.k++
-    if (this.matching && k < this.ids.length && this.ids[k] === id && this.ns[k] === g.n && this.sc[k] === scorchYear * 4 + scorch) return this.grs[k]
-    if (this.matching) {
-      this.matching = false
-      if (k < this.offs.length) this.count = this.offs[k]
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = k
-      this.dirtyFrom = this.count
+    const sc = scorchYear * 4 + scorch
+    const e = this.entries.get(id)
+    if (e && e.n === g.n && e.sc === sc) {
+      e.pass = this.pass
+      if (e.window !== this.window) {
+        e.window = this.window
+        e.gr = this.writeLife(e.off, g, life, cx, cy, cz)
+        if (e.len > 0) this.lifeDirty.push(e.off, e.off + e.len)
+        traceAdd('tg.relife', 1)
+      } else traceAdd('tg.kept', 1)
+      return e.gr
     }
-    this.offs[k] = this.count
-    const gr = this.append(g, life, cx, cy, cz, scorchYear, scorch)
-    this.ids[k] = id
-    this.ns[k] = g.n
-    this.grs[k] = gr
-    this.sc[k] = scorchYear * 4 + scorch
+    const n = g.n - (g.n % 3)
+    if (e && n <= e.len) {
+      // laid again in its own range
+      traceAdd('tg.relaid', 1)
+      e.gr = this.writeAt(e.off, e.len, g, life, cx, cy, cz, scorchYear, scorch)
+      e.n = g.n
+      e.sc = sc
+      e.window = this.window
+      e.pass = this.pass
+      if (e.len > 0) this.dirty.push(e.off, e.off + e.len)
+      return e.gr
+    }
+    traceAdd(e ? 'tg.moved' : 'tg.new', 1)
+    if (e) this.free(e)
+    const len = n + 3 * Math.floor((n * TownGround.SLACK) / 3)
+    this.reserve(len)
+    const off = this.count
+    this.count += len
+    const gr = this.writeAt(off, len, g, life, cx, cy, cz, scorchYear, scorch)
+    this.entries.set(id, { off, len, n: g.n, sc, window: this.window, gr, pass: this.pass })
+    this.live += len
+    if (len > 0) this.dirty.push(off, off + len)
     return gr
   }
-  /** Ends a rebuild: drops what was not appended again and uploads what changed. */
+  /** Hides a range (its life years: never) and counts it as a hole. */
+  private free(e: { off: number; len: number }) {
+    this.life.fill(NEVER, e.off * 2, (e.off + e.len) * 2)
+    this.live -= e.len
+    if (e.len > 0) this.lifeDirty.push(e.off, e.off + e.len)
+  }
+  /** Ends a rebuild: drops what was not appended again, closes up holes if many, and uploads what changed. */
   end() {
-    if (this.matching && this.k < this.ids.length) {
-      this.count = this.offs[this.k]
-      this.ids.length = this.ns.length = this.offs.length = this.grs.length = this.sc.length = this.k
+    let tail = 0
+    for (const [id, e] of this.entries) {
+      if (e.pass !== this.pass) {
+        this.free(e)
+        this.entries.delete(id)
+      } else tail = Math.max(tail, e.off + e.len)
+    }
+    // holes at the end are simply cut off
+    this.count = tail
+    if (this.count - this.live > Math.max(24576, this.live)) {
+      traceAdd('tg.compact', 1)
+      this.compact()
     }
     const n = this.count
     this.geometry.setDrawRange(0, n)
-    this.mesh.visible = n > 0
-    if (n === 0 || this.dirtyFrom >= n) return
-    this.buffer.clearUpdateRanges()
-    this.buffer.addUpdateRange(this.dirtyFrom * TownGround.STRIDE, (n - this.dirtyFrom) * TownGround.STRIDE)
-    this.buffer.needsUpdate = true
+    this.mesh.visible = this.live > 0
+    TownGround.upload(this.dirty, n, this.buffer, TownGround.STRIDE)
+    TownGround.upload(this.lifeDirty, n, this.lifeAttr, 2)
+  }
+  /** Uploads the written vertex ranges below n (merged where they overlap or nearly touch). */
+  private static upload(D: number[], n: number, target: THREE.InterleavedBuffer | THREE.BufferAttribute, stride: number) {
+    const pairs: [number, number][] = []
+    for (let i = 0; i < D.length; i += 2) if (D[i] < n) pairs.push([D[i], Math.min(n, D[i + 1])])
+    D.length = 0
+    if (pairs.length === 0) return
+    pairs.sort((a, b) => a[0] - b[0])
+    target.clearUpdateRanges()
+    let [s0, e0] = pairs[0]
+    for (let i = 1; i < pairs.length; i++) {
+      const [s, e] = pairs[i]
+      if (s <= e0 + 256) e0 = Math.max(e0, e)
+      else {
+        target.addUpdateRange(s0 * stride, (e0 - s0) * stride)
+        s0 = s
+        e0 = e
+      }
+    }
+    target.addUpdateRange(s0 * stride, (e0 - s0) * stride)
+    target.needsUpdate = true
+  }
+  /** Moves the live ranges down over the holes (keeping their order) and uploads the lot. */
+  private compact() {
+    const S = TownGround.STRIDE
+    const d = this.data, L = this.life
+    const list = [...this.entries.values()].sort((a, b) => a.off - b.off)
+    let w = 0
+    for (const e of list) {
+      if (e.off !== w) {
+        d.copyWithin(w * S, e.off * S, (e.off + e.len) * S)
+        L.copyWithin(w * 2, e.off * 2, (e.off + e.len) * 2)
+      }
+      e.off = w
+      w += e.len
+    }
+    this.count = w
+    this.live = w
+    this.dirty.length = 0
+    this.dirty.push(0, w)
+    this.lifeDirty.length = 0
+    this.lifeDirty.push(0, w)
   }
   dispose() {
     this.geometry.dispose()
@@ -1255,13 +1359,16 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     townGround.end()
     townMaskUniforms.uTownCount.value = masks
     instanceVersion++
-    stats.groundTriangles = townGround.count / 3
+    stats.groundTriangles = townGround.live / 3
     stats.instances = inst + (ground?.count ?? 0) + (bridgeBatch?.count ?? 0)
     stats.shadows = shadows?.count ?? 0
     stats.batches = used + (shadows && shadows.count > 0 ? 1 : 0) + (ground && ground.count > 0 ? 1 : 0) + (bridgeBatch && bridgeBatch.count > 0 ? 1 : 0)
     stats.triangles = tris + (shadows ? shadows.count * shadows.triangles : 0) + (ground ? ground.count * ground.triangles : 0)
     stats.pending = pending
     stats.rebuildMs = performance.now() - t0
+    traceAdd('dio.rebuild', stats.rebuildMs)
+    traceAdd('dio.layout', spent)
+    traceAdd('dio.rebuilds', 1)
     ;(globalThis as { __dioramaRebuildMs?: number[] }).__dioramaRebuildMs?.push(+stats.rebuildMs.toFixed(2))
     lastCam.copy(camObj)
     // leftover layout work: continue next frame (each rebuild spends at most the budget on it)

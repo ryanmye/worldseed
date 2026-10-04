@@ -25,6 +25,8 @@ import { flat, setFlatView, syncSeamCopies } from './render/mapProjection.ts'
 import { createMapControls } from './render/mapControls.ts'
 import { buildMapFrame } from './render/mapFrame.ts'
 import { sunUniforms } from './render/sun.ts'
+import { trace, traceAdd } from './render/perfTrace.ts'
+import { createGpuTimer } from './render/gpuTimer.ts'
 import { loadPref, savePref } from './ui/panels.ts'
 
 // ---------- URL parameters ----------
@@ -748,9 +750,12 @@ window.addEventListener('resize', () => {
 // animation frames); input events and the worker wake it, and a slow poll picks up render
 // requests made elsewhere while it sleeps. A hidden tab neither draws nor polls.
 //
-// Adaptive resolution: while frames come in much slower than intended, the pixel ratio
-// steps down (to the quality's minimum); it returns to the cap when the page goes idle or
-// an interaction ends.
+// Motion resolution: while the picture moves (camera, playback, auto-rotation) and the GPU
+// cannot finish a frame within the frame budget, the pixel ratio steps down at once to the
+// ratio that fits (by the measured GPU time where the browser can time it, else by the frame
+// interval; down to the quality's minimum), and back up while there is room again. A still
+// picture is always drawn at the cap: when the motion ends, one more frame at full resolution.
+// The next motion near the same zoom starts at the ratio the last one settled on.
 
 const drawSize = new THREE.Vector2()
 const perf = createPerfMonitor(params.get('perf') === '1', app)
@@ -765,8 +770,119 @@ let spinTime = 0 // seconds of auto-rotation not yet applied
 let cloudTime = 0 // seconds of cloud drift not yet applied
 let tickTime = 0 // seconds of timeline time not yet ticked
 let carryRequest = false
-let slowMs = 0 // accumulated "frame too slow" time (adaptive resolution)
-let wasInteracting = false
+/** Last frame with motion (camera, playback, auto-rotation); full resolution returns MOTION_SETTLE_MS after it. */
+let lastMotionTs = -Infinity
+const MOTION_SETTLE_MS = 200
+/** Last slider input or key press, and the run of frames drawn for such input (a timeline scrub is motion too). */
+let inputTs = -Infinity
+let inputStreak = 0
+// motion resolution (see above)
+const gpuTimer = createGpuTimer(renderer.getContext() as WebGL2RenderingContext)
+/** 'auto'; 'interval' (ignore the GPU timer); 'off' (always the cap): perf=1 comparisons. */
+let motionResMode: 'auto' | 'interval' | 'off' = 'auto'
+/** perf=1: a ratio held at rest too (0: none), to compare a motion frame with a still one. */
+let holdPr = 0
+let holdDirect = false
+/** Recent GPU ms (or frame intervals) at the current ratio during the motion. */
+const motionSamples: number[] = []
+let motionWasOn = false
+/** The ratio the last motion settled on, and the camera altitude there (0: none). */
+let motionPr = 0
+let motionAlt = 0
+/** The latest GPU ms of a frame drawn at the current ratio, not yet used. */
+let gpuSample = NaN
+/** The ratio for continuous motion: a step toward what the measured frames afford. */
+function motionResolution(interval: number, fps: number, movingNow: boolean) {
+  const cap = pixelRatioCap()
+  const min = Math.min(cap, qs.pixelRatioMin)
+  const alt = Math.max(1e-3, camera.position.length() - 1)
+  if (!movingNow || motionResMode === 'off' || holdPr > 0) {
+    motionWasOn = false
+    motionSamples.length = 0
+    return
+  }
+  if (!motionWasOn) {
+    motionWasOn = true
+    motionSamples.length = 0
+    // near the zoom where the last motion settled: start at its ratio
+    if (motionPr > 0 && motionPr < pixelRatio && Math.abs(Math.log(alt / motionAlt)) < 0.35) setPixelRatio(Math.max(min, motionPr))
+    return
+  }
+  const target = 1000 / Math.min(fps, 60)
+  const timed = gpuTimer.available && motionResMode === 'auto'
+  const v = timed ? gpuSample : interval
+  gpuSample = NaN
+  if (!(v > 0) || (!timed && interval >= 250)) return
+  motionSamples.push(v)
+  if (motionSamples.length < 3) return
+  const sorted = motionSamples.slice(-4).sort((a, b) => a - b)
+  const med = sorted[sorted.length >> 1]
+  // the GPU's share of the budget (the rest for the CPU and the compositor)
+  const budget = timed ? target * 0.8 : target
+  let want = pixelRatio
+  if (med > budget * (timed ? 1.12 : 1.35)) want = pixelRatio * Math.sqrt(budget / med)
+  else if (timed && med < budget * 0.6 && pixelRatio < cap) want = pixelRatio * Math.sqrt((budget * 0.85) / med)
+  want = Math.min(cap, Math.max(min, Math.floor(want * 8 + 1e-6) / 8))
+  if (want <= pixelRatio - 0.1 || want >= pixelRatio + 0.1) {
+    setPixelRatio(want)
+    motionPr = want
+    motionAlt = alt
+  } else if (motionSamples.length >= 4 && motionPr !== pixelRatio) {
+    motionPr = pixelRatio
+    motionAlt = alt
+  }
+}
+function setPixelRatio(pr: number) {
+  if (pr === pixelRatio) return
+  pixelRatio = pr
+  motionSamples.length = 0
+  gpuSample = NaN
+}
+// Frames below the cap are drawn into an offscreen target of that size and copied onto the
+// canvas, which keeps its size: resizing the canvas (its multisampled buffers) takes tens of
+// milliseconds, a visible stall each time the ratio steps. The target renders exactly as the
+// canvas does (tone mapping, sRGB-encoded 8-bit colour, blending after both: three treats an
+// XR target so), so the copy is the frame. The last two sizes stay allocated.
+const motionTargets: THREE.WebGLRenderTarget[] = []
+function motionTarget(): THREE.WebGLRenderTarget | null {
+  if (pixelRatio >= pixelRatioCap() - 1e-6 || holdDirect) return null
+  const w = Math.max(1, Math.round(window.innerWidth * pixelRatio))
+  const h = Math.max(1, Math.round(window.innerHeight * pixelRatio))
+  let k = motionTargets.findIndex((t) => t.width === w && t.height === h)
+  if (k < 0) {
+    const rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter })
+    rt.texture.colorSpace = THREE.SRGBColorSpace
+    rt.texture.internalFormat = 'RGBA8'
+    ;(rt as unknown as { isXRRenderTarget: boolean }).isXRRenderTarget = true
+    motionTargets.unshift(rt)
+    while (motionTargets.length > 2) motionTargets.pop()?.dispose()
+    k = 0
+  } else if (k > 0) motionTargets.unshift(motionTargets.splice(k, 1)[0])
+  return motionTargets[0]
+}
+const copyMaterial = new THREE.ShaderMaterial({
+  uniforms: { tFrame: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: 'uniform sampler2D tFrame; varying vec2 vUv; void main() { gl_FragColor = texture2D(tFrame, vUv); }',
+  depthTest: false,
+  depthWrite: false,
+  toneMapped: false,
+})
+const copyScene = new THREE.Scene()
+{
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), copyMaterial)
+  quad.frustumCulled = false
+  copyScene.add(quad)
+}
+const copyCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)
+function copyToCanvas(rt: THREE.WebGLRenderTarget) {
+  copyMaterial.uniforms.tFrame.value = rt.texture
+  renderer.setRenderTarget(null)
+  const auto = renderer.autoClear
+  renderer.autoClear = false
+  renderer.render(copyScene, copyCamera)
+  renderer.autoClear = auto
+}
 let wasBaking = false
 
 function wake() {
@@ -814,6 +930,7 @@ document.addEventListener('visibilitychange', () => {
 for (const type of ['pointermove', 'pointerdown', 'wheel'] as const) window.addEventListener(type, wake, { capture: true, passive: true })
 for (const type of ['pointerup', 'click', 'keydown', 'input', 'change'] as const) {
   window.addEventListener(type, () => {
+    if (type === 'input' || type === 'keydown') inputTs = performance.now()
     requestRender()
     wake()
   }, { capture: true, passive: true })
@@ -849,7 +966,8 @@ function applySize() {
   sizeDirty = false
   camera.aspect = window.innerWidth / window.innerHeight
   syncViewportOffset()
-  renderer.setPixelRatio(pixelRatio)
+  // (the canvas is always at the cap: motion frames below it go through a smaller target, see motionTarget)
+  renderer.setPixelRatio(holdDirect && holdPr > 0 ? holdPr : pixelRatioCap())
   renderer.setSize(window.innerWidth, window.innerHeight)
   // the window resized: the free rect's fraction of it changed even if the panels didn't
   if (mapOn) mapControls.refitWhole()
@@ -900,7 +1018,11 @@ function updateFlat() {
 
 /** Advance time-based state and draw one frame. */
 function draw(ts: number) {
-  if (sizeDirty) applySize()
+  if (sizeDirty) {
+    const tr = performance.now()
+    applySize()
+    traceAdd('resize', performance.now() - tr)
+  }
   // near plane follows the height above the ground, so the ground up close is not clipped
   const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundUnder(camera.position.x, camera.position.y, camera.position.z)) * 0.12))
   if (Math.abs(camera.near - nearWant) > camera.near * 0.15) {
@@ -917,17 +1039,39 @@ function draw(ts: number) {
   updateFlat()
   updateSun(camera)
   currentGlobe?.update(camera)
-  renderer.getDrawingBufferSize(drawSize)
+  // the size drawn at: the canvas, or a smaller motion target
+  const target = motionTarget()
+  if (target) drawSize.set(target.width, target.height)
+  else renderer.getDrawingBufferSize(drawSize)
   currentRivers?.update(camera, drawSize.y)
-  historyView.tick(Math.min(tickTime, 0.1), drawSize, renderer.getPixelRatio())
+  const tt = performance.now()
+  historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0
   const t0 = performance.now()
+  const rec = trace.cur
+  const prNow = pixelRatio
+  gpuTimer.begin((ms) => {
+    if (rec) rec.gpu = ms
+    if (prNow === pixelRatio) gpuSample = ms
+  })
+  renderer.setRenderTarget(target)
   renderer.render(scene, camera)
   perf.frame(ts, performance.now() - t0, renderer)
+  if (target) copyToCanvas(target)
+  gpuTimer.end()
+  const t1 = performance.now()
+  traceAdd('tick', t0 - tt)
+  traceAdd('render', t1 - t0)
   lastDrawTs = ts
 }
 
 function frame(ts: number) {
+  perf.traceBegin(ts)
+  frameBody(ts)
+  perf.traceEnd(pixelRatio)
+}
+
+function frameBody(ts: number) {
   rafId = 0
   if (document.hidden) {
     lastTs = null
@@ -972,6 +1116,10 @@ function frame(ts: number) {
   const requested = consumeRenderRequest() || carryRequest
   carryRequest = false
   const interacting = camMoved || flying
+  // frames drawn one after another for input (dragging the timeline, a held key): motion too
+  if (ts - inputTs >= 150) inputStreak = 0
+  else if (requested && ts - lastDrawTs < 100) inputStreak++
+  const scrubbing = inputStreak >= 3
   const playing = historyView.isPlaying()
   const ambient = spinning || cloudsDriveFrames()
   if (spinning) spinTime += dt
@@ -979,10 +1127,12 @@ function frame(ts: number) {
 
   // surface and cloud bakes: one strip of a cube face per frame until done (procedural shading meanwhile)
   let baking = false
+  const tb = performance.now()
   if (perf.holdBake) baking = true
   else if (currentGlobe?.bakeStep(renderer, 1)) baking = true
   else if (currentGlobe && !currentGlobe.bakeInfo.pending && currentClouds?.bakeStep(renderer, 1)) baking = true
   // a finished bake swaps in the baked shaders: draw once
+  traceAdd('bakeStep', performance.now() - tb)
   const bakeDone = wasBaking && !baking
   wasBaking = baking
 
@@ -996,29 +1146,24 @@ function frame(ts: number) {
   if (fps > 0) {
     const due = ts - lastDrawTs >= 1000 / fps - MS_TOL
     if (due) {
-      // adaptive resolution: during continuous motion, consecutive draws much slower than intended
-      const interval = ts - lastDrawTs
-      if (!(interacting || playing || ambient)) slowMs = 0
-      else if (interval < 250) {
-        const target = Math.max(1000 / Math.min(fps, 60), 16.7)
-        slowMs = interval > target * 1.5 + 4 ? slowMs + interval : Math.max(0, slowMs - interval)
-        if (slowMs > 750 && pixelRatio > qs.pixelRatioMin + 1e-3) {
-          pixelRatio = Math.max(qs.pixelRatioMin, pixelRatio - 0.25)
-          sizeDirty = true
-          slowMs = 0
-        }
-      }
+      gpuTimer.poll()
+      motionResolution(ts - lastDrawTs, fps, interacting || playing || ambient || scrubbing)
       draw(ts)
     } else if (requested) carryRequest = true
   }
 
-  // back to full resolution once an interaction ends
-  if (wasInteracting && !interacting && pixelRatio < pixelRatioCap()) {
-    pixelRatio = pixelRatioCap()
-    sizeDirty = true
-    carryRequest = true
+  // back to full resolution once the motion has ended: a moment without any (input often
+  // comes in slower than frames are drawn, and a drag held still for a frame is not over)
+  const moving = interacting || playing || ambient || scrubbing
+  if (moving) lastMotionTs = ts
+  const still = !moving && ts - lastMotionTs >= MOTION_SETTLE_MS
+  if (still) {
+    motionResolution(0, 0, false)
+    if (pixelRatio < pixelRatioCap() && holdPr === 0) {
+      pixelRatio = pixelRatioCap()
+      carryRequest = true
+    }
   }
-  wasInteracting = interacting
 
   const nextDue = fps > 0 ? lastDrawTs + 1000 / fps - MS_TOL - ts : 0
   if (fps > 0 && !baking && !carryRequest && nextDue > 40) {
@@ -1028,11 +1173,8 @@ function frame(ts: number) {
       wake()
     }, nextDue - 12)
   } else if (fps > 0 || baking || carryRequest) rafId = requestAnimationFrame(frame)
-  else if (pixelRatio < pixelRatioCap()) {
-    // idle: one more frame at full resolution, then sleep
-    pixelRatio = pixelRatioCap()
-    sizeDirty = true
-    carryRequest = true
+  else if (pixelRatio < pixelRatioCap() && holdPr === 0) {
+    // the motion paused: wait the moment out (no drawing), then one frame at full resolution
     rafId = requestAnimationFrame(frame)
   } else sleep()
 }
@@ -1059,6 +1201,11 @@ perf.expose({
   },
   pixelRatio: () => pixelRatio,
   quality: () => quality,
+  gpuTimer,
+  setMotionRes: (mode) => {
+    motionResMode = mode
+    motionPr = 0
+  },
   setAtmosphereSteps: (n) => atmosphere.setSteps(n),
 })
 if (params.get('perf') === '1') {
@@ -1068,6 +1215,17 @@ if (params.get('perf') === '1') {
     state: () => ({ map: mapOn, morph, t: flat.t, lon0: flat.lon0, lat0: flat.lat0, alt: camera.position.length() - 1, fit: mapControls.fitAltitude() }),
     /** The settlement under canvas pixel (x, y), as a click would pick it (-1: none). */
     pick: (x: number, y: number) => historyView.pickAt(x, y),
+  }
+  // motion resolution state
+  ;(window as unknown as { __worldseedMotion: unknown }).__worldseedMotion = () => ({ pixelRatio, motionPr, motionAlt, motionWasOn, samples: [...motionSamples], gpu: gpuTimer.available, mode: motionResMode, lastMotionTs })
+  /** Draw at this ratio even at rest (through the motion target below the cap); 0 lets go. */
+  ;(window as unknown as { __worldseedHoldRatio: unknown }).__worldseedHoldRatio = (pr: number, direct = false) => {
+    holdPr = pr
+    holdDirect = direct && pr > 0
+    sizeDirty = true
+    pixelRatio = pr > 0 ? pr : pixelRatioCap()
+    requestRender()
+    wake()
   }
   // history extension: state, the last swap's timing, and a simulated failure
   ;(window as unknown as { __worldseedHistory: unknown }).__worldseedHistory = {

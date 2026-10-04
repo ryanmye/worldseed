@@ -18,6 +18,7 @@
 
 import * as THREE from 'three'
 import { createDepthMaterial, createReceiverMaterial, type DioramaUniforms } from './material.ts'
+import { traceAdd } from '../perfTrace.ts'
 
 const SIZE = 2048
 /** Layer of the shadow casters (the main camera sees layer 0 only). */
@@ -125,6 +126,7 @@ export function createShadows(uniforms: DioramaUniforms): ShadowSystem {
     for (const [m, mat] of saved) m.material = mat
     saved.clear()
     renders++
+    traceAdd('shadow.renders', 1)
   }
 
   return {
