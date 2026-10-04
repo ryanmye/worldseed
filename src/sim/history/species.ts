@@ -324,13 +324,24 @@ const MARGINAL: number[] = STAPLES.concat([SP.coldHerd]).filter((x) => SPECIES_T
 /** Mask words of the labour-heavy staples (their yield follows population pressure). */
 let LABOUR0 = 0, LABOUR1 = 0
 for (const x of STAPLES) if (SPECIES_TABLE[x].labour > 1) { if (x < 32) LABOUR0 |= 1 << x; else LABOUR1 |= 1 << (x - 32) }
+/** Mask (first word) of the staples and of the herds: all of them have ids below 32, so their set bits walk them in id order. */
+let STAPLE0 = 0, HERD0 = 0
+for (const x of STAPLES) { if (x >= 32) throw new Error('species: staple id >= 32'); STAPLE0 |= 1 << x }
+for (const x of HERDS) { if (x >= 32) throw new Error('species: herd id >= 32'); HERD0 |= 1 << x }
+/** Second-word bits of the species ids >= 32, and of every item (those species, then the techniques from TECH_BIT). */
+const SPEC1 = S_COUNT > 32 ? (2 ** (S_COUNT - 32) - 1) | 0 : 0
+const ITEM1 = SPEC1 | ((2 ** K_COUNT - 1) << (TECH_BIT - 32))
+/** Lowest set bit of a mask word (0..31). */
+function lowBit(m: number): number {
+  return 31 - Math.clz32(m & -m)
+}
 
 /** Mask bit of item x (species id or S_COUNT + technique). */
 export function itemBit(x: number): number {
   return x < S_COUNT ? x : TECH_BIT + (x - S_COUNT)
 }
 export function hasBit(m0: number, m1: number, b: number): boolean {
-  return b < 32 ? ((m0 >>> b) & 1) === 1 : ((m1 >>> (b - 32)) & 1) === 1
+  return (((b < 32 ? m0 : m1) >>> b) & 1) === 1 // (shift counts are taken mod 32)
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -667,6 +678,8 @@ export function createSpecies(s: HistoryState, plan: CradlePlan, rngOrigins: Rng
   const fit = new Float32Array(S_COUNT * N)
   const val = new Float32Array(ROWS_ALL * N)
   const iratio = new Float32Array(ROWS_ALL * N).fill(1)
+  /** Food species whose fit or yield row is above 0 at each cell (bit per species id). */
+  const grows = new Int32Array(N)
   const { capFarm, liveFrac, riverFishFrac, farmQ, relief, riverCap } = T
   const agri = CAPACITY.agri
   for (let x = FOOD_COUNT; x < S_COUNT; x++) {
@@ -693,6 +706,7 @@ export function createSpecies(s: HistoryState, plan: CradlePlan, rngOrigins: Rng
       }
       val[o + i] = d.yield * f * ratio
       iratio[o + i] = 1 / ratio
+      if (x < FOOD_COUNT && (fit[o + i] > 0 || val[o + i] > 0)) grows[i] |= 1 << x
     }
   }
   // Static flags.
@@ -752,10 +766,14 @@ export function createSpecies(s: HistoryState, plan: CradlePlan, rngOrigins: Rng
     const inv = 1 / den
     siteLive[FOOD_COUNT * N + c] = (hunt * lfS * inv) / norm
     let bestCrop = (rfS + floor * crS) * inv, bestLive = hunt * lfS * inv
+    // (A species that grows on none of these cells sums fit 0 and the floor / hunting value on every cell: those sums once.)
+    let any = 0, csFloor = 0, lsHunt = 0
+    for (let t = 0; t < n; t++) { any |= grows[GJ[t]]; csFloor += GC[t] * floor; lsHunt += GL[t] * hunt }
     for (const x of STAPLES) {
       const o = x * N
       let fs = 0, cs = 0
-      for (let t = 0; t < n; t++) {
+      if (((any >>> x) & 1) === 0) cs = csFloor
+      else for (let t = 0; t < n; t++) {
         const j = GJ[t]
         fs += GW[t] * fit[o + j]
         const v = val[o + j]
@@ -769,7 +787,8 @@ export function createSpecies(s: HistoryState, plan: CradlePlan, rngOrigins: Rng
     for (const x of HERDS) {
       const o = x * N
       let fs = 0, ls = 0
-      for (let t = 0; t < n; t++) {
+      if (((any >>> x) & 1) === 0) ls = lsHunt
+      else for (let t = 0; t < n; t++) {
         const j = GJ[t]
         fs += GW[t] * fit[o + j]
         const v = val[o + j]
@@ -992,6 +1011,11 @@ function placeOrigins(s: HistoryState, sp: SpeciesState, plan: CradlePlan, rng: 
   const hasCradle = new Uint8Array(T.landmassSize.length)
   for (let k = 0; k < K; k++) hasCradle[T.landmass[plan.centres[k]]] = 1
   const minChord2 = SPECIES.originChord * SPECIES.originChord
+  // (Fit is above 0 only on cells with farm capacity, and a cell of fit 0 scores 0: the searches walk the cells of fit > 0, in order.)
+  const capFarm = T.capFarm
+  const farmCells = new Int32Array(N), fitCells = new Int32Array(N)
+  let nFarm = 0
+  for (let i = 0; i < N; i++) if (capFarm[i] > 0) farmCells[nFarm++] = i
   for (let x = 0; x < S_COUNT; x++) {
     const d = SPECIES_TABLE[x]
     let want = d.origins - origins[x].length
@@ -999,15 +1023,16 @@ function placeOrigins(s: HistoryState, sp: SpeciesState, plan: CradlePlan, rng: 
     if (origins[x].length > 0 && rng.next() >= SPECIES.secondOrigin) want = 0
     // (species-v2: the species' fit row and its best value hoisted out of the loops.)
     const fitRow = sp.fit.subarray(x * N, x * N + N)
-    let maxF = 0
-    for (let i = 0; i < N; i++) { const f = fitRow[i]; if (f > maxF) maxF = f }
+    let maxF = 0, nFit = 0
+    if (want > 0) for (let q = 0; q < nFarm; q++) { const i = farmCells[q]; const f = fitRow[i]; if (f > 0) { fitCells[nFit++] = i; if (f > maxF) maxF = f } }
     for (let n = 0; n < want; n++) {
       // Best hearth score over land; candidates near it (>= originFit of the best fit), weighted.
       if (maxF <= 0) break
       const minF = Math.min(SPECIES.originFit, maxF)
       let total = 0
       const cand: number[] = [], wts: number[] = []
-      for (let i = 0; i < N; i++) {
+      for (let q = 0; q < nFit; q++) {
+        const i = fitCells[q]
         if (fitRow[i] < minF - 1e-6) continue
         let ok = true
         for (const o of origins[x]) if (chord2(pos, i, o) < minChord2) ok = false
@@ -1133,9 +1158,10 @@ export function cropOf(s: HistoryState, id: number, m0: number, m1: number, writ
   const bm = sp.bmul, bo = pp * NST
   // Held staples: row offset, yield factor, hot-cell bonus, dam-irrigated row (-1 none).
   let ns = 0
-  const rows = ROWS, muls = MULS, hots = HOTS, ids = IDS, alts = ALTS, prefs = PREFS
-  for (const x of STAPLES) {
-    if (!hasBit(m0, m1, x)) continue
+  const rows = ROWS, muls = MULS, hots = HOTS, ids = IDS, alts = ALTS, prefs = PREFS, hotMul = HOTMUL
+  let anyAlt = false, anyHot = false
+  for (let sm = m0 & STAPLE0; sm !== 0; sm &= sm - 1) {
+    const x = lowBit(sm)
     const d = SPECIES_TABLE[x]
     const lab = d.labour > 1 ? 1 / (1 + SPECIES.boserup * (d.labour - 1) * (1 - press)) : 1
     const paddyEarly = x === SP.paddyRice && early
@@ -1145,11 +1171,14 @@ export function cropOf(s: HistoryState, id: number, m0: number, m1: number, writ
     alts[ns] = x === SP.paddyRice && irrigation ? ROW_IRRIG * N : -1
     prefs[ns] = 1 - SPECIES2.storePref * (1 - (x === SP.potato && hasBit(m0, m1, TECH_BIT + TQ.freezeDrying) ? SPECIES2.chunoStore : d.store))
     ids[ns] = x
+    hotMul[ns] = 1 + hots[ns]
+    if (alts[ns] >= 0) anyAlt = true
+    if (hots[ns] > 0) anyHot = true
     ns++
   }
   let nh = 0
   const hrows = HROWS
-  for (const x of HERDS) if (hasBit(m0, m1, x)) hrows[nh++] = x * N
+  for (let hm = m0 & HERD0; hm !== 0; hm &= hm - 1) hrows[nh++] = lowBit(hm) * N
   const herdMul = (hasBit(m0, m1, TECH_BIT + TQ.breeding) ? 1 + SPECIES2.breedYield : 1)
   const herdKeep = sp.herdKeep[pp]
   const val = sp.val, ir = sp.iratio, hot = sp.hot, plo = sp.plough, terr = sp.terr, farmMul = s.farmMul
@@ -1170,11 +1199,12 @@ export function cropOf(s: HistoryState, id: number, m0: number, m1: number, writ
     const w = catchW[k] * capFarm[j]
     // (Staples ranked by yield * storability preference: farmers favour a harvest that keeps; the food counts the yield.)
     let v1 = 0, v2 = 0, y1 = 0, y2 = 0, b1 = -1, b2 = -1, c1 = 0, c2 = 0
+    const irr = anyAlt && farmMul[j] > 1.0001, hj = anyHot && hot[j] === 1
     for (let t = 0; t < ns; t++) {
       let r = rows[t] + j
       let v = val[r] * muls[t]
-      if (alts[t] >= 0 && farmMul[j] > 1.0001) { const ra = alts[t] + j; const va = val[ra] * muls[t]; if (va > v) { v = va; r = ra } }
-      if (hots[t] > 0 && hot[j]) v *= 1 + hots[t]
+      if (irr && alts[t] >= 0) { const ra = alts[t] + j; const va = val[ra] * muls[t]; if (va > v) { v = va; r = ra } }
+      if (hj && hots[t] > 0) v *= hotMul[t]
       const cv = v * prefs[t]
       if (cv > c1) { c2 = c1; v2 = v1; y2 = y1; b2 = b1; c1 = cv; v1 = v; y1 = v * ir[r]; b1 = t } else if (cv > c2) { c2 = cv; v2 = v; y2 = v * ir[r]; b2 = t }
     }
@@ -1249,7 +1279,7 @@ export function normalised(raw: number): number {
   return m > 1 ? 1 + SPECIES.above * (m - 1) : m
 }
 const ROWS = new Int32Array(64), MULS = new Float64Array(64), HOTS = new Float64Array(64), IDS = new Int32Array(64), HROWS = new Int32Array(64)
-const ALTS = new Int32Array(64), FOODS = new Float64Array(64), PREFS = new Float64Array(64)
+const ALTS = new Int32Array(64), FOODS = new Float64Array(64), PREFS = new Float64Array(64), HOTMUL = new Float64Array(64)
 
 /**
  * Site factor for a group from settlement `from` at habitable cell c: what its species would make of the land there
@@ -1266,12 +1296,12 @@ export function siteFactor(s: HistoryState, from: number, c: number): number {
 export function siteRows(s: HistoryState, from: number): Int32Array {
   const sp = s.sp
   const N = sp.N
-  const m0 = sp.m0[from], m1 = sp.m1[from]
+  const m0 = sp.m0[from]
   const r = SITE_ROWS
   let n = 1
-  for (const x of STAPLES) if (hasBit(m0, m1, x)) r[n++] = x * N
+  for (let m = m0 & STAPLE0; m !== 0; m &= m - 1) r[n++] = lowBit(m) * N
   r[0] = n - 1
-  for (const x of HERDS) if (hasBit(m0, m1, x)) r[n++] = x * N
+  for (let m = m0 & HERD0; m !== 0; m &= m - 1) r[n++] = lowBit(m) * N
   r[n++] = FOOD_COUNT * N
   r[n] = -1
   return r
@@ -1305,9 +1335,9 @@ export function moveMuls(s: HistoryState, id: number, out: Float64Array): void {
  */
 export function packOf(s: HistoryState, id: number): number {
   const sp = s.sp
-  const m0 = sp.m0[id], m1 = sp.m1[id]
+  const m0 = sp.m0[id]
   let best = 1
-  for (const x of HERDS) if (hasBit(m0, m1, x) && SPECIES_TABLE[x].pack < best) best = SPECIES_TABLE[x].pack
+  for (let m = m0 & HERD0; m !== 0; m &= m - 1) { const pk = SPECIES_TABLE[lowBit(m)].pack; if (pk < best) best = pk }
   const f = best / SPECIES.packRef
   return f < 1 ? f : 1
 }
@@ -1499,12 +1529,12 @@ function uncovered(s: HistoryState, id: number, x: number): number {
   const sp = s.sp
   const T = s.terrain
   const N = sp.N
-  const m0 = sp.m0[id], m1 = sp.m1[id]
+  const m0 = sp.m0[id]
   const fit = sp.fit
   const c = s.cell[id]
   let held = 0
   const hs = UNC
-  for (const y of STAPLES) if (hasBit(m0, m1, y)) hs[held++] = y * N
+  for (let m = m0 & STAPLE0; m !== 0; m &= m - 1) hs[held++] = lowBit(m) * N
   let num = 0, den = 0
   for (let k = T.catchOff[c]; k < T.catchBase[c]; k++) {
     const j = T.catchCell[k]
@@ -1629,14 +1659,18 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
   if (w0 !== 0 || w1 !== 0) {
     const farm = s.tech[p * TECH_FIELD_COUNT + TechField.Farming]
     const base = SPECIES.domesticate * SPECIES.spreadStep * (pop / (pop + SPECIES.domHalf)) * farm
-    for (let x = 0; x < S_COUNT; x++) {
-      if (!hasBit(w0, w1, itemBit(x)) || hasBit(sp.m0[id], sp.m1[id], itemBit(x))) continue
-      // species-v2: the draw first, the benefit (a crop multiplier reckoning) only when the draw could succeed.
-      const u = rng.next()
-      if (u >= base) continue
-      const ben = benefitOf(s, id, x)
-      if (ben <= 0) { dull(sp, id, x); continue }
-      if (u < base * ben) gainItem(s, id, x, -1)
+    // (The species of the two words in id order: bit x of w0, then bit x - 32 of w1.)
+    for (let half = 0; half < 2; half++) {
+      for (let m = half === 0 ? w0 : w1 & SPEC1; m !== 0; m &= m - 1) {
+        const x = half === 0 ? lowBit(m) : 32 + lowBit(m)
+        if (hasBit(sp.m0[id], sp.m1[id], x)) continue
+        // species-v2: the draw first, the benefit (a crop multiplier reckoning) only when the draw could succeed.
+        const u = rng.next()
+        if (u >= base) continue
+        const ben = benefitOf(s, id, x)
+        if (ben <= 0) { dull(sp, id, x); continue }
+        if (u < base * ben) gainItem(s, id, x, -1)
+      }
     }
   }
   // Links: parent and children, settlements within the reach of its fields, trade partners, those seen of other peoples.
@@ -1646,27 +1680,29 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
   linkTo(s, sp, id, p, s.parent[id], 0)
   for (let ch = sp.firstChild[id]; ch >= 0; ch = sp.nextSibling[ch]) linkTo(s, sp, id, p, ch, 0)
   const occ = s.occupant
-  const near = SPECIES.linkHops
-  const { catchCell, catchDist } = T
-  for (let k = T.catchOff[c], e = T.catchOff[c + 1]; k < e && catchDist[k] <= near; k++) { const o = occ[catchCell[k]]; if (o >= 0 && o !== id) linkTo(s, sp, id, p, o, 0) }
+  const catchCell = T.catchCell
+  for (let k = T.catchOff[c], e = nearEnd(T)[c]; k < e; k++) { const o = occ[catchCell[k]]; if (o >= 0 && o !== id) linkTo(s, sp, id, p, o, 0) }
   if (id < sp.routeN) for (let k = sp.routeOff[id]; k < sp.routeOff[id + 1]; k++) linkTo(s, sp, id, p, sp.routeTo[k], sp.routeVol[k])
   const seen = id < sp.sight.length ? sp.sight[id] : null
   if (seen) for (let k = 0; k < seen.length; k++) linkTo(s, sp, id, p, seen[k], 0)
   const bridge = sp.linkBridge, from = sp.linkFrom, links = sp.linkCount, cand = LINK_CAND
   // Anything its own people grows elsewhere: seed and stock pass along the people's own ways (markets, kin).
-  const i0 = sp.pm0[p] & ~LINK_SKIP0, i1 = sp.pm1[p] & ~LINK_SKIP1
+  const i0 = sp.pm0[p] & ~LINK_SKIP0, i1 = sp.pm1[p] & ~LINK_SKIP1 & ITEM1
   if (i0 !== 0 || i1 !== 0) {
-    for (let x = 0; x < ITEMS; x++) {
-      if (!hasBit(i0, i1, itemBit(x))) continue
-      let seenX = false
-      for (let t = 0; t < LINK_N && !seenX; t++) if (cand[t] === x) seenX = true
-      if (seenX) continue
-      const pmax = (x < S_COUNT ? SPECIES.inPeople : TECHNIQUE2.inPeople) * DECADES * push
-      const u = rng.next() // (species-v2: draw first)
-      if (u >= pmax) continue
-      const ben = benefitOf(s, id, x)
-      if (ben <= 0) { dull(sp, id, x); continue }
-      if (u < pmax * ben) gainItem(s, id, x, -1)
+    const pmaxS = SPECIES.inPeople * DECADES * push, pmaxT = TECHNIQUE2.inPeople * DECADES * push
+    // (Items in id order: species bits of i0, then i1's species bits and technique bits; links[x] > 0 for those a link offers.)
+    for (let half = 0; half < 2; half++) {
+      for (let m = half === 0 ? i0 : i1; m !== 0; m &= m - 1) {
+        const b = lowBit(m)
+        const x = half === 0 ? b : b + 32 < TECH_BIT ? b + 32 : S_COUNT + b + 32 - TECH_BIT
+        if (links[x] !== 0) continue
+        const pmax = x < S_COUNT ? pmaxS : pmaxT
+        const u = rng.next() // (species-v2: draw first)
+        if (u >= pmax) continue
+        const ben = benefitOf(s, id, x)
+        if (ben <= 0) { dull(sp, id, x); continue }
+        if (u < pmax * ben) gainItem(s, id, x, -1)
+      }
     }
   }
   for (let t = 0; t < LINK_N; t++) {
@@ -1697,6 +1733,26 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
     if (u < pmax * ben) gainItem(s, id, x, k)
   }
 }
+/**
+ * End of the part of each cell's catchment within SPECIES.linkHops (catchments run by distance), per terrain: spreadAt's
+ * nearby settlements. Built once per terrain (read only).
+ */
+interface CatchView { cellCount: number; catchOff: Int32Array; catchDist: Float64Array }
+const NEAR_END = new WeakMap<CatchView, Int32Array>()
+let nearT: CatchView | null = null, nearA: Int32Array = new Int32Array(0)
+function nearEnd(T: CatchView): Int32Array {
+  if (T === nearT) return nearA
+  let a = NEAR_END.get(T)
+  if (!a) {
+    const N = T.cellCount, off = T.catchOff, dist = T.catchDist, near = SPECIES.linkHops
+    a = new Int32Array(N)
+    for (let c = 0; c < N; c++) { let k = off[c]; const e = off[c + 1]; while (k < e && dist[k] <= near) k++; a[c] = k }
+    NEAR_END.set(T, a)
+  }
+  nearT = T; nearA = a
+  return a
+}
+
 /** Decades between a settlement's spread steps (rates are per decade); spread steps between crop refreshes. */
 const DECADES = SPECIES.spreadStep / 10
 const REFRESH_STEPS = Math.max(1, Math.round(SPECIES.refresh / SPECIES.spreadStep))
@@ -1905,9 +1961,11 @@ export function speciesLandSnapshot(s: HistoryState, crop: Uint8Array, herdOut: 
   const { catchOff, catchBase, catchCell, catchW, catchDist } = T
   const best = sp.claimBest, who = sp.claimWho, stamp = sp.claimStamp
   const run = ++sp.claimRun
+  PREP_ID = -1 // (bestStapleAt's preparation never outlives a snapshot: claimRun starts afresh with each history)
   const living = s.living
   const list = CLAIMED.length >= N ? CLAIMED : (CLAIMED = new Int32Array(N))
   if (WHO2.length < N) { WHO2 = new Int32Array(N); BEST2 = new Float64Array(N) }
+  const who2 = WHO2, best2 = BEST2
   let n = 0
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
@@ -1923,35 +1981,41 @@ export function speciesLandSnapshot(s: HistoryState, crop: Uint8Array, herdOut: 
       if (k >= base) { f = r1 - catchDist[k]; if (f <= 0) break; if (f > 1) f = 1 }
       const j = catchCell[k]
       const v = f * catchW[k] * st
-      if (stamp[j] !== run) { stamp[j] = run; best[j] = v; who[j] = id; list[n++] = j; WHO2[j] = -1; BEST2[j] = 0 }
-      else if (v > best[j]) { BEST2[j] = best[j]; WHO2[j] = who[j]; best[j] = v; who[j] = id }
-      else if (v > BEST2[j]) { BEST2[j] = v; WHO2[j] = id } // (species-v2: the second claimant)
+      if (stamp[j] !== run) { stamp[j] = run; best[j] = v; who[j] = id; list[n++] = j; who2[j] = -1; best2[j] = 0 }
+      else if (v > best[j]) { best2[j] = best[j]; who2[j] = who[j]; best[j] = v; who[j] = id }
+      else if (v > best2[j]) { best2[j] = v; who2[j] = id } // (species-v2: the second claimant)
     }
   }
   const use = s.landUse
   const val = sp.val
   const liveFrac = T.liveFrac
+  const cashX = sp.cashX, fit = sp.fit, shown = SPECIES2.cashShown
+  // (the cash crops of the last settlement looked at with a share of at least cashShown, in CASH order: no other can be shown)
+  let cashId = -1, cashN = 0
+  const cashQ = CASH_Q
   for (let t = 0; t < n; t++) {
     const j = list[t]
     if (((use[j] * 255 + 0.5) | 0) === 0) continue
     const id = who[j]
-    const m0 = sp.m0[id], m1 = sp.m1[id]
+    const m0 = sp.m0[id]
     const bc = bestStapleAt(s, id, j)
     if (bc >= 0) crop[o + j] = bc + 1
     // species-v2: the main cash crop: of those the settlement grows (share >= SPECIES2.cashShown), the largest share that fits the cell.
     if (sp.cashTot[id] > 0) {
-      let bx = -1, bs = SPECIES2.cashShown
+      let bx = -1, bs = shown
       const co = id * CASH.length
-      for (let q = 0; q < CASH.length; q++) {
-        const sh = sp.cashX[co + q]
-        if (sh >= bs && sp.fit[CASH[q] * N + j] > 0) { bs = sh; bx = CASH[q] }
+      if (id !== cashId) { cashId = id; cashN = 0; for (let q = 0; q < CASH.length; q++) if (cashX[co + q] >= shown) cashQ[cashN++] = q }
+      for (let u = 0; u < cashN; u++) {
+        const q = cashQ[u]
+        const sh = cashX[co + q]
+        if (sh >= bs && fit[CASH[q] * N + j] > 0) { bs = sh; bx = CASH[q] }
       }
       if (bx >= 0) cash[o + j] = bx + 1
     }
     let bh = -1, hv = 0
     if (liveFrac[j] > 0) {
-      for (const x of HERDS) {
-        if (!hasBit(m0, m1, x)) continue
+      for (let m = m0 & HERD0; m !== 0; m &= m - 1) {
+        const x = lowBit(m)
         const v = val[x * N + j]
         if (v > hv) { hv = v; bh = x }
       }
@@ -1962,8 +2026,8 @@ export function speciesLandSnapshot(s: HistoryState, crop: Uint8Array, herdOut: 
   // claimant if it grows one there (several settlements share most fields), so 0 stays mostly where none can grow any.
   for (let t = 0; t < n; t++) {
     const j = list[t]
-    if (crop[o + j] !== 0 || WHO2[j] < 0 || ((use[j] * 255 + 0.5) | 0) === 0) continue
-    const x = bestStapleAt(s, WHO2[j], j)
+    if (crop[o + j] !== 0 || who2[j] < 0 || ((use[j] * 255 + 0.5) | 0) === 0) continue
+    const x = bestStapleAt(s, who2[j], j)
     if (x >= 0) crop[o + j] = x + 1
   }
 }
@@ -1981,8 +2045,8 @@ function bestStapleAt(s: HistoryState, id: number, j: number): number {
     const chuno = hasBit(m0, m1, TECH_BIT + TQ.freezeDrying)
     const bo = s.people[id] * NST
     let n = 0
-    for (const x of STAPLES) {
-      if (!hasBit(m0, m1, x)) continue
+    for (let m = m0 & STAPLE0; m !== 0; m &= m - 1) {
+      const x = lowBit(m)
       PREP_X[n] = x
       PREP_ROW[n] = (x === SP.paddyRice && early ? ROW_EARLY : x === SP.barley && hardy ? ROW_HARDY : x) * N
       PREP_ALT[n] = x === SP.paddyRice && irrig ? ROW_IRRIG * N : -1
@@ -2006,6 +2070,7 @@ function bestStapleAt(s: HistoryState, id: number, j: number): number {
 let PREP_ID = -1, PREP_RUN = -1, PREP_N = 0
 const PREP_X = new Int32Array(64), PREP_ROW = new Int32Array(64), PREP_ALT = new Int32Array(64), PREP_HOT = new Float64Array(64), PREP_MUL = new Float64Array(64)
 let WHO2 = new Int32Array(0), BEST2 = new Float64Array(0)
+const CASH_Q = new Int32Array(CASH.length)
 
 let CLAIMED = new Int32Array(0)
 

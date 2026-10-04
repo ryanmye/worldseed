@@ -233,7 +233,9 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
 /** Extra yearly chance that a group flees settlement id from danger (migration). */
 export function fleeChance(ps: PolityState, id: number): number {
   if (id >= ps.seen) return 0
-  return DANGER.flee * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, ps.danger[id])
+  const z = ps.danger[id]
+  if (z <= DANGER.fleeLow) return 0 // (the smoothstep is 0 there)
+  return DANGER.flee * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, z)
 }
 
 /**

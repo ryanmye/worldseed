@@ -47,11 +47,15 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   const ringRun = -run
   const { ringDist } = ps
   if (stamp[cap] === run) { dist[cap] = 0; heap.push(0, cap) }
+  // (Once every member is settled nothing left in the queue can lower a member's cost: the search stops there; what
+  // it would still do touches only the ring scratch.)
+  let settled = 0
   while (heap.size > 0) {
     const d = heap.topKey()
     const u = heap.pop()
     const member = stamp[u] === run
     if (d > (member ? dist[u] : ringDist[u])) continue
+    if (member && ++settled === n) break
     const nb = gNb[u], co = gCost[u]
     if (!nb) continue
     for (let k = 0; k < nb.length; k++) {
