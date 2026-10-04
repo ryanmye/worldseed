@@ -62,6 +62,7 @@ import { smoothstep } from '../util.ts'
 import type { SettlementNaming } from '../names/index.ts'
 import { buildMorph, buildRoot, fuseWords, letterCount } from '../names/words.ts'
 import { CAPACITY, CATCHMENT, CRADLE, DISEASE, SPECIES, SPECIES2, TECHNIQUE, TECHNIQUE2, WEALTH } from './params.ts'
+import { diseaseOnContact } from './disease/system.ts' // disease:
 import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
 import type { CradlePlan } from './peoples.ts'
@@ -1853,6 +1854,7 @@ let PPOP = new Float64Array(0), PTOWN = new Float64Array(0)
 export function speciesOnContact(s: HistoryState, a: number, b: number): void {
   const sp = s.sp
   if (!sp) return
+  if (s.dz !== null) { diseaseOnContact(s, a, b); return } // disease: the disease system passes the crowd diseases (its contact epidemics)
   const pa = s.people[a], pb = s.people[b]
   const g = sp.disease[pa] - sp.disease[pb]
   if (g > DISEASE.gap) startWave(s, sp, pb, pa, b, a, g)

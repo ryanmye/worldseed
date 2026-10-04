@@ -51,6 +51,11 @@
 // storage, blight and techniques ('history-species-hazard' for blight and
 // livestock plague, 'history-species-techniques' for techniques found;
 // technique names from 'names-technique-<id>').
+// disease (HistoryOptions.disease, on by default; disease/): at the end of each year, after the goods system, epidemics spread
+// over trade routes, legs, neighbours, kin and the year's journeys, endemic crowd diseases and fever take a steady toll; a first
+// contact passes the peoples' crowd diseases (the species system's contact epidemic is then this system's). Streams
+// 'history-disease-pool' (the world's diseases, plague reservoirs) and 'history-disease' (everything else); disease names
+// from 'names-disease-<id>'. Switched off, the history is exactly the one without it.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -103,6 +108,12 @@ import { GOODS_ON } from './goods/params.ts'
 import { createGoodsSystem, goodsProduce, goodsYear } from './goods/system.ts'
 import { assembleGoods, emptyGoodsHistory, goodsSnapshot } from './goods/assemble.ts'
 import type { GoodsDiag } from './goods/state.ts'
+// disease: epidemics, endemic crowd diseases, plague, camp fever and place-bound fever (disease/).
+import { DISEASE_ON } from './disease/params.ts'
+import { createDisease } from './disease/state.ts'
+import type { DiseaseDiag, DiseaseState } from './disease/state.ts'
+import { diseaseSnapshot, diseaseSystem } from './disease/system.ts'
+import { assembleDisease, emptyDiseaseHistory } from './disease/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -156,6 +167,9 @@ export interface HistoryDiagnostics {
   polity?: PolityDiag
   /** goods: records of the goods system (absent when it is off). */
   goods?: GoodsDiag
+  /** disease: the disease system's records, and its state at the end (absent when it is off; the state is the live one: read only). */
+  disease2?: DiseaseDiag
+  diseaseState?: DiseaseState
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -315,7 +329,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const cradles = seedPeoples(s, createRng(seed, 'history-cradles'), (plan) => {
     s.sp = createSpecies(s, plan, createRng(seed, 'history-species-origins'), createRng(seed, 'history-species-spread'))
     s.sp.v2 = createSpeciesV2(s, createRng(seed, 'history-species-hazard'), createRng(seed, 'history-species-techniques')) // species-v2
+    // disease: the world's diseases, before the tribes meet (unless switched off).
+    if (options?.disease ?? DISEASE_ON) s.dz = createDisease(world, terrain, weather.region, weather.regionCount, plan.cells.length, createRng(seed, 'history-disease-pool'), createRng(seed, 'history-disease'))
   })
+  const dz = s.dz // disease:
   const voyages = createVoyages(s, createRng(seed, 'history-voyages'))
   const trade = createTrade(N)
   const techState = createTech(s)
@@ -394,6 +411,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     techUsed += PF
     speciesV2Snapshot(s) // species-v2: habit, storable
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
+    if (dz) diseaseSnapshot(dz) // disease:
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -445,6 +463,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
+    if (dz) { diseaseSystem(s, dz, trade, techState); milestoneSystem(s) } // disease: outbreaks spread and take their toll; endemic sickness, fever (refugees may lift a town over a milestone)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -493,6 +512,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     // goods: (empty when the system is off); forts and stations are flagged on their settlements.
     const goodsHist = gx ? assembleGoods(gx, years, tradeSnapshotCount, S, names, peoples.map((p) => p.name)) : emptyGoodsHistory()
     for (const x of goodsHist.posts) if (x.settlement >= 0 && (x.kind === 1 || x.kind === 2)) settlements[x.settlement].post = true
+    const diseaseHist = dz ? assembleDisease(world, dz, naming, peoples.map((p) => p.name), snapshotCount) : emptyDiseaseHistory() // disease:
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -510,6 +530,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
         ...goodsHist, // goods:
+        ...diseaseHist, // disease:
       },
       terrain,
       diag: {
@@ -525,6 +546,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
           yRev: pol.diag.yRev.slice(), yCapInc: pol.diag.yCapInc.slice(), yLegal: pol.diag.yLegal.slice(), ySmug: pol.diag.ySmug.slice(), yPir: pol.diag.yPir.slice(), yBand: pol.diag.yBand.slice(), yPirates: pol.diag.yPirates.slice(),
         } : undefined, // polities:
         goods: gx ? copyGoodsDiag(gx.diag) : undefined, // goods:
+        disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
+        diseaseState: dz ?? undefined, // disease:
       },
     }
   }

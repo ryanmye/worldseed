@@ -75,6 +75,7 @@ import { HVR, cutOf, goodsSettle, goodsStock, hvMoved, hvPair, hvPrice, hvTransp
 import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
 import { noteIncome } from './goods/state.ts'
 import { STOCK } from './goods/params.ts'
+import { diseaseTradeMul } from './disease/system.ts' // disease:
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -903,6 +904,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     }
   }
   if (gx !== null) { pairCuts(s, ts, gx); forwardPrices(s, ts, gx) } // goods: middlemen's cuts, merchants' forward prices
+  const dzMul = diseaseTradeMul(s) // disease: (null when nothing is touched this year, or the system is off)
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
@@ -913,7 +915,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       const cr = 0.5 * (tech[peopleOf[a] * TECH_FIELD_COUNT + TechField.Crafts] + tech[peopleOf[b] * TECH_FIELD_COUNT + TechField.Crafts])
       // Pack animals at the two ends carry it cheaper.
       const c0 = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle) * 0.5 * (ts.pack[a] + ts.pack[b])) / (1 + tt * (cr - 1))
-      const c = pc !== null ? c0 * pc.cost[p] : c0 // polities: (v2) pirates, privateers, blockade, bandits on the way
+      let c = pc !== null ? c0 * pc.cost[p] : c0 // polities: (v2) pirates, privateers, blockade, bandits on the way
+      if (dzMul !== null) c *= dzMul[a] * dzMul[b] // disease: sick places and quarantined ports trade at a cost
       const oa = a * G, ob = b * G
       // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
       // what crosses for the accounts (duty, evasion, seizure: marketClosed); one under an embargo or at war takes blocked().

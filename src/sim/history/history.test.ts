@@ -346,6 +346,10 @@ function checkInvariants(w: World, h: History): void {
       case EventType.TraditionMoved: case EventType.TraditionLost: case EventType.SecretGuarded: case EventType.SecretLeaked: case EventType.MonopolyBroken:
       case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
         break
+      // disease: epidemics, endemic sickness, quarantine, armies (checked against their tables in disease/disease.test.ts).
+      case EventType.DiseaseAppeared: case EventType.GreatEpidemic: case EventType.EpidemicEnded: case EventType.CityStricken:
+      case EventType.Quarantine: case EventType.Endemic: case EventType.ArmyStricken:
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -669,7 +673,9 @@ function checkSpecies(w: World, h: History, events: HistoryEvent[]): void {
     // Peoples farming within reach of each cell (bits; at most 31 peoples tracked, enough here).
     reach.fill(0)
     for (let id = 0; id < S; id++) {
-      if (h.population[sq * S + id] <= 0 || h.settlements[id].outpost) continue
+      // (living at the land snapshot's year: with a snapshot interval that does not divide it, the population snapshot is earlier)
+      const st = h.settlements[id]
+      if ((h.population[sq * S + id] <= 0 && !(st.foundedYear <= year && (st.abandonedYear < 0 || st.abandonedYear > year))) || st.outpost) continue
       const c = h.settlements[id].cell
       for (let k = T.catchOff[c]; k < T.catchOff[c + 1]; k++) reach[T.catchCell[k]] |= 1 << (h.settlements[id].people & 31)
     }

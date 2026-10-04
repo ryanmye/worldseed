@@ -40,6 +40,7 @@ import { contiguous, createFrontier, passJoin, setAllowed, syncFrontier } from '
 import type { FrontierState } from './frontier.ts'
 import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteFactor } from './polity/system.ts' // polities:
 import { rushAt } from './goods/hooks.ts' // goods:
+import { feverSite } from './disease/system.ts' // disease:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -314,6 +315,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           if (portReach[c]) score *= sitePref
           if (s.pol !== null) score *= siteFactor(s, s.pol, c, from) // polities: danger and defensibility
           if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
+          if (s.dz !== null) score *= feverSite(s.dz, c, s.people[from]) // disease: fever ground shunned
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }

@@ -253,7 +253,7 @@ describe('polities', () => {
   it('switched off, the history is the one from before polities, with the new fields empty', () => {
     for (const [seed, years, n, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: false, goods: false }) // (goods: the pre-polity history has no goods system either)
+      const h = simulateHistory(w, { years, polities: false, goods: false, disease: false }) // (goods, disease: the pre-polity history has neither)
       expect(hashBase(h)).toBe(hash)
       expect(h.polities.length).toBe(0)
       expect(h.polity.length + h.landCells.length + h.territory.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)
@@ -381,7 +381,7 @@ describe('polities', () => {
     expect(fragmented).toBeGreaterThanOrEqual(seeds.length - 1)
     // The cost in people stays within bounds against the same worlds without states.
     for (const seed of [42, 3]) {
-      const on = history(seed), off = simulateHistory(world(seed), { polities: false })
+      const on = simulateHistory(world(seed), { disease: false }), off = simulateHistory(world(seed), { polities: false, disease: false }) // (disease: off in both, so the late pandemics' timing does not blur the cost of states)
       const tot = (h: History) => { const S = h.settlements.length, q = h.snapshotCount - 1; let t = 0; for (let i = 0; i < S; i++) t += h.population[q * S + i]; return t }
       expect(tot(on) / tot(off)).toBeGreaterThanOrEqual(0.85)
     }

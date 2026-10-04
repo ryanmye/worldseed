@@ -165,6 +165,15 @@ export const EventType = {
   Bypassed: 63, // the mart `settlement`, which lived on the relay trade, lost it to a lane from the home mart `other`; `value` the leg id; `extra` the share of its relay income lost
   FleetLost: 64, // a fleet on the lane from the home mart `settlement` to the far mart `other` was lost; `value` the leg id; `extra` the cargo value
   SecretSmuggled: 65, // contraband in a secret's goods (duties or an embargo evaded, or its monopoly rent: smuggling is polities v2's, SmugglingRing 40) first reached the people of `settlement` (its largest settlement) in earnest; `other` the settlement where the secret began; `value` the secret id; `extra` the contraband value a year. The smuggled seeds' leak channel (LeakChannel.Smuggling) grows with it
+  // disease: epidemics and place-bound fever (66-79; all absent when HistoryOptions.disease is false). Epidemic (19) is kept for a sickness new to a people
+  // brought by a first contact: with the disease system on, its `extra` is the epidemic id (History.epidemics) and `value` the expected share of the people lost.
+  DiseaseAppeared: 66, // a disease of History.diseases first struck: `settlement` is the first place struck; `other` -1; `value` the disease id
+  GreatEpidemic: 67, // an epidemic became a great one (it has killed at least 5% of the peoples it reached); `settlement` is where it began; `other` the settlement of another people it came from, or -1; `value` the epidemic id (History.epidemics); `extra` the disease id
+  EpidemicEnded: 68, // a great epidemic died out: `settlement` is where it began; `other` -1; `value` the epidemic id; `extra` the share of the people of the peoples it reached who died of it
+  CityStricken: 69, // an epidemic reached a city (>= CITY_POPULATION): `settlement` the city; `other` the settlement it came from, or -1; `value` the epidemic id; `extra` the share of the city expected to die of it
+  Quarantine: 70, // the port `settlement` began to hold incoming ships in quarantine; `other` the capital of its polity; `value` the polity id
+  Endemic: 71, // a crowd disease settled among the people of `settlement` (its largest settlement) as a steady childhood sickness; `other` -1; `value` the disease id
+  ArmyStricken: 72, // sickness struck the army that marched from `other` on `settlement` (camp fever, an epidemic at the target, or fever ground); `value` the war id (History.wars); `extra` the war exhaustion it added
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -364,6 +373,127 @@ export interface History {
   secretGuard: Uint8Array
   /** Trading posts in order of founding (TradingPost.id is the index). */
   posts: TradingPost[]
+
+  // disease: epidemics, endemic sickness and fever (all empty when HistoryOptions.disease is false).
+  /** The diseases of this world (DiseaseInfo.id is the index); one that never appeared by the end of the run has firstYear -1 and no name. */
+  diseases: DiseaseInfo[]
+  /** Epidemics in order of their beginning (EpidemicInfo.id is the index): chains of outbreaks from one origin. */
+  epidemics: EpidemicInfo[]
+  /** Every outbreak (one settlement struck by one epidemic), in order of the year struck. */
+  outbreaks: Outbreaks
+  /**
+   * Natural fever intensity per cell (malaria-like, place-bound), 0..255, length grid.cellCount (0 at sea); static. A settlement there
+   * suffers fever * (1.25 if it grows paddy rice or has irrigated fields) * (1 - drainage at high Farming) * (1 - its people's tolerance).
+   */
+  fever: Uint8Array
+  /** Acquired fever tolerance of each people per snapshot, 0..255 for 0..1: feverTolerance[s * peoples.length + people]. */
+  feverTolerance: Uint8Array
+  /** Diseases endemic among each people per snapshot, bit d for disease id d: endemic[s * peoples.length + people]. */
+  endemic: Uint8Array
+  /** Ports holding ships in quarantine. */
+  quarantines: Quarantines
+}
+
+// ---------------------------------------------------------------------------
+// disease: epidemics, endemic sickness and fever.
+
+export const DiseaseKind = {
+  Crowd: 0, // a sickness of herds and towns (smallpox, measles): passes person to person, needs towns to keep going, endemic in large networks
+  Plague: 1, // a sickness with a wild rodent reservoir: spills over near the reservoir, travels with trade and ships, returns in waves
+  Fever: 2, // place-bound fever of hot, wet lowlands (malaria): does not pass along routes; burdens whoever lives there
+  Camp: 3, // camp fever (typhus): born in armies and sieges, carried by soldiers
+} as const
+export type DiseaseKind = (typeof DiseaseKind)[keyof typeof DiseaseKind]
+
+export interface DiseaseInfo {
+  /** Index into History.diseases (also the bit in History.endemic). */
+  id: number
+  kind: DiseaseKind
+  /** The real-world model, as a stable key: 'pox', 'measles', 'flux', 'plague', 'fever', 'typhus'. */
+  archetype: string
+  /** Its name in this world, a word from the language of the people it first struck ('' if it never appeared). */
+  name: string
+  /** Year it first struck, -1 if never. */
+  firstYear: number
+  /** Settlement first struck, and its people; -1 if never. */
+  firstSettlement: number
+  originPeople: number
+  /** Cell of its origin: the centre of the reservoir (Plague, known from the start), else the first settlement's cell; -1 if never. */
+  originCell: number
+  /** Share of those who catch it who die, before the town, famine and first-exposure factors. */
+  mortality: number
+  /** Years a settlement stays sick (and infectious) once struck. */
+  duration: number
+  /** Survivors' immunity fading a year (0: for life). */
+  fade: number
+  /** Travels by ship: weight of sea links (0 never, 1 like land). */
+  sea: number
+  /** People (susceptible) a place needs to pass it on in full: towns more than villages. 0 for fever. */
+  crowd: number
+  /** Critical community size: a people (with the peoples it trades with) of at least this many keeps it endemic; 0 if it never becomes endemic. */
+  criticalSize: number
+  /** True for a place-bound fever (never passes along routes). */
+  placeBound: boolean
+}
+
+/** One epidemic: outbreaks chained from one origin (a spill from the reservoir or herds, a returning focus, an arrival from another people). */
+export interface EpidemicInfo {
+  /** Index into History.epidemics. */
+  id: number
+  disease: number
+  startYear: number
+  /** Last year a settlement was still sick of it; -1 while it is still going at the end of the run. */
+  endYear: number
+  /** Settlement where it began. */
+  origin: number
+  /** Settlement of another people (or the returning focus) it came from, -1 for a spill from the reservoir or herds. */
+  source: number
+  /** Expected deaths (people) and the people of the peoples it reached (each counted when first reached). */
+  deaths: number
+  network: number
+  /** Outbreaks (History.outbreaks rows) and the ids of the peoples it reached, in order. */
+  outbreaks: number
+  peoples: number[]
+  /** True once it has killed at least 5% of its network (GreatEpidemic). */
+  great: boolean
+}
+
+/** How an outbreak reached its settlement. */
+export const DiseaseVia = {
+  Origin: 0, // the epidemic began here (spill from the reservoir or herds)
+  Route: 1, // along a trade route (or a long-haul leg) overland
+  Sea: 2, // along a sea route or lane, by ship
+  Near: 3, // from a neighbouring settlement (fields, markets, flight)
+  Kin: 4, // between a settlement and its mother or daughters
+  Journey: 5, // with settlers, migrants, an expedition or a fleet (History.journeys)
+  Army: 6, // with an army on the march, or home again
+  Contact: 7, // at the first contact between two peoples
+  Focus: 8, // returned from where it lingered (a plague focus)
+} as const
+export type DiseaseVia = (typeof DiseaseVia)[keyof typeof DiseaseVia]
+
+/** Outbreaks, struct-of-arrays in order of the year struck: settlement[i] was struck in year[i] and sick for its disease's duration. */
+export interface Outbreaks {
+  count: number
+  disease: Uint8Array
+  settlement: Int32Array
+  year: Int16Array
+  /** Share of the settlement's people expected to die of it, 0..255 for 0..1 (spread over its duration). */
+  mortality: Uint8Array
+  /** Settlement it came from, -1 at the origin. */
+  source: Int32Array
+  /** DiseaseVia. */
+  via: Uint8Array
+  /** Epidemic (History.epidemics). */
+  epidemic: Int32Array
+}
+
+/** Ports in quarantine: settlement[i] held ships from year from[i] to year to[i] (-1: still at the end). */
+export interface Quarantines {
+  count: number
+  settlement: Int32Array
+  from: Int16Array
+  to: Int16Array
 }
 
 // ---------------------------------------------------------------------------
@@ -756,6 +886,8 @@ export interface HistoryOptions {
   polities?: boolean
   /** goods: simulate worked goods, rare deposits, craft traditions, stocks and merchants, long-haul lanes, trading posts, secrets and smuggling. Default true; false gives the history without them (the goods fields empty). */
   goods?: boolean
+  /** disease: simulate epidemics (crowd diseases, plague, camp fever) and place-bound fever. Default true; false gives the history without them (the disease fields empty; first contacts bring the species system's own epidemics). */
+  disease?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
