@@ -340,6 +340,18 @@ export const LANE = {
   /** The lane's urge only for varieties whose saving Pi exceeds minSave * worth, from a source at least minCells hops away (great circle). */
   minSave: 2,
   minCells: 25,
+  /**
+   * Exotic demand (far ventures): a port mart of a people with Seafaring >= oceanSea counts a rumoured variety that does
+   * not reach it yet (share < hear) at share exotic * smoothstep(oceanSea, farSea, Seafaring) * smoothstep(exoLow, exoHigh,
+   * prosperity) of its demand, when its source is at least farCells hops away (great circle) and of a people it has met.
+   */
+  exotic: 0.1,
+  farSea: 2.8,
+  exoLow: 0.3,
+  exoHigh: 0.7,
+  farCells: 40,
+  /** A far landmass already reached by farRivals open lanes from overseas draws no new venture by exotic demand. */
+  farRivals: 2,
 }
 
 /** Trading posts (4.4). */

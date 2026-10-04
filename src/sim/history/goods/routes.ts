@@ -10,6 +10,13 @@
 // foreign host town, or a fort where no town will do; a long lane gets a victualling station halfway (two legs). Lanes start
 // small with large margins and grow with use (longhaul.ts). Posts are supplied by their owner for a time; a fort may grow
 // into a colony. A mart whose relay income falls far below its peak after a lane took its goods logs Bypassed.
+//
+// Exotic demand (far ventures): the leading (richest) port mart of a polity, once its people sails the open ocean, also
+// wants goods it has only heard of, from a far source overseas of a people it has met, at a share of its demand that grows
+// with its Seafaring and its wealth, whether or not any reach it through the middlemen yet. A polity seeks one way to each
+// far land at a time, and a far land already served by LANE.farRivals lanes from overseas draws no new venture. Such a
+// venture sails for the source's own land by a search directed at it, its ships crossing open water as cheaply as the
+// coast (more cheaply with better ships), and a kingdom's capital may pay for it at its plain cost.
 
 import { EventType, GOOD_COUNT, JourneyKind, LegKind, PostKind, SecretKind, StructureType, TECH_FIELD_COUNT, TechField, LeakChannel } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
@@ -28,6 +35,7 @@ import { BYPASS, CLASS, LANE, MIDDLE, POST } from './params.ts'
 import type { GoodsState } from './state.ts'
 import { K, M, MIXED, MIX_OF, addPost, ensureGoods, logGoods, losePost } from './state.ts'
 import { openLeg, pathCost } from './longhaul.ts'
+import { Heap } from '../heap.ts'
 import { grantHold, newSecret } from './secrets.ts'
 import { expeditionFinds } from './deposits.ts'
 
@@ -92,6 +100,31 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
   // The urge, per mart, toward its best rumoured source.
   const T = s.terrain
   const hop = 1.12 / T.n
+  // Far lands already reached: the sponsor's polity (or people, -1 - p, when stateless) and the landmass of each open lane's far end.
+  // (and how many open lanes from overseas end on each landmass: a far land reached by farRivals of them draws no new venture).
+  const farBy = FAR_BY, farLm = FAR_LM
+  farBy.length = 0; farLm.length = 0
+  const LMN = T.landmassSize.length
+  if (FAR_N.length < LMN) FAR_N = new Int32Array(LMN)
+  const farN = FAR_N
+  farN.fill(0, 0, LMN)
+  for (const k of g.lanes) {
+    if (!g.legOpen[k]) continue
+    const a = g.legA[k], pa = polityOf(s, a), lb = T.landmass[s.cell[g.legB[k]]]
+    farBy.push(pa >= 0 ? pa : -1 - s.people[a]); farLm.push(lb)
+    if (lb >= 0 && lb !== T.landmass[s.cell[a]]) farN[lb]++
+  }
+  // The leading port of each polity (or stateless people): its richest port mart, which sends the far ventures.
+  const nPol = s.pol !== null ? s.pol.pCapital.length : 0
+  if (LEAD.length < nPol + g.P) LEAD = new Int32Array(2 * (nPol + g.P))
+  const lead = LEAD
+  lead.fill(-1, 0, nPol + g.P)
+  for (let t = 0; t < living.length; t++) {
+    const m = living[t]
+    if (!g.isMart[m] || !ts.trader[m] || s.outpost[m] || s.port[m] < 0) continue
+    const pm = polityOf(s, m), x = pm >= 0 ? pm : nPol + s.people[m]
+    if (lead[x] < 0 || s.wealth[m] > s.wealth[lead[x]]) lead[x] = m
+  }
   for (let t = 0; t < living.length; t++) {
     const h = living[t]
     if (!g.isMart[h] || !ts.trader[h] || s.outpost[h]) continue
@@ -106,6 +139,12 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
     const ocean = ((MIGRATION.oceanCost * T.cellScale) / Math.sqrt(sea)) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
     const tf = 1 / (1 + 0.6 * (crafts - 1))
     const mu1 = (MIDDLE.r0 / (1 + MIDDLE.rTech * (crafts - 1))) * MIDDLE.season + MIDDLE.toll
+    const f = prosperity(s, h)
+    const hp = polityOf(s, h), hk = hp >= 0 ? hp : -1 - people
+    // Exotic demand: a port mart whose people sails the open ocean wants, as it grows rich, goods it has only heard of from a
+    // far source of a people it has met, at exo of its demand for the class, whether or not any reach it yet.
+    const exo = port && sea >= LANE.oceanSea && lead[hp >= 0 ? hp : nPol + people] === h ? LANE.exotic * smoothstep(LANE.oceanSea, LANE.farSea, sea) * smoothstep(LANE.exoLow, LANE.exoHigh, f) : 0
+    const KP = s.know.P, contact = s.know.contact
     for (let v = 1; v < g.vCount; v++) {
       if (g.rumour[pb + v] < 0) continue
       const gd = g.vGood[v]
@@ -118,9 +157,15 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       let share = 0
       const oo = (h * M + mi) * K
       for (let k = 0; k < K; k++) if (g.mixV[oo + k] === v) share = S > 0 ? g.mixA[oo + k] / S : 0
-      if (share < LANE.hear) continue // (it must reach h already, through the middlemen)
       const cells = chord(s, s.cell[h], s.cell[o]) / hop
       if (cells < LANE.minCells) continue // (a direct way is for a far source)
+      if (share < LANE.hear) {
+        // (it must reach h already, through the middlemen; or be a far source, known of, wanted for its rarity)
+        if (!(exo > 0) || cells < LANE.farCells || T.landmass[s.cell[o]] === T.landmass[s.cell[h]] || contact[people * KP + s.people[o]] < 0) continue
+        const lo = T.landmass[s.cell[o]]
+        if (farN[lo] >= LANE.farRivals || farReached(farBy, farLm, hk, lo)) continue // (one way to each far land is sought at a time)
+        if (share < exo) share = exo
+      }
       const Q = share * ts.demand[h * G + gd]
       const tGuess = (CLASS.transport[gd] * cells * LANE.guess * (byLand ? 1.5 : ocean) * tf) / g.vRel[v]
       const save = Q * (ts.price[h * G + gd] - (1 + mu1) * (ts.price[o * G + gd] + tGuess))
@@ -131,11 +176,20 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       const gd = g.vGood[bv]
       const Pi = best * CLASS.worth[gd]
       const half = LANE.half * CLASS.worth[gd]
-      g.urge[h] += 10 * LANE.urge * (Pi / (Pi + half)) * smoothstep(0.3, 0.7, prosperity(s, h)) * (1 + LANE.tech * (driveTech(s, h) - 1))
+      g.urge[h] += 10 * LANE.urge * (Pi / (Pi + half)) * smoothstep(0.3, 0.7, f) * (1 + LANE.tech * (driveTech(s, h) - 1))
     }
     if (g.urge[h] < 1 || s.year < g.urgeNext[h]) continue
     tradeExpedition(s, g, ts, es, h, bv, port || !byLand)
   }
+}
+
+const FAR_BY: number[] = [], FAR_LM: number[] = []
+let LEAD = new Int32Array(0), FAR_N = new Int32Array(0)
+
+/** True when an open lane of sponsor key `by` (polity, or -1 - people) ends on landmass lm. */
+function farReached(farBy: readonly number[], farLm: readonly number[], by: number, lm: number): boolean {
+  for (let i = 0; i < farBy.length; i++) if (farBy[i] === by && farLm[i] === lm) return true
+  return false
 }
 
 /** Searches, pays for and sends a trade expedition from mart h for variety v (or along a chart it was given). */
@@ -186,11 +240,14 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
     }
   }
   mark(srcCell, X.targetHops)
+  // A venture across the ocean to a far source known of (exotic demand): it sails for the source's own land.
+  const dHop = 1.12 / T.n
+  const farVenture = ck < 0 && sea && ocean && chord(s, s.cell[h], srcCell) / dHop >= X.farCells && T.landmass[srcCell] !== T.landmass[s.cell[h]]
   if (ck < 0) {
     const mi = MIX_OF[g.vGood[v]]
     for (let t = 0; t < s.living.length; t++) {
       const m = s.living[t]
-      if (!g.isMart[m] || m === h || s.people[m] === people) continue
+      if (!g.isMart[m] || m === h || s.people[m] === people || (farVenture && T.landmass[s.cell[m]] !== T.landmass[srcCell])) continue
       const S = g.held[m * G + g.vGood[v]]
       if (!(S > 0)) continue
       const o = (m * M + mi) * K
@@ -201,6 +258,40 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
   const B = buckets.length
   const rangeI = Math.floor(10 * range)
+  const origin = s.cell[h]
+  let best = -1, bestD = Infinity, visits = 0
+  if (farVenture) {
+    // A venture across the ocean to a far source known of: a search directed at it (A*, cost so far plus the cheapest
+    // sailing left), to the first target cell within range.
+    // (Ocean-going ships sail the open sea as cheaply as the coast at the gate, and more cheaply with better ships.)
+    const shallowStep = Math.max(1, Math.round(10 * EXPEDITION_COST.shallow * T.cellScale))
+    const deepStep = Math.max(1, Math.round(10 * EXPEDITION_COST.shallow * T.cellScale * Math.sqrt(X.oceanSea / seaT)))
+    const hs = (deepStep < shallowStep ? deepStep : shallowStep) / dHop
+    const closed = FAR_CLOSED.length >= T.cellCount ? FAR_CLOSED : (FAR_CLOSED = new Int32Array(T.cellCount))
+    const frun = ++FAR_RUN
+    const H = FAR_HEAP
+    H.size = 0
+    stamp[origin] = run; dist[origin] = 0; prev[origin] = -1; src[origin] = -1
+    H.push(chord(s, origin, srcCell) * hs, origin)
+    while (H.size > 0) {
+      const c = H.pop()
+      if (closed[c] === frun) continue
+      closed[c] = frun
+      if (visits >= LANE.maxVisits) break
+      visits++
+      if (tmark[c] === trun && c !== origin) { best = c; break }
+      const cur = dist[c]
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const j = nb[k]
+        const step = T.deep[j] ? deepStep : stepOf[j]
+        if (step < 0) continue
+        const nd = cur + step
+        if (nd > rangeI || (stamp[j] === run && nd >= dist[j])) continue
+        stamp[j] = run; dist[j] = nd; prev[j] = c; src[j] = -1
+        H.push(nd + chord(s, j, srcCell) * hs, j)
+      }
+    }
+  }
   bucketLen.fill(0)
   let pending = 0
   const push = (c: number, d: number): void => {
@@ -210,10 +301,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
     arr[bucketLen[bk]++] = c
     pending++
   }
-  const origin = s.cell[h]
-  stamp[origin] = run; dist[origin] = 0; prev[origin] = -1; src[origin] = -1
-  push(origin, 0)
-  let best = -1, bestD = Infinity, visits = 0
+  if (!farVenture) { stamp[origin] = run; dist[origin] = 0; prev[origin] = -1; src[origin] = -1; push(origin, 0) }
   search: for (let cur = 0; pending > 0 && cur <= rangeI; cur++) {
     const bk = cur % B
     const items = buckets[bk]
@@ -262,7 +350,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
     const p = polityOf(s, h)
     if (ps !== null && p >= 0) {
       const cap = ps.pCapital[p]
-      if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom && s.wealth[cap] >= X.polityMul * cost) payer = cap
+      if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom && s.wealth[cap] >= (farVenture ? 1 : X.polityMul) * cost) payer = cap
     }
   }
   if (payer < 0) { g.urge[h] = 1; if (ck >= 0) g.urgeChart[h] = ck + 1; return }
@@ -390,6 +478,9 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
 }
 let TMARK = new Int32Array(0)
 let TRUN = 0
+let FAR_CLOSED = new Int32Array(0)
+let FAR_RUN = 0
+const FAR_HEAP = new Heap(1024)
 
 /** The path continued from its last cell to `cell` (a few hops, breadth first). */
 function extendTo(s: HistoryState, path: number[], cell: number): number[] {
