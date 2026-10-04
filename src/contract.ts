@@ -522,7 +522,7 @@ export interface Renamings {
   name: string[]
   cause: Uint8Array
   form: Uint8Array
-  /** The polity behind it (the conqueror, the realm whose capital it became, the liberator, the trading power), -1 (Revived, Distinguished, Restored while stateless). */
+  /** The polity behind it (the conqueror, the realm whose capital it became, the liberator, the trading power; for a revived name the town's own), -1 (none: Distinguished, stateless). */
   polity: Int16Array
   /** The ruler of that polity at the year (History.rulers; the one honoured when the form is Ruler), -1 (none, or rulers off). */
   ruler: Int32Array
