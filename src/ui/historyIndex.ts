@@ -9,6 +9,7 @@ import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
 import { goodsGroupKey, goodsOtherIsSettlement, isGoodsEvent } from './goodsFormat.ts'
 import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './diseaseFormat.ts'
+import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
@@ -53,6 +54,8 @@ export const EntryKind = {
   Goods: 18,
   /** disease: cities struck per epidemic, armies struck per war, ports in quarantine per decade, sicknesses become endemic per disease and decade (diseaseFormat.ts diseaseGroupKey). */
   Disease: 19,
+  /** tourism: places coming into and falling out of fashion per half-century, sights recognised per decade (tourismFormat.ts tourismGroupKey). */
+  Tourism: 20,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -363,7 +366,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) // 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) // 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -380,7 +383,9 @@ function otherIsSettlement(type: number): boolean {
     // goods: the source, owner, home or far mart of a tradition, secret, lane or post
     goodsOtherIsSettlement(type) ||
     // disease: where a great epidemic or a city's sickness came from, the port's capital, the army's base
-    diseaseOtherIsSettlement(type)
+    diseaseOtherIsSettlement(type) ||
+    // tourism: the place visited, the town a resort drew on, a sight's own settlement
+    tourismOtherIsSettlement(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -620,6 +625,17 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     diseasePerKey.set(k, (diseasePerKey.get(k) ?? 0) + 1)
   })
   const diseaseEntry = new Map<number, number>()
+  // tourism: fashion per half-century, sights per decade (tourismGroupKey), gathered when two or more
+  const tourismKeyOfEvent = new Map<number, number>()
+  const tourismPerKey = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    if (!isTourismEvent(e.type as number)) return
+    const k = tourismGroupKey(e)
+    if (k < 0) return
+    tourismKeyOfEvent.set(i, k)
+    tourismPerKey.set(k, (tourismPerKey.get(k) ?? 0) + 1)
+  })
+  const tourismEntry = new Map<number, number>()
   const v2Kind = (t: number) => (t === 38 ? EntryKind.Bonds : t === 39 ? EntryKind.Alliances : t === 4 ? EntryKind.Forts : EntryKind.Blockades)
   const raidsPerBucket = perBucket(29, () => true)
   const raidEntry = new Map<number, number>()
@@ -648,6 +664,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (v2KeyOfEvent.has(i) && (v2PerKey.get(v2KeyOfEvent.get(i)!) ?? 0) >= 2) join(v2Entry, v2KeyOfEvent.get(i)!, v2Kind(e.type as number), i)
     else if (goodsKeyOfEvent.has(i) && (goodsPerKey.get(goodsKeyOfEvent.get(i)!) ?? 0) >= 2) join(goodsEntry, goodsKeyOfEvent.get(i)!, EntryKind.Goods, i)
     else if (diseaseKeyOfEvent.has(i) && (diseasePerKey.get(diseaseKeyOfEvent.get(i)!) ?? 0) >= 2) join(diseaseEntry, diseaseKeyOfEvent.get(i)!, EntryKind.Disease, i)
+    else if (tourismKeyOfEvent.has(i) && (tourismPerKey.get(tourismKeyOfEvent.get(i)!) ?? 0) >= 2) join(tourismEntry, tourismKeyOfEvent.get(i)!, EntryKind.Tourism, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })

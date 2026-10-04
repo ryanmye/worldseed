@@ -81,6 +81,8 @@ export interface GlobeMesh {
   setSpeciesColors(rgb: Uint8Array | null): void
   /** Per-cell colours of the Fever view (sRGB 0..255, 3 per cell; null: all land neutral); rewrites the corner colours while it shows. */
   setFeverColors(rgb: Uint8Array | null): void
+  /** Per-cell colours of the Scenery view (sRGB 0..255, 3 per cell; null: all land neutral); rewrites the corner colours while it shows. */
+  setSceneryColors(rgb: Uint8Array | null): void
   /**
    * Night-side settlement lights: per-cell intensity in 0..1 (null clears) and a global
    * multiplier. Lights only show on the night side, on land. Cheap: uploads one float
@@ -612,6 +614,10 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     setFeverColors(rgb: Uint8Array | null) {
       modeData.feverRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
       if (currentMode === ViewMode.Fever) applyColors(currentMode)
+    },
+    setSceneryColors(rgb: Uint8Array | null) {
+      modeData.sceneryRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
+      if (currentMode === ViewMode.Scenery) applyColors(currentMode)
     },
     setCityLights(perCell: Float32Array | null, intensity: number) {
       if (perCell) lightData.set(perCell.length > cellCount ? perCell.subarray(0, cellCount) : perCell)

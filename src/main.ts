@@ -42,6 +42,7 @@ import { loadPref, savePref } from './ui/panels.ts'
 // longhaul=0 (no lanes, relay legs, marts or posts), tradition=<id>, secret=<id>, deposit=<id>, lane=<leg id>, price=<good 7..11> (the Goods panel), view=resources
 // map=1|0 (the flat map, Equal Earth; else the remembered choice), mapcenter=<degrees> (its central meridian)
 // disease=0 (no epidemics, links or quarantine flags on the map), epidemic=<id>, sickness=<disease id> (the Sickness panel), view=fever
+// travel=0 (no travellers, visited places, resorts or sights on the map), view=scenery (when the history has scenery)
 
 const params = new URLSearchParams(window.location.search)
 

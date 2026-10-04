@@ -12,6 +12,7 @@ import { describeAlliances, describeBlockades, describeBonds, describeForts, des
 import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
 import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
+import { describeTourismGroup, FASHION_BUCKET_YEARS, isSightGroup, isTourismHeadline } from './tourismFormat.ts'
 import { addShortcut } from './shortcuts.ts'
 
 const ROWS = 40
@@ -271,6 +272,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       // (an epidemic's cities and a war's armies are dated by their first; the others by decade)
       yearText = t === EventType.CityStricken || t === EventType.ArmyStricken ? String(h.events[ev].year) : `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if (kind === EntryKind.Tourism && m > 1) {
+      // tourism: the comings into and goings out of fashion of a half-century, the sights of a decade
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeTourismGroup(h, members)
+      const bucket = isSightGroup(h.events[ev]) ? FOUNDING_BUCKET_YEARS : FASHION_BUCKET_YEARS
+      yearText = `${Math.floor(h.events[ev].year / bucket) * bucket}s`
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost && (h.events[ev].type as number) < 20) {
       const e = h.events[ev]
       text = (e.type as number) === PeoplesEvent.Landfall
@@ -292,6 +301,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
     // disease: great epidemics beginning and passing, big cities struck (and an epidemic's cities together)
     else if ((kind === EntryKind.Single && isDiseaseHeadline(h, h.events[ev])) || (kind === EntryKind.Disease && m > 1 && isDiseaseGroupHeadline(h.events[ev]))) r.li.className = `ev-${ek} notable headline`
+    // tourism: a people's first leisure travel, a resort town founded
+    else if (kind === EntryKind.Single && isTourismHeadline(h.events[ev])) r.li.className = `ev-${ek} notable`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`

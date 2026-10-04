@@ -19,13 +19,15 @@ import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, ty
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
 import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
 import { createOriginEnv, planOrigin } from './origin.ts'
-import { createTownPlan, GroundKind, Role, townExtent, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { createTownPlan, GroundKind, Role, townExtent, Ward, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
 import { RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
 import { politiesOf } from '../../ui/politiesData.ts'
 
 export const NEVER = 1e9
 /** Model id of the packed-earth ground decal under built-up patches (drawn by the ground batch). */
 export const GROUND_MODEL = 255
+/** Extra lift of a resort quarter's paving and lawns (relative to the radius). */
+const RESORT_LIFT = 0.00004
 const NO_INFO: readonly number[] = [0, 0, 0, 0]
 /** Facade flags (SlotSet.info.w, integer part). */
 export const FACADE_TIMBER = 1
@@ -715,6 +717,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       case Role.Banner: return has(Model.Banner) ? Model.Banner : -1
       case Role.Rubble: return has(Model.Rubble) ? Model.Rubble : -1
       case Role.Stockade: return styleModel(s, Kind.Fort)
+      case Role.Boat: return it.kind === 1 && has(Model.FishingBoat) ? Model.FishingBoat : has(Model.Boat) ? Model.Boat : -1
       case Role.Haystack: return has(Model.Haystack) ? Model.Haystack : -1
       case Role.Grove: {
         // a garden tree of the climate
@@ -735,9 +738,15 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     if (it.role === Role.Grove && !treeFits(it.jitter)) return
     const style = it.style
     if (model === GROUND_MODEL) {
-      const g = lin(GROUND[style])
+      // (a resort quarter's paving and lawns in the town ground's colours)
+      const g = lin(it.ward === Ward.Resort ? GROUND_KINDS[it.kind]?.[style] ?? GROUND[style] : GROUND[style], it.ward === Ward.Resort ? (it.kind === GroundKind.Plaza ? 1.2 : 1) * (0.94 + 0.12 * it.jitter) : 1)
       roofTmp[0] = roofTmp[1] = roofTmp[2] = 0; roofTmp[3] = 0
       writeSlot(w, model, it.threshold, 0, 0, it.sx, 1, it.sx, roofTmp, g)
+      if (it.ward === Ward.Resort) {
+        // (lifted a little more: the paving lies on banks and shores, where the ground mesh rises above its centre)
+        const o = w.mat.length - 4, f = 1 + RESORT_LIFT
+        w.mat[o] *= f; w.mat[o + 1] *= f; w.mat[o + 2] *= f
+      }
       return
     }
     setColours(st, id, it, k)
@@ -753,7 +762,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     const info = infoFor(model, it.jitter, timber, style)
     // the plan's yaw is the model's x axis; KayKit models face +z: put their long side along the street too
     // (a banner on a tower stands on its drum)
-    const sink = it.lift ? -it.lift * KK : it.role === Role.Bridge || it.role === Role.Banner ? 0 : sinkFor(r)
+    const sink = it.lift ? -it.lift * KK : it.role === Role.Bridge || it.role === Role.Banner ? 0 : it.role === Role.Boat ? KK * 0.02 : sinkFor(r)
     writeSlot(w, model, it.threshold, it.yaw, sink, sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : it.role === Role.Banner ? 0.25 : 1.2, info)
     w.radius = Math.max(w.radius, Math.hypot(it.x, it.y) * KK + footprint(model) * Math.max(sx, sz))
   }

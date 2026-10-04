@@ -7,7 +7,9 @@
 // goods and the long-distance trade: lanes, relay legs, marts, posts, deposits, the Resources and
 // price views and the Goods and trade panel (goodsPanel.ts, render/longhaul.ts, from goodsData.ts);
 // sickness: epidemics spreading on the map, the Fever view, the Sickness panel and the timeline's
-// marks of great epidemics (diseasePanel.ts, render/disease.ts, from diseaseData.ts).
+// marks of great epidemics (diseasePanel.ts, render/disease.ts, from diseaseData.ts);
+// leisure travel: travellers, visited places, resorts and sights on the map, the Scenery view and
+// the Travel panel (tourismPanel.ts, render/tourism.ts, from tourismData.ts).
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
@@ -55,6 +57,7 @@ import { createPolitiesView, type PolitiesBuilt } from './politiesPanel.ts'
 import type { PolityLayer } from '../render/polities.ts'
 import { createGoodsView, type GoodsBuilt } from './goodsPanel.ts'
 import { createDiseaseView, type DiseaseBuilt } from './diseasePanel.ts'
+import { createTourismView, type TourismBuilt } from './tourismPanel.ts'
 import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
@@ -385,6 +388,18 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     addLayerToggle: deps.addLayerToggle,
     setViewModeAvailable: deps.setViewModeAvailable,
   })
+  // leisure travel: panel, travel layer, Scenery view, inspector section
+  const tourism = createTourismView({
+    right: deps.right,
+    inspectorSlot: inspector.travelSlot,
+    planetGroup: deps.planetGroup,
+    getGlobe: deps.getGlobe,
+    setUrlParam: deps.setUrlParam,
+    onSelectSettlement: (id) => api.select(id, true),
+    flyToCell: (cell) => goodsFly(cell),
+    addLayerToggle: deps.addLayerToggle,
+    setViewModeAvailable: deps.setViewModeAvailable,
+  })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -465,9 +480,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities.setKnownMask(cells)
     goods.setKnownMask(cells)
     disease.setKnownMask(cells)
+    tourism.setKnownMask(cells)
     const on = cells !== null
     goods.setMasked(on)
     disease.setMasked(on)
+    tourism.setMasked(on)
     disease.setKnownPeople(on && peoples.selection !== null && peoples.selection >= 0 ? peoples.selection : -1)
     // the clouds go over the mist; the masked markers over the clouds (nothing unknown is drawn by them)
     if (layer) layer.mesh.renderOrder = on ? 9.7 : 8
@@ -494,6 +511,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities?: PolitiesBuilt | null
     goods?: GoodsBuilt | null
     disease?: DiseaseBuilt | null
+    tourism?: TourismBuilt | null
   }
 
   function disposeBuilt(b: Built) {
@@ -518,6 +536,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities.disposeBuilt(b.polities)
     goods.disposeBuilt(b.goods)
     disease.disposeBuilt(b.disease)
+    tourism.disposeBuilt(b.tourism)
   }
 
   function clearLayer() {
@@ -543,6 +562,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities.commit(null, null, false)
     goods.commit(null, false)
     disease.commit(null, false)
+    tourism.commit(null, false)
     timeline.setSparkline(null, 1)
     polityLayer = null
     geo = null
@@ -602,6 +622,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       // (after the factions: posts take their owners' faction colours)
       { name: 'goods', run: () => (b.goods = goods.build(w, h, b.index!.maxPopulation)) },
       { name: 'disease', run: () => (b.disease = disease.build(w, h, b.index!.maxPopulation)) },
+      { name: 'tourism', run: () => (b.tourism = tourism.build(w, h, b.index!.maxPopulation)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
       { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
@@ -735,6 +756,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities.commit(b.polities ?? null, labels, extend)
     goods.commit(b.goods ?? null, extend)
     disease.commit(b.disease ?? null, extend)
+    tourism.commit(b.tourism ?? null, extend)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     polityLayer = b.polities?.layer ?? null
@@ -777,6 +799,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     polities.showSettlement(id)
     goods.showSettlement(id)
     disease.showSettlement(id)
+    tourism.showSettlement(id)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -1003,6 +1026,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       polities.setWorld(w)
       goods.setWorld(w)
       disease.setWorld(w)
+      tourism.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
@@ -1095,6 +1119,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       polities.showSettlement(selected)
       goods.showSettlement(selected)
       disease.showSettlement(selected)
+      tourism.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -1135,6 +1160,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       polities.setViewMode(mode)
       goods.setViewMode(mode)
       disease.setViewMode(mode)
+      tourism.setViewMode(mode)
       speciesLayer?.setOriginCategory(speciesViewCategory(mode))
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
@@ -1204,7 +1230,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const withGoods = g ? (withNote ? `${withNote} · ${g}` : g) : withNote
       // sickness: a place sick there, a port in quarantine, fever ground on the Fever view
       const d = disease.describeCell(cell)
-      return d ? (withGoods ? `${withGoods} · ${d}` : d) : withGoods
+      const withDisease = d ? (withGoods ? `${withGoods} · ${d}` : d) : withGoods
+      // travel: a sight, a visited place or resort there; the scenery on the Scenery view
+      const t = tourism.describeCell(cell)
+      return t ? (withDisease ? `${withDisease} · ${t}` : t) : withDisease
     },
     setPeopleTint(on: boolean) {
       peoples.setTint(on)
@@ -1296,6 +1325,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         outposts?.setYield(near, far)
         goods.setYield(near, far)
         disease.setYield(near, far)
+        tourism.setYield(near, far)
         // merchants and travelling groups are 3D carts and ships once the models are in:
         // their flat markers have gone by the distance at which the models are full size
         const tNear = dioramas.active ? DIORAMA_NEAR : 0
@@ -1311,6 +1341,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       polities.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio)
       goods.tick(year, pos.s0, pos.s1, pos.frac, fx, deps.camera, drawSize, pixelRatio)
       disease.tick(year, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
+      tourism.tick(year, fx, deps.camera, drawSize, pixelRatio)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()

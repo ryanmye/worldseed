@@ -107,6 +107,8 @@ export const Ward = {
   Palace: 16,
   /** Commons and gardens in a gap the town grew round (a steep or wet patch it skipped). */
   Green: 17,
+  /** (tourism) A resort quarter's pieces (TownPlan.resort); never a patch's ward. */
+  Resort: 18,
 } as const
 type Ward = (typeof Ward)[keyof typeof Ward]
 
@@ -135,6 +137,7 @@ export const Role = {
   Banner: 20, // a faction banner on a pole (its colour is set when drawn); `lift`: on top of a tower
   Rubble: 21, // a slighted wall's rubble
   Stockade: 22, // a garrison's stockade (the style's fort)
+  Boat: 23, // (tourism) a pleasure boat on the water: `kind` 0 a rowing boat, 1 a small sailing boat
 } as const
 export type Role = (typeof Role)[keyof typeof Role]
 
@@ -301,6 +304,26 @@ export interface TownPlan {
    * kinds this town ever has (bits 1 << WorksKind: a kind keeps its best lots from the kinds after it).
    */
   works(kind: number, pop: number, n: number, angle: number, kinds: number): PlanItem[] | null
+  /**
+   * Tourism (resort.ts): a resort quarter on empty lots (never a house: no household moves) of the town as it
+   * stood at population `pop`, toward the water (a promenade along the shore, pleasure boats off it) or, with no
+   * shore in reach, toward the view (a terrace on the high ground at the town's edge): lodges, villas in their
+   * gardens and (spec.bath) a bath house over the hot springs. `kinds` as for works (their lots are kept for
+   * them). Thresholds 0..1: each piece's place in the build order. Worked out in steps until the deadline
+   * (performance.now() ms): null until done.
+   */
+  resort(pop: number, spec: ResortSpec, kinds: number, deadline: number): PlanItem[] | null
+}
+
+/** What a resort quarter holds (resort.ts sizes it by its visitors). */
+export interface ResortSpec {
+  lodges: number
+  villas: number
+  boats: number
+  /** Hot springs in the town's cell or next to it: a bath house. */
+  bath: boolean
+  /** A sea or lake shore in the town's cell or next to it (the quarter looks for it beyond the plan's patches too). */
+  shore: boolean
 }
 
 /** What townGoodsState puts into a town (TownPlan.works). */
@@ -401,6 +424,7 @@ export function createTownPlan(site: Site): TownPlan {
     palace: (tier) => (plan ? scaledAll(plan.palace(tier)) : null),
     camp: (pop, n) => (plan ? scaledAll(plan.camp(pop, n)) : null),
     works: (kind, pop, n, angle, kinds) => (plan ? scaledAll(plan.works(kind, pop, n, angle, kinds)) : null),
+    resort: (pop, spec, kinds, deadline) => (plan ? scaledAll(plan.resort(pop, spec, kinds, deadline)) : null),
   }
 }
 
@@ -839,7 +863,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   const touchesWater = (i: number) => patches[i].poly.t.some((t) => t >= 0 && patches[t].water) || (patches[i].poly.t.some((t) => t === -1) && site.wet(patches[i].cx * 1.3, patches[i].cy * 1.3, 0))
   if (patches[0].water || patches.every((p) => p.water)) {
     // all water as drawn (a settlement on a lake shore cell, say): nothing to build on
-    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [], works: () => [] }
+    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [], works: () => [], resort: () => [] }
   }
 
   // ---- 3. growth: the patches ranked by their distance from the plaza as a town grows ----
@@ -2419,10 +2443,444 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     return { role: Role.House, kind, style: hs, x: l.cx, y: l.cy, yaw: Math.atan2(l.uy, l.ux), sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward, homes }
   }
 
+  // ---- tourism: a resort quarter (resort.ts says which towns and from when) ----
+  /** Shore edges of the dry patches: x0, y0, x1, y1, patch, inward normal x, y (7 numbers each); computed once. */
+  let shoreEdges: number[] | null = null
+  const shoreOf = (): number[] => {
+    if (shoreEdges) return shoreEdges
+    const out: number[] = []
+    for (const i of order) {
+      const p = patches[i].poly.p
+      const n = p.length / 2
+      for (let q = 0; q < n; q++) {
+        const t = patches[i].poly.t[q]
+        if (!(t >= 0 && patches[t].water)) continue
+        const q1 = (q + 1) % n
+        const x0 = p[q * 2], y0 = p[q * 2 + 1], x1 = p[q1 * 2], y1 = p[q1 * 2 + 1]
+        const l = Math.hypot(x1 - x0, y1 - y0)
+        if (l < 0.2) continue
+        // (CCW: inward is the edge turned a quarter left)
+        out.push(x0, y0, x1, y1, i, -(y1 - y0) / l, (x1 - x0) / l)
+      }
+    }
+    shoreEdges = out
+    return out
+  }
+  /** Distance from (x, y) to segment (ax, ay)-(bx, by), and the nearest point into segNear. */
+  const segNear = [0, 0]
+  const segDist = (x: number, y: number, ax: number, ay: number, bx: number, by: number) => {
+    const dx = bx - ax, dy = by - ay
+    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)))
+    segNear[0] = ax + dx * t
+    segNear[1] = ay + dy * t
+    return Math.hypot(x - segNear[0], y - segNear[1])
+  }
+  /** Margin (surface.ts wet) of the shore as the quarter reads it: the drawn shore, a little inland of the contour on a flat coast. */
+  const SHORE_M = 0.03
+  /** Height scale for a building of kind in style hs with st storeys (as fitHouse sets it), capped. */
+  const storeyScale = (hs: StyleT, kind: number, st: number, r: number, cap: number) => {
+    const fac = houseFacade(hs, kind as Kind)
+    if (st < 2 || fac[1] <= fac[0]) return 0.95 + 0.1 * r
+    return Math.min(cap, (STOREY_H * st + 0.025 + 0.07 * r) / (fac[1] - fac[0]) / hScale)
+  }
+  /**
+   * The quarter, on the town's empty lots within reach of the town at pop and a little past its edge. By the
+   * water (a sea or lake shore near the town's patches): the shore as drawn is found off the lots nearest the
+   * water patches and followed both ways; the lots are ranked by nearness to it; the bath house, the lodges and
+   * the villas take the best lots their footprints fit, their doors toward the water; then the promenade along
+   * the shore by them (paving a little inland, where no house lot comes down to it, trees on its landward
+   * side) and pleasure boats off it. Elsewhere the lots are ranked by height and the open view at the town's
+   * edge, the buildings face out from the town, and a terrace (paving, a low parapet, two trees) lies before
+   * the first lodge.
+   */
+  function* resortJob(pop: number, spec: ResortSpec, kinds: number): Generator<void, PlanItem[], void> {
+    const out: PlanItem[] = []
+    const k = Math.max(1, ringReach(Math.max(pop, 1)))
+    let reach = k + 4
+    // the water patches' edges near the town (a resort on the shore may reach a few patches out to it)
+    const shore = shoreOf()
+    const near: number[] = []
+    for (let q = 0; q < shore.length; q += 7) if (rankOf[shore[q + 4]] < reach + 2) near.push(q)
+    if (!near.length) {
+      let r0 = Infinity
+      for (let q = 0; q < shore.length; q += 7) r0 = Math.min(r0, rankOf[shore[q + 4]])
+      if (r0 < k + 10) {
+        reach = r0 + 3
+        for (let q = 0; q < shore.length; q += 7) if (rankOf[shore[q + 4]] < reach + 2) near.push(q)
+      }
+    }
+    const shoreDist = (x: number, y: number) => {
+      let m = Infinity
+      for (const q of near) m = Math.min(m, segDist(x, y, shore[q], shore[q + 1], shore[q + 2], shore[q + 3]))
+      return m
+    }
+    let h0 = Infinity, h1 = -Infinity
+    for (let q = 0; q < Math.min(order.length, reach); q++) { h0 = Math.min(h0, hgt[order[q]]); h1 = Math.max(h1, hgt[order[q]]) }
+    const hr = h1 > h0 ? h1 - h0 : 1
+    // the lots the town's works keep
+    const kept = new Set<number>()
+    for (const o of WORKS_PRIORITY) if (kinds & (1 << o)) for (const q of lotsFor(o, k, kinds).slice(0, WORKS_KEEP)) kept.add(q)
+    const cand: { q: number; d: number }[] = []
+    for (let q = 0; q < lots.length; q++) {
+      if ((q & 63) === 63) yield
+      const l = lots[q]
+      if (!l.empty || kept.has(q)) continue
+      const pi = l.patch
+      const w = patches[pi].ward
+      if (rankOf[pi] >= reach || paved(w) || w === Ward.Park || w === Ward.Green) continue
+      // (an orchard tree stands on it)
+      if (patches[pi].inner && leafy(w)) {
+        const u = rand4(seed, id, Math.round(l.cx * 977 + l.cy * 131), 0x5a)
+        if (u >= 0.62 && u < 0.9) continue
+      }
+      if (Math.abs(area(l.poly)) < 0.32) continue
+      const dp = Math.hypot(l.cx - plazaX, l.cy - plazaY) / Math.max(1, Rin)
+      const past = rankOf[pi] >= k ? 0.5 : 0
+      let d: number
+      if (near.length) d = shoreDist(l.cx, l.cy) + 0.25 * dp + past
+      else {
+        const edge = neighbours(pi).some((j) => rankOf[j] >= k) ? 1 : 0
+        d = -2.2 * ((hgt[pi] - h0) / hr) - 0.6 * edge + 0.4 * dp + past * 0.4 - (riverNear[pi] ? 0.5 : 0)
+      }
+      cand.push({ q, d: d + 0.25 * rnd(q, 0x6a) })
+    }
+    cand.sort((a, b) => a.d - b.d || a.q - b.q)
+    yield
+    // ---- the shore as drawn: x, y (dry ground just short of the water), nx, ny (toward the water), in order along it ----
+    const trace: number[] = []
+    let start = 0
+    if (near.length || spec.shore) {
+      let sx0 = 0, sy0 = 0, nx0 = 0, ny0 = 0, best = Infinity
+      /** The nearest water along n rays from (x0, y0) out to reach (step apart): best and the dry point before it. */
+      function* rays(x0: number, y0: number, n: number, reach: number, step: number): Generator<void, void, void> {
+        if (site.wet(x0, y0, SHORE_M)) return
+        for (let r = 0; r < n; r++) {
+          if ((r & 7) === 7) yield
+          const ang = (r / n) * Math.PI * 2, dx = Math.cos(ang), dy = Math.sin(ang)
+          for (let d = step; d < Math.min(best, reach); d += step) {
+            if (!site.wet(x0 + dx * d, y0 + dy * d, SHORE_M)) continue
+            best = d
+            sx0 = x0 + dx * (d - step); sy0 = y0 + dy * (d - step); nx0 = dx; ny0 = dy
+            break
+          }
+        }
+      }
+      // off the lots nearest the water patches, else (a shore the plan's patches do not reach) out from the town's middle
+      if (near.length) for (let c = 0; c < Math.min(cand.length, 3); c++) yield* rays(lots[cand[c].q].cx, lots[cand[c].q].cy, 12, 3.6, 0.15)
+      if (best === Infinity) yield* rays(plazaX, plazaY, 24, Rin * 1.1 + 3.5, 0.3)
+      /** Dry ground just short of the shore near (x, y), looking toward the water along (nx, ny), into shoreAt; false if no shore there. */
+      const shoreAt = [0, 0]
+      const findShore = (x: number, y: number, nx: number, ny: number) => {
+        let prevDry = !site.wet(x - nx * 1.3, y - ny * 1.3, SHORE_M)
+        for (let s = -1.2; s <= 0.9; s += 0.1) {
+          const wet = site.wet(x + nx * s, y + ny * s, SHORE_M)
+          if (wet && prevDry) {
+            // back inland to ground paving stands on: dry where it lies and on its seaward side, off any river
+            for (let back = 0.12; back <= 0.8; back += 0.08) {
+              const px = x + nx * (s - back), py = y + ny * (s - back)
+              if (site.wet(px, py, SHORE_M) || site.wet(px + nx * 0.18, py + ny * 0.18, SHORE_M) || onRiver(px, py)) continue
+              shoreAt[0] = px; shoreAt[1] = py
+              return true
+            }
+            return false
+          }
+          prevDry = !wet
+        }
+        return false
+      }
+      const STEP = 0.3
+      const back: number[] = []
+      for (const dir of best < Infinity && findShore(sx0, sy0, nx0, ny0) ? [1, -1] : []) {
+        let x = shoreAt[0], y = shoreAt[1], nx = nx0, ny = ny0
+        const into = dir > 0 ? trace : back
+        if (dir > 0) into.push(x, y, nx, ny)
+        for (let s = 0; s < 14; s++) {
+          if ((s & 3) === 3) yield
+          // along the shore (the normal turned a quarter), then back onto it
+          if (!findShore(x - ny * STEP * dir, y + nx * STEP * dir, nx, ny)) break
+          const tx = (shoreAt[0] - x) * dir, ty = (shoreAt[1] - y) * dir, tl = Math.hypot(tx, ty)
+          if (tl < 0.05) break
+          x = shoreAt[0]; y = shoreAt[1]
+          // the new normal: the step turned back a quarter, toward the water
+          nx = ty / tl; ny = -tx / tl
+          into.push(x, y, nx, ny)
+        }
+      }
+      // one line, from the far end of the backward run on
+      start = back.length / 4
+      const line: number[] = []
+      for (let q = back.length - 4; q >= 0; q -= 4) line.push(back[q], back[q + 1], back[q + 2], back[q + 3])
+      for (const v of trace) line.push(v)
+      trace.length = 0
+      for (const v of line) trace.push(v)
+    }
+    const water = trace.length > 0
+    /** Nearest point of the traced shore (its index into trace) and the distance to it. */
+    let nearT = 0
+    const traceDist = (x: number, y: number) => {
+      let m = Infinity
+      for (let q = 0; q < trace.length; q += 4) {
+        const d = Math.hypot(trace[q] - x, trace[q + 1] - y)
+        if (d < m) { m = d; nearT = q }
+      }
+      return m
+    }
+    if (water) {
+      // ranked again by the shore itself
+      for (const c of cand) {
+        const l = lots[c.q]
+        const dp = Math.hypot(l.cx - plazaX, l.cy - plazaY) / Math.max(1, Rin)
+        c.d = traceDist(l.cx, l.cy) + 0.25 * dp + (rankOf[l.patch] >= k ? 0.4 : 0) + 0.25 * rnd(c.q, 0x6a)
+      }
+      cand.sort((a, b) => a.d - b.d || a.q - b.q)
+      yield
+    }
+    /** Placed footprints: x, y, radius. */
+    const taken: number[] = []
+    const free = (x: number, y: number, r: number) => {
+      for (let q = 0; q < taken.length; q += 3) if (Math.hypot(taken[q] - x, taken[q + 1] - y) < r + taken[q + 2]) return false
+      return true
+    }
+    const used = new Set<number>()
+    const base = { kind: 0, style, threshold: 0, roof: hash4(seed, id, 0x37, 0) % 5, wall: hash4(seed, id, 0x38, 0) % 4, jitter: 0.5, ward: Ward.Resort as number, homes: 0, x: 0, y: 0, yaw: 0, sx: 1, sz: 1, sy: 1 }
+    const fitT = { x: 0, y: 0, yaw: 0, s: 0 }
+    /** The largest scale from big down to small at which kind stands in lot l, door (+z) toward (fx, fy), else along or across its street front. */
+    const fitOn = (l: Lot, kind: number, big: number, small: number, fx: number, fy: number): boolean => {
+      const [hw, hd] = KIND_HALF[kind]
+      const yaws = [Math.atan2(fx, -fy), Math.atan2(l.uy, l.ux), Math.atan2(l.uy, l.ux) + Math.PI / 2]
+      for (let s = big; s >= small - 1e-9; s *= 0.9) {
+        for (const yaw of yaws) {
+          const ux = Math.cos(yaw), uy = Math.sin(yaw), vx = uy, vy = -ux
+          const ex = hw * s, ez = hd * s
+          let ok = true
+          for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            if (!insideConvex(l.poly, l.cx + ux * ex * a + vx * ez * b, l.cy + uy * ex * a + vy * ez * b, -0.03)) { ok = false; break }
+          }
+          if (!ok) continue
+          if (!free(l.cx, l.cy, Math.max(ex, ez) * 0.9) || !site.clear(l.cx, l.cy, Math.max(ex, ez) * 0.75)) return false
+          fitT.x = l.cx; fitT.y = l.cy; fitT.yaw = yaw; fitT.s = s
+          return true
+        }
+      }
+      return false
+    }
+    /** Which way a lot looks (into o): out over the water, else out from the town. */
+    const facing = (l: Lot, o: number[]) => {
+      if (water) {
+        traceDist(l.cx, l.cy)
+        o[0] = trace[nearT + 2]; o[1] = trace[nearT + 3]
+        return
+      }
+      o[0] = l.cx - plazaX; o[1] = l.cy - plazaY
+      const n = Math.hypot(o[0], o[1]) || 1
+      o[0] /= n; o[1] /= n
+    }
+    const look = [0, 0]
+    const hut = style === Style.Savanna || style === Style.Rainforest
+    /** Takes the best free lot of at least minArea that kind fits (its fit in fitT), or null. */
+    const take = (kind: number, big: number, small: number, minArea: number): Lot | null => {
+      for (const { q } of cand) {
+        if (used.has(q)) continue
+        const l = lots[q]
+        if (Math.abs(area(l.poly)) < minArea) continue
+        facing(l, look)
+        if (!fitOn(l, kind, big, small, look[0], look[1])) continue
+        used.add(q)
+        return l
+      }
+      return null
+    }
+    const anchors: number[] = [] // x, y of the quarter's buildings (the promenade runs by them)
+    let firstLodge: { x: number; y: number; yaw: number; ez: number } | null = null
+    // the bath house over the springs: ranges round a pool court, the spring's fountain before its door
+    if (spec.bath) {
+      const l = take(Kind.Block, 0.9, 0.55, 0.5)
+      if (l) {
+        const { x, y, yaw, s } = fitT
+        const ez = KIND_HALF[Kind.Block][1] * s
+        out.push({ ...base, role: Role.Ground, kind: GroundKind.Plaza, x, y, sx: ez * 2.4, sz: ez * 2.4 })
+        out.push({ ...base, role: Role.House, kind: Kind.Block, x, y, yaw, sx: s, sz: s, sy: hut ? 0.8 : 0.72, jitter: rnd(1, 0x6b) })
+        const fx = Math.sin(yaw), fy = -Math.cos(yaw)
+        const wx = x + fx * (ez + 0.2), wy = y + fy * (ez + 0.2)
+        if (site.clear(wx, wy, 0.12)) out.push({ ...base, role: Role.Well, x: wx, y: wy, yaw, sx: 0.9, sz: 0.9, sy: 0.9 })
+        taken.push(x, y, ez * 1.3)
+        anchors.push(x, y)
+      }
+      yield
+    }
+    /** Clear of the main streets and roads and of the wall lines (a building off the lots). */
+    const offRoad = (x: number, y: number, r: number) => {
+      for (const ek of mainEdges) {
+        const a = Math.floor(ek / 100000), b = ek % 100000
+        if (segDist(x, y, vx[a], vy[a], vx[b], vy[b]) < r + mainHalf + 0.05) return false
+      }
+      for (const ek of wallEdges) {
+        const a = Math.floor(ek / 100000), b = ek % 100000
+        if (segDist(x, y, vx[a], vy[a], vx[b], vy[b]) < r + WALL_HALF + 0.2) return false
+      }
+      return true
+    }
+    /** Seafront lodges stand along the traced shore itself (off the lots, its door to the water), the nearest the town first. */
+    const fronts: number[] = []
+    for (let q = 0; q < trace.length / 4; q += 2) fronts.push(q)
+    fronts.sort((a, b) => Math.abs(a - start) - Math.abs(b - start) || a - b)
+    const seafront = (kind: number, big: number, small: number): boolean => {
+      const [hw, hd] = KIND_HALF[kind]
+      for (const q of fronts) {
+        const x0 = trace[q * 4], y0 = trace[q * 4 + 1], nx = trace[q * 4 + 2], ny = trace[q * 4 + 3]
+        for (let s = big; s >= small - 1e-9; s *= 0.88) {
+          const ex = hw * s, ez = hd * s
+          const cx = x0 - nx * (ez + 0.14), cy = y0 - ny * (ez + 0.14)
+          const ux = -ny, uy = nx
+          let ok = !onRiver(cx, cy) && offRoad(cx, cy, ez) && !onLot(cx, cy, 0.03)
+          for (let e = -1; e <= 1 && ok; e++) if (!free(cx + ux * e * (ex - ez), cy + uy * e * (ex - ez), ez * 0.9)) ok = false
+          for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+            if (!ok) break
+            const px = cx + ux * ex * a - nx * ez * b, py = cy + uy * ex * a - ny * ez * b
+            if (site.wet(px, py, SHORE_M) || onLot(px, py, 0.03)) ok = false
+          }
+          if (!ok) continue
+          fitT.x = cx; fitT.y = cy; fitT.yaw = Math.atan2(nx, -ny); fitT.s = s
+          return true
+        }
+      }
+      return false
+    }
+    // the lodges: long ranges of two storeys (one in the hut styles), a grand hotel round a court first in a large
+    // resort; on the seafront where it has room, else on the lots nearest the water (or the view)
+    for (let j = 0; j < spec.lodges; j++) {
+      const grand = j === 0 && spec.lodges >= 3 && !hut
+      const kind = grand ? Kind.Block : Kind.Long
+      const big = grand ? 0.95 : 1.4, small = grand ? 0.7 : 0.8
+      const front = water && seafront(kind, big, small)
+      if (!front && !take(kind, big, small, grand ? 0.6 : 0.45)) break
+      const { x, y, yaw, s } = fitT
+      const r = rnd(j, 0x6c)
+      const sy = grand ? 0.95 + 0.1 * r : storeyScale(style, kind, hut ? 1 : 2, r, 1.55)
+      out.push({ ...base, role: Role.House, kind, x, y, yaw, sx: s, sz: s * (grand ? 1 : 1.12), sy, roof: hash4(seed, id, 0x39, j) % 5, wall: hash4(seed, id, 0x3a, j) % 4, jitter: r })
+      const [hw, hd] = KIND_HALF[kind]
+      if (front) {
+        // (as three discs along its length, so the promenade passes before it)
+        const ux = Math.cos(yaw), uy = Math.sin(yaw), ex = hw * s, ez = hd * s * 1.12
+        for (let e = -1; e <= 1; e++) taken.push(x + ux * e * Math.max(0, ex - ez), y + uy * e * Math.max(0, ex - ez), ez)
+      } else taken.push(x, y, Math.max(hw, hd) * s)
+      anchors.push(x, y)
+      if (!firstLodge) firstLodge = { x, y, yaw, ez: hd * s * (grand ? 1 : 1.12) }
+      yield
+    }
+    // the villas: an L-shaped house (a plain one in the north and the hut styles) in its garden, a lawn and a tree or two
+    for (let j = 0; j < spec.villas; j++) {
+      const hs = site.houseStyle(rnd(j, 0x6d))
+      const hh = hs === Style.Savanna || hs === Style.Rainforest
+      const kind = hs === Style.Cold || hh ? Kind.House : Kind.Ell
+      const l = take(kind, 1.25, 0.72, 0.42)
+      if (!l) break
+      const { x, y, yaw, s } = fitT
+      const r = rnd(j, 0x6e)
+      const [hw, hd] = KIND_HALF[kind]
+      const lawn = Math.min(1.1, Math.sqrt(Math.abs(area(l.poly))) * 0.62)
+      out.push({ ...base, role: Role.Ground, kind: GroundKind.Yard, x, y, sx: lawn, sz: lawn })
+      out.push({ ...base, role: Role.House, kind, style: hs, x, y, yaw, sx: s, sz: s, sy: storeyScale(hs, kind, hh ? 1 : 2, r, 1.55), roof: hash4(seed, id, 0x3b, j) % 5, wall: hash4(seed, id, 0x3c, j) % 4, jitter: r })
+      taken.push(x, y, Math.max(hw, hd) * s)
+      anchors.push(x, y)
+      // garden trees toward the lot's corners, clear of the house
+      const nv = l.poly.length / 2
+      let trees = 0
+      for (let v = 0; v < nv && trees < 2; v++) {
+        const c = (v + Math.floor(r * nv)) % nv
+        const tx = l.cx + (l.poly[c * 2] - l.cx) * 0.62, ty = l.cy + (l.poly[c * 2 + 1] - l.cy) * 0.62
+        if (Math.hypot(tx - x, ty - y) < Math.max(hw, hd) * s + 0.16 || !insideConvex(l.poly, tx, ty, 0.06) || !site.clear(tx, ty, 0.12)) continue
+        const z = 0.36 + 0.14 * rnd(j * 8 + v, 0x6f)
+        out.push({ ...base, role: Role.Grove, x: tx, y: ty, yaw: r * 40 + v, sx: z, sz: z, sy: z, jitter: rnd(j * 8 + v, 0x70) })
+        trees++
+      }
+      yield
+    }
+    let pieces = 0
+    if (water && anchors.length) {
+      // the promenade: along the traced shore where it passes the quarter
+      let trees = 0, boats = 0, run = 0
+      const boatAt: number[] = []
+      for (let q = 0; q < trace.length && pieces < 34; q += 4) {
+        if ((q & 15) === 12) yield
+        const x = trace[q], y = trace[q + 1], nx = trace[q + 2], ny = trace[q + 3]
+        let close = false
+        for (let a = 0; a < anchors.length && !close; a += 2) if (Math.hypot(anchors[a] - x, anchors[a + 1] - y) < 2.6) close = true
+        if (!close || onLot(x, y, 0.02) || !free(x, y, 0.1)) { run = 0; continue }
+        out.push({ ...base, role: Role.Ground, kind: GroundKind.Plaza, x, y, sx: 0.46, sz: 0.46, jitter: rnd(q, 0x71) })
+        pieces++
+        // its sea wall: a low kerb along the water's side from the piece before
+        if (run > 0) {
+          const ax = trace[q - 4] + trace[q - 2] * 0.14, ay = trace[q - 3] + trace[q - 1] * 0.14, bx = x + nx * 0.14, by = y + ny * 0.14
+          const len = Math.hypot(bx - ax, by - ay)
+          if (len > 0.05) out.push({ ...base, role: Role.WallSeg, x: (ax + bx) / 2, y: (ay + by) / 2, yaw: Math.atan2(by - ay, bx - ax), sx: len * 1.06, sz: 0.75, sy: 0.32 })
+        }
+        // (a second row a little inland: the paving reads as a broad walk)
+        const ix = x - nx * 0.2, iy = y - ny * 0.2
+        if (!onLot(ix, iy, 0.02) && free(ix, iy, 0.1) && !site.wet(ix, iy, SHORE_M)) out.push({ ...base, role: Role.Ground, kind: GroundKind.Plaza, x: ix, y: iy, sx: 0.46, sz: 0.46, jitter: rnd(q, 0x77) })
+        run++
+        // trees along its landward side
+        if (run % 3 === 2 && trees < 10) {
+          const tx = x - nx * 0.5, ty = y - ny * 0.5
+          if (!onLot(tx, ty, 0.06) && free(tx, ty, 0.12) && !site.wet(tx, ty, SHORE_M) && !onRiver(tx, ty)) {
+            const z = 0.34 + 0.1 * rnd(q, 0x72)
+            out.push({ ...base, role: Role.Grove, x: tx, y: ty, yaw: q, sx: z, sz: z, sy: z, jitter: rnd(q, 0x73) })
+            taken.push(tx, ty, 0.1)
+            trees++
+          }
+        }
+        // a pleasure boat off every few pieces, out on open water
+        if (run % 3 === 1 && boats < spec.boats) {
+          for (let d = 0.5; d <= 3.0; d += 0.25) {
+            const wx = x + nx * d, wy = y + ny * d
+            if (!site.wet(wx, wy, -0.3)) continue
+            let crowded = false
+            for (let b = 0; b < boatAt.length && !crowded; b += 2) if (Math.hypot(boatAt[b] - wx, boatAt[b + 1] - wy) < 0.8) crowded = true
+            if (crowded) break
+            const u = rnd(q, 0x74)
+            out.push({ ...base, role: Role.Boat, kind: boats % 2, x: wx, y: wy, yaw: Math.atan2(ny, nx) + (u - 0.5) * 2.2 + (u < 0.5 ? Math.PI : 0), sx: 1, sz: 1, sy: 1, jitter: u })
+            boatAt.push(wx, wy)
+            boats++
+            break
+          }
+        }
+      }
+    }
+    if (pieces === 0 && firstLodge) {
+      // the terrace before the first lodge, toward the view: paving and a low parapet along its outer edge
+      const { x, y, yaw, ez } = firstLodge
+      const fx = Math.sin(yaw), fy = -Math.cos(yaw), ux = Math.cos(yaw), uy = Math.sin(yaw)
+      const d = ez + 0.32
+      let laid = 0
+      for (let s = -2; s <= 2; s++) {
+        const tx = x + fx * d + ux * s * 0.26, ty = y + fy * d + uy * s * 0.26
+        if (!site.clear(tx, ty, 0.1) || onLot(tx, ty, 0.02)) continue
+        out.push({ ...base, role: Role.Ground, kind: GroundKind.Plaza, x: tx, y: ty, sx: 0.4, sz: 0.4, jitter: rnd(s + 2, 0x75) })
+        laid++
+      }
+      const px = x + fx * (d + 0.24), py = y + fy * (d + 0.24)
+      if (laid >= 3 && site.clear(px, py, 0.1) && !onLot(px, py, 0.02)) out.push({ ...base, role: Role.WallSeg, x: px, y: py, yaw, sx: 1.2, sz: 0.55, sy: 0.5 })
+      for (const sgn of [-1, 1]) {
+        const tx = x + fx * d + ux * sgn * 0.8, ty = y + fy * d + uy * sgn * 0.8
+        if (laid >= 3 && site.clear(tx, ty, 0.12) && !onLot(tx, ty, 0.04) && free(tx, ty, 0.1)) out.push({ ...base, role: Role.Grove, x: tx, y: ty, yaw: sgn, sx: 0.4, sz: 0.4, sy: 0.4, jitter: rnd(sgn + 3, 0x76) })
+      }
+    }
+    // build order: the buildings first, as listed; boats come and go with the visitors (layer.ts)
+    const n = out.length
+    out.forEach((it, j) => (it.threshold = n > 1 ? j / (n - 1) : 0))
+    let ax = 0, ay = 0
+    for (let q = 0; q < anchors.length; q += 2) { ax += anchors[q]; ay += anchors[q + 1] }
+    const na = Math.max(1, anchors.length / 2)
+    diag.resort = [water ? 1 : 0, cand.length, n, +(ax / na).toFixed(2), +(ay / na).toFixed(2), trace.length / 4, pieces]
+    return out
+  }
+  const resort = (pop: number, spec: ResortSpec, kinds: number, deadline: number) =>
+    runJob(`t${Math.round(pop / 250)}:${spec.lodges}:${spec.villas}:${spec.boats}:${spec.bath ? 1 : 0}${spec.shore ? 1 : 0}:${kinds}`, () => resortJob(pop, spec, kinds), deadline)
+
   yield
   // (perf=1 diagnostics: window.__dioramaPlans[id])
   const slopes = order.map((i) => slope[i]).sort((a, b) => a - b)
-  const diag = { peak, needHomes: Math.round(townHouseholds(peak)), seeds: nSeeds, patches: P, dryPatches: order.length, inner: innerSet.length, lots: lots.length, emptyLots: lots.filter((l) => l.empty).length, lotsUsed: 0, noFit: 0, notClear: 0, built: 0, homes: 0, exhausted: false, byWard: [] as number[], wardPatches: [] as number[], byKind: [] as number[], rings: ringK.map((k) => rawLoops(k).length), gates: gateVerts.size, slope50: slopes[slopes.length >> 1] ?? 0, slope90: slopes[Math.floor(slopes.length * 0.9)] ?? 0, noFitWard: [] as number[], noFitArea: 0, innerBuilt: 0, capRatio: 0, wallItems: [] as number[], bareGround: [] as number[], noBlock: [] as number[], camp: [] as number[], palace: palacePatch >= 0 ? [+patches[palacePatch].cx.toFixed(2), +patches[palacePatch].cy.toFixed(2)] : [] }
+  const diag = { peak, needHomes: Math.round(townHouseholds(peak)), seeds: nSeeds, patches: P, dryPatches: order.length, inner: innerSet.length, lots: lots.length, emptyLots: lots.filter((l) => l.empty).length, lotsUsed: 0, noFit: 0, notClear: 0, built: 0, homes: 0, exhausted: false, byWard: [] as number[], wardPatches: [] as number[], byKind: [] as number[], rings: ringK.map((k) => rawLoops(k).length), gates: gateVerts.size, slope50: slopes[slopes.length >> 1] ?? 0, slope90: slopes[Math.floor(slopes.length * 0.9)] ?? 0, noFitWard: [] as number[], noFitArea: 0, innerBuilt: 0, capRatio: 0, wallItems: [] as number[], bareGround: [] as number[], noBlock: [] as number[], camp: [] as number[], resort: [] as number[], palace: palacePatch >= 0 ? [+patches[palacePatch].cx.toFixed(2), +patches[palacePatch].cy.toFixed(2)] : [] }
   for (const i of order) diag.wardPatches[patches[i].ward] = (diag.wardPatches[patches[i].ward] ?? 0) + 1
   const diagAll = (globalThis as { __dioramaPlans?: Record<number, typeof diag> }).__dioramaPlans
   if (diagAll) diagAll[id] = diag
@@ -2529,6 +2987,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     palace,
     camp,
     works,
+    resort,
   }
 }
 

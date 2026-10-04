@@ -44,6 +44,7 @@ import { isHouseKind } from './shapes.ts'
 import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type TownPolityState } from '../../ui/politiesData.ts'
 import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
 import { WorksKind } from './town.ts'
+import { resortQuarters } from './resort.ts'
 
 /**
  * Camera distance (to each instance) at which models are full size, and where they are
@@ -153,6 +154,8 @@ const BUILD_YEARS = 3
 const RUIN_YEARS = SACK_YEARS * 3
 /** Garrison (men) from which each of a camp's quarters stands. */
 const CAMP_MEN = [250, 700, 1500, 3000]
+/** Tourism: years over which a resort quarter goes up, piece by piece. */
+const RESORT_BUILD_YEARS = 12
 /** Generated house models (a sack burns them out). */
 const HOUSE_MODEL = new Uint8Array(MODEL_COUNT)
 for (let m = 0; m < MODEL_COUNT; m++) {
@@ -474,6 +477,9 @@ interface Stats {
   workPieces: number
   burnt: number
   smoke: number
+  /** Tourism: resort quarters drawn and their pieces. */
+  resorts: number
+  resortPieces: number
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
@@ -551,7 +557,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const byDist = (a: number, b: number) => visD[a] - visD[b]
   /** (perf=1) What kept the last rebuild pending. */
   const pendWhy = { vnull: 0, vgen: 0, snull: 0, sgen: 0, farm: 0, forest: 0 }
-  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, works: 0, workPieces: 0, burnt: 0, smoke: 0 }
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, works: 0, workPieces: 0, burnt: 0, smoke: 0, resorts: 0, resortPieces: 0 }
   const perfOn = typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)
   // (perf=1: the history, for console expressions over it)
   if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
@@ -820,7 +826,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.villages = 0
     stats.villageInstances = 0
     stats.farVillages = 0
-    stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = stats.works = stats.workPieces = 0
+    stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = stats.works = stats.workPieces = stats.resorts = stats.resortPieces = 0
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -1091,6 +1097,33 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           for (let k = 0; k < set.n; k++) {
             if (set.model[k] === Model.Banner) pushSlots(set, k, from, to, 0, false, 0, 0, wk.rgb ?? GUILD_GOLD)
             else pushSlots(set, k, from, to)
+          }
+        }
+        // ---- tourism (resort.ts): a resort quarter from the year it became one; its boats out while visitors come ----
+        const rq = resortQuarters(world, h)[id]
+        const rFrom = rq ? Math.max(rq.from, s.foundedYear) : NEVER
+        if (rq && rFrom < end && rFrom <= y1 + interval) {
+          tl = performance.now()
+          const set = layouts.townExtra(id, `t${Math.round(rq.pop / 250)}:${rq.lodges}:${rq.villas}:${rq.boats}:${rq.bath ? 1 : 0}${rq.shore ? 1 : 0}:${kinds}`, (p) => p.resort(rq.pop, rq, kinds, budget()))
+          spent += performance.now() - tl
+          if (!set) pending = true
+          else {
+            stats.resorts++
+            for (let k = 0; k < set.n; k++) {
+              const m = set.model[k]
+              if (m === Model.Boat || m === Model.FishingBoat) {
+                const B = rq.busy
+                for (let b = 0; b < B.length; b += 2) {
+                  const a = Math.max(B[b], rFrom), z = Math.min(B[b + 1], end)
+                  if (a >= z || a > y1 + interval || z < yP - 2) continue
+                  pushSlots(set, k, a, z)
+                  stats.resortPieces++
+                }
+              } else {
+                pushSlots(set, k, rFrom + set.threshold[k] * RESORT_BUILD_YEARS, end)
+                stats.resortPieces++
+              }
+            }
           }
         }
       }

@@ -90,7 +90,9 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   for (const k of ['depositOutput', 'traditionQuality', 'industry', 'metal', 'longHaulVolume', 'priceIndex', 'mart', 'secretGuard']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
   // disease: fever per cell, fever tolerance and endemic sickness per snapshot per people, outbreaks and quarantines
   for (const k of ['fever', 'feverTolerance', 'endemic']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines] as unknown as (Record<string, unknown> | undefined)[]) {
+  // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows)
+  for (const k of ['scenery', 'sceneryKind']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
+  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   }

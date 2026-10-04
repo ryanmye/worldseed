@@ -5,8 +5,8 @@ import { EntryKind } from './historyIndex.ts'
 import { isWallEvent } from './polityFormat.ts'
 
 /** Filter labels; index 0 shows everything, the others one category each. */
-export const CHRONICLE_FILTERS: readonly string[] = ['All', 'Politics and war', 'Settlement', 'Trade and exploration', 'Nature and crops', 'Sickness']
-const POLITICS = 1, SETTLEMENT = 2, TRADE = 3, NATURE = 4, SICKNESS = 5
+export const CHRONICLE_FILTERS: readonly string[] = ['All', 'Politics and war', 'Settlement', 'Trade and exploration', 'Nature and crops', 'Sickness', 'Travel']
+const POLITICS = 1, SETTLEMENT = 2, TRADE = 3, NATURE = 4, SICKNESS = 5, TRAVEL = 6
 
 /** Category (1..4) of a chronicle entry of kind `kind` whose first member is `first` (null for non-event members). */
 export function entryCategory(h: History, kind: number, first: HistoryEvent | null): number {
@@ -24,6 +24,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
       return NATURE
     case EntryKind.Disease:
       return SICKNESS
+    case EntryKind.Tourism:
+      return TRAVEL
     case EntryKind.Foundings:
     case EntryKind.Migrations:
       return SETTLEMENT
@@ -43,6 +45,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if ((t === 4 || t === 7) && (h.structures?.[first.other]?.type === 4 || h.structures?.[first.other]?.type === 5)) return TRADE // mines and merchants' quarters
   // disease (66-72) and the sickness a first contact brings (19)
   if (t === 19 || (t >= 66 && t <= 72)) return SICKNESS
+  // tourism (100-105): leisure travel, resorts and their fashion, sights
+  if (t >= 100 && t <= 105) return TRAVEL
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration

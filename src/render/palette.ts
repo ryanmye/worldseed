@@ -30,6 +30,8 @@ export const ViewMode = {
   Resources: 'resources',
   /** disease: place-bound fever per cell as a heat map (History.fever; optionally as one people feels it, ui/diseasePanel.ts; hidden without it). */
   Fever: 'fever',
+  /** tourism: scenery per land cell, coloured by what makes it fine (History.scenery, sceneryKind; ui/tourismPanel.ts; hidden without it). */
+  Scenery: 'scenery',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -50,6 +52,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Danger,
   ViewMode.Resources,
   ViewMode.Fever,
+  ViewMode.Scenery,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -261,6 +264,8 @@ export interface ModeData {
   speciesRgb?: Uint8Array | null
   /** Fever view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
   feverRgb?: Uint8Array | null
+  /** Scenery view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
+  sceneryRgb?: Uint8Array | null
 }
 
 /** Capacity and Population views: heat ramp over a 0..1 normalised value. */
@@ -361,9 +366,10 @@ export function colorForMode(
       } else write(LANDUSE_WILD, out, o, scale)
       return
     }
-    case ViewMode.Fever: {
+    case ViewMode.Fever:
+    case ViewMode.Scenery: {
       const water = e < 0 || world.lake?.[i] === 1
-      const c = data?.feverRgb
+      const c = mode === ViewMode.Scenery ? data?.sceneryRgb : data?.feverRgb
       if (water) write(CAPACITY_WATER, out, o, scale)
       else if (c && c.length >= (i + 1) * 3) {
         out[o] = (c[i * 3] / 255) * scale

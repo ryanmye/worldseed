@@ -133,6 +133,7 @@ const MODE_LABELS: Record<ViewMode, string> = {
   danger: 'Danger',
   resources: 'Resources',
   fever: 'Fever',
+  scenery: 'Scenery',
 }
 
 const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }

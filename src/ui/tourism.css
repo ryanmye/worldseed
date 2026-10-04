@@ -1,0 +1,114 @@
+/* Travel panel, inspector travel section, Scenery legend, travel chronicle dots (tourismPanel.ts, tourismFormat.ts) */
+
+.travel {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(360px, 38vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.travel.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.travel.collapsed .gp-body {
+  display: none;
+}
+.travel .gp-count.tp-hot {
+  color: #ffd0e6;
+}
+.travel .gp-row {
+  grid-template-columns: 12px auto minmax(0, 1fr) auto;
+}
+.travel .gp-row.tp-resort-row {
+  grid-template-columns: 12px auto minmax(0, 1fr) auto auto;
+}
+.travel .gp-row .gp-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.travel .gp-row.tp-fashion .gp-name {
+  color: #ffe1ef;
+}
+.tp-resort-dot {
+  border-radius: 50% 50% 1px 1px;
+}
+.tp-glyph {
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
+}
+.tp-spark {
+  display: block;
+  border-radius: 2px;
+}
+/* the Scenery view's legend */
+.tp-ramp-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.tp-ramp {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+}
+.tp-legend-note {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+/* inspector */
+.insp-travel {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.insp-travel .tp-hot {
+  color: #ffd6ea;
+}
+/* chronicle dots */
+.ev-travel .ev-text::before {
+  background: #ff80bd;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+.ev-resort .ev-text::before {
+  border-radius: 50% 50% 1px 1px;
+  background: #ff80bd;
+  box-shadow: 0 0 0 1px #4a1430;
+}
+.ev-sight .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+  background: #ffe9a8;
+  box-shadow: 0 0 0 1px #4a3a10;
+}
+
+/* the right column: when its panels outgrow the window it scrolls as a whole (nothing is pushed
+   off screen), and collapsed panel headers sit closer together */
+.side-column.right {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-gutter: auto;
+  overscroll-behavior: contain;
+  /* room for the panels' width handles on their inner edge (the scroll box clips) */
+  padding-left: 8px;
+}
+.side-column.right > .panel.collapsed {
+  flex-shrink: 0 !important;
+  min-height: 0;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.side-column.right > .panel.collapsed + .panel.collapsed {
+  margin-top: -5px;
+}
