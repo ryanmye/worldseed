@@ -212,6 +212,16 @@ export const EventType = {
   IdeaResisted: 123, // the people of `settlement` (its capital or largest settlement) refused idea `value`, which had reached it from `other`; `extra` the cause (IdeaResist)
   // claims (polities): 130.
   BorderDispute: 130, // the claims of the polities ruled from `settlement` and `other` came to meet over a stretch of unsettled land (History.claimed), a cause of rivalry between them; `value` is the polity id of `other`'s polity; `extra` the number of land cells both claim. Logged when the dispute begins (again after it lapsed)
+  // landmarks: great buildings raised as a consequence of history (140-149; none when HistoryOptions.landmarks is false). Logged for the
+  // great landmarks only (LandmarkRank.Great); the lesser houses of worship and shrines record their changes in History.landmarks alone.
+  // In each, `value` is the landmark id (History.landmarks row), `settlement` its town, `extra` its LandmarkKind.
+  LandmarkBegun: 140, // work began on landmark `value` at `settlement`; `other` the builder polity's capital, or -1
+  LandmarkCompleted: 141, // landmark `value` was finished at `settlement`; `other` the builder polity's capital, or -1
+  LandmarkAbandoned: 142, // work on landmark `value` was given up unfinished (the town fell, was sacked or abandoned, or the builder's realm ended); `other` -1
+  LandmarkNeglected: 143, // landmark `value` fell into neglect (its town far below its peak, or no longer the seat it was built for); `other` -1
+  LandmarkRuined: 144, // landmark `value` fell into ruin (sacked, its town abandoned, or neglected for centuries); `other` the settlement of the army that sacked it, or -1
+  LandmarkRestored: 145, // landmark `value` was restored and in use again; `other` the restoring polity's capital, or -1
+  LandmarkConverted: 146, // landmark `value` (a house of worship) was rededicated to another faith (its change row says which); `other` the converting polity's capital, or -1
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -495,6 +505,9 @@ export interface History {
    * the ideas a people holds at a year are those whose last row for it by then is not a loss (ideasHeldAt).
    */
   ideaAdoptions: IdeaAdoptions
+  // landmarks: great buildings (castles, palaces, temples, ...) and the lesser houses of worship, raised as a consequence of history
+  // (empty when HistoryOptions.landmarks is false). Never removed: a landmark outlives its town's fortunes in its states.
+  landmarks: Landmarks
 }
 
 // ---------------------------------------------------------------------------
@@ -1322,6 +1335,12 @@ export interface HistoryOptions {
    * holds. Default true; false gives the history without them (the ideas fields empty, technology the old smooth curves).
    */
   ideas?: boolean
+  /**
+   * landmarks: great buildings and houses of worship raised as a consequence of history (History.landmarks), with their states over
+   * time (in use, neglected, ruined, restored, converted). Default true; false leaves History.landmarks empty. A pure consequence layer:
+   * on or off, every other field is the same (events aside, which gain the landmark events 140-146).
+   */
+  landmarks?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
@@ -1542,5 +1561,146 @@ export function ideasHeldAt(h: Pick<History, 'ideas' | 'ideaAdoptions'>, p: numb
   for (let k = 0; k < A.count && A.year[k] <= year; k++) if (A.people[k] === p) held[A.idea[k]] = A.how[k] === IdeaHow.Lost ? 0 : 1
   const out: number[] = []
   for (let i = 0; i < held.length; i++) if (held[i]) out.push(i)
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// landmarks: lasting great buildings, a consequence of history.
+
+/** What a landmark is (History.landmarks.kind, the `extra` of the landmark events). */
+export const LandmarkKind = {
+  Castle: 0, // a keep or citadel: the seat of a kingdom, or a frontier fortress town (stone keep, mud-brick citadel, timber stronghold by culture)
+  Palace: 1, // a royal or imperial palace: the long-held capital of a kingdom or empire, and rich
+  GreatTemple: 2, // a great temple or cathedral: a holy city, the seat of a state faith, a rich and pious city
+  Monastery: 3, // a monastery or great religious house outside the walls (a faith of organisation, a pious ruler)
+  MarketHall: 4, // a great market hall or exchange: a mart of the long-haul trade, an entrepot
+  Guildhall: 5, // a guildhall: the seat of a renowned craft tradition
+  Lighthouse: 6, // a lighthouse or great harbour mole: a major port on an ocean lane
+  Library: 7, // a university or great library: a city of a people that holds writing, paper or printing
+  Monument: 8, // a triumphal monument (column, arch, obelisk): a victorious ruler
+  Mausoleum: 9, // a mausoleum: the founder of a ruling house, or a great ruler, buried at the capital
+  Baths: 10, // great baths: a resort at hot springs
+  CouncilHouse: 11, // a senate or council house: the seat of a league or of an elective state
+  Temple: 12, // (lesser) a town's large church or temple of its majority faith (big cities have several)
+  Shrine: 13, // (lesser) a folk shrine, stone circle or sacred grove of a traditional faith
+} as const
+export type LandmarkKind = (typeof LandmarkKind)[keyof typeof LandmarkKind]
+export const LANDMARK_KIND_COUNT = 14
+
+/** Great (one of a world's few dozen named landmarks, with events) or lesser (a town's ordinary house of worship or shrine, no events). */
+export const LandmarkRank = { Great: 0, Lesser: 1 } as const
+export type LandmarkRank = (typeof LandmarkRank)[keyof typeof LandmarkRank]
+
+/**
+ * The building form of a house of worship (History.landmarks.form for GreatTemple, Monastery, Temple and Shrine; 0 for the other kinds,
+ * whose shape the renderer takes from the town's building style). Each faith has a building tradition fixed at its founding
+ * (History.landmarks.faithForm): from its founding people's lands and a seeded draw, kept wherever it spreads; a schism inherits its
+ * parent's form with another variant. A great temple raised before its builders hold the mathematics for vaults and domes is built in
+ * the tradition's early form (a ziggurat or a columned temple).
+ */
+export const LandmarkForm = {
+  Steepled: 0, // a church or cathedral: a long nave with a steepled tower
+  Domed: 1, // a domed temple or mosque-like hall with minarets or corner towers
+  Ziggurat: 2, // a stepped pyramid or ziggurat (hot dry lands, early eras)
+  Columned: 3, // a columned classical temple on a stepped base
+  Pagoda: 4, // a pagoda or tiered tower
+  Stave: 5, // a stave or timber hall with stacked steep roofs (cold forests)
+  Stupa: 6, // a stupa or great mound with a spire
+  Circle: 7, // an open-air stone circle or sacred grove shrine (folk practice)
+} as const
+export type LandmarkForm = (typeof LandmarkForm)[keyof typeof LandmarkForm]
+export const LANDMARK_FORM_COUNT = 8
+
+/** State of a landmark (its change rows; landmarksAt gives the state at a year). */
+export const LandmarkState = {
+  Building: 0, // under construction (from its begun year until completed)
+  InUse: 1, // finished and in use
+  Neglected: 2, // its town far below its peak, or no longer the seat it was built for: shabby, outbuildings roofless
+  Ruined: 3, // broken walls, no roof, rubble (sacked, its town abandoned, or neglected for centuries)
+  Restored: 4, // rebuilt by a later ruler or a revival: in use again
+  Converted: 5, // a house of worship rededicated to another faith (the change row's faith): in use, its form kept with new trim
+  Unfinished: 6, // work given up before it was finished (the town fell, was sacked or abandoned): a stump that weathers like a ruin
+} as const
+export type LandmarkState = (typeof LandmarkState)[keyof typeof LandmarkState]
+
+/**
+ * Landmarks, struct-of-arrays in the order they were begun (row = landmark id; a longer run repeats a shorter one's rows exactly, except
+ * that completedYear may be set later for a work still building at the shorter run's end). A landmark is never removed: when its town
+ * shrinks, loses its status or is abandoned it changes state instead (the change rows: chronological, also a prefix in a longer run).
+ */
+export interface Landmarks {
+  count: number
+  kind: Uint8Array
+  rank: Uint8Array
+  /** LandmarkForm (houses of worship), else 0. */
+  form: Uint8Array
+  /** Variant 0..3 of the form (a schism's variation, the builder's taste): proportions and trim. */
+  variant: Uint8Array
+  settlement: Int32Array
+  cell: Int32Array
+  begunYear: Int16Array
+  /** Year it was finished, -1 if not (still building at the end of the run, or given up unfinished). */
+  completedYear: Int16Array
+  /** The builder: polity, its ruler at the begun year (History.rulers), that ruler's house; -1 for none. */
+  polity: Int16Array
+  ruler: Int32Array
+  dynasty: Int32Array
+  /** The faith it was raised for (houses of worship; for others the builder's state faith), -1. */
+  faith: Int16Array
+  /** The people whose language named it (the builders'). */
+  people: Int16Array
+  /** Its name ("the Keep of Thesmu", "Unlafa's Great Temple at Rilko"); unique within the world. */
+  name: string[]
+  /** State changes in chronological order (a year's in the order they happened): the landmark, the year, the new LandmarkState. */
+  changeCount: number
+  changeLandmark: Int32Array
+  changeYear: Int16Array
+  changeState: Uint8Array
+  /** The faith after a Converted change (and the faith restored to on a restoration), else -1. */
+  changeFaith: Int16Array
+  /** The polity behind the change (the restorer, the converting state, the sacker), -1. */
+  changePolity: Int16Array
+  /** Building tradition of each faith (LandmarkForm by faith id; 255 for a faith never seen), and its variant 0..3. */
+  faithForm: Uint8Array
+  faithVariant: Uint8Array
+}
+
+/** A landmark as it stands at a year (landmarksAt). */
+export interface LandmarkAt {
+  /** Row in History.landmarks. */
+  id: number
+  kind: LandmarkKind
+  rank: LandmarkRank
+  form: LandmarkForm
+  state: LandmarkState
+  /** Year it entered that state. */
+  since: number
+  /** The faith it serves at the year (after conversions), -1. */
+  faith: number
+}
+
+/**
+ * The landmarks of settlement `settlement` begun by `year`, each with its state at that year (from the change rows), in the order
+ * they were begun. A landmark begun later is not listed; one ruined or unfinished still is.
+ */
+export function landmarksAt(h: Pick<History, 'landmarks'>, settlement: number, year: number): LandmarkAt[] {
+  const L = h.landmarks
+  const out: LandmarkAt[] = []
+  if (!L) return out
+  for (let i = 0; i < L.count && L.begunYear[i] <= year; i++) {
+    if (L.settlement[i] !== settlement) continue
+    out.push({ id: i, kind: L.kind[i] as LandmarkKind, rank: L.rank[i] as LandmarkRank, form: L.form[i] as LandmarkForm, state: LandmarkState.Building, since: L.begunYear[i], faith: L.faith[i] })
+  }
+  if (out.length === 0) return out
+  for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) {
+    const id = L.changeLandmark[k]
+    if (L.settlement[id] !== settlement) continue
+    for (const x of out) {
+      if (x.id !== id) continue
+      x.state = L.changeState[k] as LandmarkState
+      x.since = L.changeYear[k]
+      if (L.changeFaith[k] >= 0) x.faith = L.changeFaith[k]
+    }
+  }
   return out
 }
