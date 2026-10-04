@@ -17,6 +17,7 @@ import { prosperity } from '../migration.ts'
 import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, POLITY, UNREST } from './params.ts'
+import { armsQuality } from '../goods/hooks.ts' // goods:
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -349,6 +350,7 @@ export function horseOf(s: HistoryState, id: number): number {
 /** Military quality q from the settlement's people's Metalworking and Crafts (and horses). */
 export function qualityOf(s: HistoryState, id: number): number {
   const o = s.people[id] * TECH_FIELD_COUNT
+  if (s.goods !== null) return armsQuality(s.goods, s.tech, o, horseOf(s, id), s.pop[id], id) // goods: arms stocks carry part of Metalworking's weight
   return 1 + POLITY.qMetal * (s.tech[o + TechField.Metalworking] - 1) + POLITY.qCrafts * (s.tech[o + TechField.Crafts] - 1) + 0.3 * horseOf(s, id)
 }
 

@@ -14,7 +14,7 @@
 // and species, at its largest buyer, `other` the largest seller of another people. The running balance stays in
 // SpeciesV2.balance (the hook for prohibition and drain-driven war in the polities system). No randomness.
 
-import { EventType } from '../../contract.ts'
+import { EventType, GOOD_COUNT } from '../../contract.ts'
 import { CASHCROP, GOODS, HABIT, WEALTH } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
@@ -110,7 +110,7 @@ function sample(s: HistoryState, v: SpeciesV2, tv: MarketView): void {
     if (DEATH[p] < 1) s.pop[id] *= DEATH[p]
     const trader = id < tv.trader.length && tv.trader[id] === 1
     const grows = v.coef[id * 3 + 2] > 0
-    if (!grows && !(trader && stimStock[id * 9 + 8] > 0)) continue // (no stimulant grown or in stock)
+    if (!grows && !(trader && stimStock[id * GOOD_COUNT + 8] > 0)) continue // (no stimulant grown or in stock) (goods: GOOD_COUNT 13)
     const ff = s.fishFrac[id], lf = s.liveFrac[id]
     let crop = s.expected[id] * (1 - ff - lf)
     if (crop < 0) crop = 0

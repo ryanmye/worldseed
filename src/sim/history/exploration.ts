@@ -55,6 +55,7 @@ import type { HistoryState } from './state.ts'
 import { abandon, found, logEvent, logJourney, techOf } from './state.ts'
 import { ContactVia, learnPath } from './knowledge.ts'
 import { speciesExpedition } from './species.ts'
+import { expeditionFinds } from './goods/deposits.ts' // goods:
 
 /** Notable places (Discovery): kind of a discovery record. */
 export const Place = {
@@ -318,16 +319,16 @@ function ensureSettlements(es: ExploreState, count: number): void {
   const u = new Uint8Array(size); u.set(es.bySea); es.bySea = u
 }
 
-/** Technology that drives a settlement's expeditions: Seafaring for a coastal one (if higher), else Crafts. */
-function driveTech(s: HistoryState, id: number): number {
+/** Technology that drives a settlement's expeditions: Seafaring for a coastal one (if higher), else Crafts. (goods: exported for trade expeditions) */
+export function driveTech(s: HistoryState, id: number): number {
   const cr = techOf(s, id, TechField.Crafts)
   if (!s.terrain.seaCoast[s.cell[id]]) return cr
   const se = techOf(s, id, TechField.Seafaring)
   return se > cr ? se : cr
 }
 
-/** Expedition range of settlement `id` by land or sea (cost units at this grid's scale), before the random factor. */
-function rangeOf(s: HistoryState, id: number, sea: boolean, f: number): number {
+/** Expedition range of settlement `id` by land or sea (cost units at this grid's scale), before the random factor. (goods: exported) */
+export function rangeOf(s: HistoryState, id: number, sea: boolean, f: number): number {
   const X = EXPLORE
   const t = techOf(s, id, sea ? TechField.Seafaring : TechField.Crafts)
   return (sea ? X.seaRange : X.landRange) * (1 + X.rangeTech * (t - 1)) * (1 + X.wealthRange * f) * s.terrain.cellScale
@@ -623,6 +624,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
   const fresh = s.know.fresh[people]
   const fresh0 = fresh.length
   const cells = learnPath(s, id, path, true, es.marginHops, ContactVia.Expedition)
+  if (s.goods !== null) expeditionFinds(s, s.goods, id, path) // goods: rare deposits seen on the way
   speciesExpedition(s, id, path) // (seed and stock brought home)
   firstSeen(s, es, fresh, fresh0)
   discoveries(s, es, id, path, fresh, fresh0)
@@ -655,6 +657,22 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
     logJourney(s, { departYear, arriveYear: s.year, from: id, to: id, size: g, kind: JourneyKind.Expedition, path: round })
   }
   log.outcome.push(base >= 0 ? 1 : 0); log.cells.push(cells)
+}
+
+/**
+ * goods: a base founded by another system (a mining camp at a deposit) is kept up like an expedition's: its route from
+ * its parent along `path` (land), supplies and strikes, abandonment.
+ */
+export function registerBase(s: HistoryState, es: ExploreState, base: number, path: number[]): void {
+  ensureSettlements(es, s.count)
+  const parent = s.parent[base]
+  es.bases[parent]++
+  es.strikes[base] = 0
+  es.urge[base] = 0
+  es.route.set(base, path)
+  es.routeCost[base] = routeCostOf(path, es.costLand)
+  es.bySea[base] = 0
+  es.yieldOf[base] = resourceYield(s, s.cell[base])
 }
 
 /** Expedition cost of a path from its first cell. */

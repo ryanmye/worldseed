@@ -54,7 +54,7 @@
 // is worth taking up (uncovered). Site conditions (small islands, coasts) are relaxed on worlds where nothing meets
 // them (fitCtx). The rest of v2 is in speciesV2.ts and the files it runs.
 
-import { Biome, EventType, RIVER_FLOW_THRESHOLD, SpeciesCategory, TECH_FIELD_COUNT, TechField, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, EventType, GOOD_COUNT, RIVER_FLOW_THRESHOLD, SpeciesCategory, TECH_FIELD_COUNT, TechField, TOWN_POPULATION } from '../../contract.ts'
 import type { People, SpeciesInfo, TechniqueInfo, World } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
@@ -66,6 +66,7 @@ import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
 import type { CradlePlan } from './peoples.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
+import { cashPrice, crossFactor, mayAdopt } from './goods/hooks.ts' // goods:
 
 /** species-v2: migration.ts prosperity, inlined (no import cycle through the trade system). */
 export function prosperityOf(s: HistoryState, id: number): number {
@@ -1533,9 +1534,9 @@ function cashBenefit(s: HistoryState, id: number, x: number): number {
   let gain = 0
   const tv = sp.tv
   if (tv && id < tv.trader.length && tv.trader[id]) {
-    const o = id * 9 // (GOOD_COUNT)
+    const o = id * GOOD_COUNT // (goods: 13 classes now)
     const pf = tv.price[o] > X.minFoodPrice ? tv.price[o] : X.minFoodPrice
-    const r = (tv.price[o + d.good] * d.cashYield * fc) / pf - 1
+    const r = ((s.goods !== null ? cashPrice(s.goods, tv.price, o, x) : tv.price[o + d.good]) * d.cashYield * fc) / pf - 1 // goods: class units
     gain = X.cashGain * smoothstep(0, 1, r)
   } else gain = d.good === CLOTH ? X.homeCloth : X.homeCash
   if (d.category === SpeciesCategory.Stimulant) gain += X.habitGain * sp.v2.habit[s.people[id] * STIMULANTS.length + STIM_INDEX[x]]
@@ -1681,7 +1682,7 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
       rate = d.adopt
       if (d.category === SpeciesCategory.Staple && s.people[k] !== p) rate *= SPECIES.novelty
       // species-v2: secrets and monopolies pass slowly between peoples; some need craft skill; grafting carries vines and orchards.
-      if (s.people[k] !== p) rate *= d.cross
+      if (s.people[k] !== p) rate *= s.goods !== null ? crossFactor(s.goods, x, p, d.cross) : d.cross // goods: secret species pass only to holders
       if (d.crafts > 0) rate *= smoothstep(d.crafts - 0.4, d.crafts + 0.2, s.tech[p * TECH_FIELD_COUNT + TechField.Crafts])
       if (d.graft && hasBit(sp.m0[id], sp.m1[id], TECH_BIT + TQ.grafting)) rate *= TECHNIQUE2.graftAdopt
     } else rate = TECHNIQUE.adopt[x - S_COUNT]
@@ -1883,6 +1884,7 @@ export function speciesExpedition(s: HistoryState, id: number, path: readonly nu
     if (a0 === 0 && a1 === 0) continue
     for (let x = 0; x < S_COUNT; x++) {
       if (!hasBit(a0, a1, x) || sp.fitCatch[x * N + c] < SPECIES.minFit) continue
+      if (s.goods !== null && !mayAdopt(s.goods, x, p)) continue // goods: a secret species stays with its holders
       if (rng.next() < SPECIES.expedition * benefitOf(s, id, x)) gainItem(s, id, x, o)
     }
   }

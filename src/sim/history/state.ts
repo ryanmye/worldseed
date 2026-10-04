@@ -13,6 +13,7 @@ import { createKnowledge, onFounded } from './knowledge.ts'
 import type { SpeciesState } from './species.ts'
 import { speciesOnFounded } from './species.ts'
 import type { PolityState } from './polity/state.ts' // polities:
+import type { GoodsState } from './goods/state.ts' // goods:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -150,6 +151,8 @@ export interface HistoryState {
 
   // polities: the polity system's state (polity/state.ts), or null when it is switched off (every hook is then a no-op).
   pol: PolityState | null
+  // goods: the goods system's state (goods/state.ts), or null when it is switched off (every hook is then a no-op).
+  goods: GoodsState | null
 }
 
 /**
@@ -245,6 +248,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     rngMigration,
     rngStructures,
     pol: null, // polities: (set by index.ts when the system is on)
+    goods: null, // goods: (set by index.ts when the system is on)
   }
 }
 

@@ -39,6 +39,7 @@ import { hasHorse, moveMuls, siteFactorAt, siteRows } from './species.ts'
 import { contiguous, createFrontier, passJoin, setAllowed, syncFrontier } from './frontier.ts' // frontier:
 import type { FrontierState } from './frontier.ts'
 import { fleeChance, joinBlocked, joinFactor, siteFactor } from './polity/system.ts' // polities:
+import { rushAt } from './goods/hooks.ts' // goods:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -288,6 +289,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
             let score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
             if (!leap) { const dd = 1 + d * invHalf; score *= (1 + FR.contigBonus) / (dd * dd) } // frontier: (a settlement is settled land)
             if (s.pol !== null) score *= joinFactor(s, s.pol, from, occ) // polities: crowding into walled towns
+            if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
@@ -315,6 +317,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           if (!leap) { const dd = 1 + d * invHalf; score *= (contig ? 1 + FR.contigBonus : 1) / (dd * dd) }
           if (portReach[c]) score *= sitePref
           if (s.pol !== null) score *= siteFactor(s, s.pol, c, from) // polities: danger and defensibility
+          if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }

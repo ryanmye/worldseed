@@ -4,7 +4,7 @@
 // loss), techniques (found, spread, laggards), staple shares and yields, the cold north, long-run event rates; and the
 // per-seed printouts (species table, adoption timelines, blights and drains, technique spread, trade value, prices).
 
-import { Biome, EventType, Good, SpeciesCategory } from '../../contract.ts'
+import { Biome, EventType, GOOD_COUNT, Good, SpeciesCategory } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import type { HistoryDiagnostics } from './index.ts'
 import type { HistoryState } from './state.ts'
@@ -13,7 +13,7 @@ import type { Terrain } from './terrain.ts'
 import { GOODS } from './params.ts'
 import { CASH, FOOD_COUNT, NST, S_COUNT, SP, speciesFit, SPECIES_TABLE, STAPLE_IDS, STIMULANTS } from './species.ts'
 
-const G = 9
+const G = GOOD_COUNT // (goods: 13)
 const KM = 6371
 /** Distance bins for price gradients: 0 the growers themselves, then up to each edge (km), and beyond the last. */
 const EDGES = [300, 1000, 2000, 4000]
