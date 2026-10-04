@@ -41,6 +41,7 @@ import { loadPref, savePref } from './ui/panels.ts'
 // factions=0 (no faction tint and borders on the Terrain view), polity=<id> (select a faction), view=factions|danger (when the history has them)
 // longhaul=0 (no lanes, relay legs, marts or posts), tradition=<id>, secret=<id>, deposit=<id>, lane=<leg id>, price=<good 7..11> (the Goods panel), view=resources
 // map=1|0 (the flat map, Equal Earth; else the remembered choice), mapcenter=<degrees> (its central meridian)
+// faith=<id> (select a faith in the Faiths panel), view=faiths (the majority faith of each place's land)
 // disease=0 (no epidemics, links or quarantine flags on the map), epidemic=<id>, sickness=<disease id> (the Sickness panel), view=fever
 
 const params = new URLSearchParams(window.location.search)
@@ -368,6 +369,7 @@ function clearHistoryParams() {
   setUrlParam('known', null)
   setUrlParam('species', null)
   setUrlParam('polity', null)
+  setUrlParam('faith', null)
   for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price', 'epidemic', 'sickness']) setUrlParam(k, null)
   historyYears = 2000 // a new world starts with the default history again
 }

@@ -1,0 +1,96 @@
+/* Faiths panel, Faiths legend, inspector faith lines, faith chronicle dots (faithsPanel.ts, rulersFormat.ts) */
+
+.faiths {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(360px, 38vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.faiths.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.faiths.collapsed .gp-body {
+  display: none;
+}
+.faiths .gp-row {
+  grid-template-columns: 10px auto minmax(0, 1fr) auto auto;
+}
+.faiths .gp-row .gp-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fa-spark {
+  display: block;
+  opacity: 0.95;
+}
+.fa-spark-row {
+  margin: 2px 2px 4px;
+}
+.fa-dead {
+  color: #e9b29a;
+}
+.fa-hot {
+  color: #ffd27a;
+}
+.fa-tree {
+  margin: 0 2px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.fa-node {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fa-node.self {
+  color: var(--text);
+  font-weight: 600;
+}
+.fa-node.ended {
+  color: var(--text-faint);
+}
+.fa-years {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* the legend: folk practice as a strip of its muted tones, the holy city's mark */
+.fa-legend .sp-swatch.fa-folk {
+  width: 18px;
+}
+.fa-holy-glyph {
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+  color: #ffe9a8;
+  text-shadow: 0 0 2px #000;
+}
+/* inspector: the rulers slot (seat line, faith lines), taking no room while empty */
+.insp-rulers {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.insp-rulers:has(> :not(.hidden)) {
+  margin: -3px 0 6px;
+}
+.ifa-lines.hidden {
+  display: none;
+}
+.ifa-lines .gp-dot {
+  width: 8px;
+  height: 8px;
+  vertical-align: 0;
+}
+/* chronicle and inspector dots: faiths (a pale gold star-point) */
+.ev-faith .ev-text::before {
+  background: radial-gradient(circle, #fff6d0 0 30%, #e0b33c 35%);
+  box-shadow: 0 0 0 1px #6a5320;
+}

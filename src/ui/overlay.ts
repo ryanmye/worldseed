@@ -131,6 +131,7 @@ const MODE_LABELS: Record<ViewMode, string> = {
   cash: 'Cash crops',
   factions: 'Factions',
   danger: 'Danger',
+  faiths: 'Faiths',
   resources: 'Resources',
   fever: 'Fever',
 }
