@@ -98,6 +98,16 @@ let polityGoodsNote: ((p: number, year: number) => (string | Node)[][]) | null =
 export function setPolityGoodsNote(fn: ((p: number, year: number) => (string | Node)[][]) | null): void {
   polityGoodsNote = fn
 }
+/** rulers, religion (ui/rulersPanel.ts): the ruler in a faction's title, its ruler section (ruler, state religion, unions, marriages, king list, house), and a tag for a war (war of succession, holy war); null without rulers. */
+export interface PolityRulersHooks {
+  title(p: number, year: number): string
+  section(p: number, year: number, parent: HTMLElement): void
+  warTag(w: number): string
+}
+let polityRulers: PolityRulersHooks | null = null
+export function setPolityRulersHooks(hooks: PolityRulersHooks | null): void {
+  polityRulers = hooks
+}
 /** Sickness lines of a faction's detail (armies broken by sickness: ui/diseasePanel.ts), or null without disease data. */
 let polityDiseaseNote: ((p: number, year: number) => (string | Node)[][]) | null = null
 export function setPolityDiseaseNote(fn: ((p: number, year: number) => (string | Node)[][]) | null): void {
@@ -566,6 +576,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     const titleEl = document.createElement('div')
     titleEl.className = 'fp-d-title'
     titleEl.append(swatch(selected), polityTitle(pd, selected, s0))
+    const under = exists ? polityRulers?.title(selected, year) : '' // rulers: ", under Narun II of House Rilkoik"
+    if (under) titleEl.append(Object.assign(document.createElement('span'), { className: 'fp-under', textContent: under }))
     const close = document.createElement('button')
     close.type = 'button'
     close.className = 'fp-d-close'
@@ -631,6 +643,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       // sickness: armies broken by it (diseasePanel.ts)
       for (const parts of polityDiseaseNote?.(selected, year) ?? []) line(...parts).classList.add('fp-goods')
     }
+    // rulers, religion: the ruler, the state religion, unions and marriages, the king list and the house (rulersPanel.ts)
+    polityRulers?.section(selected, year, detail)
     // capitals
     const caps: [number, number][] = []
     for (let c = 0; c < (x.capitals?.length ?? 0); c++) if ((x.capitalYears[c] ?? 0) <= year) caps.push([x.capitals[c], x.capitalYears[c]])
@@ -765,6 +779,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         if (ongoing) d.classList.add('ongoing')
         if (civil) d.classList.add('civil')
         d.append(ongoing ? `Since ${W.startYear[w]}: ` : `${W.startYear[w]}–${W.endYear[w]}: `)
+        const wt = polityRulers?.warTag(w) // rulers, religion: a war of succession, a holy war
+        if (wt) d.append(Object.assign(document.createElement('span'), { className: 'fp-civil fp-war-tag', textContent: wt }), ' ')
         if (civil) {
           const t = document.createElement('span')
           t.className = 'fp-civil'

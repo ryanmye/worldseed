@@ -35,6 +35,8 @@ export interface Inspector {
   readonly speciesSlot: HTMLElement
   /** Empty element under the people for the settlement's faction and danger (filled by politiesPanel.ts; hidden while empty). */
   readonly politySlot: HTMLElement
+  /** rulers, religion: empty element under the faction for the seat of a ruler and the majority faith (filled by rulersPanel.ts and faithsPanel.ts; empty takes no room). */
+  readonly rulersSlot: HTMLElement
   /** Empty element under the faction for its industries, crafts, mart, posts, prices and deposits (filled by goodsPanel.ts; hidden while empty). */
   readonly goodsSlot: HTMLElement
   /** Empty element under the goods for its sickness: sick now, outbreaks suffered, quarantine, its people's childhood sicknesses and fever (filled by diseasePanel.ts; hidden while empty). */
@@ -72,6 +74,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-places hidden"></div>
     <div class="insp-people hidden"></div>
     <div class="insp-faction hidden"></div>
+    <div class="insp-rulers"></div>
     <div class="insp-goods hidden"></div>
     <div class="insp-disease hidden"></div>
     <div class="insp-species hidden"></div>
@@ -298,6 +301,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const peopleSlot = q<HTMLDivElement>('.insp-people')
   const speciesSlot = q<HTMLDivElement>('.insp-species')
   const politySlot = q<HTMLDivElement>('.insp-faction')
+  const rulersSlot = q<HTMLDivElement>('.insp-rulers')
   const goodsSlot = q<HTMLDivElement>('.insp-goods')
   const diseaseSlot = q<HTMLDivElement>('.insp-disease')
 
@@ -305,6 +309,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     peopleSlot,
     speciesSlot,
     politySlot,
+    rulersSlot,
     goodsSlot,
     diseaseSlot,
     get selected() {
