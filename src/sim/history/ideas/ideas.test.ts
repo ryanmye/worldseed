@@ -46,16 +46,18 @@ function hashIdeas(hi: History): string {
 }
 
 /**
- * Histories without the ideas system: hashPreIdeas of simulateHistory with ideas off equals the history of main 1375ac5 before it
- * (every key of History there, hashed the same way; recorded on 1375ac5 and checked against this tree with ideas off). A later
- * change outside the ideas system must regenerate these.
+ * Histories without the ideas system: hashPreIdeas of simulateHistory with ideas off equals the history of main before it
+ * (every key of History there, hashed the same way). Re-recorded at the merge into main after the claims (e1d2ae5): the merged
+ * tree with ideas off was checked on every field, on these configurations and on every other system's golden ones, against
+ * e1d2ae5 plus the one fix made unconditional with the merge (a vassal passed to an overlord its people never met goes free).
+ * A later change outside the ideas system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '4f48a79c'],
-  [3, 600, undefined, {}, '998ce24b'],
-  [7, 900, undefined, { polities: false, goods: false }, '985e33d6'],
-  [1, 1500, undefined, { disease: false }, 'd2cdb4b9'],
-  [9, 800, 24, {}, 'e24efe77'],
+  [42, 2000, undefined, {}, '26882f32'],
+  [3, 600, undefined, {}, '653dfcd5'],
+  [7, 900, undefined, { polities: false, goods: false }, '88c2eb5e'],
+  [1, 1500, undefined, { disease: false }, '903a24a5'],
+  [9, 800, 24, {}, 'fce490'],
 ]
 
 const worlds = new Map<number, World>()
