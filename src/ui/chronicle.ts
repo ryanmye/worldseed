@@ -5,7 +5,7 @@
 // (binary searches into the index), so scrubbing backwards is exact.
 
 import { EventType } from '../contract.ts'
-import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
+import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeLandfallBurst, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -187,6 +187,13 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describePeoplesBurst(h, h.events[ev], m, people)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ev].settlement
+    } else if (kind === EntryKind.Landfalls && m > 1) {
+      // landfalls on small islands in one decade: name the sender (or one of them)
+      let oneSender = true
+      for (let q = lo + 1; q < lo + m; q++) if (h.events[ix.notableMembers[q]].other !== h.events[ev].other) oneSender = false
+      text = describeLandfallBurst(h, h.events[ev], m, oneSender)
+      yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost) {
       const e = h.events[ev]
       text = (e.type as number) === PeoplesEvent.Landfall

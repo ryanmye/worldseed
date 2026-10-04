@@ -1,6 +1,9 @@
 // Glue between a History and everything that shows it: the timeline clock, the
 // settlement markers, travelling groups, ports and dams, farmland, night-side city
-// lights, trade routes and merchants, roads and bridges, the inspector and the chronicle.
+// lights, trade routes and merchants, roads and bridges, the inspector and the chronicle;
+// expedition bases, lost expeditions and discoveries (outposts.ts, discoveries.ts, from
+// expeditionsData.ts); the species panel, the Crops and Herds views, origins and the
+// exchange web, and epidemic pulses (speciesPanel.ts, render/species.ts, from speciesData.ts).
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
@@ -16,7 +19,7 @@
 import * as THREE from 'three'
 import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, type GlobeMesh } from '../render/globe.ts'
-import { ViewMode } from '../render/palette.ts'
+import { ViewMode, densityRampCss } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
 import type { CameraFly } from '../render/cameraFly.ts'
 import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
@@ -33,9 +36,17 @@ import { routeNetwork } from '../render/routeCurves.ts'
 import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
-import { describePlaces } from './format.ts'
+import { describePlaces, formatPopulation } from './format.ts'
 import { ANYONE, buildPeoplesData } from './peoplesData.ts'
 import { createPeoplesView } from './peoplesPanel.ts'
+import { buildExpeditionData, discoveryNote } from './expeditionsData.ts'
+import { buildOutpostLayer, type OutpostLayer } from '../render/outposts.ts'
+import { buildDiscoveryLayer, type DiscoveryLayer } from '../render/discoveries.ts'
+import { applySpeciesStandIn, buildSpeciesData, cropSnapshotAt } from './speciesData.ts'
+import { buildSpeciesLayer, type SpeciesLayer } from '../render/species.ts'
+import { createSpeciesView } from './speciesPanel.ts'
+import { buildContactPulses, type ContactPulses } from '../render/knownWorld.ts'
+import { buildPopulationDensity, type PopulationDensity } from './populationDensity.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -54,6 +65,10 @@ export interface HistoryViewDeps {
   requestYears(years: number): void
   /** Something changed outside a frame (a swapped-in history): wake the render loop. */
   wake(): void
+  /** While a known world is shown the clouds are drawn over its mist (and back under the overlays after). */
+  setCloudsOverFog?(on: boolean): void
+  /** Offer a view mode or not (the Crops and Herds views need the history's crop and herd layers). */
+  setViewModeAvailable?(mode: ViewMode, available: boolean): void
 }
 
 export interface InitialHistoryState {
@@ -63,6 +78,8 @@ export interface InitialHistoryState {
   /** Known world to show: a people id (people=<id>), or what nobody knows (known=all). */
   people?: number | null
   knownAll?: boolean
+  /** Species to select (species=<id>). */
+  species?: number | null
 }
 
 /** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
@@ -121,6 +138,8 @@ export interface HistoryView {
   setPeopleTint(on: boolean): void
   /** Whether a cell is unknown in the known world shown (so the readout should not describe it). */
   isCellHidden(cell: number): boolean
+  /** Expedition trails, the marks of lost expeditions, supply lines and discoveries. */
+  setExpeditionsVisible(show: boolean): void
 }
 
 const FLY_DIST = 2.3
@@ -180,6 +199,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let roadsVisible = true
   let labels: LabelLayer | null = null
   let labelsVisible = true
+  let outposts: OutpostLayer | null = null
+  let discoveries: DiscoveryLayer | null = null
+  let speciesLayer: SpeciesLayer | null = null
+  let epidemics: ContactPulses | null = null
+  let expeditionsVisible = true
+  /** Selected species (-1 none), and what the Crops / Herds colours and the grown discs last showed. */
+  let speciesSelected = -1
+  let shownSpeciesKey = -1
+  let shownGrownKey = -1
+  let speciesRgb: Uint8Array | null = null
+  let grownFlags: Uint8Array | null = null
   let year = 0
   /** Detected features and the History feature of each (by kind and anchor), found lazily for readouts. */
   let geo: { map: FeatureMap; feature: (GeoFeature | null)[] } | null = null
@@ -198,6 +228,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let shownS1 = -1
   let lights: Float32Array | null = null
   let cellPop: Float32Array | null = null
+  /** Population view: per-cell density (populationDensity.ts), and the snapshot it last showed. */
+  let popDensity: PopulationDensity | null = null
+  let shownPopS0 = -1
   const pos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
   const tmp = new THREE.Vector3()
   // ---- extension state ----
@@ -263,27 +296,107 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     southern: (id) => (world && index && id >= 0 && id < index.count ? world.grid.positions[index.history.settlements[id].cell * 3 + 1] < 0 : false),
   })
+  // peoples panel, known-world view, inspector people section (its Esc comes first: Esc leaves the known world before it deselects)
+  const peoples = createPeoplesView({
+    right: deps.right,
+    bottom: deps.bottom,
+    inspectorSlot: inspector.peopleSlot,
+    planetGroup: deps.planetGroup,
+    setUrlParam: deps.setUrlParam,
+    onSelectionChange: () => applyKnownWorld(),
+  })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
-    description: 'Close a popup, else deselect',
+    description: 'Close a popup, else leave the known world, else deselect',
     group: 'Panels',
     run: () => {
       if (selected < 0) return false
       api.select(-1, false)
     },
   })
-  // peoples panel, known-world view, inspector people section (after the deselect above: Esc leaves the known world last)
-  const peoples = createPeoplesView({ right: deps.right, bottom: deps.bottom, inspectorSlot: inspector.peopleSlot, planetGroup: deps.planetGroup, setUrlParam: deps.setUrlParam })
+  // species panel, Crops / Herds legend, inspector species section (after the peoples panel: it goes under it)
+  const speciesView = createSpeciesView({
+    right: deps.right,
+    inspectorSlot: inspector.speciesSlot,
+    setUrlParam: deps.setUrlParam,
+    onSelect: (s) => {
+      speciesSelected = s
+      speciesLayer?.setSelected(s)
+      shownSpeciesKey = shownGrownKey = -1
+      requestRender()
+      deps.wake()
+    },
+  })
+
+  // ---------- legend of the Population view ----------
+  const popLegend = document.createElement('div')
+  popLegend.className = 'panel sp-legend hidden'
+  const popLegendTitle = document.createElement('div')
+  popLegendTitle.className = 'sp-legend-title'
+  popLegendTitle.textContent = 'People per cell'
+  const popLegendList = document.createElement('div')
+  popLegendList.className = 'sp-legend-list'
+  popLegend.append(popLegendTitle, popLegendList)
+  {
+    const mapPanel = deps.right.querySelector('.map-panel')
+    deps.right.insertBefore(popLegend, mapPanel ? mapPanel.nextSibling : deps.right.firstChild)
+  }
+  let popLegendMax = -1
+  /** Rebuilds the legend's tick swatches for the fixed `densityMax` of the history on screen. */
+  function buildPopLegend(densityMax: number) {
+    if (densityMax === popLegendMax) return
+    popLegendMax = densityMax
+    popLegendList.replaceChildren()
+    if (densityMax <= 0) return
+    const logMax = Math.log1p(densityMax)
+    for (const frac of [1, 0.66, 0.33, 0.1]) {
+      const item = document.createElement('div')
+      item.className = 'sp-legend-item none'
+      const sw = document.createElement('span')
+      sw.className = 'sp-swatch'
+      sw.style.background = densityRampCss(frac)
+      const value = Math.expm1(frac * logMax)
+      item.append(sw, `~${formatPopulation(value)}`)
+      popLegendList.appendChild(item)
+    }
+    const none = document.createElement('div')
+    none.className = 'sp-legend-item none'
+    const sw = document.createElement('span')
+    sw.className = 'sp-swatch neutral'
+    none.append(sw, 'Unsettled')
+    popLegendList.appendChild(none)
+  }
+
+  /** The known world shown (or none) to the expedition and species layers: their masks, and the draw order over the clouds. */
+  function applyKnownWorld() {
+    const cells = peoples.knownCells
+    outposts?.setKnownMask(cells)
+    discoveries?.setKnownMask(cells)
+    speciesLayer?.setKnownMask(cells)
+    const on = cells !== null
+    // the clouds go over the mist; the masked markers over the clouds (nothing unknown is drawn by them)
+    if (layer) layer.mesh.renderOrder = on ? 9.7 : 8
+    outposts?.setFlagOrder(on ? 9.72 : 8.3)
+    if (discoveries) discoveries.mesh.renderOrder = on ? 9.74 : 8.4
+    speciesLayer?.setOrder(on ? 9.73 : 8.45)
+    deps.setCloudsOverFog?.(on)
+    requestRender()
+  }
 
   /** The per-history objects, built step by step (see buildSteps). */
   interface Built {
     index?: HistoryIndex
+    population?: PopulationDensity
     layer?: SettlementLayer
     journeys?: JourneyLayer | null
     structures?: StructureLayer | null
     trade?: TradeLayer | null
     roads?: RoadLayer | null
+    outposts?: OutpostLayer | null
+    discoveries?: DiscoveryLayer | null
+    speciesLayer?: SpeciesLayer | null
+    epidemics?: ContactPulses | null
   }
 
   function disposeBuilt(b: Built) {
@@ -297,15 +410,23 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     drop(b.structures, b.structures?.mesh)
     drop(b.trade, b.trade?.object)
     drop(b.roads, b.roads?.object)
+    drop(b.outposts, b.outposts?.object)
+    drop(b.discoveries, b.discoveries?.mesh)
+    drop(b.speciesLayer, b.speciesLayer?.object)
+    drop(b.epidemics, b.epidemics?.mesh)
   }
 
   function clearLayer() {
-    disposeBuilt({ layer: layer ?? undefined, journeys, structures, trade, roads })
+    disposeBuilt({ layer: layer ?? undefined, journeys, structures, trade, roads, outposts, discoveries, speciesLayer, epidemics })
     layer = null
     journeys = null
     structures = null
     trade = null
     roads = null
+    outposts = null
+    discoveries = null
+    speciesLayer = null
+    epidemics = null
     if (dioramas) {
       deps.planetGroup.remove(dioramas.object)
       dioramas.dispose()
@@ -329,11 +450,44 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         run() {
           const lake = lakeArray(w)
           const water = (c: number) => isWaterCell(w, lake, c)
-          const pd = buildPeoplesData(w, h, water) // first: the dev stand-in may add events
+          const pd = buildPeoplesData(w, h, water) // first: the dev stand-ins may add events
+          const standIn = applySpeciesStandIn(w, h, pd)
+          if (standIn) console.info('species: using the dev stand-in data (speciesData.ts STAND_IN)')
           b.index = buildHistoryIndex(h, water)
           b.index.peoples = pd
+          b.index.species = buildSpeciesData(w, h, pd, standIn)
+          b.index.expeditions = buildExpeditionData(w, h, b.index.journeys)
         },
       },
+      {
+        name: 'expeditions',
+        run() {
+          const ix = b.index!
+          const ed = ix.expeditions!
+          const pd = ix.peoples
+          const rgb = (id: number) => (pd ? ([pd.rgb[pd.people[id] * 3], pd.rgb[pd.people[id] * 3 + 1], pd.rgb[pd.people[id] * 3 + 2]] as const) : null)
+          b.outposts = ed.outposts.length > 0 || ed.lostCell.length > 0 ? buildOutpostLayer(w, h, ed, rgb) : null
+          b.discoveries = buildDiscoveryLayer(w, ed.discoveries)
+        },
+      },
+      {
+        name: 'species',
+        run() {
+          const sd = b.index!.species
+          b.speciesLayer = sd ? buildSpeciesLayer(w, sd) : null
+          const n = sd ? sd.epidemicCells.length : 0
+          if (sd && n > 0) {
+            // a sickly yellow and a bruised purple
+            const a = new Float32Array(n * 3), c = new Float32Array(n * 3)
+            for (let k = 0; k < n; k++) {
+              a.set([0.82, 0.88, 0.36], k * 3)
+              c.set([0.62, 0.36, 0.8], k * 3)
+            }
+            b.epidemics = buildContactPulses(w, sd.epidemicCells, sd.epidemicYears, a, c)
+          } else b.epidemics = null
+        },
+      },
+      { name: 'population', run: () => (b.population = buildPopulationDensity(w, b.index!)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
       { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
@@ -379,7 +533,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
    * the diorama layouts; the timeline range only grows).
    */
   function commit(w: World, h: History, b: Built, extend: boolean) {
-    const old: Built = { layer: layer ?? undefined, journeys, structures, trade, roads }
+    const old: Built = { layer: layer ?? undefined, journeys, structures, trade, roads, outposts, discoveries, speciesLayer, epidemics }
     disposeBuilt(old)
     index = b.index!
     layer = b.layer!
@@ -403,6 +557,37 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     if (roads) {
       roads.object.visible = roadsVisible
       deps.planetGroup.add(roads.object)
+    }
+    journeys?.setExpeditionsVisible(expeditionsVisible)
+    outposts = b.outposts ?? null
+    if (outposts) {
+      outposts.setFlagsVisible(markersVisible)
+      outposts.setTracesVisible(expeditionsVisible)
+      outposts.setCampsVisible(buildingsVisible)
+      deps.planetGroup.add(outposts.object)
+    }
+    discoveries = b.discoveries ?? null
+    if (discoveries) {
+      discoveries.mesh.visible = expeditionsVisible
+      deps.planetGroup.add(discoveries.mesh)
+    }
+    speciesLayer = b.speciesLayer ?? null
+    if (speciesLayer) deps.planetGroup.add(speciesLayer.object)
+    epidemics = b.epidemics ?? null
+    if (epidemics) {
+      epidemics.mesh.visible = markersVisible
+      deps.planetGroup.add(epidemics.mesh)
+    }
+    {
+      const sd = index.species
+      deps.setViewModeAvailable?.(ViewMode.Crops, !!sd?.crop)
+      deps.setViewModeAvailable?.(ViewMode.Herds, !!sd?.herd)
+      speciesSelected = -1
+      shownSpeciesKey = shownGrownKey = -1
+      speciesRgb = sd?.crop || sd?.herd ? new Uint8Array(w.grid.cellCount * 3) : null
+      grownFlags = sd ? new Uint8Array(w.grid.cellCount) : null
+      speciesLayer?.setOriginCategory(viewMode === ViewMode.Crops ? 0 : viewMode === ViewMode.Herds ? 1 : -1)
+      speciesView.setData(sd, h, index.peoples?.people ?? null, index.peoples?.names ?? null, extend)
     }
     const dioramaInputs = {
       world: w,
@@ -433,16 +618,22 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, w, h, { population: (id) => settlementLayer.displayedPopulation(id) }, NORM_YEARS)
     labels.setVisible(labelsVisible)
     globe?.setCapacity(h.capacity)
+    popDensity = b.population ?? null
+    shownPopS0 = -1
+    buildPopLegend(popDensity?.densityMax ?? 0)
+    popLegend.classList.toggle('hidden', viewMode !== ViewMode.Population || !popDensity)
     chronicle.setIndex(index, extend)
     // the feature regions are geography (kept); which History feature each is may have grown
     if (geo) geo = { map: geo.map, feature: featureOfRegions(geo.map, index.history) }
     shownS0 = shownS1 = -1
     // peoples: colours, masks and the known world for the new history (the selected people is kept)
     peoples.setIndex(index, w, { settlements: layer, labels, dioramas }, extend)
+    applyKnownWorld()
     if (extend) {
       // the same settlement (ids are stable), shown from the longer history
       layer.setHovered(hovered)
       labels.setHovered(hovered)
+      outposts?.setHovered(hovered)
       if (selected >= index.count) selected = -1
       if (selected >= 0) reselect(selected)
     }
@@ -453,6 +644,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     if (!index || !world) return
     selected = id
     layer?.setSelected(id)
+    outposts?.setSelected(id)
     journeys?.setHighlight(index.foundingJourney[id])
     trade?.setSelected(id)
     labels?.setSelected(id)
@@ -460,6 +652,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     selPlacesShown = -1
     inspector.show(index, world, id)
     peoples.showSettlement(id)
+    speciesView.showSettlement(id, index.isOutpost[id] === 1)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -556,22 +749,24 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     const h = index.history
     const N = index.count
     const base = s * N
+    // (expedition bases light no lamps)
+    const out = index.isOutpost
     for (let i = 0; i < N; i++) {
       const p = h.population[base + i]
       if (p > 0) cellPop[h.settlements[i].cell] = 0
     }
     for (let i = 0; i < N; i++) {
       const p = h.population[base + i]
-      if (p > 0) cellPop[h.settlements[i].cell] += p
+      if (p > 0 && !out[i]) cellPop[h.settlements[i].cell] += p
     }
     lights.fill(0)
     for (let i = 0; i < N; i++) {
       const c = h.settlements[i].cell
-      if (h.population[base + i] > 0) lights[c] = Math.max(lights[c], logScaled(cellPop[c], index.logMax))
+      if (h.population[base + i] > 0 && !out[i]) lights[c] = Math.max(lights[c], logScaled(cellPop[c], index.logMax))
     }
     const { neighborOffsets: off, neighbors: nb } = world.grid
     for (let i = 0; i < N; i++) {
-      if (h.population[base + i] <= 0) continue
+      if (h.population[base + i] <= 0 || out[i]) continue
       const c = h.settlements[i].cell
       const p = cellPop[c]
       if (p < TOWN_POPULATION) continue
@@ -582,6 +777,68 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       for (let k = off[c]; k < off[c + 1]; k++) if (lights[nb[k]] < spill) lights[nb[k]] = spill
     }
     globe.setCityLights(lights, 1)
+  }
+
+  /** Population view: the per-cell density of snapshot `s` (pure function of `s`; see populationDensity.ts). */
+  function updatePopulationDensity(s: number) {
+    const globe = deps.getGlobe()
+    if (!globe || !popDensity) return
+    popDensity.update(s)
+    globe.setDensity(popDensity.density, popDensity.densityMax)
+  }
+
+  /**
+   * Crops and Herds views: the per-cell colours of the land snapshot shown (the selected
+   * species bright, the others dimmed), and for the selected species on any other view,
+   * the discs where it is grown. Rewritten only when the snapshot, view or selection changes.
+   */
+  function updateSpecies(year: number) {
+    const sd = index?.species
+    if (!sd || !world) return
+    const N = world.grid.cellCount
+    const l = cropSnapshotAt(sd, year)
+    const cat = viewMode === ViewMode.Crops ? 0 : viewMode === ViewMode.Herds ? 1 : -1
+    const shownLayer = cat === 0 ? sd.crop : cat === 1 ? sd.herd : null
+    const globe = deps.getGlobe()
+    if (shownLayer && speciesRgb && globe) {
+      const key = (l * 4 + cat + 1) * 64 + speciesSelected + 1
+      if (key !== shownSpeciesKey) {
+        shownSpeciesKey = key
+        const dimOthers = speciesSelected >= 0 && sd.list[speciesSelected].category === cat
+        const o = l * N
+        for (let c = 0; c < N; c++) {
+          const v = shownLayer[o + c] - 1
+          let r = 46, g = 52, b = 50 // not farmed: neutral (palette.ts LANDUSE_WILD)
+          if (v >= 0 && v < sd.count) {
+            r = sd.rgb[v * 3] * 255
+            g = sd.rgb[v * 3 + 1] * 255
+            b = sd.rgb[v * 3 + 2] * 255
+            if (dimOthers && v !== speciesSelected) {
+              r = r * 0.28 + 46 * 0.72
+              g = g * 0.28 + 52 * 0.72
+              b = b * 0.28 + 50 * 0.72
+            }
+          }
+          speciesRgb[c * 3] = r
+          speciesRgb[c * 3 + 1] = g
+          speciesRgb[c * 3 + 2] = b
+        }
+        globe.setSpeciesColors(speciesRgb)
+      }
+    }
+    // discs where the selected species is grown (not on the view that already colours it)
+    const sel = speciesSelected
+    const selLayer = sel >= 0 ? (sd.list[sel].category === 1 ? sd.herd : sd.list[sel].category === 0 ? sd.crop : null) : null
+    const showDiscs = selLayer !== null && sd.list[sel].category !== cat && grownFlags !== null
+    const gk = showDiscs ? l * 64 + sel + 1 : 0
+    if (gk !== shownGrownKey) {
+      shownGrownKey = gk
+      if (showDiscs && grownFlags && selLayer) {
+        const o = l * N
+        for (let c = 0; c < N; c++) grownFlags[c] = selLayer[o + c] === sel + 1 ? 1 : 0
+        speciesLayer?.setGrown(grownFlags)
+      } else speciesLayer?.setGrown(null)
+    }
   }
 
   /** Copy the land rows bracketing the current year into the globe (when they change). */
@@ -612,6 +869,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       hovered = -1
       inspector.hide()
       peoples.setWorld(w)
+      speciesView.setData(null, null, null, null, false)
+      speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
       timeline.setRange(null, 1, 'simulating history…')
       lights = new Float32Array(w.grid.cellCount)
@@ -644,6 +903,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
       if (init?.knownAll) peoples.select(ANYONE)
       else if (init && typeof init.people === 'number') peoples.select(init.people)
+      if (init && typeof init.species === 'number') speciesView.select(init.species)
     },
     setHistoryError(message: string) {
       timeline.setRange(null, 1, 'history unavailable')
@@ -676,7 +936,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     pickAt(x: number, y: number) {
       if (!layer || !layer.mesh.visible) return -1
       const rect = deps.canvas.getBoundingClientRect()
-      const id = layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
+      let id = layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
+      // expedition bases have their own flags
+      if (id < 0 && outposts) id = outposts.pick(deps.camera, x, y, rect.width, rect.height, 5)
       // up close a settlement's whole cluster of buildings is clickable too
       const hit = id >= 0 || !dioramas ? id : dioramas.pick(deps.camera, x, y, rect.width, rect.height)
       // nothing in the unknown is clickable while a known world is shown
@@ -687,6 +949,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       requestRender()
       selected = id >= 0 && id < index.count ? id : -1
       layer?.setSelected(selected)
+      outposts?.setSelected(selected)
       journeys?.setHighlight(selected >= 0 ? index.foundingJourney[selected] : -1)
       trade?.setSelected(selected)
       deps.setUrlParam('select', selected >= 0 ? String(selected) : null)
@@ -694,6 +957,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       selPlaces = selected >= 0 ? featuresNear(index.history.settlements[selected].cell, true).sort((a, b) => a.namedYear - b.namedYear) : []
       selPlacesShown = -1
       peoples.showSettlement(selected)
+      speciesView.showSettlement(selected, selected >= 0 && index.isOutpost[selected] === 1)
       if (selected < 0) {
         inspector.hide()
         return
@@ -715,19 +979,34 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       requestRender()
       layer?.setHovered(id)
       labels?.setHovered(id)
+      outposts?.setHovered(id)
       deps.canvas.style.cursor = id >= 0 ? 'pointer' : ''
     },
     setViewMode(mode: ViewMode) {
       viewMode = mode
       requestRender()
       applyMarkerStyle()
+      speciesView.setViewMode(mode)
+      speciesLayer?.setOriginCategory(mode === ViewMode.Crops ? 0 : mode === ViewMode.Herds ? 1 : -1)
+      shownSpeciesKey = shownGrownKey = -1
+      popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
+      if (mode === ViewMode.Population) shownPopS0 = -1 // force a recompute on the next tick (the view was not kept live while inactive)
     },
     setMarkersVisible(show: boolean) {
       markersVisible = show
       requestRender()
       applyMarkerStyle()
       peoples.setMarkersVisible(show)
+      outposts?.setFlagsVisible(show)
+      if (epidemics) epidemics.mesh.visible = show
       if (!show) api.setHover(-1)
+    },
+    setExpeditionsVisible(show: boolean) {
+      expeditionsVisible = show
+      requestRender()
+      journeys?.setExpeditionsVisible(show)
+      outposts?.setTracesVisible(show)
+      if (discoveries) discoveries.mesh.visible = show
     },
     setJourneysVisible(show: boolean) {
       journeysVisible = show
@@ -743,6 +1022,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       buildingsVisible = show
       requestRender()
       dioramas?.setVisible(show)
+      outposts?.setCampsVisible(show)
     },
     setTradeVisible(show: boolean) {
       tradeVisible = show
@@ -761,7 +1041,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     placesAt(cell: number) {
       if (peoples.hidesCell(cell)) return ''
-      return describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+      const places = describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+      const ed = index?.expeditions
+      const note = ed && world ? discoveryNote(ed, world, index!.history, cell, year) : ''
+      return note ? (places ? `${places}. ${note}` : note) : places
     },
     setPeopleTint(on: boolean) {
       peoples.setTint(on)
@@ -790,6 +1073,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         shownS0 = pos.s0
         shownS1 = pos.s1
       }
+      if (viewMode === ViewMode.Population && popDensity && pos.s0 !== shownPopS0) {
+        shownPopS0 = pos.s0
+        updatePopulationDensity(pos.s0)
+      }
       // pulses last about a second of real time at any speed, and 20 years when paused
       const pulseYears = YEARS_PER_SECOND * (timeline.playing ? timeline.speed : 1)
       layer.setTime(year, pos.frac, pulseYears)
@@ -814,6 +1101,24 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         trade.update(deps.camera, drawSize, pixelRatio)
         trade.setTime(year, timeline.playing, timeline.speed)
       }
+      if (outposts) {
+        outposts.setTime(year, pulseYears)
+        outposts.update(deps.camera, drawSize, pixelRatio)
+      }
+      if (discoveries && discoveries.mesh.visible) {
+        discoveries.setTime(year, pulseYears)
+        discoveries.update(deps.camera, drawSize, pixelRatio)
+      }
+      if (speciesLayer) {
+        speciesLayer.setTime(year)
+        speciesLayer.update(deps.camera, drawSize, pixelRatio)
+      }
+      if (epidemics && epidemics.mesh.visible) {
+        epidemics.setTime(year, pulseYears * 0.6) // briefer than a first contact's rings
+        epidemics.update(deps.camera, drawSize, pixelRatio)
+      }
+      updateSpecies(year)
+      speciesView.tick(year)
       if (dioramas) {
         dioramas.setStructuresVisible(structuresVisible)
         dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible)
@@ -826,6 +1131,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         const far = dioramas.active ? DIORAMA_YIELD_FAR : 0
         layer.setYield(near, far)
         structures?.setYield(near, far)
+        outposts?.setYield(near, far)
         // merchants and travelling groups are 3D carts and ships once the models are in:
         // their flat markers have gone by the distance at which the models are full size
         const tNear = dioramas.active ? DIORAMA_NEAR : 0

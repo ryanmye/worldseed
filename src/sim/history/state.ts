@@ -10,6 +10,8 @@ import { PRODUCTIVITY } from './params.ts'
 import type { Knowledge } from './knowledge.ts'
 import type { KnowledgeDiag } from './index.ts'
 import { createKnowledge, onFounded } from './knowledge.ts'
+import type { SpeciesState } from './species.ts'
+import { speciesOnFounded } from './species.ts'
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -83,6 +85,8 @@ export interface HistoryState {
   founders: number[]
   /** What each people knows and whom it has met (knowledge.ts); sized for the tribes before they are founded (setPeoples). */
   know: Knowledge
+  /** What each settlement and people holds of the world's species, and their effects (species.ts); set before the tribes are founded. */
+  sp: SpeciesState
   /** 1 once a landmass has had a settlement (for Landfall). */
   lmEver: Uint8Array
   /** Shadow-decision counters when measuring how knowledge changes decisions (stats harness only), else null. */
@@ -203,6 +207,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     outposts: [],
     founders: [],
     know: null as unknown as Knowledge, // set by setPeoples before the tribes are founded
+    sp: null as unknown as SpeciesState, // set (createSpecies) before the tribes are founded
     lmEver: new Uint8Array(terrain.landmassSize.length),
     knowDiag: null,
     lmLiving: new Int32Array(terrain.landmassSize.length),
@@ -301,6 +306,7 @@ export function setPeoples(s: HistoryState, count: number): void {
 /**
  * Founds a settlement this year and logs it (and Landfall on a landmass nobody settled before,
  * unless it is an original tribe). Its people is its parent's, or a new one for an original tribe.
+ * It holds its parent's species (an original tribe its cradle's founding set; species.ts).
  * It looks around (knowledge.ts), which may make first contact. Returns its id. Ids ascend, so `living` stays sorted.
  * An expedition base (`outpost`) joins `outposts` instead of `living` and does not count toward its landmass's living settlements.
  */
@@ -342,6 +348,7 @@ export function found(s: HistoryState, cell: number, pop: number, parent: number
     s.lmEver[lm] = 1
     if (parent >= 0) logEvent(s, Ev.Landfall, id, parent, s.terrain.landmassSize[lm])
   }
+  speciesOnFounded(s, id)
   onFounded(s, id)
   return id
 }

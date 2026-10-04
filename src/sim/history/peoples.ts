@@ -6,7 +6,8 @@
 // at least two even on a world with a single continent, where they sit far
 // apart), each the home of two to four tribes close enough to meet within a
 // few centuries. Cradle centres are drawn among the best regions (summed
-// potential of the habitable cells around them), mutually far apart and
+// potential of the habitable cells around them, counting only land anyone
+// can farm, not the marginal land some species open), mutually far apart and
 // preferring landmasses without a cradle yet; tribes sit on the better sites
 // of their cradle's region. Each tribe founds a people (state.found); every
 // settlement belongs to its founder's people.
@@ -52,7 +53,7 @@ function region(s: HistoryState, c: number, hops: number, stamp: Int32Array, dep
   depth[c] = 0
   for (let head = 0; head < tail; head++) {
     const q = queue[head]
-    if (T.habitable[q]) out.push(q)
+    if (T.baseHabitable[q]) out.push(q)
     if (depth[q] >= hops) continue
     for (let e = off[q]; e < off[q + 1]; e++) {
       const j = nb[e]
@@ -73,7 +74,7 @@ export function planCradles(s: HistoryState, rng: Rng): CradlePlan {
   const M = T.landmassSize.length
   const plan: CradlePlan = { cells: [], pops: [], cradle: [], centres: [] }
   const lmHab = new Int32Array(M)
-  for (let i = 0; i < N; i++) if (T.habitable[i]) lmHab[T.landmass[i]]++
+  for (let i = 0; i < N; i++) if (T.baseHabitable[i]) lmHab[T.landmass[i]]++
   const scale = N / 23042
   // Eligible landmasses (or, failing any, the one with the most habitable land).
   const eligible = new Uint8Array(M)
@@ -100,7 +101,7 @@ export function planCradles(s: HistoryState, rng: Rng): CradlePlan {
   for (let m = 0; m < M; m++) {
     if (!eligible[m]) continue
     const cells: number[] = []
-    for (let i = 0; i < N; i++) if (T.habitable[i] && T.landmass[i] === m) cells.push(i)
+    for (let i = 0; i < N; i++) if (T.baseHabitable[i] && T.landmass[i] === m) cells.push(i)
     cells.sort((a, b) => T.potential[b] - T.potential[a] || a - b)
     cells.length = Math.max(1, Math.ceil(cells.length / 2))
     for (const c of cells) {
@@ -190,10 +191,11 @@ export function planCradles(s: HistoryState, rng: Rng): CradlePlan {
   return plan
 }
 
-/** Places the founding tribes ('history-cradles' stream); returns the plan. */
-export function seedPeoples(s: HistoryState, rng: Rng): CradlePlan {
+/** Places the founding tribes ('history-cradles' stream); returns the plan. `beforeFounding` runs once the plan and the peoples are set, before the tribes are founded. */
+export function seedPeoples(s: HistoryState, rng: Rng, beforeFounding?: (plan: CradlePlan) => void): CradlePlan {
   const plan = planCradles(s, rng)
   setPeoples(s, plan.cells.length)
+  if (beforeFounding) beforeFounding(plan)
   for (let t = 0; t < plan.cells.length; t++) found(s, plan.cells[t], plan.pops[t], -1)
   return plan
 }

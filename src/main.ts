@@ -27,7 +27,9 @@ import { createPerfMonitor } from './render/perfTools.ts'
 // tilt=0 (keep looking straight down when zoomed in), labels=0 (no place names),
 // sun=fixed|follow|full, sunlon/sunlat (degrees, fixed sun), quality=high|balanced|low, bake=0 (procedural
 // surface every frame, for comparison), perf=1 (frame-rate readout and window.__worldseed tools),
-// people=<id> (show the world as that people knew it), known=all (show what no people knew), tint=1 (markers coloured by people)
+// people=<id> (show the world as that people knew it), known=all (show what no people knew), tint=1 (markers coloured by people),
+// expeditions=0 (no expedition trails, supply lines, lost-expedition marks or discoveries), species=<id> (select a species),
+// view=crops|herds (main staple / herd animal per cell, when the history has them)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -161,6 +163,9 @@ let showBuildings = layerOn('models', 'buildings')
 let showTrade = layerOn('trade', 'trade') // trade=0: no trade routes or merchants
 let showRoads = layerOn('roads', 'roads') // roads=0: no roads or bridges
 let showLabels = layerOn('labels', 'labels') // labels=0: no place names
+let showExpeditions = layerOn('expeditions', 'expeditions') // expeditions=0: no expedition trails, supply lines or discoveries
+/** While a known world is shown its mist goes under the clouds (historyView.ts). */
+let cloudsOverFog = false
 let viewMode: ViewModeT = isViewMode(params.get('view')) ? (params.get('view') as ViewModeT) : ViewMode.Terrain
 
 function applyLayerVisibility() {
@@ -200,6 +205,7 @@ function showWorld(world: World) {
   currentRivers = buildRiverLines(world)
   planetGroup.add(currentRivers.lines)
   currentClouds = buildClouds(world.seed)
+  currentClouds.mesh.renderOrder = cloudsOverFog ? 9.6 : 5
   planetGroup.add(currentClouds.mesh)
   if (bakeEnabled) {
     currentGlobe.setBakeSize(qs.bakeSize)
@@ -290,6 +296,7 @@ function clearHistoryParams() {
   setUrlParam('select', null)
   setUrlParam('people', null)
   setUrlParam('known', null)
+  setUrlParam('species', null)
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -391,9 +398,31 @@ const historyView = createHistoryView(
     setUrlParam,
     requestYears,
     wake: () => wake(),
+    setCloudsOverFog: (on) => {
+      cloudsOverFog = on
+      // over the known-world mist (9.5), under the atmosphere (10); else under every overlay
+      if (currentClouds) currentClouds.mesh.renderOrder = on ? 9.6 : 5
+      requestRender()
+    },
+    setViewModeAvailable: (mode, available) => overlay.setViewModeAvailable(mode, available),
   },
-  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all' },
+  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species') },
 )
+// the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
+overlay.setViewModeAvailable(ViewMode.Crops, false)
+overlay.setViewModeAvailable(ViewMode.Herds, false)
+overlay.addLayerToggle({
+  key: 'expeditions',
+  label: 'Expeditions',
+  group: 'movement',
+  checked: showExpeditions,
+  title: 'Expeditions under way, the supply lines of their bases, lost expeditions and discoveries',
+  onChange: (on) => {
+    showExpeditions = on
+    setUrlParam('expeditions', on ? null : '0')
+    historyView.setExpeditionsVisible(on)
+  },
+})
 // markers coloured by people (off unless tint=1 or remembered on)
 {
   const tintOn = params.has('tint') ? params.get('tint') === '1' : (layerPrefs['peoples'] ?? false)
@@ -419,6 +448,7 @@ historyView.setBuildingsVisible(showBuildings)
 historyView.setTradeVisible(showTrade)
 historyView.setRoadsVisible(showRoads)
 historyView.setLabelsVisible(showLabels)
+historyView.setExpeditionsVisible(showExpeditions)
 
 setUrlParam('seed', String(currentSeed))
 requestWorld(currentSeed)

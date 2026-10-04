@@ -582,6 +582,11 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
         continue
       }
       const special = id === selected || id === hovered
+      // an expedition base is no village: named only while selected or hovered
+      if (!special && (history.settlements[id] as { outpost?: boolean }).outpost === true) {
+        if (existing) { existing.alpha = 0; existing.shown = false }
+        continue
+      }
       const tier = pop >= CITY_POPULATION ? 2 : pop >= TOWN_POPULATION ? 1 : 0
       const wasShown = existing !== null && existing.shown
       const ok = special || tier === 2 || (tier === 1 && camDist < TOWN_DIST[wasShown ? 1 : 0]) || (tier === 0 && camDist < VILLAGE_DIST[wasShown ? 1 : 0])

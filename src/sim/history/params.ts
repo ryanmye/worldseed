@@ -730,3 +730,126 @@ export const ROAD = {
   discount: 0.35,
   epsilon: 0.5 / 255,
 }
+
+/**
+ * Species (species.ts): useful plants and animals native to one or two places, spreading by colonisation,
+ * contact and trade. The catalogue (envelopes, yields, effects) is SPECIES_TABLE in species.ts; these are the
+ * mechanics' constants. Rates are per decade unless noted (spread and domestication are tested every
+ * `step` years for each settlement, staggered by id).
+ */
+export const SPECIES = {
+  /** Techniques and disease loads are reckoned every `step` years per people; spread and domestication every spreadStep years per settlement (id % spreadStep === year % spreadStep), at the per-decade rates times spreadStep / 10. */
+  step: 10,
+  spreadStep: 20,
+  /** Crop multipliers are recomputed whenever a settlement's species change, and every `refresh` years (staggered by id) where they hold labour-heavy staples (which follow population pressure). */
+  refresh: 50,
+  /** Crop yield where none of the staples held fits (wild and minor crops), relative to the baseline grain. */
+  floor: 0.66,
+  /** Livestock part of the food where no herd held fits the land: hunting, at this share of a herd's. */
+  hunt: 0.66,
+  /** Second staple: + second * (second-best yield) on a cell (another season, insurance). */
+  second: 0.15,
+  /** Boserup: labour-heavy staples (labour L > 1) yield / (1 + boserup * (L - 1) * (1 - press)), press = pop / expected food. */
+  boserup: 0.5,
+  /** Cap of a settlement's raw yield multiplier (marginal land opened counts on top of it, uncapped). */
+  mulCap: 8,
+  /**
+   * Normalisation: the food system multiplies a settlement's farm part by its raw crop multiplier / norm. Chosen so a
+   * typical cradle with a decent founding set starts near 1 (the old calibration); see the stats harness.
+   */
+  norm: 1.17,
+  /** Above the old calibration, gains count at this share (the best land and crops do not compound without limit: the top settlements stay near the old sizes). */
+  above: 0.6,
+  /** Neighbours a settlement exchanges with: settlements within this catchment distance (n = 48 hops) of it. */
+  linkHops: 2,
+  /** A settlement's reckoning of what a species would bring it holds this many years (or until its species change). */
+  benefitYears: 50,
+  /** Adoption gate: a species is taken up only where its catchment fit is at least minFit, and where it helps (benefit = smoothstep(gainLow, gainHigh, gain)). */
+  minFit: 0.3,
+  gainLow: 0.02,
+  gainHigh: 0.25,
+  /** Within a people a species spreads `within` times as fast as its adoption rate; between peoples the bridge is contact alone plus trade (route volume v): cross + crossTrade * v / (v + tradeHalf). */
+  within: 2,
+  cross: 0.7,
+  crossTrade: 0.4,
+  tradeHalf: 200,
+  /** A staple from another people is taken up at this factor (conservatism); after a famine in the last pushYears, push times as fast. */
+  novelty: 0.75,
+  push: 3,
+  pushYears: 30,
+  /** Chance per decade (benefit 1) that a settlement takes up a species its own people holds anywhere, whether or not a neighbour has it. */
+  inPeople: 0.08,
+  /** Several links with a species: the best counts fully, each further one half, at most this many in all. */
+  links: 2.5,
+  /** Domestication: yearly chance domesticate * pop / (pop + domHalf) * Farming for a settlement whose fields touch a wild range. */
+  domesticate: 0.004,
+  domHalf: 500,
+  /** A wild range: land cells within rangeHops plain hops (n = 48) of an origin with fit >= rangeFit. */
+  rangeHops: 3,
+  rangeFit: 0.5,
+  /** Returning expeditions bring a wild species seen on the way home with this chance (if it fits there), and one held by a met people at chance * benefit. */
+  expedition: 0.3,
+  /** Founding sets: richness U(0, 1) gives 2 + floor(packageSpan * u) species, at most packageHerds animals; candidates fit the tribes' land at least packageFit. */
+  packageSpan: 4,
+  packageHerds: 2,
+  packageFit: 0.35,
+  /** Wild origins: among land cells with fit >= originFit (else the best), weight * otherLand off cradle landmasses, * inCradle within cradle regions; two origins of a species at least originChord apart. */
+  originFit: 0.8,
+  otherLand: 1.6,
+  inCradle: 0.15,
+  originChord: 0.8,
+  /** A species with two possible origins, already in a founding set, gets its second wild origin with this chance. */
+  secondOrigin: 0.5,
+  /** Peoples exchange species (false only in the stats harness's counterfactual runs: what contact is worth). */
+  exchange: true,
+  /** Horses: migration budget * (1 + horseBudget); sight + horseSight hops. */
+  horseBudget: 0.15,
+  /** Trade transport is multiplied by min(1, best pack animal's factor / packRef): the ox cart is the old calibration. */
+  packRef: 0.85,
+  horseSight: 1,
+}
+
+/**
+ * Techniques and improved strains (species.ts, TECHNIQUES): discovered by trigger, held like species
+ * (inherited by colonies, spread over the same links), never lost. Chances are per decade.
+ */
+export const TECHNIQUE = {
+  /** Chance per decade a settlement takes up each technique from a link that has it (benefit 1, same people), in TECHNIQUES order. */
+  adopt: [0.3, 0.2, 0.2],
+  /** earlyRice: once a people has grown paddy rice for heldYears, chance * (share of its people in hot paddy settlements); paddy yield + yield on cells of t >= hot, wetter water rule. */
+  riceHeld: 300,
+  riceChance: 0.012,
+  riceHot: 0.75,
+  riceYield: 0.2,
+  /** rotation: Farming >= rotationFarming and a cereal held; chance; cereal yield + rotationYield (a legume companion; its lighter soil wear is not modelled yet). */
+  rotationFarming: 1.9,
+  rotationChance: 0.012,
+  rotationYield: 0.1,
+  /** heavyPlough: cattle, Metalworking >= ploughMetal, moist temperate fields; chance * share; + ploughYield on moist TemperateForest / Grassland cells. */
+  ploughMetal: 1.9,
+  ploughChance: 0.015,
+  ploughYield: 0.12,
+}
+
+/**
+ * Crowd diseases (species.ts): each people's disease load D moves toward L * (townBase + (1 - townBase) * U) at rate a
+ * year, L = 1 - prod over its herds of (1 - d * age / (age + ageHalf)), U its share in towns. At first contact a gap
+ * D_p - D_q > gap starts an epidemic among q: mortality clamp(slope * (gap - offset), 0, max), spreading outward from the
+ * contact settlement at `speed` (chord a year), each settlement losing its share over `years` years; afterwards q
+ * shares p's diseases (D_q >= share * D_p).
+ */
+export const DISEASE = {
+  rate: 0.01,
+  ageHalf: 500,
+  townBase: 0.5,
+  gap: 0.1,
+  offset: 0.05,
+  slope: 2,
+  max: 0.4,
+  speed: 0.04,
+  years: 3,
+  share: 0.9,
+  /** A people struck by an epidemic suffers no other for cooldown years (new sicknesses pass with no great dying); loads seep toward share * the heaviest among peoples met at seep a year. */
+  cooldown: 250,
+  seep: 0.004,
+}

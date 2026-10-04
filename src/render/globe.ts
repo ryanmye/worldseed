@@ -50,8 +50,19 @@ export interface GlobeMesh {
   /** Cell index of each (non-indexed) vertex. */
   cellOfVertex: Uint32Array
   setMode(mode: ViewMode): void
-  /** Per-cell carrying capacity for the Population view (null until history arrives). */
+  /** Per-cell carrying capacity for the Capacity view (null until history arrives). */
   setCapacity(capacity: Float32Array | null): void
+  /**
+   * Per-cell population density and its fixed colour-scale maximum for the Population view
+   * (null until history arrives). Call it whenever the shown snapshot changes, not per frame.
+   */
+  setDensity(density: Float32Array | null, max: number): void
+  /**
+   * Per-cell colours of the Crops and Herds views (sRGB 0..255, 3 per cell; null: all land
+   * neutral). Rewrites the corner colours while one of those views shows: call it when the
+   * land snapshot or the selection changes, not per frame.
+   */
+  setSpeciesColors(rgb: Uint8Array | null): void
   /**
    * Night-side settlement lights: per-cell intensity in 0..1 (null clears) and a global
    * multiplier. Lights only show on the night side, on land. Cheap: uploads one float
@@ -270,7 +281,7 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   let hasReservoirs = false
   let reservoirsVisible = true
 
-  const modeData: ModeData = { capacity: null, capacityMax: 0 }
+  const modeData: ModeData = { capacity: null, capacityMax: 0, density: null, densityMax: 0 }
   let currentMode = mode
   const cellColor = new Uint8Array(cellCount * 4)
   const applyColors = (m: ViewMode) => {
@@ -377,7 +388,16 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
       let max = 0
       if (modeData.capacity) for (let i = 0; i < cellCount; i++) max = Math.max(max, modeData.capacity[i])
       modeData.capacityMax = max
+      if (currentMode === ViewMode.Capacity) applyColors(currentMode)
+    },
+    setDensity(density: Float32Array | null, max: number) {
+      modeData.density = density && density.length === cellCount ? density : null
+      modeData.densityMax = modeData.density ? max : 0
       if (currentMode === ViewMode.Population) applyColors(currentMode)
+    },
+    setSpeciesColors(rgb: Uint8Array | null) {
+      modeData.speciesRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
+      if (currentMode === ViewMode.Crops || currentMode === ViewMode.Herds) applyColors(currentMode)
     },
     setCityLights(perCell: Float32Array | null, intensity: number) {
       if (perCell) lightData.set(perCell.length > cellCount ? perCell.subarray(0, cellCount) : perCell)

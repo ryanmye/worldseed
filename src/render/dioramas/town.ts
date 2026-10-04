@@ -5,7 +5,9 @@
 //  1. Patches: seed points on a jittered spiral out from the centre, a Voronoi tessellation
 //     (convex cells by half-plane clipping, each edge tagged with the neighbouring cell),
 //     two relaxation passes on the inner patches only, so the core is regular and the
-//     outskirts irregular. Patches on water are dropped.
+//     outskirts irregular. Patches on water are dropped; the spiral goes on until it holds
+//     enough dry patches for the town at its peak, so a town on a shore or a river mouth
+//     spreads along the shore and inland instead of losing its houses to the water.
 //  2. Streets: the patch edges. Main streets run from the central plaza out along the
 //     settlement's actual route directions (trade routes, founding and colonising
 //     journeys), shortest paths over the patch-edge graph; they are wider, and where one
@@ -17,18 +19,21 @@
 //     the settlement's wealth, trade and famines. Outer patches are outskirts and farms.
 //  4. Lots: each patch is inset from its streets, then recursively bisected across its
 //     longest edge into lots (minimum area and empty share by ward type, alleys in dense
-//     wards). Each lot gets one generated house fitted to it at its street front (a main
-//     street's first), its door to the street: wall to wall in the dense wards and the
-//     core (row houses), set back with a front yard further out, free-standing on farms;
-//     L-shaped and courtyard houses where they fit; more storeys toward the centre and in
-//     the merchants' and patricians' wards. Built patches lay their ground: the patch as
-//     street, its block as yard (so streets show between the blocks), squares paved,
-//     kitchen gardens and fruit trees on the empty lots of the leafy and outer wards.
-//  5. Growth: lots are ranked by distance from the centre blended with their patch's, so
-//     the town fills patch by patch outward along the streets. A settlement of population
-//     p shows the first houseCount(p) valid lots; landmarks appear once their ward is
-//     reached and the population passes their own minimum; walls enclose the patches built
-//     when the population first passes the wall threshold (a second ring later).
+//     wards). Each lot gets one generated building fitted to it at its street front (a main
+//     street's first), its door to the street: terraces wall to wall in the dense wards
+//     and the core, courtyard blocks in a city's core, set back with a front yard further
+//     out, free-standing on farms; more storeys toward the centre, the more so the larger
+//     the city. Built patches lay their ground: the patch as street, its block as yard (so
+//     streets show between the blocks), squares paved, kitchen gardens and fruit trees on
+//     the empty lots of the leafy and outer wards.
+//  5. Growth (census.ts): every building houses its roof units times its storeys in
+//     households of HOUSEHOLD people. Lots are ranked by distance from the centre blended
+//     with their patch's, so the town fills patch by patch outward along the streets; a
+//     building shows once the town's share of the population (urbanPopulation) reaches the
+//     households of the buildings before it plus half its own. Landmarks appear once their
+//     ward is reached and the population passes their own minimum; walls enclose the
+//     patches built when the population first passes the wall threshold (a second ring
+//     later).
 //
 // The plan is computed lazily and incrementally (lot validity needs ground probes, the
 // costly part): `advance(need, deadline)` first runs the set-up (patches, streets, wards,
@@ -37,51 +42,29 @@
 // is final: further work only appends items and ground.
 
 import { CITY_POPULATION, TOWN_POPULATION } from '../../contract.ts'
-import { Kind, Style, type Style as StyleT } from './shapes.ts'
+import { HOUSEHOLD, households, STOREY as STOREY_H, storeys, urbanPopulation, urbanThreshold } from './census.ts'
+import { houseFacade, Kind, roofUnits, Style, type Style as StyleT } from './shapes.ts'
 import { hash4, rand4 } from './surface.ts'
-
-/** Houses shown at population p (monotone, continuous; log-log between anchors). */
-const ANCHORS: readonly [number, number][] = [
-  [1, 1], [15, 3], [50, 4], [125, 6], [250, 8], [600, 11], [1000, 14], [2000, 22], [3000, 40], [5000, 62],
-  [8000, 96], [10000, 125], [15000, 185], [26000, 300], [40000, 420], [80000, 600],
-]
-export function houseCount(p: number): number {
-  if (p < 1) return 0
-  for (let i = 1; i < ANCHORS.length; i++) {
-    const [p1, h1] = ANCHORS[i]
-    if (p <= p1) {
-      const [p0, h0] = ANCHORS[i - 1]
-      const t = Math.log(p / p0) / Math.log(p1 / p0)
-      return Math.floor(Math.exp(Math.log(h0) + t * (Math.log(h1) - Math.log(h0))) + 1e-6)
-    }
-  }
-  return 600
-}
-/** Smallest population at which house k (0-based) shows. */
-export function houseThreshold(k: number): number {
-  const n = k + 1
-  for (let i = 1; i < ANCHORS.length; i++) {
-    const [p1, h1] = ANCHORS[i]
-    if (n <= h1) {
-      const [p0, h0] = ANCHORS[i - 1]
-      if (n <= h0) return p0
-      const t = (Math.log(n) - Math.log(h0)) / (Math.log(h1) - Math.log(h0))
-      let p = Math.exp(Math.log(p0) + t * (Math.log(p1) - Math.log(p0)))
-      // the floor() in houseCount: nudge up until it agrees
-      for (let g = 0; g < 8 && houseCount(p) < n; g++) p *= 1.002
-      return p
-    }
-  }
-  return 1e9
-}
 
 /** Mean patch spacing (KayKit units). */
 const PATCH = 1.75
-/** Inner patches a plan for peak population p has (lots per patch ~10). */
-const innerPatches = (p: number) => Math.max(1, Math.ceil(houseCount(p) / 9))
-/** Expected radius of a settlement of peak population p (KayKit units), for the countryside to keep clear. */
+/** Households of the town at peak population p (census.ts). */
+const townHouseholds = (p: number) => urbanPopulation(p) / HOUSEHOLD
+/**
+ * Households an inner patch of a plan for peak p is expected to hold (its dry share aside):
+ * detached one-storey houses in a village, two-storey rows in a town, three- and four-storey
+ * terraces and courtyard blocks in a city core. Only sizes the plan; the lots decide.
+ */
+export function householdsPerPatch(p: number): number {
+  if (p >= CITY_POPULATION * 0.85) return 19 + 9 * Math.min(1, Math.max(0, p - CITY_POPULATION) / 60000)
+  if (p >= TOWN_POPULATION * 0.8) return 11
+  return 5
+}
+/** Whether a patch seed stands on buildable ground: dry land, off the river (rivers as drawn up close are wide). */
+const seedDry = (site: Site, x: number, y: number) => !site.wet(x, y, 0.05) && site.clear(x, y, PATCH * 0.3)
+/** Expected radius of the town of peak population p on open dry land (KayKit units). */
 export function townRadius(p: number): number {
-  return PATCH * Math.sqrt(innerPatches(p) + 1.2) * 1.05 + 0.6
+  return (PATCH * Math.sqrt(townHouseholds(p) / householdsPerPatch(p) + 1.2) * 1.05 + 0.6) * planScale(p)
 }
 
 export const Ward = {
@@ -149,6 +132,8 @@ export interface PlanItem {
   jitter: number
   /** Ward of the item (for colours: harbour warehouses, slums). */
   ward: number
+  /** Households it houses (census.ts; 0 for landmarks and everything else). */
+  homes: number
 }
 
 /** What the generator needs to know about the site (all coordinates in KayKit units in the settlement's tangent frame). */
@@ -180,6 +165,8 @@ export interface Site {
   clear(x: number, y: number, r: number): boolean
   /** Distance to the nearest river centreline minus its half width, or Infinity; and river segments for bridges. */
   riverSegs: number[]
+  /** Farthest a patch seed may lie from the centre (KayKit units): the plan stays near its own cell. */
+  maxRadius: number
 }
 
 // ---------- convex polygons (flat xy arrays, CCW) with per-edge tags ----------
@@ -371,8 +358,11 @@ const EMPTY_SHARE: Record<number, number> = {
   [Ward.Village]: 0.3, [Ward.Outskirts]: 0.55, [Ward.Farm]: 0.8, [Ward.Military]: 0.3, [Ward.Park]: 0.6,
 }
 
+const CITY_MIN_AREA: Record<number, number> = { [Ward.Craftsmen]: 0.8, [Ward.Merchant]: 0.95, [Ward.Patrician]: 1.5, [Ward.Harbour]: 0.9 }
+const CITY_EMPTY_SHARE: Record<number, number> = { [Ward.Craftsmen]: 0.02, [Ward.Merchant]: 0.02, [Ward.Patrician]: 0.1, [Ward.Harbour]: 0.06 }
+
 /** House kinds: half width (x) and half depth (z) of the base mesh (shapes.ts, Temperate; the other styles are close). */
-const KIND_HALF: readonly [number, number][] = [[0.3, 0.22], [0.4, 0.27], [0.6, 0.27], [0.27, 0.33], [0, 0], [0, 0], [0, 0], [0.42, 0.36]]
+const KIND_HALF: readonly [number, number][] = [[0.3, 0.22], [0.4, 0.27], [0.6, 0.27], [0.27, 0.33], [0, 0], [0, 0], [0, 0], [0.42, 0.36], [0.54, 0.26], [0.55, 0.55]]
 
 /** Whether (x, y) is inside convex CCW polygon p (with margin m inside every edge). */
 function insideConvex(p: number[], x: number, y: number, m: number): boolean {
@@ -394,16 +384,36 @@ function insideConvex(p: number[], x: number, y: number, m: number): boolean {
  * calls, so a big city never stalls a frame; the plan is the same however it is split.
  */
 export function createTownPlan(site: Site): TownPlan {
+  // the plan is laid out in plan units and handed out at the town's footprint scale
+  const U = planScale(site.peak), UL = Math.sqrt(U)
+  // a city's monuments are larger than a town's (a cathedral, not a chapel)
+  const monument = 1 + 0.3 * Math.min(1.2, Math.max(0, Math.log10(Math.max(1, site.peak) / 4000)))
+  const raw: PlanItem[] = [], rawGround: GroundPiece[] = []
   const items: PlanItem[] = []
   const ground: GroundPiece[] = []
-  const stages = planStages(site, items, ground)
+  const stages = planStages(scaledSite(site, U), raw, rawGround, UL)
   let plan: TownPlan | null = null
   const perf = globalThis as { __dioramaPlanMs?: number[] }
+  const flush = () => {
+    for (let k = items.length; k < raw.length; k++) {
+      const it = raw[k]
+      const o: PlanItem = { ...it, x: it.x * U, y: it.y * U }
+      if (it.role === Role.House) { o.sx = it.sx * U; o.sz = it.sz * U; o.sy = it.sy * UL }
+      else if (it.role === Role.WallSeg || it.role === Role.Bridge) { o.sx = it.sx * U; o.sz = it.sz * UL }
+      else if (MONUMENT[it.role]) { o.sx = it.sx * monument; o.sz = it.sz * monument; o.sy = it.sy * monument }
+      else { o.sx = it.sx * UL; o.sz = it.sz * UL; o.sy = it.sy * UL }
+      items.push(o)
+    }
+    for (let k = ground.length; k < rawGround.length; k++) {
+      const g = rawGround[k]
+      ground.push({ ...g, poly: g.poly.map((v) => v * U) })
+    }
+  }
   return {
     items,
     ground,
     get radius() {
-      return plan ? plan.radius : 0
+      return plan ? plan.radius * U : 0
     },
     advance(need: number, deadline: number): boolean {
       while (!plan) {
@@ -413,91 +423,192 @@ export function createTownPlan(site: Site): TownPlan {
         if (perf.__dioramaPlanMs) perf.__dioramaPlanMs.push(+(performance.now() - t0).toFixed(2))
         if (r.done) plan = r.value
       }
-      return plan.advance(need, deadline)
+      const done = plan.advance(need, deadline)
+      flush()
+      return done
     },
   }
 }
 
-function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Generator<void, TownPlan, void> {
+/** Landmarks that grow with the town (temples, halls, the citadel, markets, towers, barracks). */
+const MONUMENT: Record<number, boolean> = { [Role.Church]: true, [Role.Hall]: true, [Role.Castle]: true, [Role.Market]: true, [Role.Tower]: true, [Role.Barracks]: true }
+
+/**
+ * Footprint scale of the town of peak population p: a village's houses at full size, a
+ * town's and a city's narrower and closer (0.62 from 10,000 up), so a city is a dense
+ * fabric of many buildings rather than a village blown up. Heights shrink by its square
+ * root only (storeys stay readable).
+ */
+export function planScale(p: number): number {
+  const t = Math.min(1, Math.max(0, Math.log10(Math.max(1, p) / 1000)))
+  return 1 - 0.38 * t
+}
+
+/** The site seen in plan units (scaled by 1/U). */
+function scaledSite(site: Site, U: number): Site {
+  if (U === 1) return site
+  return {
+    ...site,
+    wet: (x, y, m) => site.wet(x * U, y * U, m),
+    height: (x, y) => site.height(x * U, y * U),
+    clear: (x, y, r) => site.clear(x * U, y * U, r * U),
+    riverSegs: site.riverSegs.map((v) => v / U),
+    maxRadius: site.maxRadius / U,
+  }
+}
+
+/** `hScale`: the height the plan's buildings are handed out at (storeys are counted at it). */
+function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScale: number): Generator<void, TownPlan, void> {
   const { seed, id } = site
   const rnd = (a: number, b: number) => rand4(seed, id, a, b)
   const T = TOWN_POPULATION, C = CITY_POPULATION
   const peak = Math.max(1, site.peak)
-  const nInner = innerPatches(peak)
   const isTown = peak >= T * 0.8
   const isCity = peak >= C * 0.85
-  const nSeeds = Math.max(12, Math.ceil(nInner * 3.2) + 10)
   const rot = rnd(1, 0) * Math.PI * 2
+  const seedX = (i: number) => {
+    const r = i === 0 ? 0 : PATCH * Math.sqrt(i + 0.3) * (0.92 + 0.16 * rnd(i, 2))
+    return r * Math.cos(rot + i * GOLDEN + (rnd(i, 3) - 0.5) * 0.5)
+  }
+  const seedY = (i: number) => {
+    const r = i === 0 ? 0 : PATCH * Math.sqrt(i + 0.3) * (0.92 + 0.16 * rnd(i, 2))
+    return r * Math.sin(rot + i * GOLDEN + (rnd(i, 3) - 0.5) * 0.5)
+  }
 
   // ---- 1. patches ----
+  // the spiral goes on until it holds the inner patches the peak needs on dry land, and a
+  // ring of outskirts round them (water takes its share on a shore)
+  const landmarkWards = isTown ? 2 + (peak >= 6000 ? 1 : 0) + (isCity ? 2 : 0) + Math.floor(site.trade * 2) : 0
+  const wantInner = Math.max(1, Math.ceil((townHouseholds(peak) * 1.2) / householdsPerPatch(peak))) + landmarkWards
+  const wantDry = wantInner + Math.ceil(2.2 * Math.sqrt(wantInner)) + 4
+  let nSeeds = 0
+  let innerReach = 0
+  {
+    let dry = 0
+    for (let i = 0; ; i++) {
+      if (i % 64 === 63) yield
+      const x = seedX(i), y = seedY(i)
+      if (Math.hypot(x, y) > site.maxRadius && i >= 12) { nSeeds = i; break }
+      if (i === 0 || seedDry(site, x, y)) dry++
+      if (dry <= wantInner) innerReach = i + 1
+      if (dry >= wantDry && i >= 11) { nSeeds = i + 1; break }
+    }
+    // a closing ring, so the outermost dry patches are bounded by neighbours, not the rim
+    nSeeds += Math.ceil(2 * Math.sqrt(nSeeds)) + 2
+  }
   const sx: number[] = [], sy: number[] = []
   for (let i = 0; i < nSeeds; i++) {
-    const r = i === 0 ? 0 : PATCH * Math.sqrt(i + 0.3) * (0.92 + 0.16 * rnd(i, 2))
-    const a = rot + i * GOLDEN + (rnd(i, 3) - 0.5) * 0.5
-    sx.push(r * Math.cos(a))
-    sy.push(r * Math.sin(a))
+    sx.push(seedX(i))
+    sy.push(seedY(i))
   }
   const bound = PATCH * Math.sqrt(nSeeds) * 1.08 + PATCH * 0.6
-  const voronoi = (): Poly[] => {
-    const cells: Poly[] = []
-    const order: number[] = []
-    for (let i = 0; i < nSeeds; i++) order.push(i)
-    for (let i = 0; i < nSeeds; i++) {
-      // a 12-gon around the town
-      const p: number[] = [], t: number[] = []
-      for (let k = 0; k < 12; k++) {
-        const a = (k / 12) * Math.PI * 2
-        p.push(Math.cos(a) * bound, Math.sin(a) * bound)
-        t.push(-1)
+  // seeds bucketed on a grid, for the neighbours of each cell
+  const G = PATCH * 1.2
+  const gN = Math.ceil((bound * 2) / G) + 1
+  const gridOf = (v: number) => Math.min(gN - 1, Math.max(0, Math.floor((v + bound) / G)))
+  let buckets: number[][] = []
+  const rebucket = () => {
+    buckets = Array.from({ length: gN * gN }, () => [])
+    for (let i = 0; i < nSeeds; i++) buckets[gridOf(sy[i]) * gN + gridOf(sx[i])].push(i)
+  }
+  const cand: number[] = []
+  const candD: number[] = []
+  const candOrder: number[] = []
+  /** The Voronoi cell of seed i: the bounding 12-gon clipped by the half-planes of the seeds nearby, nearest rings first. */
+  const cellOf = (i: number): Poly => {
+    const p: number[] = [], t: number[] = []
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2
+      p.push(Math.cos(a) * bound, Math.sin(a) * bound)
+      t.push(-1)
+    }
+    let poly: Poly = { p, t }
+    const xi = sx[i], yi = sy[i]
+    const gx = gridOf(xi), gy = gridOf(yi)
+    let reach = Infinity
+    for (let ring = 0; ring < gN; ring++) {
+      // every seed in this ring of grid cells is at least (ring - 1) * G away
+      if ((ring - 1) * G > 2 * reach) break
+      cand.length = 0
+      candD.length = 0
+      for (let qy = gy - ring; qy <= gy + ring; qy++) {
+        if (qy < 0 || qy >= gN) continue
+        for (let qx = gx - ring; qx <= gx + ring; qx++) {
+          if (qx < 0 || qx >= gN) continue
+          if (Math.max(Math.abs(qx - gx), Math.abs(qy - gy)) !== ring) continue
+          for (const j of buckets[qy * gN + qx]) {
+            if (j === i) continue
+            cand.push(j)
+            candD.push((sx[j] - xi) ** 2 + (sy[j] - yi) ** 2)
+          }
+        }
       }
-      let poly: Poly = { p, t }
-      const xi = sx[i], yi = sy[i]
-      order.sort((a, b) => (sx[a] - xi) ** 2 + (sy[a] - yi) ** 2 - ((sx[b] - xi) ** 2 + (sy[b] - yi) ** 2))
-      let reach = 0
-      for (let k = 0; k < poly.p.length / 2; k++) reach = Math.max(reach, Math.hypot(poly.p[k * 2] - xi, poly.p[k * 2 + 1] - yi))
-      for (const j of order) {
-        if (j === i) continue
+      candOrder.length = 0
+      for (let k = 0; k < cand.length; k++) candOrder.push(k)
+      candOrder.sort((a, b) => candD[a] - candD[b] || cand[a] - cand[b])
+      for (const k of candOrder) {
+        const j = cand[k]
         const dx = sx[j] - xi, dy = sy[j] - yi
-        const d = Math.hypot(dx, dy)
-        if (d > 2 * reach) break
+        if (Math.sqrt(candD[k]) > 2 * reach) break
         // keep points nearer to i: (p - m) . (sj - si) <= 0
         const mx = (sx[j] + xi) / 2, my = (sy[j] + yi) / 2
         poly = clip(poly, dx, dy, dx * mx + dy * my, j)
-        if (poly.p.length < 6) break
+        if (poly.p.length < 6) return poly
         reach = 0
-        for (let k = 0; k < poly.p.length / 2; k++) reach = Math.max(reach, Math.hypot(poly.p[k * 2] - xi, poly.p[k * 2 + 1] - yi))
+        for (let q = 0; q < poly.p.length / 2; q++) reach = Math.max(reach, Math.hypot(poly.p[q * 2] - xi, poly.p[q * 2 + 1] - yi))
       }
-      cells.push(poly)
     }
-    return cells
+    return poly
   }
-  let cells = voronoi()
-  yield
+  const cells: Poly[] = new Array(nSeeds)
   const cc = [0, 0]
-  for (let pass = 0; pass < 2; pass++) {
-    for (let i = 1; i < Math.min(nSeeds, nInner + 2); i++) {
-      if (cells[i].p.length < 6) continue
-      centroid(cells[i].p, cc)
-      sx[i] = cc[0]
-      sy[i] = cc[1]
+  for (let pass = 0; pass < 3; pass++) {
+    if (pass > 0) {
+      // relax the inner seeds (a regular core), the outskirts stay irregular
+      for (let i = 1; i < Math.min(nSeeds, innerReach + 2); i++) {
+        if (cells[i].p.length < 6) continue
+        centroid(cells[i].p, cc)
+        sx[i] = cc[0]
+        sy[i] = cc[1]
+      }
     }
-    cells = voronoi()
+    rebucket()
+    for (let i = 0; i < nSeeds; i++) {
+      if (i % 24 === 23) yield
+      cells[i] = cellOf(i)
+    }
     yield
+  }
+  /** Whether (x, y) lies on a river as drawn up close (its channel and a margin for the houses' footprints). */
+  const onRiver = (x: number, y: number) => {
+    const S = site.riverSegs
+    for (let k = 0; k < S.length; k += 5) {
+      const ax = S[k], ay = S[k + 1], dx = S[k + 2] - ax, dy = S[k + 3] - ay
+      const t = Math.min(1, Math.max(0, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)))
+      if (Math.hypot(x - ax - dx * t, y - ay - dy * t) < S[k + 4] + 0.3) return true
+    }
+    return false
   }
   const patches: Patch[] = []
   for (let i = 0; i < cells.length; i++) {
-    if (i % 16 === 15) yield
+    if (i % 8 === 7) yield
     const poly = cells[i]
     centroid(poly.p, cc)
     let r = 0
     for (let k = 0; k < poly.p.length / 2; k++) r = Math.max(r, Math.hypot(poly.p[k * 2] - cc[0], poly.p[k * 2 + 1] - cc[1]))
     const wetC = poly.p.length < 6 || site.wet(cc[0], cc[1], 0.05)
     // water if the centre and most of the rim are wet
-    let wetRim = 0
+    let wetRim = 0, riverRim = 0
     const nv = poly.p.length / 2
-    for (let k = 0; k < nv; k++) if (site.wet(cc[0] + (poly.p[k * 2] - cc[0]) * 0.7, cc[1] + (poly.p[k * 2 + 1] - cc[1]) * 0.7, 0)) wetRim++
+    for (let k = 0; k < nv; k++) {
+      const x = cc[0] + (poly.p[k * 2] - cc[0]) * 0.7, y = cc[1] + (poly.p[k * 2 + 1] - cc[1]) * 0.7
+      if (site.wet(x, y, 0)) wetRim++
+      else if (onRiver(x, y)) riverRim++
+    }
     const water = wetC && wetRim >= nv * 0.5
-    patches.push({ poly, cx: cc[0], cy: cc[1], r, water, dry: 1 - wetRim / Math.max(1, nv), ward: Ward.Outskirts as Ward, key: Math.hypot(cc[0], cc[1]) + (i === 0 ? -1 : 0), inner: false })
+    // the share of it that can be built on (the rim samples off the sea, lakes and river; the centre counts twice)
+    const dry = (nv - wetRim - riverRim + (wetC || onRiver(cc[0], cc[1]) ? 0 : 2)) / (nv + 2)
+    patches.push({ poly, cx: cc[0], cy: cc[1], r, water, dry, ward: Ward.Outskirts as Ward, key: Math.hypot(cc[0], cc[1]) + (i === 0 ? -1 : 0), inner: false })
   }
   yield
   const P = patches.length
@@ -523,6 +634,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   const edgeKey = (a: number, b: number) => (a < b ? a * 100000 + b : b * 100000 + a)
   const patchEdgeVerts: number[][] = []
   for (let i = 0; i < P; i++) {
+    if (i % 128 === 127) yield
     const { p } = patches[i].poly
     const n = p.length / 2
     const ids: number[] = []
@@ -535,6 +647,38 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
       if (!adj[a].includes(b)) adj[a].push(b)
       if (!adj[b].includes(a)) adj[b].push(a)
     }
+  }
+  const heapD: number[] = [], heapV: number[] = []
+  const heapPush = (d: number, v: number) => {
+    let i = heapD.length
+    heapD.push(d)
+    heapV.push(v)
+    while (i > 0) {
+      const p = (i - 1) >> 1
+      if (heapD[p] < d || (heapD[p] === d && heapV[p] <= v)) break
+      heapD[i] = heapD[p]; heapV[i] = heapV[p]
+      i = p
+    }
+    heapD[i] = d; heapV[i] = v
+  }
+  const heapPop = (): number => {
+    const top = heapV[0]
+    const d = heapD.pop()!, v = heapV.pop()!
+    const n = heapD.length
+    if (n > 0) {
+      let i = 0
+      for (;;) {
+        const l = i * 2 + 1, r = l + 1
+        let m = i, md = d, mv = v
+        if (l < n && (heapD[l] < md || (heapD[l] === md && heapV[l] < mv))) { m = l; md = heapD[l]; mv = heapV[l] }
+        if (r < n && (heapD[r] < md || (heapD[r] === md && heapV[r] < mv))) { m = r; md = heapD[r]; mv = heapV[r] }
+        if (m === i) break
+        heapD[i] = heapD[m]; heapV[i] = heapV[m]
+        i = m
+      }
+      heapD[i] = d; heapV[i] = v
+    }
+    return top
   }
   const mainEdges = new Set<number>()
   const routes = site.routes.slice(0, isCity ? 6 : isTown ? 4 : 2)
@@ -554,22 +698,24 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
       if (score > best) { best = score; target = v }
     }
     if (target < 0) continue
-    // Dijkstra from the plaza's corners
+    // Dijkstra from the plaza's corners (a binary heap of (distance, vertex))
     const dist = new Float64Array(vx.length).fill(Infinity)
     const prev = new Int32Array(vx.length).fill(-1)
     const done = new Uint8Array(vx.length)
-    for (const v of plazaVerts) dist[v] = 0
-    for (;;) {
-      let u = -1, du = Infinity
-      for (let v = 0; v < vx.length; v++) if (!done[v] && dist[v] < du) { du = dist[v]; u = v }
-      if (u < 0 || u === target) break
+    heapD.length = 0
+    heapV.length = 0
+    for (const v of plazaVerts) { dist[v] = 0; heapPush(0, v) }
+    while (heapV.length) {
+      const du = heapD[0], u = heapPop()
+      if (done[u] || du > dist[u]) continue
+      if (u === target) break
       done[u] = 1
       for (const w of adj[u]) {
         // prefer edges heading the right way (straighter main streets)
         const ex = vx[w] - vx[u], ey = vy[w] - vy[u]
         const l = Math.hypot(ex, ey)
         const cost = l * (1.25 - 0.35 * ((ex * dx + ey * dy) / (l || 1)))
-        if (du + cost < dist[w]) { dist[w] = du + cost; prev[w] = u }
+        if (du + cost < dist[w]) { dist[w] = du + cost; prev[w] = u; heapPush(du + cost, w) }
       }
     }
     for (let v = target; prev[v] >= 0; v = prev[v]) mainEdges.add(edgeKey(v, prev[v]))
@@ -580,6 +726,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   const order: number[] = []
   for (let i = 0; i < P; i++) if (!patches[i].water) order.push(i)
   order.sort((a, b) => patches[a].key - patches[b].key)
+  yield
   const nearRiverPatch = (i: number) => {
     const S = site.riverSegs
     for (let k = 0; k < S.length; k += 5) {
@@ -594,32 +741,38 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     // all water as drawn (a settlement on a lake shore cell, say): nothing to build on
     return { items, ground, radius: 0, advance: () => true }
   }
-  // inner patches: in rank order until their estimated room (dry share, rivers, empty lots)
-  // holds the peak's houses with a margin, plus the plaza and landmark wards of a town
-  const target = houseCount(peak)
-  const landmarkWards = isTown ? 2 + (peak >= 6000 ? 1 : 0) + (isCity ? 2 : 0) + Math.floor(site.trade * 2) : 0
+  // inner patches: in rank order until their estimated room (dry share, rivers) holds the
+  // peak's households with a margin, plus the plaza and landmark wards of a town
+  const target = townHouseholds(peak)
+  const perPatch = householdsPerPatch(peak) / (Math.PI * PATCH * PATCH)
   const innerSet: number[] = []
   {
     let room = 0
     for (const i of order) {
-      if (room >= target * 1.25 + 1 && innerSet.length >= nInner * 0.5 + landmarkWards) break
+      if (room >= target * 1.15 + 1 && innerSet.length >= 1 + landmarkWards * 0.5) break
       innerSet.push(i)
       const pa = patches[i]
       const a = Math.abs(area(pa.poly.p))
-      room += (a * 0.78 * pa.dry * (nearRiverPatch(i) ? 0.65 : 1)) / 0.75 * 0.85
-      if (innerSet.length > 400) break
+      room += a * perPatch * pa.dry
+      if (innerSet.length > 1600) break
     }
     // the landmark wards hold no houses: make room for them too
     for (let k = 0, j = innerSet.length; k < landmarkWards && j < order.length; k++, j++) innerSet.push(order[j])
   }
   for (const i of innerSet) patches[i].inner = true
+  yield
   const touchesWater = (i: number) => patches[i].poly.t.some((t) => t >= 0 && patches[t].water) || patches[i].poly.t.some((t) => t === -1) && site.wet(patches[i].cx * 1.3, patches[i].cy * 1.3, 0)
   const onMain = (i: number) => {
     const ids = patchEdgeVerts[i]
     for (let k = 0; k < ids.length; k++) if (mainEdges.has(edgeKey(ids[k], ids[(k + 1) % ids.length]))) return true
     return false
   }
-  const Rin = PATCH * Math.sqrt(innerSet.length + 1)
+  // the inner town's radius (a town on a shore is lopsided: its farthest inner patches)
+  let Rin = PATCH * Math.sqrt(innerSet.length + 1)
+  {
+    const ds = innerSet.map((i) => Math.hypot(patches[i].cx, patches[i].cy)).sort((a, b) => a - b)
+    Rin = Math.max(Rin, ds[Math.floor(ds.length * 0.9)] ?? 0)
+  }
   // the pool of ward types for the inner patches beyond the plaza
   const pool: Ward[] = []
   if (!isTown) {
@@ -627,12 +780,13 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   } else {
     const n = innerSet.length - 1
     const add = (w: Ward, count: number) => { for (let k = 0; k < count; k++) pool.push(w) }
-    add(Ward.Cathedral, peak >= 12000 + 8000 * rnd(4, 1) ? 2 : 1)
+    // a big city has its parish churches and several markets
+    add(Ward.Cathedral, (peak >= 12000 + 8000 * rnd(4, 1) ? 2 : 1) + Math.min(5, Math.floor(n / 60)))
     if (peak >= 6000) add(Ward.Admin, 1)
-    add(Ward.Market, Math.min(3, Math.floor(site.trade * 3 + rnd(4, 2) * 0.8 + (n > 12 ? 1 : 0))))
+    add(Ward.Market, Math.min(3, Math.floor(site.trade * 3 + rnd(4, 2) * 0.8 + (n > 12 ? 1 : 0))) + Math.min(3, Math.floor(n / 90)))
     if (isCity) add(Ward.Military, 1)
-    if (site.port) add(Ward.Harbour, Math.max(1, Math.round(n * 0.12)))
-    add(Ward.Park, n > 14 && rnd(4, 3) < 0.6 ? 1 : 0)
+    if (site.port) add(Ward.Harbour, Math.max(1, Math.min(Math.round(n * 0.12), 6 + Math.round(n * 0.04))))
+    add(Ward.Park, n > 14 && rnd(4, 3) < 0.6 ? 1 + Math.floor(n / 150) : 0)
     const rest = Math.max(0, n - pool.length)
     const wMerchant = 0.14 + 0.18 * site.wealth + 0.1 * site.trade
     const wPatrician = 0.06 + 0.12 * site.wealth
@@ -671,15 +825,21 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     }
   }
   if (isTown) patches[innerSet[0]].ward = Ward.Plaza
+  // each patch takes the best rated ward type left in the pool (a little noise per type)
+  const left = new Int32Array(Ward.Farm + 1)
+  for (const w of pool) left[w]++
   for (let k = isTown ? 1 : 0; k < innerSet.length; k++) {
+    if (k % 32 === 31) yield
     const i = innerSet[k]
     if (patches[i].ward === Ward.Citadel) continue
-    let bi = -1, bs = -Infinity
-    for (let q = 0; q < pool.length; q++) {
-      const s = rating(pool[q], i) + rnd(i, q + 40) * 0.3
-      if (s > bs) { bs = s; bi = q }
+    let bw = -1, bs = -Infinity
+    for (let w = 0; w < left.length; w++) {
+      if (left[w] <= 0) continue
+      const s = rating(w as Ward, i) + rnd(i, w + 40) * 0.3
+      if (s > bs) { bs = s; bw = w }
     }
-    patches[i].ward = bi >= 0 ? pool.splice(bi, 1)[0] : Ward.Craftsmen
+    if (bw >= 0) left[bw]--
+    patches[i].ward = bw >= 0 ? (bw as Ward) : Ward.Craftsmen
   }
   for (const i of order) if (!patches[i].inner) patches[i].ward = Math.hypot(patches[i].cx, patches[i].cy) < Rin + PATCH * 1.2 ? Ward.Outskirts : Ward.Farm
 
@@ -695,7 +855,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   }
   let lotStage = 0
   for (const i of order) {
-    if (++lotStage % 12 === 0) yield
+    if (++lotStage % 6 === 0) yield
     const pa = patches[i]
     const w = pa.ward
     if (w === Ward.Plaza || w === Ward.Cathedral || w === Ward.Admin || w === Ward.Market || w === Ward.Citadel) continue
@@ -710,8 +870,9 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     const block = inset(pa.poly, widths)
     if (!block) continue
     blocks[i] = block
-    const minA = MIN_AREA[w] ?? 0.6
-    const emptyP = EMPTY_SHARE[w] ?? 0.2
+    // a city's dense wards are cut into wider lots, for terraces and courtyard blocks
+    const minA = (isCity ? CITY_MIN_AREA[w] : undefined) ?? MIN_AREA[w] ?? 0.6
+    const emptyP = (isCity ? CITY_EMPTY_SHARE[w] : undefined) ?? EMPTY_SHARE[w] ?? 0.2
     const stack: { poly: Poly; depth: number }[] = [{ poly: block, depth: 0 }]
     let li = 0
     while (stack.length) {
@@ -774,7 +935,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   const pend: Pending[] = []
   const style = site.style
   const mk = (role: Role, x: number, y: number, yaw: number, key: number, minPop: number, r: number, scale = 1, kind = 0, ward: number = -1) => {
-    pend.push({ item: { role, kind, style, x, y, yaw, sx: scale, sz: scale, sy: scale, threshold: 0, roof: hash4(seed, id, 0x33, 0) % 5, wall: hash4(seed, id, 0x34, 0) % 4, jitter: rnd(pend.length, 0x35), ward }, key, minPop, r })
+    pend.push({ item: { role, kind, style, x, y, yaw, sx: scale, sz: scale, sy: scale, threshold: 0, roof: hash4(seed, id, 0x33, 0) % 5, wall: hash4(seed, id, 0x34, 0) % 4, jitter: rnd(pend.length, 0x35), ward, homes: 0 }, key, minPop, r })
   }
   const longestEdgeYaw = (i: number) => {
     const p = patches[i].poly.p
@@ -929,8 +1090,13 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
   if (isCity || (isTown && peak >= 7000)) {
     const t1 = 7000 + 3000 * rnd(10, 1)
     if (peak >= t1 * 1.05) walls.push({ threshold: t1, done: false })
-    const t2 = Math.max(t1 * 2.4, 22000 + 6000 * rnd(10, 2))
-    if (peak >= t2 * 1.05) walls.push({ threshold: t2, done: false })
+    // each ring encloses the town built when the population first passes it; the older
+    // rings stay inside as relics
+    let t = t1
+    for (let ring = 1; ring < 5; ring++) {
+      t = ring === 1 ? Math.max(t1 * 2.4, 22000 + 6000 * rnd(10, 2)) : t * (2.1 + 0.3 * rnd(10, 2 + ring))
+      if (peak >= t * 1.05) walls.push({ threshold: t, done: false })
+    }
   }
   let coveredPop = 0
   let smithy = false, inn = false
@@ -969,13 +1135,15 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     const block = blocks[i]
     if (!block) return
     ground.push({ kind: GroundKind.Yard, poly: block.p, threshold, ux: 1, uy: 0 })
-    // kitchen gardens on the empty lots of the outer and leafy wards; a fruit tree or two in some
+    // kitchen gardens on the empty lots of the outer and leafy wards (not the fields round a
+    // town: the planet's own fields stand for its farmland); a fruit tree or two in some
     if (!leafy(w)) return
+    const gardens = !(isTown && (w === Ward.Farm || w === Ward.Outskirts))
     for (const l of lotsOf[i]) {
       if (!l.empty) continue
       const u = rand4(seed, id, Math.round(l.cx * 977 + l.cy * 131), 0x5a)
-      if (w !== Ward.Park && u < 0.62) ground.push({ kind: GroundKind.Garden, poly: l.poly, threshold, ux: l.ux, uy: l.uy })
-      else if ((u < 0.9 || w === Ward.Park) && site.clear(l.cx, l.cy, 0.22)) items.push({ role: Role.Grove, kind: 0, style, x: l.cx, y: l.cy, yaw: u * 40, sx: 0.42 + 0.2 * u, sz: 0.42 + 0.2 * u, sy: 0.42 + 0.2 * u, threshold, roof: 0, wall: 0, jitter: u, ward: w })
+      if (w !== Ward.Park && u < 0.62) { if (gardens) ground.push({ kind: GroundKind.Garden, poly: l.poly, threshold, ux: l.ux, uy: l.uy }) }
+      else if ((u < 0.9 || w === Ward.Park) && site.clear(l.cx, l.cy, 0.22)) items.push({ role: Role.Grove, kind: 0, style, x: l.cx, y: l.cy, yaw: u * 40, sx: 0.42 + 0.2 * u, sz: 0.42 + 0.2 * u, sy: 0.42 + 0.2 * u, threshold, roof: 0, wall: 0, jitter: u, ward: w, homes: 0 })
     }
   }
 
@@ -1031,7 +1199,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
         const mx = x0 + ux * pl * (q + 0.5), my = y0 + uy * pl * (q + 0.5)
         if (site.wet(x0 + ux * pl * q, y0 + uy * pl * q, 0.2) || site.wet(x0 + ux * pl * (q + 1), y0 + uy * pl * (q + 1), 0.2)) continue
         if (!site.clear(mx, my, 0.12)) continue
-        items.push({ role: Role.WallSeg, kind: 0, style, x: mx, y: my, yaw: Math.atan2(uy, ux), sx: pl * 1.02, sz: 1, sy: 1, threshold, roof: 0, wall: 0, jitter: 0, ward: -1 })
+        items.push({ role: Role.WallSeg, kind: 0, style, x: mx, y: my, yaw: Math.atan2(uy, ux), sx: pl * 1.02, sz: 1, sy: 1, threshold, roof: 0, wall: 0, jitter: 0, ward: -1, homes: 0 })
       }
     }
     // towers at every corner of the circuit (regularly spaced along it), gate towers where a
@@ -1055,7 +1223,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
       if (!site.clear(x, y, 0.2)) continue
       placed.push(x, y)
       const h = gate ? 1.2 : 1
-      items.push({ role: Role.WallTower, kind: 0, style, x, y, yaw: 0, sx: h, sz: h, sy: h, threshold, roof: hash4(seed, id, 0x33, 0) % 5, wall: 0, jitter: 0, ward: -1 })
+      items.push({ role: Role.WallTower, kind: 0, style, x, y, yaw: 0, sx: h, sz: h, sy: h, threshold, roof: hash4(seed, id, 0x33, 0) % 5, wall: 0, jitter: 0, ward: -1, homes: 0 })
       radius = Math.max(radius, Math.hypot(x, y) + 0.3)
     }
   }
@@ -1074,17 +1242,21 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     }
   }
 
+  /** Savanna and rainforest towns build rectangular houses, compounds and terraces; huts stay in the villages and slums. */
+  const hutStyle = (st: StyleT) => st === Style.Savanna || st === Style.Rainforest
   /**
-   * A house for lot l: kind by ward, footprint fitted to the lot and set at its street
-   * front (row houses wall to wall in the dense wards, set back with a front yard further
-   * out, standing free in the middle of a farm lot); storeys by ward and nearness to the
-   * centre. The model's +z face (its door) faces the street.
+   * A building for lot l: kind by ward, footprint fitted to the lot and set at its street
+   * front (terraces and row houses wall to wall in the dense wards, courtyard blocks in a
+   * city's core, set back with a front yard further out, standing free in the middle of a
+   * farm lot); storeys by ward and nearness to the centre. The model's +z face (its door)
+   * faces the street. Its households: roof units times storeys (census.ts).
    */
   const fitHouse = (l: Lot, k: number): PlanItem | null => {
     const ward = patches[l.patch].ward
     const hs = HOUSE_STYLE(k)
     const r = rnd(k, 0x51), r2 = rnd(k, 0x56)
     const dCore = Math.hypot(l.cx, l.cy) / Math.max(1, Rin)
+    const outer = ward === Ward.Farm || ward === Ward.Outskirts || ward === Ward.Village
     let kind: number
     if (ward === Ward.Harbour) kind = Kind.Long
     else if (ward === Ward.Merchant) kind = r < 0.7 ? Kind.Tall : Kind.House
@@ -1097,26 +1269,35 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     if (hs === Style.Desert && kind !== Kind.Small && r2 < (ward === Ward.Patrician ? 0.8 : 0.4)) kind = Kind.Ell
     // the dense core: narrow, tall, gable to the street
     if (isTown && dCore < 0.45 && (kind === Kind.House || kind === Kind.Small) && ward !== Ward.Slum && r2 < 0.6) kind = Kind.Tall
+    // terraces along the streets of a town's dense wards, where the frontage holds three houses
+    const rowWard = ward === Ward.Craftsmen || ward === Ward.Merchant || ward === Ward.Harbour || (isCity && ward === Ward.Patrician)
+    if (isTown && rowWard && l.fl >= 0.92 && r2 < (isCity ? 0.9 : 0.6) && !(ward === Ward.Harbour && r < 0.35)) kind = Kind.Row
+    // courtyard blocks on the deep lots of a city's core
+    if (isCity && (ward === Ward.Merchant || ward === Ward.Patrician || (ward === Ward.Craftsmen && dCore < 0.35)) && dCore < 0.65 && l.fl >= 0.95 && rnd(k, 0x57) < 0.45) kind = Kind.Block
+    // huts only in the villages, the outskirts and the slums
+    if (hutStyle(hs) && isTown && !outer && ward !== Ward.Slum && (kind === Kind.Small || kind === Kind.Long || kind === Kind.Ell)) kind = ward === Ward.Harbour ? Kind.Row : r < 0.5 ? Kind.Tall : Kind.House
     // street front: start point f, direction u along the street, v into the lot
     const ux = l.ux, uy = l.uy
     let vxd = -uy, vyd = ux
     if ((l.cx - l.fx) * vxd + (l.cy - l.fy) * vyd < 0) { vxd = -vxd; vyd = -vyd }
-    const rowHouses = dense(ward) || ward === Ward.Harbour || (isTown && (l.main || dCore < 0.55))
     const farm = ward === Ward.Farm || (ward === Ward.Outskirts && r2 > 0.6)
-    const fill = rowHouses ? 0.985 : ward === Ward.Patrician ? 0.78 : 0.72
-    const setback = rowHouses ? 0.012 : ward === Ward.Patrician ? 0.16 : 0.05 + 0.18 * r2
     const along = (l.cx - l.fx) * ux + (l.cy - l.fy) * uy
-    let fillK = fill
     // a wide frontage in the core: a broader house, ridge along the street
-    if (kind === Kind.Tall && (l.fl * fill) / (2 * KIND_HALF[Kind.Tall][0]) > 1.75) kind = Kind.House
-    for (let tries = 0; tries < 5; tries++) {
+    if (kind === Kind.Tall && (l.fl * 0.985) / (2 * KIND_HALF[Kind.Tall][0]) > 1.75) kind = Kind.House
+    let fillK = -1
+    for (let tries = 0; tries < 6; tries++) {
+      const multi = kind === Kind.Row || kind === Kind.Block
+      const rowHouses = multi || dense(ward) || ward === Ward.Harbour || (isTown && (l.main || dCore < 0.55))
+      const fill = rowHouses ? 0.985 : ward === Ward.Patrician ? 0.78 : 0.72
+      const setback = rowHouses ? 0.012 : ward === Ward.Patrician ? 0.16 : 0.05 + 0.18 * r2
+      if (fillK < 0) fillK = fill
       const [hw, hd] = KIND_HALF[kind]
       // lot depth behind the front, at the projection of the centroid
       const t0 = Math.min(Math.max(along, 0.05), l.fl - 0.05)
       const mx0 = l.fx + ux * t0 + vxd * 0.005, my0 = l.fy + uy * t0 + vyd * 0.005
       const depth = rayExtent(l.poly, mx0, my0, vxd, vyd)
       let sxk: number, szk: number, cx: number, cy: number
-      if (farm) {
+      if (farm && !multi) {
         // free-standing in the lot, as before
         const hu = Math.min(rayExtent(l.poly, l.cx, l.cy, ux, uy), rayExtent(l.poly, l.cx, l.cy, -ux, -uy))
         const hv = Math.min(rayExtent(l.poly, l.cx, l.cy, vxd, vyd), rayExtent(l.poly, l.cx, l.cy, -vxd, -vyd))
@@ -1126,7 +1307,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
         cy = l.cy
       } else {
         const width = l.fl * fillK
-        const d = Math.min(depth - setback - 0.03, (rowHouses ? 2.6 : 1.9) * hd * Math.min(1.45, width / (2 * hw)))
+        const deep = kind === Kind.Block ? 1.2 : rowHouses ? 2.6 : 1.9
+        const d = Math.min(depth - setback - 0.03, deep * hd * Math.min(1.45, width / (2 * hw)))
         sxk = width / (2 * hw)
         szk = d / (2 * hd)
         const t = Math.min(Math.max(along, width / 2), l.fl - width / 2)
@@ -1134,10 +1316,11 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
         cx = l.fx + ux * t + vxd * dd
         cy = l.fy + uy * t + vyd * dd
       }
-      const maxX = kind === Kind.Long ? 1.5 : kind === Kind.Tall ? 1.75 : 1.8
-      if (sxk >= 0.6 && szk >= 0.6) {
+      const maxX = kind === Kind.Long ? 1.5 : kind === Kind.Tall ? 1.75 : kind === Kind.Row ? 1.6 : kind === Kind.Block ? 1.4 : 1.8
+      const minS = kind === Kind.Block ? 0.78 : kind === Kind.Row ? 0.7 : 0.6
+      if (sxk >= minS && szk >= minS) {
         sxk = Math.min(sxk, maxX)
-        szk = Math.min(szk, 1.45)
+        szk = Math.min(szk, kind === Kind.Block ? 1.3 : 1.45)
         // the footprint's corners must lie in the lot
         const ex = hw * sxk, ez = hd * szk
         let ok = true
@@ -1145,25 +1328,38 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
           if (!insideConvex(l.poly, cx + ux * ex * a + vxd * ez * b, cy + uy * ex * a + vyd * ez * b, -0.03)) { ok = false; break }
         }
         if (ok) {
-          // storeys: tall in the core and the merchants' and patricians' wards, one floor out of town
+          const fac = houseFacade(hs, kind as Kind)
+          // storeys: one out of town and in the slums; in a town two, three in its core; in a
+          // city two to four from its edge to its core, a storey more in a metropolis, the
+          // merchants' and patricians' a storey above their neighbours; detached houses at
+          // most two. The height is set so the facade shows just that many rows of windows.
+          let st = 1
+          if (isTown && !(ward === Ward.Slum || farm || outer)) {
+            const zone = dCore < 0.38 ? 2 : dCore < 0.72 ? 1 : 0
+            st = (isCity ? [2, 2.5, 3.2][zone] + (peak >= 40000 ? 0.6 : 0) : [1, 2, 2.4][zone]) + (ward === Ward.Merchant || ward === Ward.Patrician ? 0.4 : 0)
+            const r3 = rnd(k, 0x58)
+            st = Math.max(1, Math.floor(st + (r3 < 0.15 ? -1 : r3 > 0.9 ? 1 : 0) + rnd(k, 0x59) * 0.99))
+            // detached houses: two storeys at most (the hut styles' one), their roofs not drawn out into spires
+            const detached = kind === Kind.Small || kind === Kind.House || kind === Kind.Long || kind === Kind.Ell
+            st = Math.min(st, detached ? (hutStyle(hs) ? 1 : 2) : 4, hutStyle(hs) ? 3 : 4)
+          }
           let sy = (0.92 + 0.16 * rnd(k, 0x52)) * Math.min(1.2, Math.max(0.88, Math.sqrt(Math.min(sxk, szk))))
           if (ward === Ward.Slum || farm || ward === Ward.Village || ward === Ward.Outskirts) sy *= 0.9
-          else if (isTown) {
-            const core = Math.max(0, 1 - dCore / 0.7)
-            sy *= 1 + (isCity ? 0.45 : 0.28) * core + (ward === Ward.Merchant || ward === Ward.Patrician ? 0.18 : 0)
-          }
-          if (kind === Kind.Tall) sy = Math.min(sy, 1.55)
+          if (st >= 2 && fac[1] > fac[0]) sy = Math.min(kind === Kind.Tall || kind === Kind.Row || kind === Kind.Block ? 2.3 : 1.55, (STOREY_H * st + 0.025 + 0.07 * rnd(k, 0x5a)) / (fac[1] - fac[0]) / hScale)
           // yaw: x along the street; +z (the door) toward the street (z = x turned -90 degrees)
           let yaw = Math.atan2(uy, ux)
           if (Math.sin(yaw) * vxd - Math.cos(yaw) * vyd > 0) yaw += Math.PI
-          return { role: Role.House, kind, style: hs, x: cx, y: cy, yaw, sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward }
+          const homes = households(roofUnits(hs, kind as Kind), storeys(fac[0], fac[1], sy * hScale))
+          return { role: Role.House, kind, style: hs, x: cx, y: cy, yaw, sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward, homes }
         }
       }
-      // narrower first, then a smaller kind, then free-standing
+      // narrower first (a terrace twice), then a smaller kind, then free-standing
       fillK *= 0.84
-      if (tries === 1) kind = kind !== Kind.House && kind !== Kind.Small ? Kind.House : Kind.Small
-      if (tries === 2) kind = Kind.Small
-      if (tries >= 3 && !farm) return fitFree(l, k, hs, ward)
+      if (tries === 0 && kind === Kind.Block) { kind = Kind.Row; fillK = -1 }
+      else if (tries === 1 && kind !== Kind.Row) kind = kind !== Kind.House && kind !== Kind.Small ? Kind.House : Kind.Small
+      else if (tries === 2) kind = kind === Kind.Row ? (isTown && !hutStyle(hs) ? Kind.Tall : Kind.House) : hutStyle(hs) && isTown && !outer && ward !== Ward.Slum ? Kind.House : Kind.Small
+      else if (tries === 3 && kind !== Kind.Small) kind = hutStyle(hs) && isTown && !outer && ward !== Ward.Slum ? Kind.House : Kind.Small
+      if (tries >= 4 && !farm) return fitFree(l, k, hs, ward)
     }
     return null
   }
@@ -1173,13 +1369,30 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     const vxd = -l.uy, vyd = l.ux
     const hu = Math.min(rayExtent(l.poly, l.cx, l.cy, l.ux, l.uy), rayExtent(l.poly, l.cx, l.cy, -l.ux, -l.uy))
     const hv = Math.min(rayExtent(l.poly, l.cx, l.cy, vxd, vyd), rayExtent(l.poly, l.cx, l.cy, -vxd, -vyd))
-    const [hw, hd] = KIND_HALF[Kind.Small]
+    const kind = hutStyle(hs) && isTown && ward !== Ward.Slum && ward !== Ward.Village && ward !== Ward.Outskirts && ward !== Ward.Farm ? Kind.House : Kind.Small
+    const [hw, hd] = KIND_HALF[kind]
     const fx = (hu * 0.8) / hw, fz = (hv * 0.8) / hd
     if (fx < 0.6 || fz < 0.6) return null
     const sxk = Math.min(fx, 1.5), szk = Math.min(fz, 1.4)
     const sy = 0.9 + 0.15 * rnd(k, 0x52)
-    return { role: Role.House, kind: Kind.Small, style: hs, x: l.cx, y: l.cy, yaw: Math.atan2(l.uy, l.ux), sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward }
+    const fac = houseFacade(hs, kind)
+    const homes = households(roofUnits(hs, kind), storeys(fac[0], fac[1], sy * hScale))
+    return { role: Role.House, kind, style: hs, x: l.cx, y: l.cy, yaw: Math.atan2(l.uy, l.ux), sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward, homes }
   }
+
+  // (perf=1 diagnostics: window.__dioramaPlans[id])
+  const diag = { peak, needHomes: Math.round(townHouseholds(peak)), seeds: nSeeds, patches: P, dryPatches: order.length, inner: innerSet.length, lots: lots.length, emptyLots: lots.filter((l) => l.empty).length, lotsUsed: 0, noFit: 0, notClear: 0, built: 0, homes: 0, exhausted: false, byWard: [] as number[], wardPatches: [] as number[], byKind: [] as number[] }
+  for (const i of order) diag.wardPatches[patches[i].ward] = (diag.wardPatches[patches[i].ward] ?? 0) + 1
+  const diagAll = (globalThis as { __dioramaPlans?: Record<number, typeof diag> }).__dioramaPlans
+  if (diagAll) diagAll[id] = diag
+  // the next building in lot order, fitted and validated but not yet standing
+  let nextIt: PlanItem | null = null
+  let nextKey = 0
+  let nextR = 0
+  let nextPatch = 0
+  /** Households in the buildings standing so far. */
+  let homes = 0
+  let lastPop = 1
 
   return {
     items,
@@ -1189,18 +1402,30 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
     },
     advance(need: number, deadline: number): boolean {
       if (need <= coveredPop) return true
-      const target = Math.min(houseCount(Math.min(need, peak)), 100000)
-      while (built < target && nextLot < lots.length) {
-        if (performance.now() > deadline) return false
-        const l = lots[nextLot++]
-        if (l.empty) continue
-        const it = fitHouse(l, nextLot)
-        if (!it) continue
-        const [hw, hd] = KIND_HALF[it.kind]
-        const rr = Math.max(hw * it.sx, hd * it.sz) * 0.8
-        if (!site.clear(it.x, it.y, rr)) continue
-        const pop = houseThreshold(built)
-        flushPending(l.key, pop)
+      const lim = Math.min(need, peak)
+      for (;;) {
+        if (!nextIt) {
+          if (nextLot >= lots.length) break
+          if (performance.now() > deadline) return false
+          const l = lots[nextLot++]
+          if (l.empty) continue
+          const it = fitHouse(l, nextLot)
+          if (!it) { diag.noFit++; continue }
+          const [hw, hd] = KIND_HALF[it.kind]
+          const rr = Math.max(hw * it.sx, hd * it.sz) * 0.8
+          if (!site.clear(it.x, it.y, rr)) { diag.notClear++; continue }
+          // it stands once the town holds the households before it and half its own
+          it.threshold = Math.max(1, urbanThreshold(HOUSEHOLD * (homes + it.homes / 2)))
+          nextIt = it
+          nextKey = l.key
+          nextR = rr
+          nextPatch = l.patch
+        }
+        if (nextIt.threshold > lim) break
+        const it = nextIt
+        nextIt = null
+        const pop = it.threshold
+        flushPending(nextKey, pop)
         // walls enclose what stands when the population first passes their threshold
         for (const w of walls) if (!w.done && pop >= w.threshold) { w.done = true; placeWall(w.threshold) }
         // the first craftsman's lot becomes the smithy, the first merchant's (or a big village's) the inn
@@ -1208,24 +1433,65 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Gene
           smithy = true
           it.role = Role.Blacksmith
           it.sx = it.sz = it.sy = 0.72
+          it.homes = 0
         } else if (!inn && pop >= 1800 && (it.ward === Ward.Merchant || it.ward === Ward.Market || it.ward === Ward.Village)) {
           inn = true
           it.role = Role.Tavern
           it.sx = it.sz = it.sy = 0.7
+          it.homes = 0
         }
-        it.threshold = pop
         items.push(it)
+        homes += it.homes
+        diag.byWard[it.ward] = (diag.byWard[it.ward] ?? 0) + it.homes
+        diag.byKind[it.kind] = (diag.byKind[it.kind] ?? 0) + 1
+        lastPop = pop
         built++
-        builtPerPatch[l.patch]++
-        if (builtPerPatch[l.patch] === 2 || (lotsPerPatch[l.patch] <= 2 && builtPerPatch[l.patch] === 1)) addGround(l.patch, pop)
-        radius = Math.max(radius, Math.hypot(it.x, it.y) + rr)
+        builtPerPatch[nextPatch]++
+        if (builtPerPatch[nextPatch] === 2 || (lotsPerPatch[nextPatch] <= 2 && builtPerPatch[nextPatch] === 1)) addGround(nextPatch, pop)
+        radius = Math.max(radius, Math.hypot(it.x, it.y) + nextR)
       }
-      // ran out of lots, or reached the target: everything up to `need` is placed
-      const popNow = Math.min(need, peak)
-      flushPending(built >= target && nextLot < lots.length ? lots[nextLot].key : Infinity, built > 0 ? houseThreshold(built - 1) : 1)
-      for (const w of walls) if (!w.done && popNow >= w.threshold) { w.done = true; placeWall(w.threshold) }
+      // everything up to `need` is placed; the landmarks ranked before the next building
+      // come with it (or, the lots used up, all that are left), as an unbroken run places them
+      if (nextIt) flushPending(nextKey, nextIt.threshold)
+      else flushPending(Infinity, lastPop)
+      for (const w of walls) if (!w.done && (nextIt ? nextIt.threshold >= w.threshold : lim >= w.threshold)) { w.done = true; placeWall(w.threshold) }
       coveredPop = need
+      diag.built = built
+      diag.homes = homes
+      diag.lotsUsed = nextLot
+      diag.exhausted = nextIt === null && nextLot >= lots.length
       return true
     },
   }
+}
+
+/**
+ * How far the town of a site reaches at its peak (KayKit units from its centre), for the
+ * countryside to keep clear: the patch seeds walked as the plan walks them, to the dry ones
+ * its inner town and a margin of outskirts need. Cheap (one ground probe per seed) and
+ * the same however often it is asked.
+ */
+export function townExtent(site: Site): number {
+  const U = planScale(site.peak)
+  return U * planExtent(scaledSite(site, U))
+}
+function planExtent(site: Site): number {
+  const peak = Math.max(1, site.peak)
+  const rnd = (a: number, b: number) => rand4(site.seed, site.id, a, b)
+  const rot = rnd(1, 0) * Math.PI * 2
+  const isTown = peak >= TOWN_POPULATION * 0.8, isCity = peak >= CITY_POPULATION * 0.85
+  const landmarkWards = isTown ? 2 + (peak >= 6000 ? 1 : 0) + (isCity ? 2 : 0) + Math.floor(site.trade * 2) : 0
+  const want = (Math.max(1, Math.ceil((townHouseholds(peak) * 1.2) / householdsPerPatch(peak))) + landmarkWards) * 1.3
+  let dry = 0, reach = PATCH
+  for (let i = 0; dry < want; i++) {
+    const r = i === 0 ? 0 : PATCH * Math.sqrt(i + 0.3) * (0.92 + 0.16 * rnd(i, 2))
+    if (r > site.maxRadius) break
+    const a = rot + i * GOLDEN + (rnd(i, 3) - 0.5) * 0.5
+    // (one probe a seed: the river's share is allowed for by a wider margin)
+    if (i === 0 || !site.wet(r * Math.cos(a), r * Math.sin(a), 0.05)) {
+      dry++
+      reach = Math.max(reach, r)
+    }
+  }
+  return reach * (site.river ? 1.12 : 1) + PATCH * 1.1
 }

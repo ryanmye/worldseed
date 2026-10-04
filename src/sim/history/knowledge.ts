@@ -36,9 +36,10 @@
 
 import { EventType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
-import { KNOW } from './params.ts'
+import { KNOW, SPECIES } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
+import { hasHorse, speciesOnContact, speciesSight } from './species.ts'
 
 /** How a pair of peoples first met (Knowledge.via; for the stats harness). */
 export const ContactVia = {
@@ -165,6 +166,8 @@ export function meet(s: HistoryState, a: number, b: number, how: ContactVia): vo
   k.via[pa * k.P + pb] = how
   k.via[pb * k.P + pa] = how
   logEvent(s, EventType.FirstContact, a, b, pb)
+  speciesOnContact(s, a, b) // (a people with far heavier crowd diseases brings an epidemic)
+  speciesSight(s, a, b) // (the two settlements through which they met can exchange species)
   const na = k.net[pa], nb = k.net[pb]
   if (na === nb) return // already in one network: they share already
   const members: number[] = []
@@ -197,13 +200,14 @@ function neighbours(s: HistoryState, a: number, b: number): void {
 
 /**
  * Sight radius of settlement `id` in n = 48 hop units: grows with its size and with its people's technology
- * (the mean of Crafts and Seafaring: roads, towers, boats), a look reaching whole tenths of it.
+ * (the mean of Crafts and Seafaring: roads, towers, boats), and a little with horses; a look reaches whole tenths of it.
  */
 export function sightRadius(s: HistoryState, id: number): number {
   const K = KNOW
   const o = s.people[id] * TECH_FIELD_COUNT
   const tech = 0.5 * (s.tech[o + TechField.Crafts] + s.tech[o + TechField.Seafaring])
-  return (K.sight + K.sightSize * smoothstep(K.sizeLow, K.sizeHigh, s.pop[id])) * (1 + K.sightTech * (tech - 1))
+  const horse = hasHorse(s, id) ? SPECIES.horseSight : 0
+  return (K.sight + horse + K.sightSize * smoothstep(K.sizeLow, K.sizeHigh, s.pop[id])) * (1 + K.sightTech * (tech - 1))
 }
 
 /**
@@ -249,7 +253,7 @@ function look(s: HistoryState, id: number, radius: number): void {
       if (known[base + c] < 0) { known[base + c] = year; fresh.push(c) }
       seenFrom[c] = id
       const o = occupant[c]
-      if (o >= 0 && o !== id && peopleOf[o] !== p) { meet(s, id, o, how); neighbours(s, id, o) }
+      if (o >= 0 && o !== id && peopleOf[o] !== p) { meet(s, id, o, how); neighbours(s, id, o); speciesSight(s, id, o) }
       const seaC = sea[c]
       for (let e = off[c]; e < off[c + 1]; e++) {
         const j = nb[e]
@@ -284,7 +288,7 @@ export function onFounded(s: HistoryState, id: number): void {
   ensureSettlements(k, s.count)
   const c = s.cell[id]
   const w = k.seenFrom[c]
-  if (w >= 0 && s.abandoned[w] < 0 && s.people[w] !== s.people[id]) { meet(s, w, id, s.outpost[w] || s.outpost[id] ? ContactVia.Expedition : ContactVia.Sight); neighbours(s, w, id) }
+  if (w >= 0 && s.abandoned[w] < 0 && s.people[w] !== s.people[id]) { meet(s, w, id, s.outpost[w] || s.outpost[id] ? ContactVia.Expedition : ContactVia.Sight); neighbours(s, w, id); speciesSight(s, w, id) }
   const r = sightRadius(s, id)
   k.sightR[id] = r
   k.sightPort[id] = s.port[id] >= 0 ? 1 : 0

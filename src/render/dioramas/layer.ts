@@ -1,7 +1,10 @@
 // The diorama layer: small low-poly models standing on the globe when the camera is close
 // (one cell is ~150 km, so true scale would be invisible; these are some 400x true scale).
-// Settlement plans (town.ts), the countryside (farmsteads, mills, groves), piers and
-// moored boats at ports, dams, bridges, and ships or caravans for groups under way.
+// Settlement plans (town.ts) and their satellite villages (census.ts: how many people
+// the picture shows where; layout.ts villages, each culled on its own and drawn as
+// low-detail clusters without facades or shadow-map casting beyond VILLAGE_NEAR), the
+// countryside (farmsteads, mills, groves), piers and moored boats at ports, dams,
+// bridges, and ships or caravans for groups under way.
 //
 // Draw calls: one InstancedMesh per model in use (plus one each for the contact shadows,
 // travelling ships and carts, and bridges), all sharing one material, whatever the
@@ -30,7 +33,7 @@ import { createLayouts, crossing, GROUND_MODEL, NEVER, type GroundSet, type Layo
 import { createGroundMaterial, createModelMaterial, createShadowMaterial, createTownGroundMaterial, createUniforms } from './material.ts'
 import { createShadows } from './shadows.ts'
 import { closeDetailUniforms, TOWN_MASK_MAX, townMaskUniforms } from './townMask.ts'
-import { loadModels, MODEL_COUNT, MODEL_SPECS, Model, type ModelLibrary } from './models.ts'
+import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, type ModelLibrary } from './models.ts'
 import { createSurface, type Probe } from './surface.ts'
 
 /**
@@ -47,6 +50,12 @@ export const DIORAMA_YIELD_FAR = 0.15
 const LAYOUT_BUDGET_MS = 5
 /** Camera distance within which forest stands are drawn (they shrink away toward it). */
 const FOREST_DIST = 0.075
+/** Satellite villages (census.ts): full detail within this camera distance, low-detail clusters beyond. */
+const VILLAGE_NEAR = 0.045
+/** How far a settlement's villages reach from its cell (world units: its territory, up to 5 hops). */
+const VILLAGE_REACH = 0.12
+/** Most village instances per rebuild (nearest settlements first). */
+const VILLAGE_CAP = 24000
 
 /** Positions of travelling groups, as written each frame by the journey layer (see JourneyLayer.groups). */
 export interface TravelGroups {
@@ -365,6 +374,10 @@ interface Stats {
   groundTriangles: number
   shadowRenders: number
   trees: number
+  /** Satellite villages drawn, their instances, and how many of those villages were low detail. */
+  villages: number
+  villageInstances: number
+  farVillages: number
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
@@ -435,9 +448,14 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   let visIds = new Int32Array(N)
   let visD = new Float32Array(Math.max(N, cellCount))
   const visCells = new Int32Array(cellCount)
+  /** Per settlement in the work list: whether its town (not just its villages) can be in view. */
+  let visTown = new Uint8Array(N)
   const byDist = (a: number, b: number) => visD[a] - visD[b]
-  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0 }
-  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0 }
+  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) {
+    (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
+    ;(globalThis as unknown as { __dioramaPlans: object }).__dioramaPlans = {}
+  }
 
   // owner palette for travelling groups: the journey's origin is not exposed per group, so use a neutral team colour
   const TRAVEL_PALETTE = 2
@@ -477,7 +495,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       if (!entry) continue
       batches[m] = new Batch(entry.geometry, modelMaterial, 64)
       object.add(batches[m]!.mesh)
-      shadowSys.addCaster(batches[m]!.mesh)
+      // (far-away village clusters stay out of the shadow map)
+      if (!isFarModel(m)) shadowSys.addCaster(batches[m]!.mesh)
     }
     shadows = new Batch(l.blob, shadowMaterial, 256)
     shadows.mesh.renderOrder = 1
@@ -554,6 +573,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.settlements = 0
     stats.farmCells = 0
     stats.trees = 0
+    stats.villages = 0
+    stats.villageInstances = 0
+    stats.farVillages = 0
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -566,13 +588,17 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       for (let id = 0; id < N; id++) {
         const pA = pop[s0 * N + id], pB = pop[s1 * N + id], pP = pop[sP * N + id]
         if (pA <= 0 && pB <= 0 && pP <= 0) continue
+        if ((h.settlements[id] as { outpost?: boolean }).outpost === true) continue // an expedition base is a camp (outposts.ts), not a town
         const c = h.settlements[id].cell
         if (knownCells && knownCells[c] > year) continue // unknown to the people whose world is shown
         const r = surfaceRadius(world, c)
-        const d = viewDist(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.012)
-        if (d < 0) continue
+        // the town near its cell; its villages over its territory
+        const dT = viewDist(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, 0.02)
+        const dV = Math.max(pA, pB, pP) > 300 ? viewDist(P[c * 3] * r, P[c * 3 + 1] * r, P[c * 3 + 2] * r, VILLAGE_REACH) : -1
+        if (dT < 0 && dV < 0) continue
         visIds[nv++] = id
-        visD[id] = d
+        visD[id] = dT >= 0 ? dT : dV
+        visTown[id] = dT >= 0 ? 1 : 0
       }
       visIds.subarray(0, nv).sort(byDist)
       for (let q = 0; q < nv; q++) {
@@ -580,6 +606,39 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         const pA = pop[s0 * N + id], pB = pop[s1 * N + id], pP = pop[sP * N + id]
         const s = h.settlements[id]
         const r = surfaceRadius(world, s.cell)
+        const end = s.abandonedYear >= 0 ? s.abandonedYear : NEVER
+        // its satellite villages and hamlets (census.ts): each culled on its own, low detail far away
+        const vg = layouts.villages(id, deadline)
+        if (!vg) pending = true
+        else {
+          if (!vg.done) pending = true
+          const V = vg.set
+          for (let v = 0; v < V.n && stats.villageInstances < VILLAGE_CAP; v++) {
+            const vc = V.cell[v]
+            if (knownCells && knownCells[vc] > year) continue
+            const vr = surfaceRadius(world, vc)
+            const d = viewDist(V.centre[v * 3] * vr, V.centre[v * 3 + 1] * vr, V.centre[v * 3 + 2] * vr, V.radius[v])
+            if (d < 0) continue
+            const close = d < VILLAGE_NEAR
+            const set = close ? V.nearSet : V.farSet
+            const range = close ? V.near : V.far
+            let any = false
+            for (let k = range[v * 2]; k < range[v * 2 + 1]; k++) {
+              if (!crossing(set.threshold[k], pP, pA, pB, yP, y0, y1, cross)) continue
+              const appear = Math.max(cross[0], s.foundedYear)
+              const disappear = Math.min(cross[1], end)
+              if (appear >= disappear) continue
+              pushSlots(set, k, appear, disappear, 0, close)
+              stats.villageInstances++
+              any = true
+            }
+            if (any) {
+              stats.villages++
+              if (!close) stats.farVillages++
+            }
+          }
+        }
+        if (!visTown[id]) continue
         const got = layouts.settlement(id, Math.max(pA, pB, pP), deadline)
         if (!got) {
           pending = true
@@ -588,7 +647,6 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         if (!got.done) pending = true
         const slots = got.set
         stats.settlements++
-        const end = s.abandonedYear >= 0 ? s.abandonedYear : NEVER
         if (slots.n > 0) {
           if (pickCount === pickIds.length) {
             const ids = new Int32Array(pickCount * 2)
@@ -756,6 +814,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.triangles = tris + (shadows ? shadows.count * shadows.triangles : 0) + (ground ? ground.count * ground.triangles : 0)
     stats.pending = pending
     stats.rebuildMs = performance.now() - t0
+    ;(globalThis as { __dioramaRebuildMs?: number[] }).__dioramaRebuildMs?.push(+stats.rebuildMs.toFixed(2))
     lastCam.copy(camObj)
     // leftover layout work: continue next frame (each rebuild spends at most the budget on it)
     dirty = pending
@@ -961,6 +1020,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       N = h.settlements.length
       lastSnap = h.snapshotCount - 1
       if (visIds.length < N) visIds = new Int32Array(N)
+      if (visTown.length < N) visTown = new Uint8Array(N)
       if (visD.length < Math.max(N, cellCount)) visD = new Float32Array(Math.max(N, cellCount))
       layouts?.setHistory(h)
       shownS0 = -1

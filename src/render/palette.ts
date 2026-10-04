@@ -13,7 +13,13 @@ export const ViewMode = {
   Plates: 'plates',
   Biomes: 'biomes',
   Population: 'population',
+  /** Static year-0 per-cell carrying capacity (formerly shown, misleadingly, as "Population"). */
+  Capacity: 'capacity',
   LandUse: 'landuse',
+  /** Main staple crop per cell at the current land snapshot (History.crop; hidden without it). */
+  Crops: 'crops',
+  /** Main herd animal per cell (History.herd). */
+  Herds: 'herds',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -25,7 +31,10 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Plates,
   ViewMode.Biomes,
   ViewMode.Population,
+  ViewMode.Capacity,
   ViewMode.LandUse,
+  ViewMode.Crops,
+  ViewMode.Herds,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -47,7 +56,10 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Terrain: return BlendStyle.Terrain
     case ViewMode.Plates:
     case ViewMode.Biomes:
-    case ViewMode.Population: return BlendStyle.Categorical
+    case ViewMode.Population:
+    case ViewMode.Capacity:
+    case ViewMode.Crops:
+    case ViewMode.Herds: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
 }
@@ -219,12 +231,18 @@ const SEA_TINT = 0.55
 
 /** Extra per-cell data some view modes need (it arrives later than the world). */
 export interface ModeData {
-  /** Carrying capacity per cell in people, from the settlement history. */
+  /** Carrying capacity per cell in people, from the settlement history (Capacity view). */
   capacity: Float32Array | null
   capacityMax: number
+  /** People per cell at the current snapshot, spread from settlement populations (Population view). */
+  density?: Float32Array | null
+  /** Fixed colour-scale maximum for `density`, from the first NORM_YEARS of the history. */
+  densityMax?: number
+  /** Crops and Herds views: sRGB 0..255 per cell (3 per cell) for the land snapshot shown, or null (all land neutral). */
+  speciesRgb?: Uint8Array | null
 }
 
-/** Population view: heat ramp over sqrt(capacity / max). */
+/** Capacity and Population views: heat ramp over a 0..1 normalised value. */
 const CAPACITY_STOPS: readonly (readonly [number, RGB])[] = [
   [0, rgb(40, 30, 52)],
   [0.25, rgb(98, 34, 96)],
@@ -234,6 +252,12 @@ const CAPACITY_STOPS: readonly (readonly [number, RGB])[] = [
 ]
 const CAPACITY_WATER = rgb(14, 22, 38)
 const CAPACITY_BARREN = rgb(30, 30, 36)
+
+/** CSS colour of the Population view's heat ramp at a 0..1 position, for its legend. */
+export function densityRampCss(frac: number): string {
+  const [r, g, b] = ramp(CAPACITY_STOPS, Math.max(0, Math.min(1, frac)))
+  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`
+}
 /** Land use view: the base under the shader's cultivation / degradation ramp (which needs the year). */
 const LANDUSE_WILD = rgb(46, 52, 50)
 
@@ -275,6 +299,15 @@ export function colorForMode(
       return
     case ViewMode.Population: {
       const water = e < 0 || world.lake?.[i] === 1
+      const d = data?.density ? data.density[i] : 0
+      const dMax = data?.densityMax ?? 0
+      if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (d <= 0 || !data || dMax <= 0) write(CAPACITY_BARREN, out, o, scale)
+      else write(ramp(CAPACITY_STOPS, Math.log1p(d) / Math.log1p(dMax)), out, o, scale)
+      return
+    }
+    case ViewMode.Capacity: {
+      const water = e < 0 || world.lake?.[i] === 1
       const cap = data?.capacity ? data.capacity[i] : 0
       if (water) write(CAPACITY_WATER, out, o, scale)
       else if (cap <= 0 || !data || data.capacityMax <= 0) write(CAPACITY_BARREN, out, o, scale)
@@ -284,6 +317,18 @@ export function colorForMode(
     case ViewMode.LandUse: {
       const water = e < 0 || world.lake?.[i] === 1
       write(water ? CAPACITY_WATER : LANDUSE_WILD, out, o, scale)
+      return
+    }
+    case ViewMode.Crops:
+    case ViewMode.Herds: {
+      const water = e < 0 || world.lake?.[i] === 1
+      const c = data?.speciesRgb
+      if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (c && c.length >= (i + 1) * 3) {
+        out[o] = (c[i * 3] / 255) * scale
+        out[o + 1] = (c[i * 3 + 1] / 255) * scale
+        out[o + 2] = (c[i * 3 + 2] / 255) * scale
+      } else write(LANDUSE_WILD, out, o, scale)
       return
     }
   }

@@ -27,6 +27,7 @@ import { NORM_YEARS, type HistoryIndex } from './historyIndex.ts'
 import { ANYONE, cellKnownYears, contactOf, knownShare, metCount, NEVER_YEAR, type PeoplesData } from './peoplesData.ts'
 import { loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
+import { SpeciesChips } from './speciesPanel.ts'
 import './peoples.css'
 
 /** A known-world selection: a people id, ANYONE (the unexplored world), or null (normal view). */
@@ -47,6 +48,8 @@ export interface PeoplesViewDeps {
   inspectorSlot: HTMLElement
   planetGroup: THREE.Group
   setUrlParam(name: string, value: string | null): void
+  /** The known world shown changed (null: the whole world again), after the masks are applied. */
+  onSelectionChange?(sel: PeopleSelection): void
 }
 
 export interface PeoplesView {
@@ -63,6 +66,8 @@ export interface PeoplesView {
   setMarkersVisible(on: boolean): void
   /** Whether cell `cell` is covered by the mist at the current year. */
   hidesCell(cell: number): boolean
+  /** Per cell, the year from which the known world shown includes it (1e9 never), or null in the normal view. */
+  readonly knownCells: Float32Array | null
   /** Per frame. */
   tick(year: number, s0: number, pulseYears: number, camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
 }
@@ -96,6 +101,8 @@ interface Row {
   met: HTMLSpanElement
   known: HTMLSpanElement
   bars: HTMLSpanElement[]
+  /** The species the people holds (when the history has species). */
+  chips: SpeciesChips | null
   /** What the row shows (numbers compared before any text is made). */
   shown: { alive: number; pop: number; met: number; known: number; tech: number; selected: boolean }
 }
@@ -293,9 +300,11 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
       }
       const sett = cell('pp-num'), pop = cell('pp-num'), met = cell('pp-num'), known = cell('pp-num')
       el.append(swatch(p), nameWrap, sett, pop, met, known)
+      const chips = index.species ? new SpeciesChips() : null
+      if (chips) el.append(chips.el)
       el.title = `The ${data.names[p]} people: click to see the world as they knew it`
       list.appendChild(el)
-      rows.push({ p, el, sett, pop, met, known, bars, shown: { alive: -1, pop: -1, met: -1, known: -2, tech: -1, selected: false } })
+      rows.push({ p, el, sett, pop, met, known, bars, chips, shown: { alive: -1, pop: -1, met: -1, known: -2, tech: -1, selected: false } })
     }
   }
   list.addEventListener('click', (e) => {
@@ -355,6 +364,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
         r.el.classList.toggle('selected', sel)
         r.el.setAttribute('aria-pressed', String(sel))
       }
+      r.chips?.update(index.species, p, year, data.names)
       if (tech && s !== r.shown.tech) {
         r.shown.tech = s
         for (let f = 0; f < TECH_FIELD_COUNT; f++) {
@@ -463,6 +473,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     deps.setUrlParam('people', selection !== null && selection !== ANYONE ? String(selection) : null)
     deps.setUrlParam('known', selection === ANYONE ? 'all' : null)
     forceRefresh()
+    deps.onSelectionChange?.(cellYears ? selection : null)
   }
 
   function disposeFog() {
@@ -520,7 +531,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
-    description: 'Close a popup, else deselect, else leave the known world',
+    description: 'Close a popup, else leave the known world, else deselect',
     group: 'Panels',
     run: () => {
       if (selection === null) return false
@@ -541,6 +552,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
       disposeFog()
       disposePulses()
       targets = { settlements: null, labels: null, dioramas: null }
+      deps.onSelectionChange?.(null)
       root.classList.add('hidden')
       banner.classList.add('hidden')
       slot.classList.add('hidden')
@@ -594,6 +606,9 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     },
     get selection() {
       return selection
+    },
+    get knownCells() {
+      return cellYears
     },
     showSettlement(id: number) {
       inspected = id

@@ -1,0 +1,254 @@
+/* Species panel, Crops / Herds legend, species chips, inspector species section (speciesPanel.ts),
+   and the chronicle dots for species, epidemics and expedition bases */
+
+.species {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(300px, 32vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.species.collapsed .pp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.species.collapsed .sp-body {
+  display: none;
+}
+.sp-body {
+  margin-top: 4px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.sp-cols,
+.sp-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 34px 34px;
+  align-items: center;
+  column-gap: 5px;
+}
+.sp-cols {
+  padding: 0 4px 2px 2px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sp-cols span:nth-child(n + 3) {
+  text-align: right;
+}
+.sp-group {
+  margin: 4px 0 1px 2px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.sp-row {
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 4px 2px 2px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.sp-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.sp-row.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.sp-row.unheld {
+  color: var(--text-faint);
+}
+.sp-name {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.sp-word {
+  font-weight: 600;
+}
+.sp-gloss {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.sp-swatch {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  vertical-align: -1px;
+}
+.sp-swatch.neutral {
+  background: #2e3432;
+}
+
+/* a collapsed Peoples panel is just its header */
+.peoples.collapsed {
+  min-height: 0;
+}
+
+/* legend of the Crops and Herds views, under the map panel */
+.sp-legend {
+  width: var(--right-w);
+  padding: 7px 10px 7px 12px;
+}
+.sp-legend-title {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 3px;
+}
+.sp-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 1px 4px 1px 2px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+button.sp-legend-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.sp-legend-item.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+.sp-legend-item.none {
+  color: var(--text-faint);
+  cursor: default;
+}
+.sp-legend-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sp-legend-text b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* species chips (peoples rows, inspector) */
+.sp-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  vertical-align: middle;
+}
+.pp-row .sp-chips {
+  grid-column: 2 / -1;
+  margin: 1px 0 1px;
+  min-height: 7px;
+}
+.sp-chip {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+.sp-chip.cat1 {
+  border-radius: 50%;
+}
+.sp-chips.insp .sp-chip {
+  width: 9px;
+  height: 9px;
+}
+
+/* inspector: crop, herd and the people's species */
+.insp-species {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+.isp-held {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.isp-species {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #b9e4a0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(185, 228, 160, 0.35);
+  text-underline-offset: 2px;
+}
+.isp-species:hover {
+  color: #e2f6d6;
+}
+
+/* expedition bases in the inspector */
+.insp-tier.outpost {
+  color: #fff1cc;
+  background: rgba(240, 214, 140, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(240, 214, 140, 0.35);
+}
+.insp-outpost {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.inspector.is-outpost .insp-land,
+.inspector.is-outpost .insp-cap-row,
+.inspector.is-outpost .insp-food-row,
+.inspector.is-outpost .insp-food-bar {
+  display: none;
+}
+
+/* an expedition base still kept up (not a warning) */
+.insp-status.kept {
+  color: var(--text-2);
+}
+
+/* chronicle and inspector dots */
+.ev-species .ev-text::before {
+  border-radius: 50% 0;
+  background: #8fcf6a;
+}
+.ev-epidemic .ev-text::before {
+  background: #9a62c4;
+  box-shadow: 0 0 0 1px rgba(216, 224, 112, 0.7);
+}

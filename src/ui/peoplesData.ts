@@ -45,7 +45,7 @@ export interface PeoplesData {
   /** Per people (and, at index `count`, anyone): known years of land cells and of all cells, sorted ascending (never-known cells left out). */
   landSorted: Int16Array[]
   allSorted: Int16Array[]
-  /** Living settlements and total population per snapshot per people: [s * count + p]. */
+  /** Living settlements (not counting expedition bases) and total population per snapshot per people: [s * count + p]. */
   alive: Uint32Array
   population: Float64Array
   /** The values were derived by the dev stand-in rather than read from the history. */
@@ -404,12 +404,13 @@ export function buildPeoplesData(world: World, h: History, isWater: (cell: numbe
   const SN = h.snapshotCount
   const alive = new Uint32Array(SN * P)
   const population = new Float64Array(SN * P)
+  const outpost = Uint8Array.from(h.settlements, (x) => ((x as { outpost?: boolean }).outpost === true ? 1 : 0))
   for (let s = 0; s < SN; s++) {
     const base = s * S
     for (let i = 0; i < S; i++) {
       const v = h.population[base + i]
       if (v > 0) {
-        alive[s * P + raw.people[i]]++
+        if (!outpost[i]) alive[s * P + raw.people[i]]++
         population[s * P + raw.people[i]] += v
       }
     }

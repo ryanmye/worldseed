@@ -22,12 +22,14 @@ export function formatInt(n: number): string {
   return Math.round(n).toLocaleString('en-US')
 }
 
-export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd' | 'contact' | 'landfall' | 'voyage' | 'expedition' | 'discovery' | 'tech'
+export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd' | 'contact' | 'landfall' | 'voyage' | 'expedition' | 'discovery' | 'tech' | 'species' | 'epidemic'
 
-// ---- peoples, voyages, expeditions and technology (event types 10..16; all optional at runtime)
+// ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
 /** Event types of the peoples and exploration step (numbers, so histories from before they existed still type-check). */
-export const PeoplesEvent = { VoyageLost: 10, Landfall: 11, FirstContact: 12, ExpeditionSent: 13, ExpeditionReturned: 14, Discovery: 15, TechAdvance: 16 } as const
+export const PeoplesEvent = { VoyageLost: 10, Landfall: 11, FirstContact: 12, ExpeditionSent: 13, ExpeditionReturned: 14, Discovery: 15, TechAdvance: 16, Domesticated: 17, SpeciesAdopted: 18, Epidemic: 19 } as const
+/** The last event type the chronicle and inspector know how to describe. */
+export const LAST_SHOWN_EVENT = 19
 
 /** Field names of History.technology (TechField order). */
 export const TECH_FIELD_NAMES: readonly string[] = ['farming', 'seafaring', 'metalworking', 'crafts']
@@ -37,6 +39,11 @@ export function peopleName(h: History, p: number): string | null {
   const ps = (h as Partial<History>).peoples
   const x = Array.isArray(ps) ? ps[p] : undefined
   return x && typeof x.name === 'string' && x.name ? x.name : null
+}
+
+/** Whether settlement `id` is an expedition base. */
+export function isOutpost(h: History, id: number): boolean {
+  return (h.settlements[id] as { outpost?: boolean } | undefined)?.outpost === true
 }
 
 /** People of settlement `id`, or -1. */
@@ -65,10 +72,101 @@ export function describeLandfall(h: History, e: HistoryEvent, land: string | nul
   return `Settlers from ${from} make landfall on ${land ? `the unsettled ${land}` : e.value > 0 && e.value <= 8 ? 'a small unnamed island' : 'an unknown land'}`
 }
 
+/**
+ * Where each Discovery event's expedition got to, as worked out from its journey
+ * (expeditionsData.ts: "the south pole", "the heart of the great desert"); events of a
+ * history are fixed objects, so the text is keyed by the event.
+ */
+const discoveryPlaces = new WeakMap<HistoryEvent, string>()
+export function setDiscoveryPlace(e: HistoryEvent, place: string): void {
+  discoveryPlaces.set(e, place)
+}
+
+/** Chronicle line for `count` landfalls on small islands in one decade, naming `example`'s sender, or all senders when there is one. */
+export function describeLandfallBurst(h: History, example: HistoryEvent, count: number, oneSender: boolean): string {
+  const from = example.other >= 0 ? settlementName(h, example.other) : settlementName(h, example.settlement)
+  return oneSender ? `Settlers from ${from} make landfall on ${count} small islands` : `Settlers make landfall on ${count} small islands, among them from ${from}`
+}
+
 /** Where a Discovery event's expedition got to: "the sea Oru Tal", "the southern ice" (`southern` null: "the polar ice"). */
 function discoveryPlace(h: History, e: HistoryEvent, southern: boolean | null): string {
   const f = e.value >= 0 ? (h as Partial<History>).features?.[e.value] : undefined
-  return f ? `the ${featureNoun(f.kind)} ${f.name}` : `the ${southern === null ? 'polar' : southern ? 'southern' : 'northern'} ice`
+  if (f) return `the ${featureNoun(f.kind)} ${f.name}`
+  return discoveryPlaces.get(e) ?? `the ${southern === null ? 'polar' : southern ? 'southern' : 'northern'} ice`
+}
+
+// ---- species (History.species; optional at runtime)
+
+/** Short descriptions by archetype (the real-world model a species is patterned on), for "Pallu, a highland tuber". */
+const ARCHETYPE_GLOSS: Record<string, string> = {
+  wheat: 'a grassland grain', barley: 'a hardy grain', paddyrice: 'a paddy grain', dryrice: 'an upland rice', sheepgoat: 'a flock of hardy browsers', rye: 'a cold-country grain', oats: 'a damp-country grain', rice: 'a paddy grain',
+  maize: 'a tall-stalked grain', corn: 'a tall-stalked grain', millet: 'a dry-country grain', sorghum: 'a savanna grain', teff: 'a highland grass grain',
+  quinoa: 'a mountain seed crop', buckwheat: 'a quick cold-country seed', amaranth: 'a seed crop of the uplands',
+  potato: 'a highland tuber', taro: 'a wetland tuber', yam: 'a forest tuber', cassava: 'a tropical root', manioc: 'a tropical root', sweetpotato: 'a warm-country root',
+  'sweet potato': 'a warm-country root', banana: 'a tropical fruit', plantain: 'a tropical fruit', breadfruit: 'a tree-grown staple', sago: 'a palm starch', coconut: 'a shore palm',
+  beans: 'a climbing pulse', bean: 'a climbing pulse', lentil: 'a dry-country pulse', chickpea: 'a dry-country pulse', pea: 'a cool-country pulse', soybean: 'an oil-rich pulse', peanut: 'a ground nut',
+  squash: 'a trailing gourd', dates: 'a desert palm fruit', date: 'a desert palm fruit', olive: 'an oil tree', grape: 'a vine fruit', fig: 'a dry-country fruit tree',
+  sheep: 'a wool-bearing grazer', goat: 'a hardy browser', cattle: 'a great grazer', cow: 'a great grazer', ox: 'a great grazer', pig: 'a forest rooter',
+  camel: 'a desert beast of burden', dromedary: 'a desert beast of burden', llama: 'a mountain pack animal', alpaca: 'a mountain wool beast', yak: 'a highland ox',
+  reindeer: 'a tundra herd deer', caribou: 'a tundra herd deer', horse: 'a steppe runner', donkey: 'a sure-footed pack animal', buffalo: 'a wetland ox', 'water buffalo': 'a wetland ox',
+  chicken: 'a yard fowl', duck: 'a pond fowl', goose: 'a grazing fowl', turkey: 'a woodland fowl', 'guinea pig': 'a small house beast', rabbit: 'a small burrower', dog: 'a hunting companion',
+  cotton: 'a fibre shrub', flax: 'a fibre plant', hemp: 'a fibre plant', silk: 'a thread-spinning grub', silkworm: 'a thread-spinning grub', wool: 'a fibre beast',
+  tea: 'a leaf for brewing', coffee: 'a bean for brewing', cacao: 'a bitter bean', tobacco: 'a smoking leaf', spice: 'a fragrant spice', pepper: 'a fiery spice', cinnamon: 'a fragrant bark',
+  sugarcane: 'a sweet cane', 'sugar cane': 'a sweet cane', saffron: 'a precious spice', indigo: 'a dye plant', rose: 'a garden flower', tulip: 'a garden bulb',
+}
+const CATEGORY_GLOSS = ['a staple crop', 'a herd animal', 'a fibre crop', 'a luxury', 'a stimulant', 'an ornamental']
+export const SPECIES_CATEGORY_NAMES: readonly string[] = ['staple', 'livestock', 'fibre', 'luxury', 'stimulant', 'ornamental']
+
+/** "a highland tuber" for a species patterned on the potato (a category word for an archetype not listed). */
+export function speciesGloss(archetype: string, category: number): string {
+  // keys as "potato", "paddyRice" or "sheep goat"
+  const k = archetype.toLowerCase()
+  return ARCHETYPE_GLOSS[k] ?? ARCHETYPE_GLOSS[k.replace(/[\s_-]+/g, '')] ?? CATEGORY_GLOSS[category] ?? 'a useful species'
+}
+
+/** The species of a history (empty when it has none). */
+export function speciesOf(h: History): readonly { id: number; name: string; archetype: string; category: number }[] {
+  const sp = (h as Partial<History>).species
+  return Array.isArray(sp) ? sp : []
+}
+
+/** Display name of species `id` ("Pallu"), or null. */
+export function speciesName(h: History, id: number): string | null {
+  const x = speciesOf(h)[id]
+  return x && typeof x.name === 'string' && x.name ? x.name.charAt(0).toUpperCase() + x.name.slice(1) : null
+}
+
+/** "one in four die", "half die", "most die" for a fraction of a people lost. */
+export function fractionWords(f: number): string {
+  if (!(f > 0)) return 'few die'
+  if (f >= 0.62) return 'most die'
+  if (f >= 0.42) return 'half die'
+  if (f >= 0.36) return 'two in five die'
+  const words = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty']
+  const n = Math.round(1 / f)
+  return n > 20 ? 'a few die' : `one in ${words[n]} die`
+}
+
+/** "The Eitebo first tame the kerrow near Tesh", and the other species lines (null for other types). */
+function describeSpeciesEvent(h: History, e: HistoryEvent, forId: number): string | null {
+  const t = e.type as number
+  if (t !== PeoplesEvent.Domesticated && t !== PeoplesEvent.SpeciesAdopted && t !== PeoplesEvent.Epidemic) return null
+  const p = peopleOf(h, e.settlement)
+  const pn = peopleName(h, p) ?? 'people'
+  const q = e.other >= 0 && e.other < h.settlements.length ? peopleOf(h, e.other) : -1
+  const qn = q >= 0 ? peopleName(h, q) : null
+  const sp = speciesOf(h)[e.value]
+  const name = sp ? sp.name.toLowerCase() : 'a new species'
+  const the = sp ? `the ${name}` : name
+  const tame = sp && sp.category !== 0 ? 'tame' : 'cultivate'
+  if (forId < 0) {
+    if (t === PeoplesEvent.Domesticated) return `The ${pn} first ${tame} ${the} near ${settlementName(h, e.settlement)}`
+    if (t === PeoplesEvent.SpeciesAdopted) return `The ${pn} take up ${the}` + (qn ? ` from the ${qn}` : '')
+    return `Sickness new to the ${pn} follows contact` + (qn ? ` with the ${qn}` : '') + `: ${fractionWords(e.value)}`
+  }
+  if (t === PeoplesEvent.Domesticated) return `The ${pn} first ${tame === 'tame' ? 'tamed' : 'cultivated'} ${the} here`
+  if (t === PeoplesEvent.SpeciesAdopted) return e.settlement === forId ? `Took up ${the}` + (qn ? ` from the ${qn}` : '') : `The ${pn} took up ${the} from here`
+  return e.settlement === forId ? `A sickness new to the ${pn} struck` + (qn ? ` after contact with the ${qn}` : '') + `: ${fractionWords(e.value).replace(/ dies?$/, ' died')}` : `A sickness spread from here to the ${pn}`
 }
 
 function describeDiscovery(h: History, e: HistoryEvent, southern: boolean): string {
@@ -97,7 +195,7 @@ export function describePeoplesEvent(h: History, e: HistoryEvent, southern = fal
       return `${t.charAt(0).toUpperCase()}${t.slice(1)} advance in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
     }
     default:
-      return null
+      return describeSpeciesEvent(h, e, -1)
   }
 }
 
@@ -139,7 +237,7 @@ function describePeoplesEventFor(h: History, e: HistoryEvent, id: number): strin
     case PeoplesEvent.TechAdvance:
       return `Advanced in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
     default:
-      return null
+      return describeSpeciesEvent(h, e, id)
   }
 }
 
@@ -187,6 +285,9 @@ export function eventKind(e: HistoryEvent): EventKind {
     case PeoplesEvent.ExpeditionReturned: return 'expedition'
     case PeoplesEvent.Discovery: return 'discovery'
     case PeoplesEvent.TechAdvance: return 'tech'
+    case PeoplesEvent.Domesticated:
+    case PeoplesEvent.SpeciesAdopted: return 'species'
+    case PeoplesEvent.Epidemic: return 'epidemic'
     default: return 'migration'
   }
 }
@@ -206,6 +307,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
   const name = settlementName(h, e.settlement)
   switch (e.type) {
     case EventType.Founded:
+      if (isOutpost(h, e.settlement)) return `An expedition from ${settlementName(h, e.other)} sets up the base ${name}`
       return e.other >= 0 ? `${name} founded from ${settlementName(h, e.other)}` : `${name} founded by an original tribe`
     case EventType.Abandoned:
       return `${name} abandoned`
@@ -268,6 +370,7 @@ export function describeExchange(exports: number, imports: number): string {
 export function describeEventFor(h: History, e: HistoryEvent, id: number): string {
   switch (e.type) {
     case EventType.Founded:
+      if (isOutpost(h, e.settlement)) return e.settlement === id ? `Set up by an expedition from ${settlementName(h, e.other)}` : `Set up the expedition base ${settlementName(h, e.settlement)}`
       if (e.settlement === id) return e.other >= 0 ? `Founded by migrants from ${settlementName(h, e.other)}` : 'Founded by an original tribe'
       return `Founded the colony ${settlementName(h, e.settlement)}`
     case EventType.Abandoned:

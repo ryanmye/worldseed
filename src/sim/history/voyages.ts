@@ -45,6 +45,10 @@
 // prefer it, and lose fewer ships on the way: waves of settlement rather than
 // one-offs. Other peoples have to find it for themselves.
 //
+// Species (species.ts): landfalls are judged by what the sender's species would
+// make of the land there, and a colony carries only part of them (plants
+// mostly, animals less often: 'history-species-spread').
+//
 // Decisions draw from the 'history-voyages' stream only.
 
 import { Biome, EventType, JourneyKind, TechField } from '../../contract.ts'
@@ -56,6 +60,7 @@ import { foodBase, prosperity } from './migration.ts'
 import type { HistoryState } from './state.ts'
 import { canSettle, found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { ContactVia, learn, learnPath, meet } from './knowledge.ts'
+import { siteFactor, speciesSeaKit } from './species.ts'
 import type { VoyageLog } from './index.ts'
 
 export interface VoyageState {
@@ -103,7 +108,7 @@ export function createVoyages(s: HistoryState, rng: Rng): VoyageState {
   const M = T.landmassSize.length
   const P = s.know.P
   const lmHab = new Int32Array(M)
-  for (let i = 0; i < N; i++) if (T.habitable[i]) lmHab[T.landmass[i]]++
+  for (let i = 0; i < N; i++) if (T.baseHabitable[i]) lmHab[T.landmass[i]]++
   // Steps cost at most this many tenths (see voyage), so this many buckets never wrap onto the one being emptied.
   const maxStep = Math.max(1, Math.round(10 * T.cellScale * Math.max(1, VOYAGE.deep, VOYAGE.deepPort)))
   const buckets: Int32Array[] = []
@@ -305,7 +310,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
           coast[nCoast++] = j
           const occ = s.occupant[j]
           if (occ >= 0 && s.people[occ] !== people && sighted.indexOf(occ) < 0) sighted.push(occ)
-          if (!canSettle(s, j) || T.potential[j] * prod < minFood) continue
+          if (!canSettle(s, j) || T.potential[j] * prod * s.sp.siteMax[j] < minFood) continue
           // What the group could expect here, and what the land would give it alone.
           let food = 0, alone = 0
           for (let e = T.catchOff[j]; e < T.catchBase[j]; e++) {
@@ -316,8 +321,9 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
             food += (cap * wg) / (s.claim[q] + wg)
             alone += cap
           }
-          food *= prod
-          alone *= prod
+          const sf = prod * siteFactor(s, from, j)
+          food *= sf
+          alone *= sf
           if (food < minFood || food < V.freeMin * alone) continue
           const free = food / alone
           const m = T.landmass[j]
@@ -400,6 +406,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   const firstLanding = s.lmLiving[toLm] === 0 && toLm !== originLm
   explored(s, vs, from, nVisited, nCoast, true) // (before the colony looks around: the crew saw it all on the way)
   const to = found(s, bestCell, landed, from)
+  speciesSeaKit(s, to)
   if (vs.landed[people * vs.M + toLm] < 0) vs.landed[people * vs.M + toLm] = s.year
   s.nextVoyage[from] = s.year + V.cooldown
   vs.fails[from] = 0

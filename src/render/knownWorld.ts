@@ -12,8 +12,10 @@
 // Triangles whose three corners are all known are culled in the vertex shader, so the
 // known part of the world costs nothing.
 //
-// It is drawn after every flat overlay (routes, journeys, markers, icons, merchants) and
-// before the atmosphere haze, depth-tested against the planet and the 3D models, so
+// The frontier is softest far out and tightens at mid and close zoom (by the pixel
+// footprint in cells). It is drawn after every flat overlay (routes, journeys, markers,
+// icons, merchants) and before the atmosphere haze (the history view raises the clouds and
+// the masked markers over it while it shows, so the weather is not fogged over), depth-tested against the planet and the 3D models, so
 // whatever lies in unknown cells is covered too (labels and models get CPU masks
 // instead, see the history view). Unknown land and sea look alike: the coastlines of
 // unknown lands are hidden, not faintly visible. The mist is lit by the sun (dark on the
@@ -170,6 +172,9 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
         vec3 p = vObj;
         float footprint = length(fwidth(p));
         vec3 kn = smoothstep(vKY, vKY + uFade, vec3(uYear)); // 1: known
+        // pixels per cell grow as the camera comes down: the frontier tightens from a soft
+        // continental haze far out to a crisper edge at mid and close zoom
+        float sharp = 1.0 - smoothstep(0.02, 0.1, footprint * uCellFreq);
         float known = 0.0;
         float lo = min(kn.x, min(kn.y, kn.z)), hi = max(kn.x, max(kn.y, kn.z));
         if (hi - lo < 1e-3) known = lo;
@@ -182,13 +187,13 @@ export function buildKnownWorldFog(world: World): KnownWorldFog {
             kw_fbm(q + vSeed.x * vec3(173.3, 291.7, 117.1), fp, 3),
             kw_fbm(q + vSeed.y * vec3(173.3, 291.7, 117.1), fp, 3),
             kw_fbm(q + vSeed.z * vec3(173.3, 291.7, 117.1), fp, 3));
-          vec3 w = pow(b, vec3(1.5)) * exp(n * 4.0);
+          vec3 w = pow(b, vec3(mix(1.5, 3.4, sharp))) * exp(n * mix(4.0, 3.2, sharp));
           w /= max(w.x + w.y + w.z, 1e-6);
           known = dot(w, kn);
           // wisps along the edge
-          known += 0.16 * kw_fbm(p * uCellFreq * 3.1 + 41.0, footprint * uCellFreq * 3.1, 3);
+          known += mix(0.16, 0.09, sharp) * kw_fbm(p * uCellFreq * 3.1 + 41.0, footprint * uCellFreq * 3.1, 3);
         }
-        float fog = 1.0 - smoothstep(0.22, 0.78, known);
+        float fog = 1.0 - smoothstep(mix(0.22, 0.4, sharp), mix(0.78, 0.6, sharp), known);
         if (fog < 0.003) discard;
         // the mist: a muted warm grey (no land, no sea), mottled at continent and cell scale
         float big = kw_fbm(p * 3.3 + 7.0, footprint * 3.3, 4);

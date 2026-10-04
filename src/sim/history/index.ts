@@ -6,7 +6,7 @@
 //   weather -> food -> trade -> population -> migration
 //   -> voyages -> abandonment (-> routes of the abandoned close) -> structures
 //   -> [land use -> degradation] -> [roads] -> milestones -> exploration
-//   -> technology -> knowledge -> snapshots
+//   -> technology -> knowledge -> species -> snapshots
 // (land use and degradation advance every LAND.step years, roads every
 // ROAD.step years; in land
 // years the food system also records which fields feed each settlement). The
@@ -26,7 +26,10 @@
 // learned from the peoples it has met; every effect of technology reads the
 // settlement's people's level. Prosperous settlements send expeditions to the
 // edge of their people's known world and found expedition bases where nobody
-// could farm (exploration.ts).
+// could farm (exploration.ts). Each cradle starts with its own few species
+// (staples and herds native there; others are wild elsewhere), which multiply
+// what its land yields and spread through colonisation, contact and trade
+// (species.ts); first contact may bring epidemics.
 //
 // Random streams (all derived from world.seed): 'history-cradles' (where the
 // cradles and tribes are), 'history-weather' (fixed draws per year,
@@ -34,9 +37,12 @@
 // go), 'history-voyages' (voyages of settlement by sea: who sails, where to,
 // who is lost; voyages.ts), 'history-structures' (when ports and dams get
 // built) and 'history-expeditions' (who explores, where, who is lost, where
-// bases go; exploration.ts); 'history-ore' seeds the ore-richness noise; people
-// names come from 'names-people-<founder>' (peoples.ts). Knowledge, contact
-// and technology draw nothing.
+// bases go; exploration.ts), 'history-species-origins' (where species are
+// native, the cradles' founding sets) and 'history-species-spread' (taming,
+// adoption, techniques, what seaborne colonies carry; species.ts);
+// 'history-ore' seeds the ore-richness noise; people names come from
+// 'names-people-<founder>' (peoples.ts), species names from
+// 'names-species-<id>'. Knowledge, contact and technology draw nothing.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -70,6 +76,7 @@ import { assembleTrade, createTrade, roadSystem, tradeAbandonSystem, tradeSystem
 import type { TradeState } from './trade.ts'
 import { createTech, technologySystem } from './technology.ts'
 import { createExplore, explorationSystem } from './exploration.ts'
+import { assembleSpecies, createSpecies, speciesLandSnapshot, speciesSystem, speciesTables } from './species.ts'
 import { Place } from './exploration.ts'
 import type { ExpeditionLog } from './exploration.ts'
 import { detectFeatures } from '../names/features.ts'
@@ -114,6 +121,14 @@ export interface HistoryDiagnostics {
   discoveryCell?: number[]
   /** Year an expedition first revealed each cell nobody knew before, -1 otherwise. */
   revealed?: Int16Array
+  /** Species: founding set of each cradle (species ids); first year each people held each technique (-1), techYear[p * K + k]. */
+  cradleSets?: number[][]
+  techYear?: Int16Array
+  /** Technique acquisitions: (year, people, technique, settlement) flattened; epidemics: (year, victim people, source people, mortality, victim population before) flattened. */
+  techLog?: number[]
+  epiLog?: number[]
+  /** Disease load per people at the end. */
+  disease?: Float64Array
 }
 
 function copyLog(l: ExpeditionLog): ExpeditionLog {
@@ -263,7 +278,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const portSearch = createPortSearch(N)
   if (measureKnowledge) s.knowDiag = { migrations: 0, migRedirected: 0, migBlocked: 0, migFrontier: 0, tradeSearches: 0, tradePartners: 0, tradeLost: 0, voyages: 0, voyTargetDiffers: 0, voySightings: 0 }
   s.year = 0
-  const cradles = seedPeoples(s, createRng(seed, 'history-cradles'))
+  const cradles = seedPeoples(s, createRng(seed, 'history-cradles'), (plan) => {
+    s.sp = createSpecies(s, plan, createRng(seed, 'history-species-origins'), createRng(seed, 'history-species-spread'))
+  })
   const voyages = createVoyages(s, createRng(seed, 'history-voyages'))
   const trade = createTrade(N)
   const techState = createTech(s)
@@ -275,12 +292,17 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   let landUse = new Uint8Array(16 * N)
   let degradation = new Uint8Array(16 * N)
   let road = new Uint8Array(16 * N)
+  let crop = new Uint8Array(16 * N)
+  let herd = new Uint8Array(16 * N)
   let landCount = 0
   const landSnapshot = (): void => {
     const q = landCount++
     landUse = ensureU8(landUse, landCount * N)
     degradation = ensureU8(degradation, landCount * N)
     road = ensureU8(road, landCount * N)
+    crop = ensureU8(crop, landCount * N)
+    herd = ensureU8(herd, landCount * N)
+    speciesLandSnapshot(s, crop, herd, q * N)
     const cells = terrain.landCells
     const o = q * N
     for (let t = 0; t < cells.length; t++) {
@@ -367,6 +389,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     explorationSystem(s, explore)
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
+    speciesSystem(s, trade)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -402,6 +425,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const { names, features, naming } = nameWorld(world, settlements, featureMap)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)
+    const species = assembleSpecies(world, s.sp, naming, peoples, s.founders, (id) => s.cell[id])
+    const spT = speciesTables(s.sp)
     const capacity = new Float32Array(terrain.cellCount)
     for (let i = 0; i < terrain.cellCount; i++) capacity[i] = terrain.capacity[i]
     const journeys = assembleJourneys(s.journeys)
@@ -418,6 +443,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         knownYear: s.know.known.slice(),
         contactYear: s.know.contact.slice(),
         technology: snapTech.slice(0, snapshotCount * PF),
+        species, speciesYear: spT.year, speciesSource: spT.source,
+        crop: crop.slice(0, landSnapshotCount * N), herd: herd.slice(0, landSnapshotCount * N),
       },
       terrain,
       diag: {
@@ -426,6 +453,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cradles, knowledge: s.knowDiag ? { ...s.knowDiag } : undefined, contactVia: s.know.via.slice(),
         firstLearn: techState.firstLearn.slice(), peopleVolume: techState.pairVol.slice(), near: s.know.near.slice(),
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
+        cradleSets: s.sp.cradleSet.map((x) => x.slice()), techYear: spT.techYear, techLog: s.sp.techLog.slice(), epiLog: s.sp.epiLog.slice(), disease: s.sp.disease.slice(),
       },
     }
   }

@@ -18,15 +18,21 @@
 // met; it may found a site beside strangers it knows of, and meets them
 // there. Its route and the cells beside it become known (and a route passing
 // strangers' land makes first contact).
+//
+// Species (species.ts): a group judges a site by what its own species would make
+// of the land there (so nobody settles highlands without a highland crop),
+// crosses desert cheaply with camels and highlands with llamas, and travels
+// further with horses.
 
 import { EventType, JourneyKind, TechField } from '../../contract.ts'
 import { clamp, smoothstep } from '../util.ts'
-import { MIGRATION, PORT, VOYAGE, WEALTH } from './params.ts'
+import { MIGRATION, PORT, SPECIES, VOYAGE, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
 import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
 import { found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { learnPath } from './knowledge.ts'
+import { hasHorse, moveMuls, siteFactorAt, siteRows } from './species.ts'
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -176,6 +182,9 @@ export function migrationSystem(s: HistoryState, search: Search): void {
   }
 }
 
+/** Travel cost multipliers by species move class for the current search (species.moveMuls). */
+const TMUL = new Float64Array(3)
+
 /** Result of the last siteSearch: best new site (cell) or settlement to join, -1 if none. */
 let foundCell = -1
 let foundJoin = -1
@@ -219,6 +228,14 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   const moveCost = s.moveCost
   const { habitable, potential, deep, sea, catchOff, catchBase, catchCell, catchW } = T
   const seaCost = T.moveCost
+  // Species: site factors and travel over desert / highland for this group.
+  const rows = siteRows(s, from)
+  const siteMax = s.sp.siteMax
+  const mcls = s.sp.moveClass
+  const tm = TMUL
+  moveMuls(s, from, tm)
+  const plain = tm[1] === 1 && tm[2] === 1
+  let sf = 0
   const st = claimStrength(g)
   const maxVisits = M.maxVisits
   const costPenalty = M.costPenalty
@@ -254,9 +271,9 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
-      } else if (habitable[c] === 1 && nearCount[c] === 0 && potential[c] * prod >= minFood) {
-        // What the group could expect here (people fed, at its productivity), sharing every base-catchment
-        // cell with its current claimants as the food system would, and what the land would give it alone.
+      } else if (habitable[c] === 1 && nearCount[c] === 0 && potential[c] * prod * siteMax[c] >= minFood && potential[c] * prod * (sf = siteFactorAt(s, rows, c)) >= minFood) {
+        // What the group could expect here (people fed, at its productivity and with its species), sharing every
+        // base-catchment cell with its current claimants as the food system would, and what the land would give it alone.
         let v = 0, a = 0
         for (let q = catchOff[c], e = catchBase[c]; q < e; q++) {
           const j = catchCell[q]
@@ -266,10 +283,10 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           v += (cw * wg) / (claim[j] + wg)
           a += cw
         }
-        const food = v * prod
+        const food = v * prod * sf
         if (food >= minFood) {
           // Empty land pulls: the larger the share of the land nobody else works, the better.
-          const alone = a * prod
+          const alone = a * prod * sf
           const free = alone > 0 ? food / alone : 0
           let score = (food * (1 + M.emptyPull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
           if (portReach[c]) score *= sitePref
@@ -281,10 +298,10 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
       const j = nb[e]
       if (restrict && known[kBase + j] < 0) {
         // Nobody of this people has seen it (the shadow search notes whether that cut its reach short).
-        if (!jitter && !frontier) frontier = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : moveCost[j]) <= budget
+        if (!jitter && !frontier) frontier = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : plain ? moveCost[j] : moveCost[j] * tm[mcls[j]]) <= budget
         continue
       }
-      const nd = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : moveCost[j])
+      const nd = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : plain ? moveCost[j] : moveCost[j] * tm[mcls[j]])
       if (nd > budget) continue
       if (stamp[j] === run && nd >= dist[j]) continue
       stamp[j] = run
@@ -308,6 +325,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const hasPort = s.port[from] >= 0
   const voyage = rng.next() < (hasPort ? PORT.voyageChance : M.voyageChance)
   let budget = M.budget * (1 + M.budgetTech * (techOf(s, from, TechField.Crafts) - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
+  if (hasHorse(s, from)) budget *= 1 + SPECIES.horseBudget
   let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(techOf(s, from, TechField.Seafaring))
   if (voyage) { budget *= M.voyageBudget; ocean *= M.voyageOcean }
   // Boats: from a port the sea is cheap; without one every sea cell costs more.

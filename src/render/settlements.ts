@@ -79,6 +79,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
 
   const center = new Float32Array(N * 3)
   const life = new Float32Array(N * 2)
+  /** Expedition bases have their own markers (outposts.ts): never drawn or picked here. */
+  const outpost = new Uint8Array(N)
   const ids = new Float32Array(N)
   for (let i = 0; i < N; i++) {
     const s = history.settlements[i]
@@ -89,7 +91,11 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     life[i * 2] = s.foundedYear
     life[i * 2 + 1] = s.abandonedYear >= 0 ? s.abandonedYear : NEVER
     ids[i] = i
+    outpost[i] = (s as { outpost?: boolean }).outpost === true ? 1 : 0
   }
+  // the shader's copy of the life years: an expedition base is never alive
+  const drawnLife = life.slice()
+  for (let i = 0; i < N; i++) if (outpost[i]) drawnLife[i * 2] = NEVER
   const popA = new Float32Array(N)
   const popB = new Float32Array(N)
   const food = new Float32Array(N)
@@ -98,7 +104,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   const popBAttr = dyn(popB)
   const foodAttr = dyn(food)
   quad.setAttribute('aCenter', new THREE.InstancedBufferAttribute(center, 3))
-  quad.setAttribute('aLife', new THREE.InstancedBufferAttribute(life, 2))
+  quad.setAttribute('aLife', new THREE.InstancedBufferAttribute(drawnLife, 2))
   quad.setAttribute('aId', new THREE.InstancedBufferAttribute(ids, 1))
   quad.setAttribute('aPopA', popAAttr)
   quad.setAttribute('aPopB', popBAttr)
@@ -317,7 +323,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   }
   const aliveAt = (id: number) => year >= life[id * 2] && year < life[id * 2 + 1]
   /** Alive and not hidden by the known-world mask (what is drawn and pickable). */
-  const shownAt = (id: number) => aliveAt(id) && !(maskOn && year < mask[id * 2])
+  const shownAt = (id: number) => aliveAt(id) && !outpost[id] && !(maskOn && year < mask[id * 2])
 
   return {
     mesh,

@@ -80,9 +80,9 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   const T = partial.trade
   const extra: (ArrayBufferView | undefined)[] = [partial.landUse, partial.degradation, partial.road, partial.wealth, partial.tradeVolume]
   if (T) extra.push(T.a, T.b, T.openedYear, T.goodAB, T.goodBA, T.pathOffsets, T.path)
-  // knowledge, contact and technology tables (newer sims)
+  // knowledge, contact, technology and species tables (newer sims)
   const p = partial as Record<string, unknown>
-  for (const k of ['knownYear', 'contactYear', 'technology']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
+  for (const k of ['knownYear', 'contactYear', 'technology', 'speciesYear', 'speciesSource', 'crop', 'herd']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend }, [...transfer])
 }

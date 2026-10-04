@@ -17,6 +17,11 @@
 //
 // A second mesh shares the trail buffers with its own draw range to highlight one
 // route (the one that founded the selected settlement), persistently.
+//
+// Expeditions (JourneyKind.Expedition) are drawn apart from settlers and migrants: a fine
+// dotted white-gold trail, out and back, and a small pennant for the party; a lost one's
+// trail simply ends where it was lost (outposts.ts marks the spot). They have their own
+// toggle (setExpeditionsVisible).
 
 import * as THREE from 'three'
 import type { Journeys, World } from '../contract.ts'
@@ -54,6 +59,8 @@ export interface JourneyLayer {
   groups(): { count: number; pos: Float32Array; dir: Float32Array; info: Float32Array }
   /** Fade group markers out within camera distance near..far (where models take over); far <= 0 turns it off. */
   setYield(near: number, far: number): void
+  /** Show expedition trails and parties (settlers and migrants are unaffected). */
+  setExpeditionsVisible(on: boolean): void
   dispose(): void
 }
 
@@ -358,6 +365,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     // down from LIFT toward the ground; set in update()
     uClose: { value: 1 },
     uDrop: { value: 0 },
+    uExpeditions: { value: 1 },
   }
   const trailUniforms = (mode: number) => ({
     ...shared,
@@ -390,6 +398,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     uniform float uPixelRatio;
     uniform float uClose;
     uniform float uDrop;
+    uniform float uExpeditions;
     uniform vec3 uCamObj;
     uniform vec3 uSunObj;
       uniform float uDaylight; // 1: daylight everywhere (sun.ts)
@@ -406,7 +415,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     void main() {
       float passYear = mix(aTime.x, aTime.y, aTime.z);
       // whole journeys only, so no triangle is ever half culled
-      if (uMode == 0 && (uYear < aTime.x || uYear > aTime.y + uThreadYears)) {
+      if ((uMode == 0 && (uYear < aTime.x || uYear > aTime.y + uThreadYears)) || (aKind.x > 1.5 && uExpeditions < 0.5)) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         return;
       }
@@ -414,6 +423,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       float head = uMode == 1 ? 1.0 : exp(-max(vAge, 0.0) / uHeadYears);
       // half widths in CSS pixels: a hairline thread, a stronger head, a bold highlight with a dark rim
       float core = (uMode == 1 ? 1.25 : mix(0.62, 1.0, head)) * mix(0.45, 1.0, uClose);
+      if (aKind.x > 1.5) core *= 0.72; // expeditions: a finer line
       float rim = uMode == 1 ? mix(0.3, 1.1, uClose) : 0.0;
       vec3 base = position - normalize(position) * uDrop;
       vec4 mv = modelViewMatrix * vec4(base, 1.0);
@@ -455,7 +465,8 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
       float body = 1.0 - smoothstep(1.0 - vSoft, 1.0, x);
       float coreMask = 1.0 - smoothstep(vCore - vSoft, vCore, x);
       bool sea = vWater > 0.5;
-      bool migrants = vKindV > 0.5;
+      bool expedition = vKindV > 1.5;
+      bool migrants = vKindV > 0.5 && !expedition;
       vec3 headC = migrants ? vec3(1.0, 0.66, 0.54) : vec3(1.0, 0.93, 0.74);
       vec3 threadC = migrants ? vec3(0.92, 0.50, 0.42) : vec3(0.98, 0.76, 0.42);
       vec3 col;
@@ -470,7 +481,11 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
         float thread = 1.0 - smoothstep(0.0, uThreadYears, vAge);
         col = mix(threadC, headC, head);
         a = max(0.9 * head, 0.46 * thread) * coreMask;
-        if (sea) {
+        if (expedition) {
+          // a fine dotted white-gold line, the same by land and sea
+          col = mix(vec3(0.96, 0.86, 0.58), vec3(1.0, 0.98, 0.9), head);
+          a = max(0.95 * head, 0.62 * thread) * coreMask * step(0.5, fract(vArc / 0.0032));
+        } else if (sea) {
           // a dotted, paler wake at sea
           col = mix(col, vec3(0.80, 0.93, 1.0), 0.6);
           a *= step(0.5, fract(vArc / 0.006)) * 0.9;
@@ -554,8 +569,10 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
         vec2 d = (ahead.xy / ahead.w - clip.xy / clip.w) * uViewport;
         vec2 fwd = length(d) > 1e-5 ? normalize(d) : vec2(1.0, 0.0);
         vec2 side = vec2(-fwd.y, fwd.x);
+        if (side.y < 0.0) side = -side; // (+y on screen up: an expedition's pennant flies upward; the other shapes are symmetric)
         float r = (${GROUP_MIN_RADIUS.toFixed(2)} + ${(GROUP_MAX_RADIUS - GROUP_MIN_RADIUS).toFixed(2)} * aInfo.y) * uSizeScale * mix(0.6, 1.0, sqrt(facing));
-        float ext = r * 2.2 + 3.0;
+        if (aInfo.x > 1.5) r = max(r * 1.45, 2.4); // an expedition's pennant reads at a glance
+        float ext = aInfo.x > 1.5 ? r * 3.0 + 3.0 : r * 2.2 + 3.0;
         // the quad's x axis runs along the direction of travel on screen
         vec2 offPx = (fwd * position.x + side * position.y) * ext;
         clip.xy += offPx * uPixelRatio * 2.0 / uViewport * clip.w;
@@ -591,11 +608,18 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
         return -sqrt(d.x) * sign(d.y);
       }
       void main() {
-        bool migrants = vKindV > 0.5;
-        vec3 fill = migrants ? vec3(1.0, 0.62, 0.50) : vec3(1.0, 0.95, 0.80);
+        bool expedition = vKindV > 1.5;
+        bool migrants = vKindV > 0.5 && !expedition;
+        vec3 fill = expedition ? vec3(1.0, 0.88, 0.5) : migrants ? vec3(1.0, 0.62, 0.50) : vec3(1.0, 0.95, 0.80);
         vec3 rim = vec3(0.12, 0.06, 0.03);
         float d;
-        if (vSea > 0.5) {
+        if (expedition) {
+          // a pennant on a short staff (by land and sea), flying back from the direction of travel (+x)
+          float staff = abs(vPx.x) - 0.55;
+          staff = max(staff, max(-vPx.y - vR * 0.6, vPx.y - vR * 2.6));
+          float flag = sdTri(vPx, vec2(0.0, vR * 2.6), vec2(0.0, vR * 1.3), vec2(-vR * 2.0, vR * 1.95));
+          d = min(min(length(vPx) - vR * 0.75, staff), flag);
+        } else if (vSea > 0.5) {
           // a boat: an arrowhead with a notched stern, pointing along +x
           float L = vR * 2.0;
           float W = vR * 1.4;
@@ -606,7 +630,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
           d = length(vPx) - vR;
         }
         // boats get a thinner rim: their shape, not the outline, should carry
-        float inner = vSea > 0.5 ? 1.0 - smoothstep(-0.8, 0.0, d) : 1.0 - smoothstep(-1.1, -0.1, d);
+        float inner = vSea > 0.5 || expedition ? 1.0 - smoothstep(-0.8, 0.0, d) : 1.0 - smoothstep(-1.1, -0.1, d);
         float bodyA = 1.0 - smoothstep(0.3, 1.3, d);
         vec3 bodyC = mix(rim, fill, inner);
         // a soft glow so a few pixels read at a glance
@@ -655,12 +679,14 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     attr.needsUpdate = true
   }
 
+  let expeditionsShown = true
   function writeGroups(year: number) {
     const hi = upperBound(J.departYear, year)
     let n = 0
     for (let j = lowerBound(maxArrive, year); j < hi && n < capacity; j++) {
       const d0 = J.departYear[j], d1 = J.arriveYear[j]
       if (year >= d1 || year < d0) continue
+      if (!expeditionsShown && J.kind[j] === 2) continue
       const s0 = sampleOffsets[j], s1 = sampleOffsets[j + 1]
       if (s1 - s0 < 2) continue
       const p = d1 > d0 ? (year - d0) / (d1 - d0) : 1
@@ -714,6 +740,10 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     },
     setYield(near: number, far: number) {
       groupUniforms.uYield.value.set(near, far)
+    },
+    setExpeditionsVisible(on: boolean) {
+      expeditionsShown = on
+      shared.uExpeditions.value = on ? 1 : 0
     },
     setHighlight(j: number) {
       const ok = j >= 0 && j < count && indexOffsets[j + 1] > indexOffsets[j]

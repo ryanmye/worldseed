@@ -109,6 +109,9 @@ export const EventType = {
   ExpeditionReturned: 14, // an expedition came home to `settlement` with news; `other` is the outpost it founded or -1; `value` is the number of cells newly known
   Discovery: 15, // an expedition from `settlement` reached a notable place for the first time by anyone; `other` is -1; `value` is the id of the History.features entry, or -1 for a pole
   TechAdvance: 16, // the people of `settlement` reached a new whole level in a field of technology there; `other` is -1; `value` is the TechField
+  Domesticated: 17, // the people of `settlement` first tamed or cultivated a wild species there; `other` is -1; `value` is the species id
+  SpeciesAdopted: 18, // the people of `settlement` first took up a species from another people; `other` is the settlement it came from; `value` is the species id
+  Epidemic: 19, // a sickness new to the people of `settlement` struck after contact; `other` is the settlement of the people it came from; `value` is the fraction of that people lost
   FirstContact: 12, // two peoples met for the first time; `settlement` and `other` are the settlements through which they met; `value` is the other people's id (that of `other`)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
@@ -172,6 +175,24 @@ export interface History {
    * contactYear[a * peoples.length + b]. The diagonal is 0.
    */
   contactYear: Int16Array
+  /** The useful plants and animals of this world, indexed by SpeciesInfo.id. */
+  species: SpeciesInfo[]
+  /**
+   * Year each people first held each species, or -1 if never, row-major:
+   * speciesYear[people * species.length + species]. 0 for a people's founding set.
+   */
+  speciesYear: Int16Array
+  /**
+   * Which people each people got each species from, same layout as `speciesYear`:
+   * the source people's id, or -1 if it was in their founding set, tamed from the wild, or never held.
+   */
+  speciesSource: Int8Array
+  /**
+   * Main staple crop grown in each cell per land snapshot (same layout as `landUse`): species id + 1, or 0 where nothing is farmed.
+   */
+  crop: Uint8Array
+  /** Main herd animal kept in each cell per land snapshot, same encoding and layout as `crop`. */
+  herd: Uint8Array
   /**
    * Technology level per snapshot per people per field (see `TechField`), row-major:
    * technology[(s * peoples.length + people) * TECH_FIELD_COUNT + field]. Levels start near 1 and grow;
@@ -345,4 +366,29 @@ export interface People {
   /** The original tribe's settlement. */
   founder: number
   name: string
+}
+
+export const SpeciesCategory = {
+  Staple: 0,
+  Livestock: 1,
+  Fibre: 2,
+  Luxury: 3,
+  Stimulant: 4,
+  Ornamental: 5,
+} as const
+export type SpeciesCategory = (typeof SpeciesCategory)[keyof typeof SpeciesCategory]
+
+/** A plant or animal that is native to one or two places and spreads through contact, trade and colonisation. */
+export interface SpeciesInfo {
+  /** Index into History.species. */
+  id: number
+  /** The real-world model it is patterned on, as a stable key such as "potato" or "camel"; for looks and descriptions, not shown as its name. */
+  archetype: string
+  category: SpeciesCategory
+  /** Its name in this world: a word from the language of the people who first held it. */
+  name: string
+  /** Cells at the centre of each place it is native to (one or two). */
+  origins: number[]
+  /** Staples: food yield relative to the baseline grain where it grows well. 0 for other categories. */
+  yield: number
 }

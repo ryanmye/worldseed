@@ -3,8 +3,10 @@
 // state accumulated during playback. That is what makes scrubbing backwards exact.
 
 import { CITY_POPULATION, EventType, FeatureKind, JourneyKind, TOWN_POPULATION, type GeoFeature, type History, type Journeys, type Settlement, type Structure, type TradeRoutes } from '../contract.ts'
-import { PeoplesEvent } from './format.ts'
+import { LAST_SHOWN_EVENT, PeoplesEvent } from './format.ts'
 import type { PeoplesData } from './peoplesData.ts'
+import type { SpeciesData } from './speciesData.ts'
+import type { ExpeditionData } from './expeditionsData.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -24,6 +26,8 @@ export const EntryKind = {
   Named: 6,
   /** Events of one exploration or technology type (BURST_TYPES) in one decade; the representative is the largest. */
   Burst: 7,
+  /** Landfalls on small islands (under SMALL_ISLAND_CELLS) in one decade; landfalls on larger land stay single entries. */
+  Landfalls: 8,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -34,8 +38,12 @@ export interface HistoryIndex {
   history: History
   /** Number of settlements (row length of population/food). */
   count: number
-  /** Living settlements per snapshot. */
+  /** Living settlements per snapshot (expedition bases are not settlements: see outpostCount). */
   aliveCount: Uint32Array
+  /** Living expedition bases (Settlement.outpost) per snapshot. */
+  outpostCount: Uint32Array
+  /** 1 for an expedition base, per settlement. */
+  isOutpost: Uint8Array
   /** Total population per snapshot. */
   totalPopulation: Float64Array
   /** Largest population any settlement reaches in the first NORM_YEARS (for size and light scaling; later peaks saturate). */
@@ -91,6 +99,10 @@ export interface HistoryIndex {
   wealthMax: Float32Array
   /** Peoples, knowledge and contact (peoplesData.ts; set by the history view), or null when the history has none. */
   peoples: PeoplesData | null
+  /** Species, crops and herds (speciesData.ts; set by the history view), or null when the history has none. */
+  species: SpeciesData | null
+  /** Expedition bases, lost expeditions and discoveries (expeditionsData.ts; set by the history view). */
+  expeditions: ExpeditionData | null
 }
 
 export interface TradeData {
@@ -325,14 +337,18 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return type >= EventType.Founded && type <= PeoplesEvent.TechAdvance
+  return type >= EventType.Founded && type <= LAST_SHOWN_EVENT
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
 function otherIsSettlement(type: number): boolean {
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
-    type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned
+    type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
+    type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic
 }
+
+/** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per decade. */
+const SMALL_ISLAND_CELLS = 25
 
 /** Whether naming a feature is worth a chronicle line: continents and oceans, the larger seas, rivers, ranges and so on. */
 export function isMajorFeature(f: GeoFeature, cellCount: number): boolean {
@@ -375,6 +391,9 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const N = h.settlements.length
   const S = h.snapshotCount
   const aliveCount = new Uint32Array(S)
+  const outpostCount = new Uint32Array(S)
+  const isOutpost = new Uint8Array(N)
+  for (let i = 0; i < N; i++) if ((h.settlements[i] as { outpost?: boolean }).outpost === true) isOutpost[i] = 1
   const totalPopulation = new Float64Array(S)
   let maxPopulation = 0
   // the size scale: over the first NORM_YEARS only (see there)
@@ -383,11 +402,12 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const townCount = new Uint32Array(S)
   const cityCount = new Uint32Array(S)
   for (let s = 0; s < S; s++) {
-    let alive = 0, total = 0, peak = 0, towns = 0, cities = 0
+    let alive = 0, total = 0, peak = 0, towns = 0, cities = 0, bases = 0
     const base = s * N
     for (let i = 0; i < N; i++) {
       const p = h.population[base + i]
-      if (p > 0) {
+      if (p > 0 && isOutpost[i]) bases++
+      else if (p > 0) {
         alive++
         total += p
         if (p > peak) peak = p
@@ -397,6 +417,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     }
     if (s < normSnapshots && peak > maxPopulation) maxPopulation = peak
     aliveCount[s] = alive
+    outpostCount[s] = bases
     totalPopulation[s] = total
     townCount[s] = towns
     cityCount[s] = cities
@@ -423,9 +444,10 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   for (const e of h.events) if (e.type === EventType.Famine) faminesPerYear.set(e.year, (faminesPerYear.get(e.year) ?? 0) + 1)
   // Expansion founds a settlement every year or so: one entry per decade that saw several.
   const bucketOf = (year: number) => Math.floor(year / FOUNDING_BUCKET_YEARS)
-  const isColony = (type: number, other: number) => type === EventType.Founded && other >= 0
+  // (an expedition base is not a colony: its founding is a line of its own)
+  const isColony = (type: number, other: number, settlement = -1) => type === EventType.Founded && other >= 0 && !(settlement >= 0 && isOutpost[settlement])
   const foundingsPerBucket = new Map<number, number>()
-  for (const e of h.events) if (isColony(e.type, e.other)) foundingsPerBucket.set(bucketOf(e.year), (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) + 1)
+  for (const e of h.events) if (isColony(e.type, e.other, e.settlement)) foundingsPerBucket.set(bucketOf(e.year), (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) + 1)
   // trade routes open by the dozen once trade takes off, migrations too: per decade as well
   const perBucket = (type: number, keep: (value: number) => boolean) => {
     const m = new Map<number, number>()
@@ -437,6 +459,10 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const migrationsPerBucket = perBucket(EventType.Migration, (v) => v >= migrationThreshold)
   const burstPerBucket = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, perBucket(t, () => true)]))
   const burstEntry = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, new Map<number, number>()]))
+  const smallIsland = SMALL_ISLAND_CELLS * ((h.capacity?.length ?? 23042) / 23042)
+  const isIslandLandfall = (type: number, value: number) => type === PeoplesEvent.Landfall && value > 0 && value < smallIsland
+  const islandLandfallsPerBucket = perBucket(PeoplesEvent.Landfall, (v) => v > 0 && v < smallIsland)
+  const landfallEntry = new Map<number, number>()
   const entries: { kind: EntryKind; members: number[] }[] = []
   const famineEntry = new Map<number, number>()
   const foundingEntry = new Map<number, number>()
@@ -459,11 +485,12 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     if (!isShownType(e.type)) continue
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
-    else if (isColony(e.type, e.other) && (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(foundingEntry, bucketOf(e.year), EntryKind.Foundings, i)
+    else if (isColony(e.type, e.other, e.settlement) && (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(foundingEntry, bucketOf(e.year), EntryKind.Foundings, i)
     else if (e.type === EventType.Migration && (migrationsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(migrationEntry, bucketOf(e.year), EntryKind.Migrations, i)
     else if (e.type === EventType.TradeOpened && (openingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(openingEntry, bucketOf(e.year), EntryKind.TradeOpenings, i)
     else if (e.type === EventType.TradeClosed && (closingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(closingEntry, bucketOf(e.year), EntryKind.TradeClosings, i)
     else if ((burstPerBucket.get(e.type)?.get(bucketOf(e.year)) ?? 0) >= 2) join(burstEntry.get(e.type)!, bucketOf(e.year), EntryKind.Burst, i)
+    else if (isIslandLandfall(e.type, e.value) && (islandLandfallsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(landfallEntry, bucketOf(e.year), EntryKind.Landfalls, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
@@ -501,11 +528,12 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
 
   // children per settlement (ids are in founding order, so each list is chronological)
   const childOffsets = new Uint32Array(N + 1)
-  for (const s of h.settlements) if (s.parent >= 0 && s.parent < N) childOffsets[s.parent + 1]++
+  // (expedition bases are not children: the inspector lists them as bases)
+  for (const s of h.settlements) if (s.parent >= 0 && s.parent < N && !isOutpost[s.id]) childOffsets[s.parent + 1]++
   for (let i = 0; i < N; i++) childOffsets[i + 1] += childOffsets[i]
   const childCursor = childOffsets.slice(0, N)
   const childList = new Int32Array(childOffsets[N])
-  for (const s of h.settlements) if (s.parent >= 0 && s.parent < N) childList[childCursor[s.parent]++] = s.id
+  for (const s of h.settlements) if (s.parent >= 0 && s.parent < N && !isOutpost[s.id]) childList[childCursor[s.parent]++] = s.id
   const childYear = Float64Array.from(childList, (id) => h.settlements[id].foundedYear)
 
   // journeys arrive with the sim; a history without them simply has none
@@ -544,6 +572,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     history: h,
     count: N,
     aliveCount,
+    outpostCount,
+    isOutpost,
     totalPopulation,
     maxPopulation,
     logMax: Math.log(1 + Math.max(maxPopulation, POP_LOG_BASE) / POP_LOG_BASE),
@@ -574,6 +604,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     wealth,
     wealthMax,
     peoples: null,
+    species: null,
+    expeditions: null,
   }
 }
 

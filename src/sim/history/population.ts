@@ -12,6 +12,9 @@
 // (technology.ts). Capacity here
 // is the effective one (degradation, irrigation, reservoirs; see land.ts);
 // a port adds fishing on coastal cells and a dam damps the owner's bad harvests.
+// The species a settlement holds (species.ts) multiply the farm part of its
+// land (its crop multiplier: which staples and herds suit the land, and how
+// well), not the fishing part.
 // In land years the same pass records which fields feed each settlement
 // (nearest first), the target the land-use system moves cultivation toward,
 // how crowded the people working them are (for degradation), and what the
@@ -101,18 +104,24 @@ export function foodSystem(s: HistoryState): void {
   const active = s.active
   const isActive = s.isActive
   const { liveFrac, riverFishFrac } = T
+  const sp = s.sp
+  const cropMul = sp.cropMul, rawMul = sp.raw, liveAdj = sp.liveAdj
   let activeCount = s.activeCount
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const c = s.cell[id]
     const p = s.pop[id]
-    // Farming tech multiplies the whole catchment; the fishing part is instead worth (1 + port bonus) * Seafaring,
-    // written as capacity * farm + capFish * fish * farm with fish = (1 + port bonus) * sea / farm - 1 (exact).
+    // Farming tech and the crop multiplier cm multiply the whole catchment; the fishing part is instead worth
+    // (1 + port bonus) * Seafaring, written as capacity * farm + capFish * fish * farm with farm = Farming * cm and
+    // fish = (1 + port bonus) * sea / farm - 1 (exact).
     const to = peopleOf[id] * TECH_FIELD_COUNT
-    const farmT = tech[to + TechField.Farming]
+    const cm = cropMul[id]
+    const farmT = tech[to + TechField.Farming] * cm
     const fish = ((s.port[id] >= 0 ? 1 + portFish : 1) * tech[to + TechField.Seafaring]) / farmT - 1
     const st = claimStrength(p)
     const mul = farmT * s.econ[id]
+    const riverAdj = recordFields ? 1 / rawMul[id] : 0 // river fishing is not a crop
+    const lAdj = recordFields ? liveAdj[id] : 0
     const stm = st * mul
     const big = p > smallPop
     const r1 = big ? reachOf(p) + 1 : 0
@@ -150,8 +159,8 @@ export function foodSystem(s: HistoryState): void {
       if (recordFields) {
         const farm = capacity[j] - capFish[j]
         const cf = cj - farm
-        perFish += (cf + farm * riverFishFrac[j]) * ww
-        perLive += farm * liveFrac[j] * ww
+        perFish += (cf + farm * riverFishFrac[j] * riverAdj) * ww
+        perLive += farm * liveFrac[j] * lAdj * ww
       }
       if (need > 0) {
         // Fields worked this year: up to this settlement's share of the cell.

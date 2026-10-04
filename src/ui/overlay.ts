@@ -84,7 +84,10 @@ const MODE_LABELS: Record<ViewMode, string> = {
   plates: 'Plates',
   biomes: 'Biomes',
   population: 'Population',
+  capacity: 'Carrying capacity',
   landuse: 'Land use',
+  crops: 'Crops',
+  herds: 'Herds',
 }
 
 const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }
@@ -127,6 +130,8 @@ export interface Overlay {
   setViewMode(mode: ViewMode): void
   /** Add a layer toggle to a group of the Layers panel; returns its checkbox. */
   addLayerToggle(t: LayerToggle): HTMLInputElement
+  /** Offer a view mode in the menu (and to V / Shift+V) or not (views that need data the history lacks). */
+  setViewModeAvailable(mode: ViewMode, available: boolean): void
   /** Re-measure what the columns must keep clear of (after a panel changes size). */
   relayout(): void
 }
@@ -504,9 +509,14 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   addShortcut({ keys: ['l', 'L'], label: 'L', description: 'Show or hide the layers', group: 'Panels', run: () => toggleLayers() })
   addShortcut({ keys: ['s', 'S'], label: 'S', description: 'Sun and quality settings', group: 'Panels', run: () => togglePopover(settingsPop.p) })
   addShortcut({ keys: ['?'], label: '?', description: 'This help', group: 'Panels', run: () => togglePopover(helpPop.p) })
+  const unavailable = new Set<ViewMode>()
   const stepMode = (dir: number) => {
-    const i = VIEW_MODES.indexOf(viewSelect.value as ViewMode)
-    callbacks.onViewModeChange(VIEW_MODES[(i + dir + VIEW_MODES.length) % VIEW_MODES.length])
+    let i = VIEW_MODES.indexOf(viewSelect.value as ViewMode)
+    for (let k = 0; k < VIEW_MODES.length; k++) {
+      i = (i + dir + VIEW_MODES.length) % VIEW_MODES.length
+      if (!unavailable.has(VIEW_MODES[i])) break
+    }
+    callbacks.onViewModeChange(VIEW_MODES[i])
   }
   addShortcut({ keys: ['v', 'V'], shift: false, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(1) })
   addShortcut({ keys: ['v', 'V'], shift: true, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(-1) })
@@ -541,6 +551,11 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       viewSelect.value = mode
     },
     addLayerToggle,
+    setViewModeAvailable(mode: ViewMode, available: boolean) {
+      if (available) unavailable.delete(mode)
+      else unavailable.add(mode)
+      for (const o of viewSelect.options) if (o.value === mode) o.hidden = !available
+    },
     relayout: queueRelayout,
   }
 }

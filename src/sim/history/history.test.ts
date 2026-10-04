@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
 import type { HistoryRun } from './index.ts'
 import { buildTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
-import { CAPACITY, EXPLORE, OUTPOST, POPULATION } from './params.ts'
+import { CAPACITY, DISEASE, EXPLORE, OUTPOST, POPULATION } from './params.ts'
+import { K_COUNT, S_COUNT, speciesFit, SPECIES_TABLE } from './species.ts'
+import { speciesProbe } from './speciesStats.ts'
+import type { SpeciesProbe } from './speciesStats.ts'
 
 const SEEDS = [1, 2, 3, 42, 1337, 2024, 31337, 77, 99999, 123456]
 
@@ -50,6 +53,14 @@ function hashHistory(hi: History): string {
   h = fnv(h, hi.knownYear)
   h = fnv(h, hi.contactYear)
   h = fnv(h, hi.technology)
+  h = fnv(h, hi.speciesYear)
+  h = fnv(h, hi.speciesSource)
+  h = fnv(h, hi.crop)
+  h = fnv(h, hi.herd)
+  for (const x of hi.species) {
+    ints.push(x.id, x.category, Math.round(x.yield * 1000), ...x.origins)
+    for (const str of [x.name, x.archetype]) for (let i = 0; i < str.length; i++) ints.push(str.charCodeAt(i))
+  }
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
   h = fnv(h, Int32Array.from(ints))
   const ev = new Float64Array(hi.events.length * 5)
@@ -198,7 +209,7 @@ function checkInvariants(w: World, h: History): void {
   const lost = new Int32Array(T)
   const townYear = new Int32Array(S).fill(-1)
   const cityYear = new Int32Array(S).fill(-1)
-  const lostVoyages: HistoryEvent[] = [], landfalls: HistoryEvent[] = [], contacts: HistoryEvent[] = [], sent: HistoryEvent[] = [], returned: HistoryEvent[] = [], advances: HistoryEvent[] = []
+  const lostVoyages: HistoryEvent[] = [], landfalls: HistoryEvent[] = [], contacts: HistoryEvent[] = [], sent: HistoryEvent[] = [], returned: HistoryEvent[] = [], advances: HistoryEvent[] = [], speciesEvents: HistoryEvent[] = []
   for (let i = 0; i < h.events.length; i++) {
     const e = h.events[i]
     if (i > 0) expect(e.year).toBeGreaterThanOrEqual(h.events[i - 1].year)
@@ -307,6 +318,12 @@ function checkInvariants(w: World, h: History): void {
         expect(Number.isInteger(e.value) && e.value >= 0 && e.value < TECH_FIELD_COUNT).toBe(true)
         expect(st.outpost).toBe(false)
         advances.push(e)
+        break
+      case EventType.Domesticated:
+      case EventType.SpeciesAdopted:
+      case EventType.Epidemic:
+        // Checked with the species below.
+        speciesEvents.push(e)
         break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
@@ -510,6 +527,145 @@ function checkInvariants(w: World, h: History): void {
   })
   checkPeoples(w, h, { lostVoyages, landfalls, contacts })
   checkTechnology(h, advances)
+  checkSpecies(w, h, speciesEvents)
+}
+
+const fits = new WeakMap<World, Float32Array>()
+function fitOf(w: World): Float32Array {
+  let f = fits.get(w)
+  if (!f) { f = speciesFit(w, true); fits.set(w, f) }
+  return f
+}
+const baseFits = new WeakMap<World, Float32Array>()
+const worldTerrain = new WeakMap<World, Terrain>()
+function terrainOf(w: World): Terrain {
+  let t = worldTerrain.get(w)
+  if (!t) { t = buildTerrain(w); worldTerrain.set(w, t) }
+  return t
+}
+
+/**
+ * Species: the catalogue (origins on land where they fit, names unique), possession years and sources consistent
+ * with contact and with the events, every people holding a staple from the start, the crop and herd layers.
+ */
+function checkSpecies(w: World, h: History, events: HistoryEvent[]): void {
+  const N = w.grid.cellCount
+  const P = h.peoples.length
+  const S = h.settlements.length
+  const X = h.species.length
+  const fit = fitOf(w) // (improved strains included: the crop layer)
+  const baseFit = baseFits.get(w) ?? speciesFit(w)
+  baseFits.set(w, baseFit)
+  expect(X).toBe(S_COUNT)
+  const names = new Set<string>()
+  h.species.forEach((x, i) => {
+    expect(x.id).toBe(i)
+    expect(x.archetype).toBe(SPECIES_TABLE[i].archetype)
+    expect(Object.values(SpeciesCategory)).toContain(x.category)
+    if (!x.name || names.has(x.name.toLowerCase())) throw new Error(`species ${i} name "${x.name}" is empty or not unique`)
+    names.add(x.name.toLowerCase())
+    if (!(x.origins.length >= 1 && x.origins.length <= 2)) throw new Error(`species ${i} has ${x.origins.length} origins`)
+    for (const c of x.origins) {
+      if (!(c >= 0 && c < N) || w.elevation[c] < 0) throw new Error(`species ${i} origin ${c} is not land`)
+      if (!(baseFit[i * N + c] > 0)) throw new Error(`species ${i} (${x.archetype}) native to cell ${c} where it does not grow`)
+    }
+    if (x.category === SpeciesCategory.Staple) expect(x.yield).toBeGreaterThan(0)
+    else expect(x.yield).toBe(0)
+  })
+  // Possession: years and sources.
+  expect(h.speciesYear.length).toBe(P * X)
+  expect(h.speciesSource.length).toBe(P * X)
+  for (let p = 0; p < P; p++) {
+    let staple = false
+    for (let x = 0; x < X; x++) {
+      const y = h.speciesYear[p * X + x], src = h.speciesSource[p * X + x]
+      if (!(y === -1 || (y >= 0 && y <= h.years))) throw new Error(`speciesYear[${p}, ${x}] = ${y}`)
+      if (y === 0 && h.species[x].category === SpeciesCategory.Staple) staple = true
+      if (y <= 0 && src !== -1) throw new Error(`people ${p} has species ${x} (year ${y}) from people ${src}`)
+      if (src >= 0) {
+        if (!(src < P) || src === p) throw new Error(`people ${p} got species ${x} from people ${src}`)
+        // Only from a people met by then.
+        const met = h.contactYear[p * P + src]
+        if (!(met >= 0 && met <= y)) throw new Error(`people ${p} got species ${x} from people ${src} in ${y}, met in ${met}`)
+      }
+    }
+    if (!staple) throw new Error(`people ${p} holds no staple from the start`)
+  }
+  // Events: one per people and species gained after the start, matching the years and sources.
+  const seen = new Uint8Array(P * X)
+  for (const e of events) {
+    const p = h.settlements[e.settlement].people
+    const alive = (id: number) => h.settlements[id].foundedYear <= e.year && (h.settlements[id].abandonedYear < 0 || h.settlements[id].abandonedYear >= e.year)
+    if (e.type === EventType.Epidemic) {
+      expect(e.other).toBeGreaterThanOrEqual(0)
+      const q = h.settlements[e.other].people
+      expect(q).not.toBe(p)
+      if (!alive(e.other)) throw new Error(`epidemic in ${e.year} from settlement ${e.other}, not alive then`)
+      const met = h.contactYear[p * P + q]
+      if (!(met >= 0 && met <= e.year)) throw new Error(`epidemic among people ${p} from people ${q} in ${e.year}, met in ${met}`)
+      if (!(e.value > 0 && e.value <= DISEASE.max + 1e-9)) throw new Error(`epidemic mortality ${e.value}`)
+      continue
+    }
+    const x = e.value
+    if (!(Number.isInteger(x) && x >= 0 && x < X)) throw new Error(`species event value ${x}`)
+    if (seen[p * X + x]) throw new Error(`people ${p} gained species ${x} twice`)
+    seen[p * X + x] = 1
+    expect(h.speciesYear[p * X + x]).toBe(e.year)
+    expect(e.year).toBeGreaterThan(0)
+    if (e.type === EventType.Domesticated) {
+      expect(e.other).toBe(-1)
+      expect(h.speciesSource[p * X + x]).toBe(-1)
+    } else {
+      expect(e.other).toBeGreaterThanOrEqual(0)
+      if (!alive(e.other)) throw new Error(`species ${x} adopted in ${e.year} from settlement ${e.other}, not alive then`)
+      const q = h.settlements[e.other].people
+      expect(q).not.toBe(p)
+      expect(h.speciesSource[p * X + x]).toBe(q)
+      // The source people held it by then.
+      const yq = h.speciesYear[q * X + x]
+      if (!(yq >= 0 && yq <= e.year)) throw new Error(`people ${p} adopted species ${x} in ${e.year} from people ${q}, who held it from ${yq}`)
+    }
+  }
+  for (let p = 0; p < P; p++) for (let x = 0; x < X; x++) {
+    const y = h.speciesYear[p * X + x]
+    if (y > 0 && !seen[p * X + x]) throw new Error(`people ${p} holds species ${x} from ${y} without an event`)
+  }
+  // Crop and herd layers: 0 where nothing is farmed, else a staple / an animal that suits the cell, held by the people of
+  // a settlement farming within reach of it at that time.
+  expect(h.crop.length).toBe(h.landSnapshotCount * N)
+  expect(h.herd.length).toBe(h.landSnapshotCount * N)
+  const T = terrainOf(w)
+  const reach = new Int32Array(N)
+  for (let q = 0; q < h.landSnapshotCount; q++) {
+    const year = q * h.landInterval
+    const sq = Math.min(h.snapshotCount - 1, Math.floor(year / h.snapshotInterval))
+    // Peoples farming within reach of each cell (bits; at most 31 peoples tracked, enough here).
+    reach.fill(0)
+    for (let id = 0; id < S; id++) {
+      if (h.population[sq * S + id] <= 0 || h.settlements[id].outpost) continue
+      const c = h.settlements[id].cell
+      for (let k = T.catchOff[c]; k < T.catchOff[c + 1]; k++) reach[T.catchCell[k]] |= 1 << (h.settlements[id].people & 31)
+    }
+    for (let i = 0; i < N; i++) {
+      for (const [layer, cat] of [[h.crop, SpeciesCategory.Staple], [h.herd, SpeciesCategory.Livestock]] as const) {
+        const v = layer[q * N + i]
+        if (v === 0) continue
+        if (h.landUse[q * N + i] === 0) throw new Error(`cell ${i} unfarmed at land snapshot ${q} but crop / herd ${v}`)
+        const x = v - 1
+        if (!(x < X) || h.species[x].category !== cat) throw new Error(`cell ${i} layer value ${v} is not a ${cat === SpeciesCategory.Staple ? 'staple' : 'herd'}`)
+        if (!(fit[x * N + i] > 0)) throw new Error(`cell ${i} grows species ${x} where it does not fit (land snapshot ${q})`)
+        let held = false
+        for (let p = 0; p < P && !held; p++) {
+          if (!(reach[i] & (1 << (p & 31)))) continue
+          const y = h.speciesYear[p * X + x]
+          if (y >= 0 && y <= year) held = true
+        }
+        if (!held) throw new Error(`cell ${i} grows species ${x} at year ${year} but no people farming near it holds it`)
+      }
+    }
+  }
+  // Year 0: nothing farmed yet.
+  for (let i = 0; i < N; i++) if (h.crop[i] !== 0 || h.herd[i] !== 0) throw new Error(`cell ${i} has a crop or herd at year 0`)
 }
 
 /** Technology: layout, bounds, 0 for peoples that died out, non-decreasing, TechAdvance once per whole level. */
@@ -748,6 +904,24 @@ function expectPrefix(short: History, long: History): void {
   expect(long.knownYear.length).toBe(short.knownYear.length)
   for (let i = 0; i < short.knownYear.length; i++) if (!later(short.knownYear[i], long.knownYear[i])) throw new Error(`knownYear[${i}] ${short.knownYear[i]} vs ${long.knownYear[i]}`)
   for (let i = 0; i < short.contactYear.length; i++) if (!later(short.contactYear[i], long.contactYear[i])) throw new Error(`contactYear[${i}] ${short.contactYear[i]} vs ${long.contactYear[i]}`)
+  // Species: the same catalogue (names of species held by Y alike), possession as of Y, crop and herd layers.
+  expect(long.species.length).toBe(short.species.length)
+  const X = short.species.length
+  for (let x = 0; x < X; x++) {
+    const a = short.species[x], b = long.species[x]
+    expect([b.id, b.archetype, b.category, b.yield, b.origins]).toEqual([a.id, a.archetype, a.category, a.yield, a.origins])
+    let held = false
+    for (let p = 0; p < short.peoples.length; p++) if (short.speciesYear[p * X + x] >= 0) held = true
+    if (held) expect(b.name).toBe(a.name)
+  }
+  for (let i = 0; i < short.speciesYear.length; i++) {
+    if (!later(short.speciesYear[i], long.speciesYear[i])) throw new Error(`speciesYear[${i}] ${short.speciesYear[i]} vs ${long.speciesYear[i]}`)
+    const want = short.speciesYear[i] >= 0 ? long.speciesSource[i] : -1
+    if (short.speciesSource[i] !== want) throw new Error(`speciesSource[${i}] ${short.speciesSource[i]} vs ${long.speciesSource[i]}`)
+  }
+  for (const [x, y] of [[short.crop, long.crop], [short.herd, long.herd]]) {
+    for (let i = 0; i < short.landSnapshotCount * N; i++) if (x[i] !== y[i]) throw new Error(`crop / herd snapshot differs at ${i}`)
+  }
   // Technology snapshots up to Y.
   expect(long.technology.length).toBeGreaterThanOrEqual(short.technology.length)
   for (let i = 0; i < short.technology.length; i++) if (short.technology[i] !== long.technology[i]) throw new Error(`technology differs at ${i}`)
@@ -793,8 +967,12 @@ describe('simulateHistory', () => {
     expect(h.knownYear.byteLength).toBeLessThan(1024 * 1024)
     expect(h.wealth.length).toBe(401 * h.settlements.length)
     const t = h.trade
+    // Crop and herd layers: a byte per cell per land snapshot each (under 5 MB together).
+    expect(h.crop.length).toBe(101 * h.capacity.length)
+    expect(h.crop.byteLength + h.herd.byteLength).toBeLessThan(5 * 1024 * 1024)
+    expect(h.speciesYear.length).toBe(h.peoples.length * h.species.length)
     const arrays = [h.population, h.food, h.capacity, h.landUse, h.degradation, h.road, h.wealth, h.tradeVolume, J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path,
-      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path, h.knownYear, h.contactYear, h.technology]
+      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path, h.knownYear, h.contactYear, h.technology, h.speciesYear, h.speciesSource, h.crop, h.herd]
     const buffers = new Set<ArrayBufferLike>()
     for (const a of arrays) {
       expect(a.byteOffset).toBe(0)
@@ -891,7 +1069,7 @@ describe('simulateHistory', () => {
     expect(hashHistory(run.advanceTo(300))).toBe(hashHistory(simulateHistory(w, { years: 300 })))
     expect(run.year).toBe(2400)
     // No array is shared between the two histories (each may be transferred on its own).
-    const buffers = (h: History) => [h.population, h.food, h.wealth, h.capacity, h.landUse, h.degradation, h.road, h.tradeVolume, h.knownYear, h.contactYear, h.technology,
+    const buffers = (h: History) => [h.population, h.food, h.wealth, h.capacity, h.landUse, h.degradation, h.road, h.tradeVolume, h.knownYear, h.contactYear, h.technology, h.speciesYear, h.speciesSource, h.crop, h.herd,
       h.trade.a, h.trade.path, h.journeys.path, h.journeys.departYear].map((x) => x.buffer)
     const seen = new Set(buffers(a))
     for (const buf of buffers(b)) expect(seen.has(buf)).toBe(false)
@@ -1346,6 +1524,76 @@ describe('simulateHistory', () => {
     expect(visible1000).toBeGreaterThanOrEqual(3)
     expect(med(within)).toBeLessThan(1.05)
   }, 60_000)
+
+  it('species: unequal cradles, none doomed; exchange after contact; diverse staples; marginal land; bounded epidemics', () => {
+    // Founding endowments (crop multiplier per cradle at the start) from a short run's probe.
+    let unequal = 0
+    for (const seed of [1, 2, 42, 2024]) {
+      const probe: SpeciesProbe = { pop: [], crop: [], herd: [], popP: [], cmP: [], marginal: [] }
+      runHistory(world(seed), { years: 260 }, speciesProbe(probe))
+      const c0 = probe.crop[0]
+      for (const c of c0) expect(c).toBeGreaterThan(0.45) // poor, never doomed
+      for (const c of c0) expect(c).toBeLessThan(1.6)
+      if (Math.max(...c0) / Math.min(...c0) >= 1.15) unequal++
+    }
+    expect(unequal).toBeGreaterThanOrEqual(2)
+    let crossAdopt = 0, diverse = 0, marginal = 0, withEpidemic = 0, riceHeld = 0, riceBred = 0
+    const tops = new Set<number>()
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const { history: h, diag } = run(seed)
+      const T = terrain(seed)
+      const N = w.grid.cellCount
+      const S = h.settlements.length
+      const P = h.peoples.length
+      const X = h.species.length
+      // Every cradle lives to the end.
+      const last = h.snapshotCount - 1
+      const cradles = new Set(h.peoples.map((p) => p.cradle))
+      for (const k of cradles) {
+        let alive = false
+        for (let id = 0; id < S && !alive; id++) if (h.population[last * S + id] > 0 && h.peoples[h.settlements[id].people].cradle === k) alive = true
+        if (!alive) throw new Error(`seed ${seed}: cradle ${k} died out`)
+      }
+      // Species taken up from another cradle's people.
+      const ev = h.events.filter((e) => e.type === EventType.SpeciesAdopted || e.type === EventType.Domesticated)
+      expect(ev.length).toBeLessThanOrEqual(P * X)
+      if (ev.some((e) => e.type === EventType.SpeciesAdopted && h.peoples[h.settlements[e.settlement].people].cradle !== h.peoples[h.settlements[e.other].people].cradle)) crossAdopt++
+      // Staples of the farmed land at the end: no single one everywhere.
+      const lq = h.landSnapshotCount - 1
+      const count = new Array<number>(X).fill(0)
+      let farmed = 0
+      for (let i = 0; i < N; i++) { const c = h.crop[lq * N + i]; if (c > 0) { count[c - 1]++; farmed++ } }
+      expect(farmed).toBeGreaterThan(0)
+      let top = 0
+      for (let x = 0; x < X; x++) if (count[x] > count[top]) top = x
+      tops.add(top)
+      expect(count[top] / farmed).toBeLessThan(0.6)
+      if (count.filter((c) => c >= 0.05 * farmed).length >= 3) diverse++
+      // Marginal land (habitable only with the right species) settled somewhere at some time.
+      if (h.settlements.some((st) => !st.outpost && !T.baseHabitable[st.cell])) marginal++
+      // Epidemics: a handful at most, capped.
+      const epi = h.events.filter((e) => e.type === EventType.Epidemic)
+      expect(epi.length).toBeLessThanOrEqual(12)
+      if (epi.length > 0) withEpidemic++
+      // Early-ripening rice is bred where paddy has long been grown.
+      const TY = diag.techYear as Int16Array
+      expect(TY.length).toBe(P * K_COUNT)
+      let longRice = false, bred = false
+      for (let p = 0; p < P; p++) {
+        const y = h.speciesYear[p * X + 2]
+        if (y >= 0 && y <= h.years - 600) longRice = true
+        if (TY[p * K_COUNT] >= 0) { bred = true; expect(y).toBeGreaterThanOrEqual(0); expect(TY[p * K_COUNT]).toBeGreaterThanOrEqual(y) }
+      }
+      if (longRice) { riceHeld++; if (bred) riceBred++ }
+    }
+    expect(crossAdopt).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    expect(diverse).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    expect(tops.size).toBeGreaterThanOrEqual(2)
+    expect(marginal).toBeGreaterThanOrEqual(SEEDS.length / 2)
+    expect(withEpidemic).toBeGreaterThanOrEqual(SEEDS.length / 2)
+    expect(riceBred).toBeGreaterThanOrEqual(riceHeld / 2)
+  }, 120_000)
 
   it('expeditions set out from prosperous settlements, reach the poles, and leave bases where nobody farms', () => {
     let withBases = 0, withPole = 0, poleInWindow = 0, lateHeavy = 0

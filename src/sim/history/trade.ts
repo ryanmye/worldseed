@@ -48,6 +48,10 @@
 // Roads. Route volume wears roads into the land cells of its path; roads fade
 // without traffic, and lower travel cost for trade and migration.
 //
+// Animals (species.ts): pack animals at either end make transport cheaper,
+// camels make desert legs cheap and llamas highland legs (in the link search
+// by the region's settlement, on a route by its two ends).
+//
 // Everything is deterministic: fixed iteration orders, Maps used only for
 // lookup, no randomness.
 
@@ -59,6 +63,7 @@ import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent, techOf } from './state.ts'
 import { ContactVia, learnPath, meet } from './knowledge.ts'
+import { moveMuls, packOf } from './species.ts'
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -132,6 +137,8 @@ export interface TradeState {
   trader: Uint8Array
   /** Food price multiplier this year: prosperous settlements outbid others for food (1 + WEALTH.bid * prosperity). */
   bid: Float64Array
+  /** Pack-animal transport factor this year (species.packOf). */
+  pack: Float64Array
 
   // Settlement-graph search.
   gDist: Float64Array
@@ -196,6 +203,7 @@ export function createTrade(cellCount: number): TradeState {
     res: new Float64Array(S * 3),
     trader: new Uint8Array(S),
     bid: new Float64Array(S),
+    pack: new Float64Array(S),
     gDist: new Float64Array(S),
     gPrev: new Int32Array(S),
     gStamp: new Int32Array(S),
@@ -243,6 +251,7 @@ function ensureSettlements(ts: TradeState, count: number): void {
   ts.res = growF(ts.res, size * 3)
   ts.trader = growU(ts.trader, size)
   ts.bid = growF(ts.bid, size)
+  ts.pack = growF(ts.pack, size)
   ts.gDist = growF(ts.gDist, size)
   ts.gPrev = growI(ts.gPrev, size)
   ts.gStamp = growI(ts.gStamp, size)
@@ -258,6 +267,10 @@ function ensureRoutes(ts: TradeState, count: number): void {
   ts.rRoadAcc = growF(ts.rRoadAcc, size)
   ts.rGood = growF(ts.rGood, size * G * 2)
 }
+
+/** Travel cost multipliers by species move class (species.moveMuls), scratch. */
+const LINK_MUL = new Float64Array(3)
+const ROUTE_MUL = new Float64Array(3)
 
 /** Deep-ocean cost of one cell for trade by settlement `id` this year (its people's Seafaring), with or without a port. */
 function oceanCost(s: HistoryState, id: number, port: boolean): number {
@@ -294,6 +307,9 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
   const peopleOf = s.people
   const radius = TRADE.radius
   const radiusSea = TRADE.radius * TRADE.portSeaRadius
+  const mcls = s.sp.moveClass
+  const tm = LINK_MUL
+  let lastA = -1
   let nv = 0
   while (heap.size > 0) {
     const d = heap.topKey()
@@ -304,9 +320,10 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
     const port = s.port[a] >= 0
     const seaMul = port ? TRADE.seaPort : TRADE.seaNoPort
     const ocean = oceanOf[peopleOf[a]] * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+    if (a !== lastA) { moveMuls(s, a, tm); lastA = a } // (the region's settlement's camels and llamas)
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
-      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j])
+      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j] * tm[mcls[j]])
       if (nd > (port && T.sea[j] ? radiusSea : radius)) continue // ports' regions reach further over water
       if (stamp[j] === run && nd >= dist[j]) continue
       stamp[j] = run
@@ -409,10 +426,14 @@ function routeCost(s: HistoryState, ts: TradeState, r: number): number {
   const pa = s.port[ts.rA[r]] >= 0, pb = s.port[ts.rB[r]] >= 0
   const seaMul = 0.5 * ((pa ? TRADE.seaPort : TRADE.seaNoPort) + (pb ? TRADE.seaPort : TRADE.seaNoPort))
   const ocean = 0.5 * (oceanCost(s, ts.rA[r], pa) + oceanCost(s, ts.rB[r], pb))
+  const ta = LINK_MUL, tb = ROUTE_MUL
+  moveMuls(s, ts.rA[r], ta)
+  moveMuls(s, ts.rB[r], tb)
+  const mcls = s.sp.moveClass
   let cost = 0
   for (let k = 1; k < path.length; k++) {
     const j = path[k]
-    cost += T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j]
+    cost += T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j] * 0.5 * (ta[mcls[j]] + tb[mcls[j]])
   }
   return cost
 }
@@ -713,6 +734,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     for (let g = 0; g < G; g++) demand[o + g] = need[g] * p * (g < FOOD ? 1 : demTech)
     food0[id] = F
     ts.bid[id] = 1 + WEALTH.bid * prosperity(s, id)
+    ts.pack[id] = packOf(s, id)
     setFoodPrices(s, ts, id)
     for (let g = FOOD; g < G; g++) setGoodPrice(ts, id, g)
   }
@@ -737,7 +759,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       if (r < 0 && probeOff) continue
       // Transport gets cheaper with the Crafts of the two ends' peoples (their mean).
       const cr = 0.5 * (tech[peopleOf[a] * TECH_FIELD_COUNT + TechField.Crafts] + tech[peopleOf[b] * TECH_FIELD_COUNT + TechField.Crafts])
-      const c = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle)) / (1 + tt * (cr - 1))
+      // Pack animals at the two ends carry it cheaper.
+      const c = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle) * 0.5 * (ts.pack[a] + ts.pack[b])) / (1 + tt * (cr - 1))
       const oa = a * G, ob = b * G
       for (let g = 0; g < G; g++) {
         const tr = tUnit[g] * c

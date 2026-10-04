@@ -8,6 +8,7 @@ import { createSimplex3, fbm } from '../noise.ts'
 import { smoothstep } from '../util.ts'
 import { Heap } from './heap.ts'
 import { CAPACITY, CATCHMENT, DEGRADATION, GOODS, MOVE_COST } from './params.ts'
+import { marginalFarm } from './species.ts'
 
 export interface Terrain {
   cellCount: number
@@ -16,8 +17,19 @@ export interface Terrain {
   cellScale: number
   /** Base carrying capacity in people at productivity 1 (0 for water, lakes, ice). */
   capacity: Float64Array
-  /** 1 for land, non-lake cells with capacity >= habitableMin (scaled by area). */
+  /**
+   * 1 for land, non-lake cells that can feed a settlement: capacity >= habitableMin (scaled by area), or that
+   * much with the best marginal-land species (highland tubers, dryland grain: species.ts marginalFarm). Only the
+   * peoples holding such a species find the marginal cells worth settling (migration and voyages judge sites by
+   * what their own species give).
+   */
   habitable: Uint8Array
+  /** 1 for cells with capacity >= habitableMin, whatever anyone grows (cradles are planned on these). */
+  baseHabitable: Uint8Array
+  /** Land quality factors of the farm part: capFarm = CAPACITY.base * area * agri[biome] * farmQ * relief + riverCap. */
+  farmQ: Float64Array
+  relief: Float64Array
+  riverCap: Float64Array
   /** Capacity split: farmland (fields and floodplain, which degrade and can be irrigated) and fishing; capacity = capFarm + capFish. */
   capFarm: Float64Array
   capFish: Float64Array
@@ -77,6 +89,10 @@ export function buildTerrain(world: World): Terrain {
   // --- Carrying capacity -----------------------------------------------------
   const capacity = new Float64Array(N)
   const habitable = new Uint8Array(N)
+  const baseHabitable = new Uint8Array(N)
+  const farmQ = new Float64Array(N)
+  const reliefF = new Float64Array(N)
+  const riverCap = new Float64Array(N)
   const capFarm = new Float64Array(N)
   const capFish = new Float64Array(N)
   const fragility = new Float64Array(N)
@@ -127,6 +143,9 @@ export function buildTerrain(world: World): Terrain {
     if (lakeAdj) fish += C.fishLake
     fish *= 0.3 + 0.7 * warmth
     const cap = C.base * area * (farm + river + fish)
+    farmQ[i] = warmth * (0.25 + 0.75 * moist) * rough
+    reliefF[i] = relief
+    riverCap[i] = C.base * area * river
     capacity[i] = cap
     capFarm[i] = C.base * area * (farm + river)
     capFish[i] = C.base * area * fish
@@ -146,7 +165,8 @@ export function buildTerrain(world: World): Terrain {
       const shore = seaAdj || shallowAdj ? 1 : lakeAdj ? 0.8 : sink ? 0.6 : b === Biome.Desert ? 0.15 : 0
       salt[i] = G.salt * area * arid * shore
     }
-    if (cap >= habMin) habitable[i] = 1
+    if (cap >= habMin) { habitable[i] = 1; baseHabitable[i] = 1 }
+    else if (C.base * area * (marginalFarm(world, i, farmQ[i], relief) + river + fish) >= habMin) habitable[i] = 1
     if (seaAdj || shallowAdj) seaCoast[i] = 1
     aridity[i] = 1 - smoothstep(0.1, 0.45, r)
     let frag = 1 + D.slope * smoothstep(0.03, 0.15, slope) + D.arid * (1 - smoothstep(0.1, 0.4, r)) + D.biome[b]
@@ -306,7 +326,7 @@ export function buildTerrain(world: World): Terrain {
   }
 
   return {
-    cellCount: N, n, cellScale, capacity, habitable, capFarm, capFish, landCells, fragility, aridity,
+    cellCount: N, n, cellScale, capacity, habitable, baseHabitable, farmQ, relief: reliefF, riverCap, capFarm, capFish, landCells, fragility, aridity,
     river: isRiver, seaCoast, sea,
     catchOff, catchBase, catchCell, catchW, catchDist, exclOff, exclCell, potential,
     moveCost, deep, landmass, landmassSize,

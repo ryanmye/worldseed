@@ -37,6 +37,9 @@
 // prosperous or goes hungry for years, or its route has grown beyond the parent's reach. Bases never become
 // ordinary settlements (they stand only where nobody could farm).
 //
+// Species (species.ts): an expedition that comes home may bring wild plants and
+// animals it saw on the way, and those of peoples it met, where they would grow.
+//
 // Discovery: the first expedition to reach a notable place logs it: each pole,
 // each sizeable landmass nobody had seen and nobody lives on, the world's
 // highest summit and the heart of its largest desert.
@@ -51,6 +54,7 @@ import { prosperity } from './migration.ts'
 import type { HistoryState } from './state.ts'
 import { abandon, found, logEvent, logJourney, techOf } from './state.ts'
 import { ContactVia, learnPath } from './knowledge.ts'
+import { speciesExpedition } from './species.ts'
 
 /** Notable places (Discovery): kind of a discovery record. */
 export const Place = {
@@ -619,6 +623,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
   const fresh = s.know.fresh[people]
   const fresh0 = fresh.length
   const cells = learnPath(s, id, path, true, es.marginHops, ContactVia.Expedition)
+  speciesExpedition(s, id, path) // (seed and stock brought home)
   firstSeen(s, es, fresh, fresh0)
   discoveries(s, es, id, path, fresh, fresh0)
   s.wealth[id] += X.prestige * cells

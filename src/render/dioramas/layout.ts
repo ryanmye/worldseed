@@ -1,5 +1,6 @@
-// Deterministic placement of every model: settlement plans (town.ts), the countryside
-// (farmsteads, mills and groves), and the pieces at ports and dams. Each layout is a list
+// Deterministic placement of every model: settlement plans (town.ts), their satellite
+// villages and hamlets (census.ts: the countryside share of a settlement's people), the
+// countryside (farmsteads, mills and groves), and the pieces at ports and dams. Each layout is a list
 // of slots computed lazily, then cached, from (world.seed, settlement or cell, slot) and
 // never from the current year: the year only decides which slots are filled. A slot
 // carries its instance matrix (on the ground, upright along the local vertical), a matrix
@@ -12,11 +13,12 @@
 import { Biome, CITY_POPULATION, EventType, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION, type History, type World } from '../../contract.ts'
 import { isWaterCell, lakeArray } from '../globe.ts'
 import { riverHalfWidthNear } from '../rivers.ts'
+import { cachedTerritories, CLUSTER_HOUSES, HOUSEHOLD, ruralHouses, ruralThreshold, territories, territorySteps, villageClusters, villageTarget, type Territories } from './census.ts'
 import { floraModel, HOUSE_WIDTH, KK, Model, MODEL_SPECS, styleKindOf, styleModel, type ModelLibrary } from './models.ts'
-import { Flora, houseFacade, isHouseKind, Kind, Style, type Style as StyleT } from './shapes.ts'
+import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, type Style as StyleT } from './shapes.ts'
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
 import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
-import { createTownPlan, GroundKind, Role, townRadius, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { createTownPlan, GroundKind, Role, townExtent, townRadius, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
 
 export const NEVER = 1e9
 /** Model id of the packed-earth ground decal under built-up patches (drawn by the ground batch). */
@@ -153,6 +155,12 @@ export interface Layouts {
   settlement(id: number, need: number, deadline: number): { set: SlotSet; ground: GroundSet; done: boolean } | null
   /** Whether settlement `id` is laid out as far as `need` (no work). */
   settlementReady(id: number, need: number): boolean
+  /**
+   * The satellite villages of settlement `id` (census.ts), laid out as far as the time
+   * budget allows (in founding order; `done` once all its peak needs are), or null if not
+   * started and past the deadline.
+   */
+  villages(id: number, deadline: number): { set: VillageSet; done: boolean } | null
   /** Countryside slots of `cell` (cached; empty for water); null if not computed and past the deadline. */
   farm(cell: number, deadline: number): SlotSet | null
   /** Forest stands of `cell` (cached; groves with negative thresholds, cleared as the land is farmed); null if not computed and past the deadline. */
@@ -161,6 +169,23 @@ export interface Layouts {
   port(structureId: number, owner: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
   /** Dam at `pos` across a river flowing along `dir` (cached by structure id). */
   dam(structureId: number, cell: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
+}
+
+/**
+ * The satellite villages and hamlets of a settlement: per village its centre (unit vector),
+ * radius (world units), cell, and its slots in the near set (houses in clusters, landmarks,
+ * yards) and the far set (low-detail clusters and landmarks), as [start, end) ranges.
+ * Thresholds are the settlement's population (census.ts ruralThreshold).
+ */
+export interface VillageSet {
+  n: number
+  centre: Float32Array
+  radius: Float32Array
+  cell: Int32Array
+  near: Int32Array
+  far: Int32Array
+  nearSet: SlotSet
+  farSet: SlotSet
 }
 
 /** Where a settlement's port stands: shore position (object space) and seaward direction, or null. */
@@ -196,8 +221,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   let styleCache = new Int8Array(0)
   let root = new Int32Array(0)
   let settlementCell = new Int32Array(cellCount).fill(-1)
+  /** Settlements whose plan, villages or extent exist: their peak stays as it was. */
+  let frozen = new Uint8Array(0)
+  let hist = h
 
-  /** Per-settlement facts from history `h`; ids below `keep` keep their current values. */
+  /** Per-settlement facts from history `h`; ids below `keep` keep their current values (the peak only once laid out). */
   function computeFacts(h: History, keep: number) {
     const S = h.snapshotCount
     const old = { peak, wealthRank, famine, linkCells, linkWeights, routeCount, portOf, styleCache, root }
@@ -247,7 +275,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       nRoot[i] = p >= 0 && p < i ? nRoot[p] : i
     }
     const k = Math.min(keep, old.peak.length, N)
-    nPeak.set(old.peak.subarray(0, k))
+    // a longer run may raise a peak: settlements not laid out yet take the new one
+    for (let i = 0; i < k; i++) if (frozen[i]) nPeak[i] = old.peak[i]
+    const nFrozen = new Uint8Array(N)
+    nFrozen.set(frozen.subarray(0, Math.min(frozen.length, N)))
+    frozen = nFrozen
     nRank.set(old.wealthRank.subarray(0, k))
     nFamine.set(old.famine.subarray(0, k))
     nRouteCount.set(old.routeCount.subarray(0, k))
@@ -361,7 +393,8 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       if (surface.wet(probe, 0.05)) return false
     }
     probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, start)
-    return !surface.wet(probe, 0.12)
+    // (the corners already keep off the water: a wide margin here would empty whole flat lowlands)
+    return !surface.wet(probe, 0.06)
   }
 
   /** Sink a model on a slope so no corner floats: footprint times the ground's tilt. */
@@ -418,6 +451,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   const infoFor = (model: number, seed01: number, timber: boolean, style: StyleT = Style.Temperate): readonly number[] => {
     const sk = styleKindOf(model)
     const sd = Math.min(0.999, Math.max(0, seed01))
+    if (sk && isFarKind(sk[1])) return NO_INFO
     if (sk) {
       const [st, kind] = sk
       const f = isHouseKind(kind) ? houseFacade(st, kind) : [0, 0]
@@ -550,9 +584,21 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     return o
   }
 
-  const stateOf = (id: number): SettlementState => {
-    let st = states.get(id)
-    if (st) return st
+  /** A settlement's site as the town generator sees it, with its frame (cached; the peak freezes with it). */
+  interface SiteFrame {
+    site: Site
+    ox: number; oy: number; oz: number
+    ex: number; ey: number; ez: number
+    nx: number; ny: number; nz: number
+    segs: Float64Array
+    style: StyleT
+    coastal: boolean
+  }
+  const sites = new Map<number, SiteFrame>()
+  const siteFor = (id: number): SiteFrame => {
+    let sf = sites.get(id)
+    if (sf) return sf
+    frozen[id] = 1
     const c = settlements[id].cell
     const org = originOf(id)
     const ox = org[0], oy = org[1], oz = org[2]
@@ -625,11 +671,41 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
         return probe.radius
       },
       clear(x, y, r) {
-        if (!riverClear(segs, x * KK, y * KK, r * KK)) return false
-        return dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, r * KK, c)
+        const D = (globalThis as { __dioramaClear?: Record<number, number[]> }).__dioramaClear
+        const dd = D ? (D[id] ??= [0, 0, 0]) : null
+        if (!riverClear(segs, x * KK, y * KK, r * KK)) { if (dd) dd[0]++; return false }
+        const ok = dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, r * KK, c)
+        if (dd) dd[ok ? 2 : 1]++
+        return ok
       },
       riverSegs: segsKK,
+      // the town stays within about a cell of its centre
+      maxRadius: (spacing * 1.2) / KK,
     }
+    sf = { site, ox, oy, oz, ex, ey, ez, nx, ny, nz, segs, style, coastal }
+    sites.set(id, sf)
+    return sf
+  }
+  /** How far settlement id's town reaches at its peak (world units; cached). */
+  const extents = new Map<number, number>()
+  const extentOf = (id: number): number => {
+    let e = extents.get(id)
+    if (e === undefined) {
+      e = townExtent(siteFor(id).site) * KK
+      extents.set(id, e)
+    }
+    return e
+  }
+
+  // (perf=1: the centre of a settlement's plan, for aiming test shots)
+  if (typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)) (globalThis as unknown as { __dioramaOrigin: (id: number) => number[] }).__dioramaOrigin = (id) => [...Array.from(originOf(id)), extentOf(id)]
+
+  const stateOf = (id: number): SettlementState => {
+    let st = states.get(id)
+    if (st) return st
+    const c = settlements[id].cell
+    const sf = siteFor(id)
+    const { site, ox, oy, oz, ex, ey, ez, nx, ny, nz, segs, style, coastal } = sf
     const w = new SlotWriter()
     w.cx = ox; w.cy = oy; w.cz = oz
     const T0 = world.temperature[c]
@@ -836,6 +912,373 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     return { set: st.set, ground: st.gset, done }
   }
 
+  // ---------- satellite villages and hamlets (census.ts) ----------
+  // The countryside share of a settlement's people lives in villages over its territory:
+  // sites chosen one after another, each the best of a dozen candidates on dry land in the
+  // territory by its distance from the town and the villages before it (so they spread
+  // over the land) and the land (early-cultivated fields, a river near); then each village's
+  // clusters of houses on a spiral round its centre, stretched along a lane, with a well,
+  // a church and a market as it grows. Everything is in the settlement's tangent frame and
+  // its thresholds are the settlement's population.
+  let ownerCell: Int32Array | null = null
+  let territoryGen: Generator<void, Territories, void> | null = null
+  /** The territories (census.ts), computed in steps until the deadline; null while not done. */
+  const territoriesReady = (deadline: number): Territories | null => {
+    const t = cachedTerritories(hist)
+    if (t) return t
+    territoryGen ??= territorySteps(world, hist)
+    while (performance.now() <= deadline) {
+      const r = territoryGen.next()
+      if (r.done) {
+        territoryGen = null
+        return r.value
+      }
+    }
+    return null
+  }
+  /** The settlement whose territory holds land cell c, or -1 (territories ready). */
+  const ownerOf = (c: number): number => {
+    if (!ownerCell) {
+      ownerCell = new Int32Array(cellCount).fill(-1)
+      const T = territories(world, hist)
+      for (let id = 0; id < T.cells.length; id++) for (const q of T.cells[id]) if (ownerCell[q] < 0) ownerCell[q] = id
+    }
+    return ownerCell[c]
+  }
+  interface VillageState {
+    gen: Generator<void, void, void>
+    sitesDone: boolean
+    done: boolean
+    /** Village sites: settlement-frame x, y (world units), radius, unit-vector centre, cell. */
+    vx: number[]; vy: number[]; vr: number[]
+    ux: number[]; uy: number[]; uz: number[]
+    vcell: number[]
+    near: SlotWriter
+    far: SlotWriter
+    nearR: number[]
+    farR: number[]
+    placed: number
+    set: VillageSet | null
+  }
+  const villageStates = new Map<number, VillageState>()
+  const villageStateOf = (id: number): VillageState => {
+    let vs = villageStates.get(id)
+    if (vs) return vs
+    frozen[id] = 1
+    vs = { gen: null as unknown as Generator<void, void, void>, sitesDone: false, done: false, vx: [], vy: [], vr: [], ux: [], uy: [], uz: [], vcell: [], near: new SlotWriter(), far: new SlotWriter(), nearR: [], farR: [], placed: 0, set: null }
+    vs.gen = villageStages(id, vs)
+    villageStates.set(id, vs)
+    return vs
+  }
+  /** Runs settlement id's village layout until `stop` holds or the deadline passes; whether it holds. */
+  const perfMs = globalThis as { __dioramaVillageMs?: number[] }
+  const driveVillages = (vs: VillageState, deadline: number, stop: (vs: VillageState) => boolean): boolean => {
+    while (!stop(vs) && !vs.done) {
+      if (performance.now() > deadline) return false
+      const t0 = performance.now()
+      if (vs.gen.next().done) {
+        vs.done = true
+        vs.sitesDone = true
+      }
+      if (perfMs.__dioramaVillageMs) perfMs.__dioramaVillageMs.push(+(performance.now() - t0).toFixed(2))
+    }
+    return true
+  }
+  /** Whether the village sites of every settlement whose territory reaches cell c or its neighbours are known (working on them until the deadline). */
+  const sitesReadyAround = (c: number, deadline: number): boolean => {
+    if (!territoriesReady(deadline)) return false
+    let ok = true
+    const check = (q: number) => {
+      const id = ownerOf(q)
+      if (id < 0 || peak[id] <= 300) return
+      const vs = villageStates.get(id)
+      if (vs && vs.sitesDone) return
+      if (performance.now() > deadline) { ok = false; return }
+      if (!driveVillages(villageStateOf(id), deadline, (v) => v.sitesDone)) ok = false
+    }
+    check(c)
+    for (let k = off[c]; k < off[c + 1]; k++) check(nb[k])
+    return ok
+  }
+  /** Adds the villages near cell c (sites known) to an avoid list in the frame (o, e, n) at c: x, y, radius + margin. */
+  function avoidVillages(c: number, ox: number, oy: number, oz: number, ex: number, ey: number, ez: number, nx: number, ny: number, nz: number, avoid: number[], margin: number) {
+    const seen: number[] = []
+    const add = (q: number) => {
+      const id = ownerOf(q)
+      if (id < 0 || seen.includes(id)) return
+      seen.push(id)
+      const vs = villageStates.get(id)
+      if (!vs) return
+      for (let v = 0; v < vs.vx.length; v++) {
+        const dx = vs.ux[v] - ox, dy = vs.uy[v] - oy, dz = vs.uz[v] - oz
+        if (dx * dx + dy * dy + dz * dz > (spacing * 1.4) ** 2) continue
+        avoid.push(dx * ex + dy * ey + dz * ez, dx * nx + dy * ny + dz * nz, vs.vr[v] + margin)
+      }
+    }
+    add(c)
+    for (let k = off[c]; k < off[c + 1]; k++) add(nb[k])
+  }
+
+  /** Spacing of the clusters of a village (world units). */
+  const CLUSTER_STEP = 2.15 * KK
+  /** Footprint radius of a cluster (world units). */
+  const CLUSTER_R = 1.05 * KK
+  const HOP_WEIGHT = [1.5, 1.0, 0.7, 0.45]
+
+  function* villageStages(id: number, vs: VillageState): Generator<void, void, void> {
+    const T = territories(world, hist)
+    const terr = T.cells[id] ?? new Int32Array(0), hops = T.hops[id] ?? new Uint8Array(0)
+    const pk = peak[id]
+    const cap = terr.length ? ruralHouses(pk, terr.length) : 0
+    if (cap <= 0 || settlements[id].outpost) return
+    const sf = siteFor(id)
+    const { ox, oy, oz, ex, ey, ez, nx, ny, nz } = sf
+    // the villages the peak needs: whole clusters in order, up to the cap
+    const plan: { clusters: number[]; before: number[]; target: number }[] = []
+    {
+      let cum = 0
+      const tmp: number[] = []
+      for (let v = 0; cum < cap && v < 20000; v++) {
+        villageClusters(seed, id, v, tmp)
+        const cl: number[] = [], bf: number[] = []
+        for (const k of tmp) {
+          const hh = CLUSTER_HOUSES[k]
+          if (cum + hh / 2 > cap) break
+          cl.push(k)
+          bf.push(cum)
+          cum += hh
+        }
+        if (!cl.length) break
+        plan.push({ clusters: cl, before: bf, target: villageTarget(seed, id, v) })
+      }
+    }
+    // towns to keep clear of: its own and those of the settlements in and around its territory
+    const towns: number[] = [0, 0, extentOf(id)]
+    {
+      const ids = new Set<number>()
+      for (const c of terr) {
+        const sid = settlementCell[c]
+        if (sid >= 0 && sid !== id) ids.add(sid)
+        for (let k = off[c]; k < off[c + 1]; k++) { const q = settlementCell[nb[k]]; if (q >= 0 && q !== id) ids.add(q) }
+      }
+      for (const sid of ids) {
+        if (settlements[sid].outpost) continue
+        const o = originOf(sid)
+        towns.push((o[0] - ox) * ex + (o[1] - oy) * ey + (o[2] - oz) * ez, (o[0] - ox) * nx + (o[1] - oy) * ny + (o[2] - oz) * nz, extentOf(sid))
+        yield
+      }
+    }
+    yield
+    // the territory's cells in this frame, weighted for picking (nearer hops more)
+    const cw: number[] = []
+    let wsum = 0
+    for (let i = 0; i < terr.length; i++) {
+      wsum += HOP_WEIGHT[Math.min(3, hops[i])] * (world.biome[terr[i]] === 10 ? 0.4 : 1)
+      cw.push(wsum)
+    }
+    const rivers = new Map<number, Float64Array>()
+    const riversOf = (c: number) => {
+      let r = rivers.get(c)
+      if (!r) {
+        collectRivers(c, ox, oy, oz, ex, ey, ez, nx, ny, nz)
+        r = Float64Array.from(riverSegs)
+        rivers.set(c, r)
+      }
+      return r
+    }
+    const nearRiver = (segs: Float64Array, x: number, y: number, d: number) => !riverClear(segs, x, y, d)
+    const pt = [0, 0, 0]
+    const toUnit = (x: number, y: number) => {
+      const px = ox + ex * x + nx * y, py = oy + ey * x + ny * y, pz = oz + ez * x + nz * y
+      const l = Math.hypot(px, py, pz)
+      pt[0] = px / l; pt[1] = py / l; pt[2] = pz / l
+    }
+    const clearOfTowns = (x: number, y: number, r: number) => {
+      for (let q = 0; q < towns.length; q += 3) if (Math.hypot(x - towns[q], y - towns[q + 1]) < towns[q + 2] + r) return false
+      return true
+    }
+
+    // ---- 1. the sites ----
+    for (let v = 0; v < plan.length; v++) {
+      const nc = plan[v].clusters.length + (plan[v].target >= 12 ? 1 : 0) + (plan[v].target >= 40 ? 1 : 0)
+      const vr = CLUSTER_STEP * 0.62 * Math.sqrt(nc + 0.4) * 1.15 + CLUSTER_R
+      let best = -Infinity, bx = 0, by = 0, bc = -1
+      for (let pass = 0; pass < 3 && bc < 0; pass++) {
+        const gap = pass === 0 ? 1 : pass === 1 ? 0.6 : 0.3
+        for (let att = 0; att < (pass === 0 ? 12 : 20); att++) {
+          const salt = v * 64 + att + pass * 20
+          // a cell of the territory, a point in it
+          const u = rand4(seed, id, salt, 0xa1) * wsum
+          let lo = 0, hi = cw.length - 1
+          while (lo < hi) { const m = (lo + hi) >> 1; if (cw[m] < u) lo = m + 1; else hi = m }
+          const c = terr[lo]
+          const ccx = (GP[c * 3] - ox) * ex + (GP[c * 3 + 1] - oy) * ey + (GP[c * 3 + 2] - oz) * ez
+          const ccy = (GP[c * 3] - ox) * nx + (GP[c * 3 + 1] - oy) * ny + (GP[c * 3 + 2] - oz) * nz
+          const a = rand4(seed, id, salt, 0xa2) * Math.PI * 2, rr = spacing * 0.55 * Math.sqrt(rand4(seed, id, salt, 0xa3))
+          const x = ccx + Math.cos(a) * rr, y = ccy + Math.sin(a) * rr
+          if (!clearOfTowns(x, y, vr * 0.8 + HOUSE_WIDTH)) continue
+          let spread = Infinity
+          for (let q = 0; q < towns.length; q += 3) spread = Math.min(spread, Math.hypot(x - towns[q], y - towns[q + 1]) - towns[q + 2])
+          let ok = true
+          for (let q = 0; q < vs.vx.length && ok; q++) {
+            const d = Math.hypot(x - vs.vx[q], y - vs.vy[q]) - vs.vr[q]
+            if (d < (vr + HOUSE_WIDTH * 1.2) * gap) ok = false
+            spread = Math.min(spread, d)
+          }
+          if (!ok) continue
+          toUnit(x, y)
+          const cell = surface.nearestCell(pt[0], pt[1], pt[2], c)
+          if (ownerOf(cell) !== id) continue
+          const segs = riversOf(cell)
+          if (!riverClear(segs, x, y, vr * 0.45)) continue
+          if (!dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, vr * 0.6, cell)) continue
+          // land worked early (its field cleared first), a river near, spread out from the rest
+          const r = probe.radius
+          const q = 1 - Math.min(255, clearedAt(pt[0] * r, pt[1] * r, pt[2] * r)) / 255
+          const score = Math.sqrt(Math.max(0, Math.min(spread, spacing)) / spacing) * (0.45 + q + (nearRiver(segs, x, y, 4 * KK) ? 0.35 : 0)) + rand4(seed, id, salt, 0xa4) * 0.02
+          if (score > best) { best = score; bx = x; by = y; bc = cell }
+        }
+        yield
+      }
+      if (bc < 0) break // no room left in the territory
+      vs.vx.push(bx); vs.vy.push(by); vs.vr.push(vr)
+      toUnit(bx, by)
+      vs.ux.push(pt[0]); vs.uy.push(pt[1]); vs.uz.push(pt[2])
+      vs.vcell.push(bc)
+    }
+    vs.sitesDone = true
+    yield
+
+    // ---- 2. the clusters, landmarks and yards of each village ----
+    const favRoof = hash4(seed, root[id], 0x51, 0) % 5
+    const placed: number[] = [] // cluster x, y
+    const free = (x: number, y: number, r: number) => {
+      for (let q = 0; q < placed.length; q += 2) if (Math.hypot(x - placed[q], y - placed[q + 1]) < r) return false
+      return true
+    }
+    const near = vs.near, far = vs.far
+    near.cx = far.cx = ox; near.cy = far.cy = oy; near.cz = far.cz = oz
+    const colours = (style: StyleT, snow: number, k: number, roofI: number) => {
+      const roofs = ROOFS[style], walls = WALLS[style]
+      const rc = lin(roofs[(rand4(seed, id, k, 0xb1) < 0.6 ? favRoof : roofI) % roofs.length], 0.9 + 0.2 * rand4(seed, id, k, 0xb2))
+      const wc = lin(walls[hash4(seed, id, k, 0xb3) % walls.length], 0.93 + 0.14 * rand4(seed, id, k, 0xb4))
+      roofTmp[0] = rc[0]; roofTmp[1] = rc[1]; roofTmp[2] = rc[2]; roofTmp[3] = snow
+      wallTmp[0] = wc[0]; wallTmp[1] = wc[1]; wallTmp[2] = wc[2]
+    }
+    for (let v = 0; v < vs.vx.length; v++) {
+      const pv = plan[v]
+      const cx0 = vs.vx[v], cy0 = vs.vy[v], vcell = vs.vcell[v]
+      const style = styleOfCell(world, vcell)
+      const snow = roofSnow(world, vcell)
+      const segs = riversOf(vcell)
+      const nStart = near.model.length, fStart = far.model.length
+      // a street village: stretched along the lane to the town, or across it
+      const axis = Math.atan2(cy0, cx0) + (rand4(seed, id, v, 0xb5) < 0.5 ? 0 : Math.PI / 2) + (rand4(seed, id, v, 0xb6) - 0.5) * 0.6
+      const ca = Math.cos(axis), sa = Math.sin(axis)
+      const base = rand4(seed, id, v, 0xb7) * Math.PI * 2
+      const slotXY = (k: number): [number, number] => {
+        if (k === 0) return [cx0, cy0]
+        const r = CLUSTER_STEP * 0.62 * Math.sqrt(k + 0.4), a = base + k * 2.39996
+        const lx = Math.cos(a) * r * 1.3, ly = Math.sin(a) * r * 0.78
+        return [cx0 + lx * ca - ly * sa, cy0 + lx * sa + ly * ca]
+      }
+      const slotOk = (x: number, y: number, r: number) =>
+        free(x, y, CLUSTER_R * 1.75) && clearOfTowns(x, y, r) && riverClear(segs, x, y, r) && dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, r, vcell)
+      // threshold of the cluster with index j standing
+      const thrOf = (j: number) => ruralThreshold(HOUSEHOLD * Math.ceil(pv.before[j] + CLUSTER_HOUSES[pv.clusters[j]] / 2))
+      let slot = 0
+      const landmark = (role: number, model: number, x: number, y: number, yaw: number, threshold: number, sc: number) => {
+        if (model < 0 || !has(model)) return
+        probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, vcell)
+        colours(style, snow, v * 131 + role, hash4(seed, id, v, 0xb8) % 5)
+        const r = footprint(model) * sc
+        const info = infoFor(model, rand4(seed, id, v, 0xb9), false, style)
+        writeSlot(near, model, threshold, yaw, sinkFor(r), sc, sc, sc, roofTmp, wallTmp, 0, 1.2, info)
+        writeSlot(far, model, threshold, yaw, sinkFor(r), sc, sc, sc, roofTmp, wallTmp, 0, 1.2, NO_INFO)
+        placed.push(x, y)
+      }
+      // the centre: a church for a large village, a well for a smaller one
+      if (pv.target >= 12) {
+        const [x, y] = slotXY(0)
+        slot = 1
+        if (slotOk(x, y, CLUSTER_R * 0.8)) {
+          const big = pv.target >= 25
+          const it = { role: big ? Role.Church : Role.Well, style } as PlanItem
+          const m = modelFor(it)
+          const j = big ? Math.min(pv.clusters.length - 1, Math.ceil(pv.clusters.length * 0.5)) : Math.min(pv.clusters.length - 1, 1)
+          landmark(it.role, m, x, y, axis, thrOf(j), big ? 0.85 : 1)
+        }
+      }
+      if (pv.target >= 40) {
+        const [x, y] = slotXY(1)
+        slot = 2
+        if (slotOk(x, y, CLUSTER_R * 0.7)) landmark(Role.Market, Model.Stalls, x, y, axis, thrOf(Math.min(pv.clusters.length - 1, Math.ceil(pv.clusters.length * 0.75))), 0.9)
+      }
+      let maxR = CLUSTER_R
+      for (let j = 0; j < pv.clusters.length; j++) {
+        const n = CLUSTER_HOUSES[pv.clusters[j]]
+        let x = 0, y = 0, ok = false
+        for (let tries = 0; tries < 8 && !ok; tries++, slot++) {
+          ;[x, y] = slotXY(slot)
+          ok = slotOk(x, y, CLUSTER_R)
+        }
+        if (!ok) continue
+        placed.push(x, y)
+        const k = v * 4096 + j
+        const yaw = rand4(seed, id, k, 0xba) * Math.PI * 2
+        const thr = thrOf(j)
+        probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, vcell)
+        // its yard of packed earth
+        const g = lin(GROUND[style], 0.92)
+        roofTmp[0] = roofTmp[1] = roofTmp[2] = roofTmp[3] = 0
+        writeSlot(near, GROUND_MODEL, thr, 0, 0, 1.3, 1, 1.3, roofTmp, g)
+        const model = styleModel(style, hamletKind(n)), farModel = styleModel(style, hamletKind(n, true))
+        colours(style, snow, k, hash4(seed, id, k, 0xbb) % 5)
+        const r = footprint(model)
+        const timber = style === Style.Temperate && rand4(seed, id, k, 0xbc) < 0.3
+        writeSlot(near, model, thr, yaw, sinkFor(r * 0.6), 1, 0.92 + 0.16 * rand4(seed, id, k, 0xbd), 1, roofTmp, wallTmp, 0, 1.0, infoFor(model, rand4(seed, id, k, 0xbe), timber, style))
+        writeSlot(far, farModel, thr, yaw, sinkFor(r * 0.6), 1, 1, 1, roofTmp, wallTmp, 0, 1.0, NO_INFO)
+        maxR = Math.max(maxR, Math.hypot(x - cx0, y - cy0) + CLUSTER_R)
+        if (j % 3 === 2) yield
+      }
+      // a windmill on the edge of a grain village
+      if (windmillsFit(style) && pv.target >= 18 && rand4(seed, id, v, 0xbf) < 0.6) {
+        const x = cx0 + ca * (maxR + 0.9 * KK), y = cy0 + sa * (maxR + 0.9 * KK)
+        if (slotOk(x, y, footprint(Model.Windmill))) landmark(Role.Windmill, Model.Windmill, x, y, rand4(seed, id, v, 0xc0) * 6.28, thrOf(Math.min(pv.clusters.length - 1, Math.ceil(pv.clusters.length * 0.4))), 1)
+      }
+      vs.nearR.push(nStart, near.model.length)
+      vs.farR.push(fStart, far.model.length)
+      vs.vr[v] = Math.max(vs.vr[v], maxR)
+      vs.placed = v + 1
+      vs.set = null
+      yield
+    }
+  }
+
+  const NO_VILLAGES = { set: { n: 0, centre: new Float32Array(0), radius: new Float32Array(0), cell: new Int32Array(0), near: new Int32Array(0), far: new Int32Array(0), nearSet: EMPTY, farSet: EMPTY } as VillageSet, done: true }
+  function getVillages(id: number, deadline: number): { set: VillageSet; done: boolean } | null {
+    if (peak[id] <= 300 || settlements[id].outpost) return NO_VILLAGES
+    let vs = villageStates.get(id)
+    if (!vs) {
+      if (performance.now() > deadline || !territoriesReady(deadline)) return null
+      vs = villageStateOf(id)
+    }
+    const before = vs.placed
+    driveVillages(vs, deadline, () => false)
+    if (vs.placed !== before) vs.set = null
+    if (!vs.set) {
+      const n = vs.placed
+      const centre = new Float32Array(n * 3), radius = new Float32Array(n), cell = new Int32Array(n)
+      for (let v = 0; v < n; v++) {
+        centre[v * 3] = vs.ux[v]; centre[v * 3 + 1] = vs.uy[v]; centre[v * 3 + 2] = vs.uz[v]
+        radius[v] = vs.vr[v]
+        cell[v] = vs.vcell[v]
+      }
+      vs.set = { n, centre, radius, cell, near: Int32Array.from(vs.nearR), far: Int32Array.from(vs.farR), nearSet: vs.near.finish(), farSet: vs.far.finish() }
+    }
+    return { set: vs.set, done: vs.done }
+  }
+
   // ---------- countryside ----------
   const farmCache = new Map<number, SlotSet>()
   /** Land-use thresholds of a cell's farmsteads. */
@@ -855,10 +1298,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const o = originOf(sid)
       const tx = (o[0] - ox) * ex + (o[1] - oy) * ey + (o[2] - oz) * ez
       const ty = (o[0] - ox) * nx + (o[1] - oy) * ny + (o[2] - oz) * nz
-      avoid.push(tx, ty, townRadius(peak[sid]) * KK + HOUSE_WIDTH)
+      avoid.push(tx, ty, extentOf(sid) + HOUSE_WIDTH)
     }
     addAvoid(cell)
     for (let k = off[cell]; k < off[cell + 1]; k++) addAvoid(nb[k])
+    avoidVillages(cell, ox, oy, oz, ex, ey, ez, nx, ny, nz, avoid, HOUSE_WIDTH * 0.5)
     const style = styleOfCell(world, cell)
     const snow = roofSnow(world, cell)
     const w = new SlotWriter()
@@ -988,10 +1432,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const o = originOf(sid)
       const tx = (o[0] - ox) * ex + (o[1] - oy) * ey + (o[2] - oz) * ez
       const ty = (o[0] - ox) * nx + (o[1] - oy) * ny + (o[2] - oz) * nz
-      avoid.push(tx, ty, townRadius(peak[sid]) * KK * 1.05 + HOUSE_WIDTH)
+      avoid.push(tx, ty, extentOf(sid) * 1.05 + HOUSE_WIDTH)
     }
     addAvoid(cell)
     for (let k = off[cell]; k < off[cell + 1]; k++) addAvoid(nb[k])
+    avoidVillages(cell, ox, oy, oz, ex, ey, ez, nx, ny, nz, avoid, HOUSE_WIDTH)
     const G = 1.7 * KK
     const R = spacing * 0.75
     const n = Math.ceil(R / G)
@@ -1201,6 +1646,9 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const keep = N
       settlements = next.settlements
       N = settlements.length
+      hist = next
+      ownerCell = null
+      territoryGen = null
       computeFacts(next, keep)
     },
     settlement: getSettlement,
@@ -1210,10 +1658,13 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       // advance() with a past deadline only reports coverage
       return st.plan.advance(need, -1) && st.written >= st.plan.items.length && st.groundWritten >= st.plan.ground.length
     },
+    villages: getVillages,
     farm(cell: number, deadline: number) {
       let s = farmCache.get(cell)
       if (!s) {
         if (performance.now() > deadline) return null
+        // farmsteads keep clear of the villages: their sites first
+        if (!sitesReadyAround(cell, deadline)) return null
         s = layoutFarm(cell)
         farmCache.set(cell, s)
       }
@@ -1223,6 +1674,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       let s = forestCache.get(cell)
       if (!s) {
         if (performance.now() > deadline) return null
+        if (!sitesReadyAround(cell, deadline)) return null
         s = layoutForest(cell)
         forestCache.set(cell, s)
       }

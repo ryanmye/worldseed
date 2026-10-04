@@ -4,7 +4,8 @@
 // Reports population, towns and cities, land use and degradation (overall and of farmed cells), trade
 // (open routes, volume, sea share, route length, share of each good), roads (cells, connected corridors),
 // famine rates with and without trade, how city size correlates with trade, and where the largest cities sit;
-// peoples and contact; technology per people and expeditions (techStats.ts).
+// peoples and contact; technology per people and expeditions (techStats.ts). "Habitable" here is the land anyone can farm
+// (terrain.baseHabitable), not the marginal land only some species open. Species: speciesStats.ts.
 
 import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, Good, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
@@ -280,7 +281,7 @@ export function overseasStats(world: World, h: History, terrain: Terrain, diag?:
   const S = h.settlements.length
   const M = terrain.landmassSize.length
   const lmHab = new Int32Array(M)
-  for (let i = 0; i < N; i++) if (terrain.habitable[i]) lmHab[terrain.landmass[i]]++
+  for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) lmHab[terrain.landmass[i]]++
   // Cradles: the landmasses the founding tribes lived on.
   const isCradle = cradleLandmasses(h, terrain)
   const isCont = (m: number) => terrain.landmassSize[m] >= LANDMASS_MIN_FRACTION * N && lmHab[m] >= CONTINENT_HABITABLE
@@ -315,7 +316,7 @@ export function overseasStats(world: World, h: History, terrain: Terrain, diag?:
     continentsSettled.push(cs)
     let ha = 0, ca = 0, hc = 0, cc = 0, ho = 0, co = 0
     for (let i = 0; i < N; i++) {
-      if (!terrain.habitable[i]) continue
+      if (!terrain.baseHabitable[i]) continue
       const m = terrain.landmass[i]
       if (!isCont(m)) continue
       const yes = claimed[i] === q ? 1 : 0
@@ -556,7 +557,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
   }
   const openNow = new Int32Array(S)
   let habitable = 0, habCap = 0
-  for (let i = 0; i < N; i++) if (terrain.habitable[i]) { habitable++; habCap += terrain.capacity[i] }
+  for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) { habitable++; habCap += terrain.capacity[i] }
   const claimed = new Int32Array(N).fill(-1)
   const byYear: YearStats[] = []
   for (const year of STAT_YEARS) {
@@ -566,7 +567,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     let settled = 0, claimedCount = 0, towns = 0, cities = 0
     const lq = Math.min(h.landSnapshotCount - 1, Math.round(year / h.landInterval))
     let lu = 0, dg = 0
-    for (let i = 0; i < N; i++) if (terrain.habitable[i]) { lu += h.landUse[lq * N + i]; dg += h.degradation[lq * N + i] }
+    for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) { lu += h.landUse[lq * N + i]; dg += h.degradation[lq * N + i] }
     let ports = 0, dams = 0
     for (const st of h.structures) {
       if (st.builtYear > year || (st.lostYear >= 0 && st.lostYear <= year)) continue
@@ -580,10 +581,10 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
       if (p >= TOWN_POPULATION) towns++
       if (p >= CITY_POPULATION) cities++
       const c = h.settlements[id].cell
-      if (terrain.habitable[c]) settled++
+      if (terrain.baseHabitable[c]) settled++
       for (let k = terrain.catchOff[c]; k < terrain.catchOff[c + 1]; k++) {
         const j = terrain.catchCell[k]
-        if (terrain.habitable[j] && claimed[j] !== snap) { claimed[j] = snap; claimedCount++ }
+        if (terrain.baseHabitable[j] && claimed[j] !== snap) { claimed[j] = snap; claimedCount++ }
       }
     }
     pops.sort((a, b) => b - a)
@@ -645,7 +646,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
   const lmEver = new Uint8Array(terrain.landmassSize.length)
   const lmEnd = new Uint8Array(terrain.landmassSize.length)
   const lmHab = new Uint8Array(terrain.landmassSize.length)
-  for (let i = 0; i < N; i++) if (terrain.habitable[i]) lmHab[terrain.landmass[i]] = 1
+  for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) lmHab[terrain.landmass[i]] = 1
   const last = h.snapshotCount - 1
   for (let id = 0; id < S; id++) {
     const m = terrain.landmass[h.settlements[id].cell]
@@ -736,7 +737,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
   }
   if (damCount > 0) { damAridity /= damCount; damFlow /= damCount }
   let landAridity = 0
-  for (let i = 0; i < N; i++) if (terrain.habitable[i]) landAridity += 1 - smooth01(0.1, 0.45, world.rainfall[i])
+  for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) landAridity += 1 - smooth01(0.1, 0.45, world.rainfall[i])
   landAridity /= habitable
   let portEligible = 0, portHas = 0
   for (let id = 0; id < S; id++) {
@@ -805,7 +806,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     popBiome[world.biome[c]] += p
     endTotal += p
   }
-  for (let i = 0; i < N; i++) if (terrain.habitable[i]) areaSite[site(i)]++
+  for (let i = 0; i < N; i++) if (terrain.baseHabitable[i]) areaSite[site(i)]++
   const pct = (a: number[], t: number) => a.map((x) => (t > 0 ? (100 * x) / t : 0))
   const isCradle = cradleLandmasses(h, terrain)
   let firstOverseas = -1

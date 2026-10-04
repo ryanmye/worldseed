@@ -9,9 +9,11 @@
 import { EventType, StructureType, type History, type HistoryEvent, type World } from '../contract.ts'
 import { BIOME_NAMES } from '../render/palette.ts'
 import { describeEventFor, eventKind, formatInt, settlementName } from './format.ts'
+import { censusLine } from '../render/dioramas/census.ts'
 import { countUpTo, isAlive, landSnapshotAt, Tier, TIER_NAMES, tierOf, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createTradeSection } from './tradePanel.ts'
 import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
+import { describeOutpostSite } from './expeditionsData.ts'
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -28,6 +30,8 @@ export interface Inspector {
   setPlaces(text: string): void
   /** Empty element under the origin line for the settlement's people (filled by peoplesPanel.ts; hidden while empty). */
   readonly peopleSlot: HTMLElement
+  /** Empty element under the people for the cell's crop and herd and the people's species (filled by speciesPanel.ts). */
+  readonly speciesSlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -57,14 +61,17 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     </div>
     <div class="insp-body">
     <div class="insp-origin"></div>
+    <div class="insp-outpost hidden"></div>
     <div class="insp-places hidden"></div>
     <div class="insp-people hidden"></div>
+    <div class="insp-species hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
-    <div class="readout-row">Food <span class="insp-food-val"></span></div>
-    <div class="insp-bar"><div class="insp-bar-fill insp-food-fill"></div></div>
+    <div class="insp-origin insp-census hidden"></div>
+    <div class="readout-row insp-food-row">Food <span class="insp-food-val"></span></div>
+    <div class="insp-bar insp-food-bar"><div class="insp-bar-fill insp-food-fill"></div></div>
     <div class="insp-wealth hidden"></div>
-    <div class="readout-row">Capacity <span class="insp-cap"></span></div>
+    <div class="readout-row insp-cap-row">Capacity <span class="insp-cap"></span></div>
     <div class="readout-row">Biome <span class="insp-biome"></span></div>
     <div class="insp-land hidden">
       <div class="readout-row">Cultivated <span class="insp-cult"></span></div>
@@ -95,6 +102,9 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const placesEl = q<HTMLDivElement>('.insp-places')
   const statusEl = q<HTMLDivElement>('.insp-status')
   const popEl = q<HTMLSpanElement>('.insp-pop')
+  // where its people live, as the close-up view draws them (dioramas/census.ts)
+  const censusEl = q<HTMLDivElement>('.insp-census')
+  let censusWorld: World | null = null
   const foodValEl = q<HTMLSpanElement>('.insp-food-val')
   const barFill = q<HTMLDivElement>('.insp-food-fill')
   const capEl = q<HTMLSpanElement>('.insp-cap')
@@ -143,6 +153,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   let shownLand = -1
   let shownStructures = -1
   let cell = -1
+  let outpost = false
+  const outpostEl = q<HTMLDivElement>('.insp-outpost')
   const landPos: SnapshotPos = { s0: 0, s1: 0, frac: 0 }
 
   const link = (id: number) => {
@@ -274,22 +286,38 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   }
 
   const peopleSlot = q<HTMLDivElement>('.insp-people')
+  const speciesSlot = q<HTMLDivElement>('.insp-species')
 
   return {
     peopleSlot,
+    speciesSlot,
     get selected() {
       return selected
     },
     show(ix: HistoryIndex, world: World, id: number) {
       index = ix
+      censusWorld = world
       selected = id
       const h = ix.history
       const s = h.settlements[id]
       nameEl.textContent = settlementName(h, id)
       originEl.replaceChildren()
-      originEl.append(`Founded in year ${s.foundedYear} · `)
-      if (s.parent >= 0) originEl.append('by migrants from ', link(s.parent))
-      else originEl.append('Original tribe')
+      // an expedition base: whose it is, where it stands, how it is kept up
+      outpost = ix.isOutpost[id] === 1
+      root.classList.toggle('is-outpost', outpost)
+      outpostEl.classList.toggle('hidden', !outpost)
+      outpostEl.replaceChildren()
+      if (outpost) {
+        originEl.append(`Founded in year ${s.foundedYear} by an expedition`)
+        if (s.parent >= 0) originEl.append(' from ', link(s.parent))
+        outpostEl.append('Expedition base' + (s.parent >= 0 ? ' of ' : ''))
+        if (s.parent >= 0) outpostEl.append(link(s.parent))
+        outpostEl.append(`, ${describeOutpostSite(world, s.cell)}. It farms nothing: its people live on what ${s.parent >= 0 ? settlementName(h, s.parent) : 'its founders'} sends.`)
+      } else {
+        originEl.append(`Founded in year ${s.foundedYear} · `)
+        if (s.parent >= 0) originEl.append('by migrants from ', link(s.parent))
+        else originEl.append('Original tribe')
+      }
       capEl.textContent = formatInt(h.capacity[s.cell] ?? 0)
       biomeEl.textContent = (BIOME_NAMES[world.biome[s.cell]] ?? 'Unknown') + (world.lake[s.cell] === 1 ? ' (lake)' : '')
       yearsEl.textContent = String(h.years)
@@ -327,6 +355,9 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       if (pop !== shownPop) {
         shownPop = pop
         popEl.textContent = alive ? formatInt(pop) : '—'
+        const line = alive && censusWorld && !s.outpost ? censusLine(censusWorld, h, selected, population) : ''
+        censusEl.textContent = line
+        censusEl.classList.toggle('hidden', line === '')
       }
       const f = alive ? Math.round(100 * (h.food[s0 * index.count + selected] ?? 0)) : 0
       if (f !== shownFood) {
@@ -339,16 +370,19 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       if (status !== shownStatus) {
         shownStatus = status
         statusEl.textContent = status === 1 ? `Not founded yet (year ${s.foundedYear})` : status === 2 ? `Abandoned in year ${s.abandonedYear}` : ''
-        statusEl.classList.toggle('hidden', status === 0)
+        if (outpost && status === 0) statusEl.textContent = s.abandonedYear >= 0 ? `Kept up until year ${s.abandonedYear}` : 'Kept up to the end of the record'
+        statusEl.classList.toggle('hidden', status === 0 && !outpost)
+        statusEl.classList.toggle('kept', outpost && status === 0)
         root.classList.toggle('dead', status !== 0)
       }
-      const tier = alive ? tierOf(population) : -1
+      const tier = alive ? (outpost ? 9 : tierOf(population)) : -1
       if (tier !== shownTier) {
         shownTier = tier
         tierEl.classList.toggle('hidden', tier < 0)
         tierEl.classList.toggle('town', tier === Tier.Town)
         tierEl.classList.toggle('city', tier === Tier.City)
-        tierEl.textContent = tier >= 0 ? TIER_NAMES[tier as Tier] : ''
+        tierEl.classList.toggle('outpost', tier === 9)
+        tierEl.textContent = tier === 9 ? 'Expedition base' : tier >= 0 ? TIER_NAMES[tier as Tier] : ''
       }
 
       // how cultivated and how worn its own cell is (interpolated between land snapshots)

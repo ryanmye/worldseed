@@ -170,7 +170,7 @@ export const Style = {
 export type Style = (typeof Style)[keyof typeof Style]
 export const STYLE_COUNT = 6
 
-/** Generated kinds per style: four house variants and three landmarks. */
+/** Generated kinds per style: house variants, three landmarks, multi-dwelling blocks and village clusters. */
 export const Kind = {
   /** Small: cottage, hut. */
   Small: 0,
@@ -188,11 +188,47 @@ export const Kind = {
   Fort: 6,
   /** Ell: L-shaped house (a wing behind the street range); round a courtyard in the dry south. */
   Ell: 7,
+  /** Row: a terrace of three attached two-storey houses along the street (three roofs). */
+  Row: 8,
+  /** Block: ranges round a small court, six roofs, three storeys in the stone and brick styles. */
+  Block: 9,
+  /** Village clusters of four, five and six one-storey houses (one instance per cluster). */
+  Hamlet4: 10,
+  Hamlet5: 11,
+  Hamlet6: 12,
+  /** The same clusters, low detail: far away, no facade and no shadow map. */
+  Far4: 13,
+  Far5: 14,
+  Far6: 15,
 } as const
 export type Kind = (typeof Kind)[keyof typeof Kind]
-export const KIND_COUNT = 8
-/** Whether a kind is a bulk house (not a landmark). */
-export const isHouseKind = (k: number) => k <= Kind.Tall || k === Kind.Ell
+export const KIND_COUNT = 16
+/** Whether a kind is a bulk house (not a landmark): it gets the facade's windows. */
+export const isHouseKind = (k: number) => k <= Kind.Tall || (k >= Kind.Ell && k <= Kind.Hamlet6)
+/** Whether a kind is a low-detail village cluster. */
+export const isFarKind = (k: number) => k >= Kind.Far4 && k <= Kind.Far6
+/** Village cluster kind (and its far version) holding n = 4, 5 or 6 houses. */
+export const hamletKind = (n: number, far = false) => ((far ? Kind.Far4 : Kind.Hamlet4) + Math.min(2, Math.max(0, n - 4))) as Kind
+
+/**
+ * Dwelling roofs of a kind (census.ts: households per storey): one per house, three in a
+ * terrace, six in a courtyard block, the households of a village cluster; a hut with its
+ * granary, a pair of huts or a fenced compound is one household (as a viewer reads it);
+ * none for landmarks.
+ */
+export function roofUnits(_style: Style, kind: Kind): number {
+  switch (kind) {
+    case Kind.Small: case Kind.House: case Kind.Tall: return 1
+    case Kind.Long: return 1
+    case Kind.Ell: return 1
+    case Kind.Row: return 3
+    case Kind.Block: return 6
+    case Kind.Hamlet4: case Kind.Far4: return 4
+    case Kind.Hamlet5: case Kind.Far5: return 5
+    case Kind.Hamlet6: case Kind.Far6: return 6
+    default: return 0
+  }
+}
 
 const DARK_WOOD: RGB = [92, 70, 52]
 const STONE: RGB = [168, 160, 146]
@@ -200,9 +236,9 @@ const STONE_DARK: RGB = [128, 122, 112]
 const CHIMNEY: RGB = [118, 88, 74]
 const CHIMNEY_TOP: RGB = [52, 44, 40]
 
-function pitched(b: Builder, hw: number, hd: number, ye: number, yr: number, o: number, alongX = true, chimney = false, cx = 0, cz = 0) {
+function pitched(b: Builder, hw: number, hd: number, ye: number, yr: number, o: number, alongX = true, chimney = false, cx = 0, cz = 0, roof: RGB = R) {
   b.box(cx - hw, -0.15, cz - hd, cx + hw, ye, cz + hd, W, M_WALL)
-  b.gable(cx - hw, cx + hw, cz - hd, cz + hd, ye, yr, o, alongX)
+  b.gable(cx - hw, cx + hw, cz - hd, cz + hd, ye, yr, o, alongX, roof)
   if (chimney) {
     // on the ridge line toward one end, through the roof
     const x = alongX ? cx + hw * 0.55 : cx + hw * 0.2, z = alongX ? cz - hd * 0.12 : cz - hd * 0.5
@@ -216,6 +252,13 @@ function stilts(b: Builder, hw: number, hd: number, y: number, cx = 0, cz = 0) {
     b.box(x - 0.025, -0.15, z - 0.025, x + 0.025, y, z + 0.025, DARK_WOOD)
   }
   b.box(cx - hw - 0.03, y, cz - hd - 0.03, cx + hw + 0.03, y + 0.05, cz + hd + 0.03, DARK_WOOD)
+}
+
+/** A small raised granary: a drum on a low plinth under a pointed cap. */
+function granary(b: Builder, cx: number, cz: number, seg = 6) {
+  b.frustum(cx, cz, -0.15, 0.06, 0.1, 0.1, seg, DARK_WOOD, M_FIXED, null)
+  b.frustum(cx, cz, 0.06, 0.2, 0.08, 0.085, seg, W, M_WALL, null)
+  b.frustum(cx, cz, 0.18, 0.34, 0.12, 0, seg, R, M_ROOF, null, M_ROOF, 0.5)
 }
 
 function roundHut(b: Builder, cx: number, cz: number, r: number, wall: number, apex: number, seg = 7) {
@@ -237,19 +280,23 @@ function flatBlock(b: Builder, x0: number, z0: number, x1: number, z1: number, y
  * storey, eave].
  */
 export function houseFacade(style: Style, kind: Kind): [number, number] {
+  // Small, House, Long, Tall, (Hall, Tower, Fort), Ell, Row, Block, clusters (as Small), far clusters (none)
   const t: Record<number, readonly (readonly [number, number])[]> = {
-    [Style.Temperate]: [[0, 0.3], [0, 0.4], [0, 0.36], [0, 0.72], [0, 0], [0, 0], [0, 0], [0, 0.42]],
-    [Style.Cold]: [[0, 0.24], [0, 0.3], [0, 0.28], [0, 0.56], [0, 0], [0, 0], [0, 0], [0, 0.32]],
-    [Style.Mountain]: [[0, 0.3], [0, 0.38], [0, 0.32], [0, 0.86], [0, 0], [0, 0], [0, 0], [0, 0.4]],
-    [Style.Desert]: [[0, 0.36], [0, 0.38], [0, 0.34], [0, 0.78], [0, 0], [0, 0], [0, 0], [0, 0.4]],
-    [Style.Savanna]: [[0, 0.24], [0, 0.28], [0, 0.22], [0, 0.32], [0, 0], [0, 0], [0, 0], [0, 0.28]],
-    [Style.Rainforest]: [[0.25, 0.42], [0.27, 0.46], [0.27, 0.46], [0, 0.1], [0, 0], [0, 0], [0, 0], [0.27, 0.46]],
+    [Style.Temperate]: [[0, 0.3], [0, 0.4], [0, 0.36], [0, 0.72], [0, 0], [0, 0], [0, 0], [0, 0.42], [0, 0.62], [0, 0.9], [0, 0.3], [0, 0.3], [0, 0.3], [0, 0], [0, 0], [0, 0]],
+    [Style.Cold]: [[0, 0.24], [0, 0.3], [0, 0.28], [0, 0.56], [0, 0], [0, 0], [0, 0], [0, 0.32], [0, 0.6], [0, 0.62], [0, 0.26], [0, 0.26], [0, 0.26], [0, 0], [0, 0], [0, 0]],
+    [Style.Mountain]: [[0, 0.3], [0, 0.38], [0, 0.32], [0, 0.86], [0, 0], [0, 0], [0, 0], [0, 0.4], [0, 0.62], [0, 0.9], [0, 0.3], [0, 0.3], [0, 0.3], [0, 0], [0, 0], [0, 0]],
+    [Style.Desert]: [[0, 0.36], [0, 0.38], [0, 0.34], [0, 0.78], [0, 0], [0, 0], [0, 0], [0, 0.4], [0, 0.62], [0, 0.9], [0, 0.36], [0, 0.36], [0, 0.36], [0, 0], [0, 0], [0, 0]],
+    [Style.Savanna]: [[0, 0.24], [0, 0.28], [0, 0.22], [0, 0.62], [0, 0], [0, 0], [0, 0], [0, 0.28], [0, 0.62], [0, 0.62], [0, 0.26], [0, 0.26], [0, 0.26], [0, 0], [0, 0], [0, 0]],
+    [Style.Rainforest]: [[0.25, 0.42], [0.27, 0.46], [0.27, 0.46], [0, 0.62], [0, 0], [0, 0], [0, 0], [0.27, 0.46], [0, 0.62], [0, 0.62], [0.25, 0.42], [0.25, 0.42], [0.25, 0.42], [0, 0], [0, 0], [0, 0]],
   }
   const v = t[style][kind]
   return [v[0], v[1]]
 }
 
 function houseGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
+  if (kind === Kind.Row) return rowGeometry(style)
+  if (kind === Kind.Block) return blockGeometry(style)
+  if (kind >= Kind.Hamlet4) return clusterGeometry(style, 4 + ((kind - Kind.Hamlet4) % 3), isFarKind(kind))
   const b = new Builder()
   switch (style) {
     case Style.Temperate:
@@ -310,7 +357,8 @@ function houseGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
       }
       break
     case Style.Savanna:
-      if (kind === Kind.Small) roundHut(b, 0, 0, 0.25, 0.24, 0.6)
+      // a household: its hut and a small granary beside it
+      if (kind === Kind.Small) { roundHut(b, -0.06, 0, 0.23, 0.24, 0.58); granary(b, 0.22, -0.12) }
       else if (kind === Kind.House) {
         b.box(-0.36, -0.15, -0.24, 0.36, 0.28, 0.24, W, M_WALL)
         b.hip(-0.36, 0.36, -0.24, 0.24, 0.28, 0.58, 0.08)
@@ -318,8 +366,11 @@ function houseGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
         roundHut(b, -0.3, 0, 0.21, 0.22, 0.52)
         roundHut(b, 0.3, 0.04, 0.24, 0.24, 0.58)
         b.frustum(0, 0, -0.15, 0.1, 0.66, 0.66, 10, W_DARK, M_WALL, null) // low compound wall
-      } else if (kind === Kind.Tall) roundHut(b, 0, 0, 0.34, 0.32, 0.82, 8)
-      else {
+      } else if (kind === Kind.Tall) {
+        // a two-storey mud-brick town house, flat roof behind a parapet with corner pinnacles
+        flatBlock(b, -0.27, -0.33, 0.27, 0.33, 0.62)
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) b.box(sx * 0.27 - 0.035 * (sx + 1), 0.62, sz * 0.33 - 0.035 * (sz + 1), sx * 0.27 - 0.035 * (sx - 1), 0.74, sz * 0.33 - 0.035 * (sz - 1), W_DARK, M_WALL)
+      } else {
         // a family compound: a house and two huts inside a low wall
         b.box(-0.36, -0.15, 0.04, 0.2, 0.28, 0.34, W, M_WALL)
         b.hip(-0.36, 0.2, 0.04, 0.34, 0.28, 0.52, 0.07)
@@ -347,12 +398,121 @@ function houseGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
         b.box(-0.62, 0.27, -0.26, 0.62, 0.46, 0.26, W, M_WALL)
         b.gable(-0.62, 0.62, -0.26, 0.26, 0.46, 0.88, 0.1, true)
       } else {
-        // a big A-frame roof down to the ground
-        b.box(-0.3, -0.15, -0.3, 0.3, 0.1, 0.3, W, M_WALL)
-        b.gable(-0.3, 0.3, -0.3, 0.3, 0.1, 0.92, 0.06, false)
+        // a two-storey timber town house on a plinth, its big gable to the street
+        b.box(-0.29, -0.15, -0.35, 0.29, 0.02, 0.35, DARK_WOOD)
+        b.box(-0.27, 0.02, -0.33, 0.27, 0.62, 0.33, W, M_WALL)
+        b.gable(-0.27, 0.27, -0.33, 0.33, 0.62, 1.0, 0.08, false)
       }
       break
   }
+  return b.build()
+}
+
+const grey = (k: number): RGB => [k, k, k]
+
+/** A terrace of three attached houses along x (-0.54..0.54), fronts at +z: each its own roof, a little higher or lower than the next. */
+function rowGeometry(style: Style): THREE.BufferGeometry {
+  const b = new Builder()
+  const w = 0.36, hd = 0.26
+  const eaves = [0.6, 0.68, 0.58], shades = [178, 198, 168]
+  for (let u = 0; u < 3; u++) {
+    const cx = -0.54 + w * (u + 0.5), ye = eaves[u], rs = grey(shades[u])
+    switch (style) {
+      case Style.Temperate: pitched(b, w / 2, hd, ye, ye + 0.28, 0.025, false, true, cx, 0, rs); break
+      case Style.Cold: pitched(b, w / 2, hd, ye * 0.95, ye + 0.44, 0.035, false, true, cx, 0, rs); break
+      case Style.Mountain: pitched(b, w / 2, hd, ye, ye + 0.17, 0.05, true, u === 0, cx, 0, rs); break
+      case Style.Rainforest: pitched(b, w / 2, hd, ye, ye + 0.38, 0.06, false, false, cx, 0, rs); break
+      case Style.Desert: {
+        const y = [0.62, 0.92, 0.66][u]
+        flatBlock(b, cx - w / 2 + 0.008, -hd, cx + w / 2 - 0.008, hd, y, u === 1 ? W_DARK : W)
+        b.box(cx - 0.06, y, -hd + 0.03, cx + 0.06, y + 0.13, -hd + 0.14, W_DARK, M_WALL, R, M_ROOF)
+        break
+      }
+      default: {
+        // savanna: flat-roofed mud-brick houses, a parapet with pinnacles on the taller one
+        // (each house its own height, wall shade and roof kiosk, so the units read apart)
+        const y = [0.62, 0.72, 0.58][u]
+        flatBlock(b, cx - w / 2 + 0.008, -hd, cx + w / 2 - 0.008, hd, y, u === 1 ? W : W_DARK)
+        b.box(cx - 0.07, y, -hd + 0.04, cx + 0.05, y + 0.12, -hd + 0.15, W_DARK, M_WALL, R, M_ROOF)
+        for (const sx of [-1, 1]) b.box(cx + sx * (w / 2 - 0.03) - 0.03, y, hd - 0.06, cx + sx * (w / 2 - 0.03) + 0.03, y + 0.1, hd, W_DARK, M_WALL)
+      }
+    }
+  }
+  return b.build()
+}
+
+/**
+ * Ranges round a small court (-0.55..0.55 square, fronts at +z): the front and back ranges
+ * in two houses each, a house on either side, six roofs; three storeys in the stone,
+ * brick and adobe styles, two in timber and mud.
+ */
+function blockGeometry(style: Style): THREE.BufferGeometry {
+  const b = new Builder()
+  const e = 0.55, t = 0.25
+  const E = style === Style.Cold || style === Style.Savanna || style === Style.Rainforest ? 0.62 : 0.9
+  // [x0, z0, x1, z1, eave offset, ridge along x, shade]
+  const parts: [number, number, number, number, number, boolean, number][] = [
+    [-e, e - t, 0, e, 0, true, 184], [0, e - t, e, e, 0.07, true, 200],
+    [-e, -e, 0.05, -e + t, 0.04, true, 170], [0.05, -e, e, -e + t, -0.03, true, 192],
+    [-e, -e + t, -e + t, e - t, -0.06, false, 176], [e - t, -e + t, e, e - t, 0.02, false, 188],
+  ]
+  for (const [x0, z0, x1, z1, de, ax, sh] of parts) {
+    const ye = E + de
+    const hw = (x1 - x0) / 2, hd = (z1 - z0) / 2, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2
+    switch (style) {
+      case Style.Temperate: pitched(b, hw, hd, ye, ye + 0.22, 0.025, ax, sh > 195, cx, cz, grey(sh)); break
+      case Style.Cold: pitched(b, hw, hd, ye, ye + 0.36, 0.035, ax, sh > 195, cx, cz, grey(sh)); break
+      case Style.Mountain: pitched(b, hw, hd, ye, ye + 0.14, 0.04, ax, sh > 195, cx, cz, grey(sh)); break
+      case Style.Rainforest: pitched(b, hw, hd, ye, ye + 0.3, 0.06, ax, false, cx, cz, grey(sh)); break
+      default: flatBlock(b, x0, z0, x1, z1, ye, sh > 185 ? W : W_DARK)
+    }
+  }
+  return b.build()
+}
+
+/** Houses of the village clusters: x, z, turned a quarter, size (0 cottage or hut, 1 house, 2 long house or barn). */
+const CLUSTERS: Record<number, readonly (readonly [number, number, number, number])[]> = {
+  4: [[-0.5, -0.38, 0, 1], [0.52, -0.5, 1, 0], [0.56, 0.44, 0, 0], [-0.4, 0.56, 1, 2]],
+  5: [[-0.9, -0.36, 0, 0], [-0.22, -0.42, 0, 1], [0.54, -0.34, 0, 0], [-0.6, 0.42, 0, 0], [0.26, 0.46, 0, 1]],
+  6: [[0.76, 0.2, 1, 1], [0.2, 0.78, 0, 0], [-0.58, 0.56, 1, 0], [-0.8, -0.2, 1, 1], [-0.2, -0.8, 0, 0], [0.56, -0.58, 1, 2]],
+}
+
+/** One village house of a cluster at (cx, cz); `far`: low detail (no chimneys, stilts or parapets). */
+function dwelling(b: Builder, style: Style, size: number, cx: number, cz: number, turned: boolean, far: boolean) {
+  let hw = size === 0 ? 0.26 : size === 1 ? 0.34 : 0.48, hd = size === 2 ? 0.22 : size === 1 ? 0.24 : 0.2
+  if (turned) [hw, hd] = [hd, hw]
+  const ax = !turned
+  const o = far ? 0 : 0.05
+  switch (style) {
+    case Style.Temperate: pitched(b, hw, hd, 0.3, 0.56, o, ax, !far && size === 1, cx, cz); break
+    case Style.Cold: pitched(b, hw, hd, 0.24, 0.62, o, ax, !far && size === 1, cx, cz); break
+    case Style.Mountain: pitched(b, hw, hd, 0.3, 0.46, o + 0.02, ax, !far && size === 1, cx, cz); break
+    case Style.Desert:
+      if (far) b.box(cx - hw, -0.15, cz - hd, cx + hw, 0.36, cz + hd, W, M_WALL, R, M_ROOF)
+      else flatBlock(b, cx - hw, cz - hd, cx + hw, cz + hd, size === 2 ? 0.34 : 0.36)
+      break
+    case Style.Savanna:
+      if (size === 2) {
+        b.box(cx - 0.34, -0.15, cz - 0.22, cx + 0.34, 0.26, cz + 0.22, W, M_WALL)
+        b.hip(cx - 0.34, cx + 0.34, cz - 0.22, cz + 0.22, 0.26, 0.54, far ? 0 : 0.07)
+      } else {
+        // a household: its hut and a granary
+        roundHut(b, cx - 0.05, cz, size === 0 ? 0.2 : 0.24, 0.24, size === 0 ? 0.54 : 0.6, far ? 5 : 7)
+        if (!far) granary(b, cx + (size === 0 ? 0.2 : 0.25), cz - 0.12)
+      }
+      break
+    default:
+      // rainforest: on stilts
+      if (!far) stilts(b, hw, hd, 0.2, cx, cz)
+      b.box(cx - hw, far ? -0.15 : 0.25, cz - hd, cx + hw, 0.42, cz + hd, W, M_WALL)
+      b.gable(cx - hw, cx + hw, cz - hd, cz + hd, 0.42, 0.78, far ? 0 : 0.09, ax)
+  }
+}
+
+/** A cluster of n (4, 5 or 6) village houses round a yard, ~2 units across. */
+function clusterGeometry(style: Style, n: number, far: boolean): THREE.BufferGeometry {
+  const b = new Builder()
+  for (const [x, z, turned, size] of CLUSTERS[n]) dwelling(b, style, size, x, z, turned > 0, far)
   return b.build()
 }
 
@@ -457,7 +617,7 @@ function landmarkGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
 
 /** Geometry of (style, kind). */
 export function styleGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
-  return isHouseKind(kind) ? houseGeometry(style, kind) : landmarkGeometry(style, kind)
+  return kind === Kind.Hall || kind === Kind.Tower || kind === Kind.Fort ? landmarkGeometry(style, kind) : houseGeometry(style, kind)
 }
 
 // ---------- shared pieces ----------
@@ -687,7 +847,7 @@ export function floraGeometry(kind: Flora): THREE.BufferGeometry {
 
 /** Unit disk in the xz plane; alpha 1 at the centre falling to 0 at the rim. */
 export function buildBlob(): THREE.BufferGeometry {
-  const seg = 16
+  const seg = 10
   const pos = [0, 0, 0]
   const col = [0, 0, 0, 255]
   for (let i = 0; i <= seg; i++) {

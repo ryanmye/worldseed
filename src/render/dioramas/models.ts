@@ -11,7 +11,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
   buildBlob, buildBoat, buildDam, buildHaystacks, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
-  KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
+  isFarKind, KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
 } from './shapes.ts'
 
 /**
@@ -59,6 +59,8 @@ export const floraModel = (f: Flora) => FLORA_BASE + f
 /** Model of a generated building of a style. */
 export const styleModel = (s: Style, k: Kind) => STYLE_BASE + s * KIND_COUNT + k
 export const isStyleModel = (m: number) => m >= STYLE_BASE
+/** Whether a model is a low-detail village cluster (drawn far away: no facade, no shadow map). */
+export const isFarModel = (m: number) => m >= STYLE_BASE && m < MODEL_COUNT && isFarKind((m - STYLE_BASE) % KIND_COUNT)
 /** Style and kind of a generated building model (or null). */
 export const styleKindOf = (m: number): [Style, Kind] | null => (m >= STYLE_BASE && m < MODEL_COUNT ? [Math.floor((m - STYLE_BASE) / KIND_COUNT) as Style, ((m - STYLE_BASE) % KIND_COUNT) as Kind] : null)
 
