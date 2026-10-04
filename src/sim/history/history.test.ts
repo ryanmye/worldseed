@@ -1346,7 +1346,7 @@ describe('simulateHistory', () => {
       const ports = h.structures.filter((x) => x.type === StructureType.Port).length
       const nd = h.structures.filter((x) => x.type === StructureType.Dam).length
       expect(ports).toBeGreaterThan(5)
-      expect(nd).toBeLessThanOrEqual(50) // (was 40; frontier settlement fills arid river valleys a little more densely, polities add towns and dams broken in sacks are rebuilt as new ones)
+      expect(nd).toBeLessThanOrEqual(40) // (frontier alone needed 45 and polities alone 50 on their old base; merged with species v1 the most is 31, seed 1337)
       dams += nd
       if (h.events.some((e) => e.type === EventType.BecameCity)) withCity++
       for (let id = 0; id < S; id++) biggest = Math.max(biggest, h.population[last * S + id])

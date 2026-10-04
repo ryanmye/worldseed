@@ -33,7 +33,7 @@ export const POLITY = {
   storeTuber: 0.7,
   storeWild: 0.8,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
-  submit: 2.2,
+  submit: 2.8,
   subBase: 0.3,
   foreign: 0.5,
   /** Accretion: at most this many settlements join a polity per slow step, the most dominated first. */
@@ -41,9 +41,9 @@ export const POLITY = {
   /** A chiefdom (fewer than absorbMembers members) whose capital would submit (at submit) to a larger neighbour joins it whole. */
   absorbMembers: 6,
   /** Reach: lambda = lambda0 * (1 + reachCrafts * (Crafts - 1)) / sqrt(1 + members / overload). */
-  lambda0: 5,
+  lambda0: 6,
   reachCrafts: 0.5,
-  overload: 100,
+  overload: 250,
   /** Power b = pop * q * (1 + prosperityPower * prosperity); q = 1 + qMetal (Metalworking - 1) + qCrafts (Crafts - 1). */
   prosperityPower: 0.5,
   qMetal: 0.3,
@@ -138,7 +138,7 @@ export const WAR = {
   /** Walls also multiply the realm's field army defending the town (design 6.3); off: walls shelter only the town's own defenders. */
   fieldWall: false,
   /** At its own capital the defender's field army counts at this share (1: the whole realm's mass defends it). */
-  capitalField: 1,
+  capitalField: 0.5,
   /** A failed year of siege makes the next year's odds this much better for the besiegers. */
   siegeAttrition: 1.15,
   /** After its capital falls, the defender's members submit to the conqueror at this alpha (shock); a rump survives only with rumpShare of the realm's people (and POLITY.minState). */
@@ -249,7 +249,7 @@ export const UNREST = {
   rate: 0.1,
   /** Revolt: members with u >= revolt rise with chance chance per step; the cluster spreads to members with u >= spread (at most cluster). */
   revolt: 0.55,
-  chance: 0.07,
+  chance: 0.06,
   spread: 0.4,
   cluster: 15,
   /** Crushed: rebels lose pop and wealth, unrest falls to after, the centre's exhaustion rises. */
