@@ -369,8 +369,8 @@ export const SMUGGLE = {
   corruptRate: 0.05,
   corruptUnrest: 0.15,
   /** A hub: contraband at least ringShare of its smoothed income and ringMin wealth a year (logged once per settlement: SmugglingRing). */
-  ringShare: 0.6,
-  ringMin: 80,
+  ringShare: 0.7,
+  ringMin: 150,
   /** Smoothing of incomes for the hub measure, a year. */
   smooth: 0.2,
 }

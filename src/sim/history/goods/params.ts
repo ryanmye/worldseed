@@ -286,9 +286,8 @@ export const MART = {
   legYears: 1,
   /** Risk of a relay hop (per hop, a share of value). */
   risk: 0.03,
-  /** polities v2: the smugglers' hub of a leg is the least policed settlement on its way (true) or its importer (false: the
-   *  long legs pass many small places, which became hubs on a few loads of luxuries). */
-  hubTransit: false,
+  /** polities v2: the smugglers' hub of a leg is the least policed settlement on its way (true) or its importer (false). */
+  hubTransit: true,
 }
 
 /**
