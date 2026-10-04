@@ -198,7 +198,8 @@ function setApart(w: string, base: string, units: string[], to: Language, ending
         const u = units.slice()
         let i = u.length - 1
         while (i >= 0 && !isV(u[i])) i--
-        if (i >= 0 && to.vowels.length > 1) { const others = to.vowels.filter((v) => v !== u[i]); u[i] = others[rng.int(0, others.length - 1)]; c = repair(u, to) }
+        const others = i >= 0 && to.vowels.length > 1 ? to.vowels.filter((v) => v !== u[i]) : []
+        if (others.length > 0) { u[i] = others[rng.int(0, others.length - 1)]; c = repair(u, to) } // (a language may have one vowel only, listed more than once)
         break
       }
     }
