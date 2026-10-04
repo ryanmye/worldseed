@@ -24,10 +24,14 @@ function hv(h: number, x: unknown): number {
 const BASE_KEYS = ['bonds', 'capacity', 'cash', 'contactYear', 'contraband', 'crop', 'danger', 'degradation', 'depositOutput', 'deposits', 'diseases', 'embargoes', 'endemic', 'epidemics', 'events', 'features', 'fever', 'feverTolerance', 'food', 'habit', 'herd', 'industry', 'journeys', 'knownYear', 'landCells', 'landInterval', 'landSnapshotCount', 'landUse', 'longHaul', 'longHaulVolume', 'mart', 'metal', 'outbreaks', 'peoples', 'piracy', 'polities', 'polity', 'population', 'posts', 'priceIndex', 'quarantines', 'raids', 'road', 'secretGuard', 'secretHolds', 'secrets', 'settlements', 'smuggleVolume', 'snapshotCount', 'snapshotInterval', 'species', 'speciesSource', 'speciesYear', 'stimulants', 'storable', 'structures', 'tariff', 'tariffRevenue', 'techniqueSource', 'techniqueYear', 'techniques', 'technology', 'territory', 'trade', 'tradeInterval', 'tradeLoss', 'tradeSnapshotCount', 'tradeVolume', 'traditionQuality', 'traditions', 'varieties', 'wars', 'wealth', 'years']
 export function hashBaseFields(h: History): string {
   let x = 0x811c9dc5
-  for (const k of BASE_KEYS) { x = hv(x, k); x = hv(x, (h as unknown as Record<string, unknown>)[k]) }
+  for (const k of BASE_KEYS) {
+    x = hv(x, k)
+    // (tourism, later than rulers and religion and off in the golden runs: settlements without their resort flag)
+    x = hv(x, k === 'settlements' ? h.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : (h as unknown as Record<string, unknown>)[k])
+  }
   return (x >>> 0).toString(16)
 }
-/** hashBaseFields of the history without rulers and religion (the base commit 7bdbe75; since the merge, the disease system's main, verified by hashing every field against it): [seed, years, subdivisions, options, hash]. */
+/** hashBaseFields of the history without rulers and religion (the base commit 7bdbe75; since the merge, the disease system's main, verified by hashing every field against it; tourism, merged later, off): [seed, years, subdivisions, options, hash]. */
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
   [42, 2000, undefined, {}, '4071f7fd'],
   [3, 600, undefined, {}, '94f3e1d2'],
@@ -196,7 +200,7 @@ describe('rulers', () => {
   it('switched off (rulers and religion), every field of the history is the one without them, and the new fields are empty', () => {
     for (const [seed, years, n, o, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false })
+      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false, tourism: false }) // (tourism: later, off here too)
       expect(hashBaseFields(h)).toBe(hash)
       expect(h.rulers.length + h.dynasties.length + h.reignIds.length + h.marriages.count + h.unions.count + h.successionWars.length).toBe(0)
       expect(h.faiths.length + h.faith.length + h.faithShare.length + h.stateFaith.length + h.holyWars.length).toBe(0)

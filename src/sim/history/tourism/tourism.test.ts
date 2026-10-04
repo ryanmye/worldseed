@@ -48,16 +48,17 @@ function hashTourism(hi: History): string {
 }
 
 /**
- * Histories without the tourism system: hashPreTourism of simulateHistory with tourism off equals the history of the commit
- * before it (fca7cc7, every key of History; recorded with that commit's code). A later change outside the tourism system
- * must regenerate these.
+ * Histories without the tourism system: hashPreTourism of simulateHistory with tourism off equals the history without it
+ * (every key of History): first the commit before it (fca7cc7); since the merge with rulers, religion and the disease retune,
+ * the tip of that merge, verified by hashing every field against it and recorded here. A later change outside the tourism
+ * system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '40dfb8b3'],
-  [3, 600, undefined, {}, '2cdee2d'],
-  [7, 900, undefined, { polities: false, goods: false }, '63c0ef3'],
-  [1, 1500, undefined, { disease: false }, '5a56cb5c'],
-  [9, 800, 24, {}, '3295313d'],
+  [42, 2000, undefined, {}, 'd2422449'],
+  [3, 600, undefined, {}, 'bbe320fe'],
+  [7, 900, undefined, { polities: false, goods: false }, 'a7be5ebd'],
+  [1, 1500, undefined, { disease: false }, 'e2eedb90'],
+  [9, 800, 24, {}, '9f69cfaa'],
 ]
 
 const worlds = new Map<number, World>()
