@@ -164,7 +164,7 @@ for (let m = 0; m < MODEL_COUNT; m++) {
   if (sk && isHouseKind(sk[1])) HOUSE_MODEL[m] = 1
 }
 /** Vertex attributes a batch shares with its model. */
-const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace']
+const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace', 'aPiece']
 
 /**
  * The ground of every settlement near the view in one triangle list (layout.ts GroundSet

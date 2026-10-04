@@ -28,6 +28,13 @@ import { SACK_YEARS } from '../../ui/politiesData.ts'
 export const FACADE_PACK = 2
 /** Facade flag (bit 4) of a column of smoke: it stands only while its aRuin years last (the sack's), rising a little. */
 export const FACADE_SMOKE = 4
+/** Facade flag (bit 8) of a landmark (an atlas instance: aInfo.x is -(piece + 1)) in neglect: darker and greyer. */
+export const FACADE_WORN = 8
+/**
+ * Facade flag (bit 16) of a landmark under construction: its aRuin years are the works', aInfo.y the years the work
+ * takes; its walls rise from the ground with the years and its roof and trim go on at the end.
+ */
+export const FACADE_RISING = 16
 
 /** Team colours (linear RGB); index 0 keeps the model's own colours. */
 export const PALETTE: readonly [number, number, number][] = [
@@ -125,6 +132,35 @@ const LIFE_GLSL = /* glsl */ `
   }
 `
 
+/**
+ * Landmark atlases (models.ts Model.LandmarkSacred / LandmarkCivic): every vertex carries its piece (aPiece), an
+ * instance shows piece -aInfo.x - 1 and collapses the rest; a ruined one loses its roof and trim and its walls break
+ * to a ragged height below its eave (aInfo.z); one under construction (FACADE_RISING) rises from the ground over the
+ * years of the works. (Included after the aInfo declaration.)
+ */
+const LANDMARK_GLSL = /* glsl */ `
+  attribute float aPiece;
+  bool landmarkHidden() {
+    return aInfo.x < -0.5 && abs(aPiece + 1.0 + aInfo.x) > 0.5;
+  }
+  bool landmarkRising() {
+    return mod(floor(floor(aInfo.w) / 16.0), 2.0) > 0.5;
+  }
+  vec3 landmarkRuinPos(vec3 p, vec3 origin) {
+    float m = aColor.a;
+    float H = aInfo.z;
+    if (landmarkRising()) {
+      float t = clamp((uYear - aRuin.x) / max(1.0, aInfo.y), 0.0, 1.0);
+      if (m > 0.6 && t < 0.97) return vec3(0.0, -0.3, 0.0);
+      return vec3(p.x, min(p.y, mix(0.06, H * 1.3, t)), p.z);
+    }
+    if (m > 0.6) return vec3(0.0, -0.3, 0.0);
+    float h = fract(sin(dot(origin * 913.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    float top = H * (0.3 + 0.22 * h) * (0.72 + 0.28 * sin(p.x * 7.0 + p.z * 5.0 + h * 30.0));
+    return vec3(p.x, min(p.y, max(0.05, top)), p.z);
+  }
+`
+
 const SKY = 'vec3(0.30, 0.50, 0.95)'
 
 /** Light direction at a point: the sun, or (daylight everywhere) the sun leaned to just off the local zenith. */
@@ -204,11 +240,17 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       attribute vec3 aWall; // wall colour (linear)
       attribute vec4 aInfo; // facade: style + 1, lowest floor, eave, flags + seed
       attribute vec2 aFace; // position along the wall face, face length (model units)
+      ${LANDMARK_GLSL}
       vec3 srgbToLinear(vec3 c) {
         return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
       }
       void main() {
         vec3 origin = instanceMatrix[3].xyz;
+        bool lm = aInfo.x < -0.5;
+        if (lm && landmarkHidden()) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
         float s = instanceSize(origin);
         bool smoke = aInfo.x < 0.5 && mod(floor(aInfo.w * 0.25), 2.0) > 0.5;
         if (smoke) s *= ruinState();
@@ -217,7 +259,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           return;
         }
         vRuin = smoke ? 0.0 : ruinState();
-        vec3 lp = vRuin > 0.5 ? ruinPos(position, origin, aInfo.z) : position;
+        vec3 lp = vRuin > 0.5 ? (lm ? landmarkRuinPos(position, origin) : ruinPos(position, origin, aInfo.z)) : position;
         if (smoke) lp.y *= 0.6 + 0.4 * clamp((uYear - aRuin.x) / 0.4, 0.0, 1.0);
         vec4 wp = instanceMatrix * vec4(lp * s, 1.0);
         gl_Position = projectionMatrix * modelViewMatrix * wp;
@@ -234,7 +276,11 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           // team colour (KayKit), keeping the pack's shading gradient (its blue has luminance ~0.13):
           // the settlement's roof colour, else the palette
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          if (tinted) c = aRoof.rgb * clamp(l / 0.13, 0.55, 1.6);
+          if (lm && aInfo.y >= 1.0 && !landmarkRising()) {
+            // a landmark's trim: its faith's, its realm's, gilt (aInfo.y: 6-bit linear rgb, r * 4096 + g * 64 + b)
+            vec3 t = vec3(floor(aInfo.y / 4096.0), mod(floor(aInfo.y / 64.0), 64.0), mod(aInfo.y, 64.0)) / 63.0;
+            c = t * clamp(l / 0.13, 0.55, 1.6);
+          } else if (tinted) c = aRoof.rgb * clamp(l / 0.13, 0.55, 1.6);
           else if (pi > 0) c = uPalette[pi] * clamp(l / 0.13, 0.5, 1.8);
           vRoof = 1.0;
           vMask = 3.0;
@@ -253,6 +299,8 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         vSeed = fract(sin(dot(origin * 1000.0, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
         bool pack = aInfo.x < 0.5 && mod(floor(aInfo.w * 0.5), 2.0) > 0.5;
         vAlb = mix(vec3(lum), c, pack ? 0.64 : 0.85) * (pack ? 0.86 : 0.9) * (0.94 + 0.12 * vSeed);
+        // a landmark in neglect: grimy, faded
+        if (lm && mod(floor(floor(aInfo.w) / 8.0), 2.0) > 0.5) vAlb = mix(vec3(dot(vAlb, vec3(0.2126, 0.7152, 0.0722))), vAlb, 0.55) * vec3(0.7, 0.68, 0.64);
         vSnow = aRoof.a;
         vLocal = lp;
         vLocalN = normal;
@@ -733,14 +781,16 @@ export function createDepthMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
     vertexShader: /* glsl */ `
       ${LIFE_GLSL}
       attribute vec4 aInfo;
+      ${LANDMARK_GLSL}
       void main() {
         vec3 origin = instanceMatrix[3].xyz;
-        float s = instanceSize(origin);
+        bool lm = aInfo.x < -0.5;
+        float s = lm && landmarkHidden() ? 0.0 : instanceSize(origin);
         if (s <= 0.002) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        vec3 lp = ruinState() > 0.5 ? ruinPos(position, origin, aInfo.z) : position;
+        vec3 lp = ruinState() > 0.5 ? (lm ? landmarkRuinPos(position, origin) : ruinPos(position, origin, aInfo.z)) : position;
         gl_Position = projectionMatrix * modelViewMatrix * (instanceMatrix * vec4(lp * s, 1.0));
       }
     `,
