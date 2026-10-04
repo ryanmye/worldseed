@@ -267,6 +267,20 @@ kbd {
   align-items: flex-end;
   max-height: calc(100% - 32px - var(--right-reserve));
 }
+/* the right column scrolls as a whole once its panels have shrunk as far as they go (many panels on a short window);
+   the padding keeps the chronicle's width handle inside it, the gap between collapsed headers is a little tighter */
+.side-column.right {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  margin-right: -8px;
+  padding: 0 8px 0 8px;
+  gap: 8px;
+}
+.side-column.right::-webkit-scrollbar {
+  display: none;
+}
 .side-column > .panel {
   position: relative;
   top: auto;
