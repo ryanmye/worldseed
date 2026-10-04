@@ -1132,6 +1132,20 @@ describe('simulateHistory', () => {
     expect(a.structures[0]).not.toBe(b.structures[0])
   }, 300_000)
 
+  it('a resumable run stepped without assembling (simulateTo) gives the same history', () => {
+    const w = world(7)
+    const run = createHistoryRun(w)
+    for (let y = 150; y < 900; y += 150) expect(run.simulateTo(y)).toBe(y)
+    expect(run.simulateTo(300)).toBe(750) // (no going back: nothing happens)
+    const h = run.advanceTo(900)
+    expect(hashHistory(h)).toBe(hashHistory(simulateHistory(w, { years: 900 })))
+    // Assembling twice gives two histories with their own features (the feature detection is shared, its results are not).
+    const h2 = run.advanceTo(900)
+    expect(hashHistory(h2)).toBe(hashHistory(h))
+    expect(h2.features).not.toBe(h.features)
+    if (h.features.length > 0) expect(h2.features[0].spine).not.toBe(h.features[0].spine)
+  }, 300_000)
+
   it('runs at other resolutions', () => {
     const w = generateWorld(9, { subdivisions: 24 })
     const h = simulateHistory(w, { years: 800 })

@@ -80,7 +80,7 @@
 // hubs get more from their land and import food).
 
 import { GOOD_COUNT, TECH_FIELD_COUNT } from '../../contract.ts'
-import type { GeoFeature, History, HistoryEvent, HistoryOptions, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
+import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { nameWorld } from '../names/featureNames.ts'
 import { createSearch, migrationSystem } from './migration.ts'
@@ -353,6 +353,8 @@ export interface HistoryRunner {
   readonly year: number
   /** Simulates up to `years` (no earlier than `year`) and assembles everything up to then; the run can go on afterwards. */
   advance(years: number): HistoryRun
+  /** Simulates up to `years` (no earlier than `year`) without assembling anything (cheap progress steps; advance assembles later). */
+  simulate(years: number): void
 }
 
 /**
@@ -543,6 +545,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (probe) probe(s, trade, techState)
   }
 
+  // The world's named-geography features (names/features.ts) depend on the world alone: detected once, at the first assembly.
+  let featureMapCache: FeatureMap | null = null
+
   /** Everything up to year `years` (the year just simulated), copied out of the state. */
   const assemble = (years: number): HistoryRun => {
     const snapshotCount = Math.floor(years / interval) + 1
@@ -568,7 +573,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       settlements.push({ id, cell: s.cell[id], foundedYear: s.founded[id], parent: s.parent[id], abandonedYear: s.abandoned[id], name: '', people: s.people[id], outpost: s.outpost[id] === 1, post: false, resort: tz !== null && id < tz.cap && tz.resort[id] === 1 })
     }
     // Settlement names and named geography, in the order things are founded and reached (names/featureNames.ts).
-    const featureMap = detectFeatures(world)
+    const featureMap = featureMapCache ?? (featureMapCache = detectFeatures(world)) // (read only below)
     const { names, features, naming } = nameWorld(world, settlements, featureMap)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)
@@ -642,16 +647,20 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   }
 
   let year = 0
+  /** Steps the run to `years` (clamped; at most 32767: knownYear and contactYear store years as Int16). */
+  const simulateTo = (years: number): void => {
+    const target = Math.min(32767, Math.max(0, Math.floor(years)))
+    if (target < year) throw new RangeError(`history run is at year ${year}; cannot go back to ${target}`)
+    for (let y = year + 1; y <= target; y++) step(y)
+    year = target
+  }
   return {
     get year() { return year },
     advance(years: number): HistoryRun {
-      // (At most 32767: knownYear and contactYear store years as Int16.)
-      const target = Math.min(32767, Math.max(0, Math.floor(years)))
-      if (target < year) throw new RangeError(`history run is at year ${year}; cannot go back to ${target}`)
-      for (let y = year + 1; y <= target; y++) step(y)
-      year = target
+      simulateTo(years)
       return assemble(year)
     },
+    simulate: simulateTo,
   }
 }
 
@@ -668,7 +677,7 @@ export const simulateHistory: SimulateHistory = (world, options) => runHistory(w
  * (options.years is ignored here). Each returned History owns all its arrays (they may be transferred).
  * Going back to fewer years than already simulated runs that history from scratch.
  */
-export function createHistoryRun(world: World, options?: HistoryOptions): { readonly year: number; advanceTo(years: number): History } {
+export function createHistoryRun(world: World, options?: HistoryOptions): Required<HistoryRunContract> {
   const runner = createRunner(world, options)
   return {
     get year() { return runner.year },
@@ -676,6 +685,11 @@ export function createHistoryRun(world: World, options?: HistoryOptions): { read
       const target = Math.min(32767, Math.max(0, Math.floor(years)))
       if (target < runner.year) return simulateHistory(world, { ...options, years: target })
       return runner.advance(target).history
+    },
+    simulateTo(years: number): number {
+      const target = Math.min(32767, Math.max(0, Math.floor(years)))
+      if (target > runner.year) runner.simulate(target)
+      return runner.year
     },
   }
 }

@@ -1336,6 +1336,12 @@ export interface HistoryRun {
   /** Years simulated so far. */
   readonly year: number
   advanceTo(years: number): History
+  /**
+   * Simulates up to `years` without assembling a History (assembling copies and names the whole run, which costs more
+   * the longer it is), and returns `year`; years at or below `year` do nothing. For cheap progress steps: call it for
+   * each chunk short of the target, then advanceTo(target) once. Absent from older simulations.
+   */
+  simulateTo?(years: number): number
 }
 export type CreateHistoryRun = (world: World, options?: HistoryOptions) => HistoryRun
 
