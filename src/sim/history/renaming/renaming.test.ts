@@ -50,11 +50,11 @@ function hashRenaming(hi: History): string {
  * holds. A later change outside the renaming system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '1b87790d'],
-  [3, 600, undefined, {}, 'f7ef08ab'],
-  [7, 900, undefined, { polities: false, goods: false }, '5ccf1fe7'],
-  [1, 1500, undefined, { disease: false }, '9a911db2'],
-  [9, 800, 24, {}, 'f5afa0c4'],
+  [42, 2000, undefined, {}, '38f85a6a'],
+  [3, 600, undefined, {}, 'f2aa2bcb'],
+  [7, 900, undefined, { polities: false, goods: false }, '7ef42c7a'],
+  [1, 1500, undefined, { disease: false }, '46618b37'],
+  [9, 800, 24, {}, 'c401fefc'],
 ]
 
 const worlds = new Map<number, World>()

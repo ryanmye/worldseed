@@ -77,10 +77,10 @@ function hashGoods(hi: History): string {
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, boolean, string][] = [
-  [42, 2000, undefined, true, '74c3f384'],
-  [3, 600, undefined, true, '9b7e5331'],
-  [9, 800, 24, true, 'fb723267'],
-  [7, 900, undefined, false, '3e1e45d7'],
+  [42, 2000, undefined, true, '2fe47b4b'],
+  [3, 600, undefined, true, '7a50128f'],
+  [9, 800, 24, true, 'cb96a62'],
+  [7, 900, undefined, false, '561d5fb4'],
 ]
 
 const worlds = new Map<number, World>()

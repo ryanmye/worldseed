@@ -49,11 +49,11 @@ function hashDisease(hi: History): string {
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, 'aa476ea1'],
-  [3, 600, undefined, true, true, 'c227185d'],
-  [7, 900, undefined, false, false, 'a43d9362'],
-  [1, 1500, undefined, true, false, '3b0b40f4'],
-  [9, 800, 24, true, true, 'f0f7bf58'],
+  [42, 2000, undefined, true, true, '622e1995'],
+  [3, 600, undefined, true, true, '3168bf38'],
+  [7, 900, undefined, false, false, '489735b7'],
+  [1, 1500, undefined, true, false, '93ba8080'],
+  [9, 800, 24, true, true, '7f3ad6dd'],
 ]
 
 const worlds = new Map<number, World>()

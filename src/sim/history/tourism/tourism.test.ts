@@ -56,11 +56,11 @@ function hashTourism(hi: History): string {
 // (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
 // plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'b4430c0e'],
-  [3, 600, undefined, {}, 'a24e63e4'],
-  [7, 900, undefined, { polities: false, goods: false }, '8d539b84'],
-  [1, 1500, undefined, { disease: false }, 'ab783aee'],
-  [9, 800, 24, {}, 'ed63cae2'],
+  [42, 2000, undefined, {}, '6911c406'],
+  [3, 600, undefined, {}, '2334e9b6'],
+  [7, 900, undefined, { polities: false, goods: false }, 'bdb93c3d'],
+  [1, 1500, undefined, { disease: false }, '17ed56c9'],
+  [9, 800, 24, {}, 'efa9d9da'],
 ]
 
 const worlds = new Map<number, World>()
