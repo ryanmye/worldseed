@@ -68,6 +68,10 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t === 110) return POLITICS
   // claims (130): border disputes between states
   if (t === 130) return POLITICS
+  // landmarks (140-146): great buildings are the settlements' (a house of worship rededicated, the faiths')
+  if (t === 146) return FAITHS
+  if (t >= 140 && t <= 145) return SETTLEMENT
+
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration

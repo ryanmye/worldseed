@@ -11,6 +11,8 @@ import { goodsGroupKey, goodsOtherIsSettlement, isGoodsEvent } from './goodsForm
 import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './diseaseFormat.ts'
 import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
 import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
+import { isLandmarkEvent } from './landmarksFormat.ts'
+
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, disputeGroupKeys, gainKey, isDisputeEvent, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
@@ -379,6 +381,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
   if (isIdeasEvent(type)) return true // 120-123: ideas (ideasFormat.ts)
+  if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
@@ -404,7 +407,9 @@ function otherIsSettlement(type: number): boolean {
     // renaming: the capital of the realm behind it, the ruin whose name it took
     isRenamingEvent(type) ||
     // claims: the other side's capital in a border dispute
-    isDisputeEvent(type)
+    isDisputeEvent(type) ||
+    // landmarks: the builder's or restorer's capital, the sacker's
+    isLandmarkEvent(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
