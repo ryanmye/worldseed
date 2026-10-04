@@ -205,6 +205,11 @@ export const EventType = {
   SightRecognised: 105, // a place became a sight worth the journey: `settlement` the living settlement by it (its own, the town that hosts its visitors, or the nearest); `other` the sight's own settlement (a ruin's abandoned one) or -1; `value` the sight id (History.sights, which has its cell); `extra` the SightKind
   // renaming: places renamed by history (110-119; none when HistoryOptions.renaming is false).
   PlaceRenamed: 110, // `settlement` took the name History.renamings.name[`value`] (`value` the renaming id); `other` the capital of the polity behind it at the time, the ruin whose name it revived (RenameCause.Revived), or -1; `extra` the RenameCause
+  // ideas: inventions and practices conceived, carried by trade and other contact, resisted and lost (120-129; none when HistoryOptions.ideas is false).
+  IdeaConceived: 120, // idea `value` (History.ideas) was first conceived by the people of `settlement`, there; `other` the settlement of its first origin elsewhere when this is a later independent origin, else -1; `extra` the origin's number (0 the first, 1 a second independent origin, ...)
+  IdeaAdopted: 121, // the people of `settlement` took up idea `value` from another people: `settlement` is where it came in (a trade route's end, a mart, the town migrants joined, the conquered town...), `other` the settlement it came from (-1 if none is known); `extra` how (IdeaHow)
+  IdeaLost: 122, // the people of `settlement` (its largest settlement) lost idea `value`; `other` -1; `extra` the cause (IdeaLoss)
+  IdeaResisted: 123, // the people of `settlement` (its capital or largest settlement) refused idea `value`, which had reached it from `other`; `extra` the cause (IdeaResist)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -472,6 +477,14 @@ export interface History {
    * the founding name; the name in use at a year is settlementNameAt(history, id, year).
    */
   renamings: Renamings
+  // ideas: inventions and practices, who conceived them and how they travelled (empty when HistoryOptions.ideas is false).
+  /** The catalogue of ideas (IdeaInfo.id is the index); the same in every world, with this world's first origin filled in. */
+  ideas: IdeaInfo[]
+  /**
+   * Every adoption and loss of an idea by a people, in chronological order (each also an IdeaConceived, IdeaAdopted or IdeaLost event):
+   * the ideas a people holds at a year are those whose last row for it by then is not a loss (ideasHeldAt).
+   */
+  ideaAdoptions: IdeaAdoptions
 }
 
 // ---------------------------------------------------------------------------
@@ -1293,6 +1306,12 @@ export interface HistoryOptions {
   tourism?: boolean
   /** renaming: places renamed by history (conquest, cession, new capitals, faith, trade, restoration, revival; History.renamings). Default true; false leaves History.renamings empty. A pure consequence layer: on or off, every other field is the same (events aside, which gain PlaceRenamed). */
   renaming?: boolean
+  /**
+   * ideas: discrete inventions and practices (History.ideas), conceived by one people where their preconditions are met and carried to
+   * others by trade, lanes, migrants, conquest, pilgrims, visitors, marriages and theft; the technology levels follow the ideas a people
+   * holds. Default true; false gives the history without them (the ideas fields empty, technology the old smooth curves).
+   */
+  ideas?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
@@ -1441,4 +1460,77 @@ export interface TechniqueInfo {
   name: string
   /** The species it applies to, or -1 if it is general. */
   species: number
+}
+
+// ---------------------------------------------------------------------------
+// ideas: inventions and practices (History.ideas, History.ideaAdoptions).
+
+/** What an idea is about (IdeaInfo.kind). */
+export const IdeaKind = { Farming: 0, Crafts: 1, Transport: 2, Seafaring: 3, War: 4, Administration: 5, Knowledge: 6, Health: 7 } as const
+export type IdeaKind = (typeof IdeaKind)[keyof typeof IdeaKind]
+
+/**
+ * How a people came by an idea (IdeaAdoptions.how, the `extra` of EventType.IdeaAdopted): conceived itself; from a people it had
+ * met (envoys, travellers); from neighbours; along trade routes; along the long-haul lanes and relays between marts; through a
+ * trading post; with migrants; by conquest (either way); by living under one ruler; with pilgrims or clergy of a shared faith;
+ * with visitors (leisure travel); through a marriage of ruling houses; by theft (spies, captured craftsmen); Lost marks a loss.
+ */
+export const IdeaHow = { Invented: 0, Contact: 1, Neighbours: 2, Trade: 3, Lane: 4, Post: 5, Migration: 6, Conquest: 7, Empire: 8, Pilgrims: 9, Visitors: 10, Marriage: 11, Theft: 12, Lost: 13 } as const
+export type IdeaHow = (typeof IdeaHow)[keyof typeof IdeaHow]
+
+/** Why a people lost an idea (the `extra` of EventType.IdeaLost): too few and too isolated to keep it up; its numbers collapsed; an idea it rests on was lost. */
+export const IdeaLoss = { Isolated: 0, Collapse: 1, Prerequisite: 2 } as const
+export type IdeaLoss = (typeof IdeaLoss)[keyof typeof IdeaLoss]
+
+/** Why a people refused an idea (the `extra` of EventType.IdeaResisted): its faith, its ruler, its guilds. */
+export const IdeaResist = { Faith: 0, Ruler: 1, Guild: 2 } as const
+export type IdeaResist = (typeof IdeaResist)[keyof typeof IdeaResist]
+
+/** An invention or practice. */
+export interface IdeaInfo {
+  /** Index into History.ideas. */
+  id: number
+  /** Stable key such as "wheel", "writing" or "compass". */
+  key: string
+  /** Its name, such as "the wheel" or "bills of exchange". */
+  name: string
+  kind: IdeaKind
+  /** Ideas a people must hold before it can conceive or take up this one. */
+  prerequisites: number[]
+  /** The farming technique (History.techniques id) this idea is, when it is one of them (the species system finds and spreads it), else -1. */
+  technique: number
+  /** How readily it is taken up once seen, 0 (needs teachers for generations, like writing) to 1 (copied on sight, like the stirrup). */
+  ease: number
+  /** What it changes, in a few words (for the UI). */
+  effect: string
+  /** First year anyone conceived it (-1 if never in this run), the people and the settlement where; independent origins (IdeaConceived events). */
+  firstYear: number
+  firstPeople: number
+  firstSettlement: number
+  origins: number
+}
+
+/** Adoptions and losses of ideas, struct of arrays in chronological order (row k). */
+export interface IdeaAdoptions {
+  count: number
+  idea: Uint8Array
+  people: Int16Array
+  year: Int16Array
+  /** IdeaHow (Lost for a loss). */
+  how: Uint8Array
+  /** The people it came from (-1 for Invented and Lost). */
+  from: Int16Array
+  /** The settlement where it came in or was conceived (the people's largest for a loss), and the settlement it came from (-1). */
+  via: Int32Array
+  source: Int32Array
+}
+
+/** The ideas people `p` holds at `year` (ascending ids), from History.ideaAdoptions. */
+export function ideasHeldAt(h: Pick<History, 'ideas' | 'ideaAdoptions'>, p: number, year: number): number[] {
+  const A = h.ideaAdoptions
+  const held = new Uint8Array(h.ideas.length)
+  for (let k = 0; k < A.count && A.year[k] <= year; k++) if (A.people[k] === p) held[A.idea[k]] = A.how[k] === IdeaHow.Lost ? 0 : 1
+  const out: number[] = []
+  for (let i = 0; i < held.length; i++) if (held[i]) out.push(i)
+  return out
 }

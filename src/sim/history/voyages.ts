@@ -63,6 +63,7 @@ import { ContactVia, learn, learnPath, meet } from './knowledge.ts'
 import { siteFactor, speciesSeaKit } from './species.ts'
 import type { VoyageLog } from './index.ts'
 import { siteFactor as politySite } from './polity/system.ts' // polities: (species has its own siteFactor)
+import { ideaRange } from './ideas/hooks.ts' // ideas:
 
 export interface VoyageState {
   rng: Rng
@@ -257,6 +258,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   if (g > p - 2 * MIGRATION.minGroup) g = Math.floor(p - 2 * MIGRATION.minGroup)
   let range = (hasPort ? V.portRange : V.coastRange) * (1 + (hasPort ? V.rangeTech : V.coastTech) * (sea - 1)) * (1 + V.wealthRange * f) *
     (1 + V.sizeRange * smoothstep(V.sizeLow, V.sizeHigh, p)) * rng.range(V.jitterMin, V.jitterMax)
+  if (s.ideas !== null) range *= ideaRange(s.ideas, people) // ideas: the compass, charts, the stars
   if (rng.next() < V.boldChance) range *= V.boldRange // now and then a bold captain sails much further
   if (known >= 0) {
     const want = 1.1 * vs.targetCost[tKey]

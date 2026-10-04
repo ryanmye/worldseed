@@ -27,6 +27,7 @@ import { CLASS, FLAGS, LANE, MART, MIDDLE, STOCK } from './params.ts'
 import type { GoodsState } from './state.ts'
 import { K, M, MIX_OF, density, ensureLegs, logGoods, mixFlow, mixScale, noteIncome } from './state.ts'
 import { hvPrice, moveAmt, secretSmuggled, theta } from './market.ts'
+import { ideaLand, ideaSea } from '../ideas/hooks.ts' // ideas:
 
 const G = GOOD_COUNT
 const KEY = 1 << 20
@@ -51,7 +52,8 @@ export function pathCost(s: HistoryState, path: readonly number[], a: number, b:
   const T = s.terrain
   const pa = s.port[a] >= 0, pb = s.port[b] >= 0
   const seaMul = 0.5 * ((pa ? TRADE.seaPort : TRADE.seaNoPort) + (pb ? TRADE.seaPort : TRADE.seaNoPort))
-  const oc = (id: number, port: boolean): number => ((MIGRATION.oceanCost * T.cellScale) / Math.sqrt(s.tech[s.people[id] * TECH_FIELD_COUNT + TechField.Seafaring])) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+  const ix = s.ideas
+  const oc = (id: number, port: boolean): number => ((MIGRATION.oceanCost * T.cellScale) / Math.sqrt(s.tech[s.people[id] * TECH_FIELD_COUNT + TechField.Seafaring])) * (port ? TRADE.oceanPort : TRADE.oceanNoPort) / (ix !== null ? ideaSea(ix, s.people[id]) : 1) // (ideas:)
   const ocean = 0.5 * (oc(a, pa) + oc(b, pb))
   moveMuls(s, a, MA)
   moveMuls(s, b, MB)
@@ -153,7 +155,8 @@ export function rebuildMarts(s: HistoryState, ts: TradeState, g: GoodsState): vo
   for (let t = 0; t < living.length; t++) {
     const m = living[t]
     if (!isMart[m] || m >= ts.adjCount) continue
-    const reach = MART.reach * TRADE.reach * (1 + GOODS.transportTech * (s.tech[s.people[m] * TECH_FIELD_COUNT + TechField.Crafts] - 1)) * (s.port[m] >= 0 ? TRADE.portReach : 1)
+    let reach = MART.reach * TRADE.reach * (1 + GOODS.transportTech * (s.tech[s.people[m] * TECH_FIELD_COUNT + TechField.Crafts] - 1)) * (s.port[m] >= 0 ? TRADE.portReach : 1)
+    if (s.ideas !== null) reach *= ideaLand(s.ideas, s.people[m]) // ideas:
     const run = ++SRUN
     HEAP.size = 0
     SS[m] = run; SD[m] = 0; SP2[m] = -1

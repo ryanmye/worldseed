@@ -56,6 +56,7 @@ import { abandon, found, logEvent, logJourney, techOf } from './state.ts'
 import { ContactVia, learnPath } from './knowledge.ts'
 import { speciesExpedition } from './species.ts'
 import { expeditionFinds } from './goods/deposits.ts' // goods:
+import { ideaRange } from './ideas/hooks.ts' // ideas:
 
 /** Notable places (Discovery): kind of a discovery record. */
 export const Place = {
@@ -331,7 +332,8 @@ export function driveTech(s: HistoryState, id: number): number {
 export function rangeOf(s: HistoryState, id: number, sea: boolean, f: number): number {
   const X = EXPLORE
   const t = techOf(s, id, sea ? TechField.Seafaring : TechField.Crafts)
-  return (sea ? X.seaRange : X.landRange) * (1 + X.rangeTech * (t - 1)) * (1 + X.wealthRange * f) * s.terrain.cellScale
+  const r = (sea ? X.seaRange : X.landRange) * (1 + X.rangeTech * (t - 1)) * (1 + X.wealthRange * f) * s.terrain.cellScale
+  return sea && s.ideas !== null ? r * ideaRange(s.ideas, s.people[id]) : r // ideas:
 }
 
 /** System (after the milestones): bases are supplied (or abandoned); every EXPLORE.step years expeditions set out. */
