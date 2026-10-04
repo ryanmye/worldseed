@@ -165,6 +165,27 @@ export const EventType = {
   Bypassed: 63, // the mart `settlement`, which lived on the relay trade, lost it to a lane from the home mart `other`; `value` the leg id; `extra` the share of its relay income lost
   FleetLost: 64, // a fleet on the lane from the home mart `settlement` to the far mart `other` was lost; `value` the leg id; `extra` the cargo value
   SecretSmuggled: 65, // contraband in a secret's goods (duties or an embargo evaded, or its monopoly rent: smuggling is polities v2's, SmugglingRing 40) first reached the people of `settlement` (its largest settlement) in earnest; `other` the settlement where the secret began; `value` the secret id; `extra` the contraband value a year. The smuggled seeds' leak channel (LeakChannel.Smuggling) grows with it
+  // (66-79 are reserved for the disease system.)
+  // rulers: named rulers, dynasties, marriages and unions (80-88; empty when HistoryOptions.rulers is false).
+  RulerAcceded: 80, // ruler `value` (History.rulers) took the throne at the capital `settlement`; `other` the predecessor's ruler id or -1; `extra` how (AccessionHow)
+  ReignEnded: 81, // the reign of ruler `value` ended at the capital `settlement`; `other` -1; `extra` the cause (ReignEnd): death by age, battle, the fall of the capital, overthrow, plague; deposition; the realm's end; a league head's term
+  DynastyFounded: 82, // a house (History.dynasties `value`) came to the throne for the first time at the capital `settlement`; `other` the polity id; `extra` the founder's ruler id
+  DynastyEnded: 83, // house `value` lost its last throne at the capital `settlement` (no heir, overthrown, passed over, or its realm gone); `other` the polity id; `extra` the house's last ruler id
+  Regency: 84, // ruler `value` came to the throne a minor: a regency rules from the capital `settlement`; `other` -1; `extra` the years until the ruler comes of age
+  UnionFormed: 85, // a personal union (History.unions `value`): the ruler of the senior realm (capital `other`) also took the throne of the junior realm (capital `settlement`) through a marriage claim; `extra` the ruler id
+  UnionDissolved: 86, // union `value` ended: `settlement` the junior's capital, `other` the senior's; `extra` the UnionEnd (merged into one realm, split at a contested succession or a revolt, or a realm ended)
+  RoyalMarriage: 87, // a marriage tie (History.marriages `value`) between the ruling houses of two realms of Kingdom tier or larger, with capitals `settlement` and `other`; `extra` -1
+  SuccessionWar: 88, // a claimant passed over pressed its claim by war: `settlement` the claimant's capital, `other` the target's; `value` the war id (History.wars); `extra` the marriage tie of the claim
+  // religion: faiths, conversion, state churches, schism and holy war (89-97; empty when HistoryOptions.religion is false).
+  FaithFounded: 89, // a universal faith (History.faiths `value`) was founded at `settlement`, its holy city; `other` -1; `extra` -1
+  RulerConverted: 90, // the ruler of the polity ruled from `settlement` took up faith `value`; `other` the ruler id (History.rulers), or -1 without rulers; `extra` the faith left
+  StateReligion: 91, // faith `value` became the state religion of the polity ruled from `settlement`; `other` the polity id; `extra` the faith it replaced, or -1
+  Schism: 92, // faith `value` split from its parent (History.faiths[value].parent) with its seat at `settlement`; `other` the parent's holy city; `extra` the polity whose ruler led it, or -1
+  Persecution: 93, // the state ruled from `settlement` began to persecute its minorities; `other` the polity id; `value` the state faith; `extra` the largest faith persecuted
+  HolyWar: 94, // war `value` (History.wars) was declared as a holy war by the state ruled from `settlement` on the one ruled from `other`; `extra` the attacker's faith
+  HolyCityFell: 95, // the holy city `settlement` of faith `value` fell to the army from `other` of a polity of another faith; `extra` the war id
+  FaithDied: 96, // faith `value` lost its last followers; `settlement` its last stronghold; `other` -1
+  FaithReached: 97, // faith `value` first reached a people (that of `settlement`) in earnest; `other` the settlement it came from (-1 by conversion of its rulers or none known); `extra` the people id
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -364,6 +385,190 @@ export interface History {
   secretGuard: Uint8Array
   /** Trading posts in order of founding (TradingPost.id is the index). */
   posts: TradingPost[]
+
+  // rulers: rulers, houses, marriages and unions (all empty when HistoryOptions.rulers or HistoryOptions.polities is false).
+  /** Reigns in order of accession (Ruler.id is the index). A person ruling two realms in a union has one reign in each (see Ruler.person). */
+  rulers: Ruler[]
+  /** Ruling houses in order of founding (Dynasty.id is the index). */
+  dynasties: Dynasty[]
+  /**
+   * The reigns of each polity in order of accession: those of polity p are reignIds[reignOffsets[p] .. reignOffsets[p + 1]).
+   * The ruler of p at year y is the last of them with acceded <= y (reigns of one polity do not overlap; a reign that ended
+   * the year the next began counts as the next's).
+   */
+  reignOffsets: Uint32Array
+  reignIds: Int32Array
+  /** Marriage ties between ruling houses. */
+  marriages: Marriages
+  /** Personal unions: two realms under one ruler. */
+  unions: Unions
+  /** War ids (History.wars) of the wars of succession, ascending. */
+  successionWars: Int32Array
+
+  // religion: faiths and their followers (all empty when HistoryOptions.religion is false).
+  /** Faiths in order of founding (Faith.id is the index): each people's traditional faith first (faith id = people id), then universal faiths and schisms. */
+  faiths: Faith[]
+  /** Majority faith per snapshot per settlement, same layout as `population`: the Faith id, 255 when not alive. Expedition bases take their parent's. */
+  faith: Uint8Array
+  /** Share of its people that follow the majority faith, 0..255 for 0..1, same layout as `faith` (0 when not alive). */
+  faithShare: Uint8Array
+  /** State religion of each polity per snapshot, faith id + 1 (0: none, or outside the polity's life), same layout as `tariff`. */
+  stateFaith: Uint8Array
+  /** War ids (History.wars) of the holy wars, ascending (each also logged as EventType.HolyWar). */
+  holyWars: Int32Array
+}
+
+// ---------------------------------------------------------------------------
+// rulers: named rulers, ruling houses, marriages and personal unions.
+
+/** How a ruler came to the throne. */
+export const AccessionHow = {
+  Founded: 0, // founded the realm (or came to power with it: a revolt's leader, a successor state's first ruler)
+  Inherited: 1, // by the realm's law of succession (or a share of a realm divided among heirs)
+  Elected: 2, // chosen by the great men of the realm (an elective throne, a new house raised when the old died out, a league's head)
+  Usurped: 3, // seized the throne (a general or a magnate overthrowing the ruler, or prevailing in a disputed succession)
+  Conquered: 4, // set on the throne by a conqueror after the capital fell
+  Union: 5, // inherited through a marriage claim while ruling another realm (a personal union)
+  Claimed: 6, // a rival claimant who rose against the capital (the first ruler of a civil war's pretender state)
+} as const
+export type AccessionHow = (typeof AccessionHow)[keyof typeof AccessionHow]
+
+/** How a reign ended. */
+export const ReignEnd = {
+  Reigning: 0, // still on the throne at the end of the run
+  Natural: 1, // died of age or illness
+  Battle: 2, // fell in battle
+  Sack: 3, // killed when the capital fell
+  Overthrown: 4, // killed by a usurper
+  Deposed: 5, // driven from the throne alive (a usurper, a lost disputed succession, a union split)
+  Plague: 6, // died of an epidemic (disease system)
+  RealmEnded: 7, // the realm itself ended (conquered, reunified, absorbed, fragmented, dwindled)
+  TermEnded: 8, // a league head's term ran out
+} as const
+export type ReignEnd = (typeof ReignEnd)[keyof typeof ReignEnd]
+
+/** Law of succession of a people (it may change over time; Ruler.law is the one in force at the accession). */
+export const SuccessionLaw = {
+  Primogeniture: 0, // the eldest son (daughters after sons where women may inherit)
+  Partible: 1, // the eldest takes the capital; the realm may be divided among adult sons
+  Elective: 2, // the great men choose among the house (or another)
+  Seniority: 3, // the eldest of the house: brothers before sons (tanistry, rota)
+} as const
+export type SuccessionLaw = (typeof SuccessionLaw)[keyof typeof SuccessionLaw]
+
+/** One reign: a ruler on one throne. */
+export interface Ruler {
+  /** Index into History.rulers; ids in order of accession. */
+  id: number
+  /** Personal name in the language of the house (the UI adds the regnal number and title: "Queen Vashtara II"). */
+  name: string
+  /** Regnal number: 1 + the number of earlier reigns of the same polity with the same name. */
+  regnal: number
+  female: boolean
+  born: number
+  acceded: number
+  /** Year the reign ended, -1 while reigning at the end of the run. */
+  ended: number
+  /** Year of death, -1 if alive at the end of the run or the reign ended without a death (deposed, realm gone, term ended). */
+  died: number
+  polity: number
+  /** Ruling house (History.dynasties), -1 for a league's elected head. */
+  dynasty: number
+  how: AccessionHow
+  end: ReignEnd
+  /** Law of succession of the polity's ruling people at the accession. */
+  law: SuccessionLaw
+  /** Previous reign of the same polity, -1 for its first. */
+  predecessor: number
+  /** The person: the id of this person's first reign (itself, unless it took a second throne in a union). */
+  person: number
+  /** Parent's reign if the ruler was a child of a ruler of the house, else -1. */
+  parent: number
+  /** Traits, as fed to the simulation: ability ~0.5..1.5 (scales the realm's power and how weak rule invites overthrow; 1 average), warlike, piety and tolerance 0..1. */
+  ability: number
+  warlike: number
+  piety: number
+  tolerance: number
+  /** Faith at the accession (History.faiths), -1 when religion is off. Conversions are RulerConverted events. */
+  faith: number
+}
+
+/** A ruling house. */
+export interface Dynasty {
+  /** Index into History.dynasties. */
+  id: number
+  /** House name in the language of its first capital (the UI says "House of Mera"). */
+  name: string
+  /** First ruler of the house (History.rulers). */
+  founder: number
+  founded: number
+  /** Year it lost its last throne, -1 while it reigns somewhere at the end of the run. */
+  ended: number
+  /** Polity it first ruled. */
+  home: number
+  people: number
+}
+
+/** Marriage ties between the ruling houses of two polities, struct-of-arrays in order of making. */
+export interface Marriages {
+  count: number
+  /** Polity ids, a < b. */
+  a: Int16Array
+  b: Int16Array
+  /** Houses ruling a and b at the marriage. */
+  dynastyA: Int32Array
+  dynastyB: Int32Array
+  year: Int16Array
+  /** Year the tie lapsed (a house lost its throne, war, or a generation passed), -1 while in force at the end. */
+  endYear: Int16Array
+}
+
+export const UnionEnd = { Ongoing: 0, Merged: 1, Split: 2, Ended: 3 } as const
+export type UnionEnd = (typeof UnionEnd)[keyof typeof UnionEnd]
+
+/**
+ * Personal unions, struct-of-arrays in order of forming: the junior realm is bound to the senior's ruler (as a vassal in
+ * History.bonds) until it merges into the senior, splits away at a contested succession or a revolt, or a realm ends.
+ */
+export interface Unions {
+  count: number
+  senior: Int16Array
+  junior: Int16Array
+  /** The reign (in the junior) that began the union. */
+  ruler: Int32Array
+  startYear: Int16Array
+  /** -1 while ongoing at the end of the run. */
+  endYear: Int16Array
+  end: Uint8Array
+}
+
+// ---------------------------------------------------------------------------
+// religion: traditional and universal faiths.
+
+export const FaithKind = { Traditional: 0, Universal: 1 } as const
+export type FaithKind = (typeof FaithKind)[keyof typeof FaithKind]
+
+export interface Faith {
+  /** Index into History.faiths; the first peoples.length are the peoples' traditional faiths (id = people id). */
+  id: number
+  /** Proper name in the language of its people or its founding town (the UI says "the Ashai faith"). */
+  name: string
+  kind: FaithKind
+  /** Faith it split from (a schism), -1. Always lower than id. */
+  parent: number
+  /** People it arose among. */
+  people: number
+  /** Settlement where it was founded (a traditional faith: the people's founder); -1 never. */
+  foundedAt: number
+  foundedYear: number
+  /** Its holy city (universal faiths: where it was founded, or a schism's seat), -1 for a traditional faith. */
+  holyCity: number
+  /** Traits 0..1: zeal (how fast it spreads and how intolerant its states are), organisation (a church allied to rulers; missionaries' reach), appeal (0 the countryside, 1 the towns). */
+  zeal: number
+  organisation: number
+  appeal: number
+  /** Year it lost its last followers, -1. */
+  endedYear: number
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +766,7 @@ export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, 
 export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
 
 /** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
-export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3 } as const
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4 } as const // (religion: Religious, a ruler of another faith or persecution)
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
@@ -756,6 +961,10 @@ export interface HistoryOptions {
   polities?: boolean
   /** goods: simulate worked goods, rare deposits, craft traditions, stocks and merchants, long-haul lanes, trading posts, secrets and smuggling. Default true; false gives the history without them (the goods fields empty). */
   goods?: boolean
+  /** rulers: named rulers with traits, ruling houses, successions by law and heirs, marriages and personal unions (needs polities). Default true; false runs the old succession timer and leaves the rulers fields empty. */
+  rulers?: boolean
+  /** religion: traditional and universal faiths, their spread, conversion of rulers, state churches, schism, persecution and holy war. Default true; false leaves the religion fields empty. */
+  religion?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
