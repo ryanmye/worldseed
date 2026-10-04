@@ -39,6 +39,8 @@ export const RENAME = {
   capital: 0.16,
   foreignSeat: 0.6,
   capitalDelay: 10,
+  /** A seat is renamed only if it has this many people (a royal name for a town of note). */
+  seatPop: 1000,
   /** Chance the capital is renamed when its realm first becomes an empire (checked every empireStep years). */
   imperial: 0.18,
   empireStep: 5,

@@ -12,7 +12,7 @@
 //                is renamed with chance cede * importance within cedeDelay years (else the slow rule above goes on).
 //   Capital      a new capital of a realm of Kingdom tier or more (capital; a seat in a town of another people, foreignSeat),
 //                or the capital of a realm that first becomes an empire (imperial), renamed for the ruler, the house, or with
-//                a new royal name, within capitalDelay years if it is still the capital.
+//                a new royal name, within capitalDelay years if it is still the capital and has seatPop people.
 //   Faith        a change of state religion (one faith to another): the capital renamed for the new faith (faithCapital),
 //                the old faith's holy city in the realm too (faithHoly).
 //   Trade        a port (tradePop people) hosting a foreign factory for tradeYears: the traders' name for it sticks (trade).
@@ -25,7 +25,7 @@
 //   Revived      a town founded on or beside the ruin of a settlement that once had ruinPeak people (abandoned ruinAge
 //                years before) takes the ruin's name with chance revive when it reaches revivePop.
 // Importance = clamp((pop - popLow) / (popFull - popLow), 0, 1), times capitalMul for a seat of government (now or before)
-// and cityMul for a city. No renaming within minGap years of the last, except a restoration.
+// and cityMul for a city. No renaming within MIN_GAP years of the last, except a restoration on liberation.
 // Every draw comes from 'history-renaming', in the order of the events and lists (deterministic and prefix-stable).
 
 import { EventType, RenameCause, RenameForm, WarOutcome } from '../../../contract.ts'
@@ -315,7 +315,7 @@ function seats(s: HistoryState, rn: RenamingState, ps: PolityState): void {
     const big = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom
     rn.diag.seats++
     if (kind === Seat.Moved || kind === Seat.Imperial) {
-      if (!capital || (kind === Seat.Moved && !big)) continue
+      if (!capital || (kind === Seat.Moved && !big) || s.pop[v] < X.seatPop) continue
       const chance = kind === Seat.Imperial ? X.imperial : rn.lang[v] !== ps.pPeople[p] ? X.foreignSeat : X.capital
       if (rng.next() >= chance) continue
       if (rn.lang[v] !== ps.pPeople[p] && earlierName(s, rn, v, ps.pPeople[p]) !== NO_IDENT) continue // (the restoration rule's business)
