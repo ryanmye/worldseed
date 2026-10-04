@@ -208,7 +208,7 @@ function checkInvariants(w: World, h: History): void {
     expect(e.settlement).toBeLessThan(S)
     expect(e.other).toBeGreaterThanOrEqual(-1)
     const structureEvent = e.type === EventType.Built || e.type === EventType.StructureLost
-    expect(e.other).toBeLessThan(structureEvent ? T : S)
+    expect(e.other).toBeLessThan(structureEvent ? T : e.type === EventType.Discovery ? N : S) // (a Discovery's `other` is a cell)
     const st = h.settlements[e.settlement]
     expect(e.year).toBeGreaterThanOrEqual(st.foundedYear)
     if (st.abandonedYear >= 0) expect(e.year).toBeLessThanOrEqual(st.abandonedYear)
@@ -296,7 +296,7 @@ function checkInvariants(w: World, h: History): void {
         returned.push(e)
         break
       case EventType.Discovery:
-        expect(e.other).toBe(-1)
+        expect(e.other).toBeGreaterThanOrEqual(0) // the cell reached
         if (e.value !== -1) {
           expect(Number.isInteger(e.value) && e.value >= 0 && e.value < h.features.length).toBe(true)
           expect(h.features[e.value].namedYear).toBeLessThanOrEqual(e.year)
