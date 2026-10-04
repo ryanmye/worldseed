@@ -79,6 +79,8 @@ export interface VoyageState {
   discFrom: number[]
   discTo: number[]
   discCost: number[]
+  /** gradual-knowledge: the first colony's cell per discovery (other peoples of the network sail for it once they know that cell). */
+  discCell: number[]
   /** Per people and sender landmass (people * M + landmass), this year's best known open target (cached per year): landmass and cost, -1 if none. */
   targetYear: Int32Array
   target: Int32Array
@@ -118,7 +120,7 @@ export function createVoyages(s: HistoryState, rng: Rng): VoyageState {
     run: 0,
     lmHab, M,
     landed: new Int32Array(P * M).fill(-1),
-    discPeople: [], discFrom: [], discTo: [], discCost: [],
+    discPeople: [], discFrom: [], discTo: [], discCost: [], discCell: [],
     targetYear: new Int32Array(P * M).fill(-1),
     target: new Int32Array(P * M).fill(-1),
     targetCost: new Float64Array(P * M),
@@ -152,6 +154,7 @@ function knownTarget(s: HistoryState, vs: VoyageState, p: number, from: number):
   let best = -1, bestCost = 0
   for (let k = 0; k < vs.discFrom.length; k++) {
     if (vs.discFrom[k] !== from || net[vs.discPeople[k]] !== n) continue
+    if (vs.discPeople[k] !== p && s.know.known[p * s.know.N + vs.discCell[k]] < 0) continue // gradual-knowledge: news not yet arrived
     const m = vs.discTo[k]
     if (!isOpen(s, vs, m)) continue
     if (best < 0 || vs.discCost[k] < bestCost) { best = m; bestCost = vs.discCost[k] }
@@ -410,6 +413,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
     vs.discFrom.push(originLm)
     vs.discTo.push(toLm)
     vs.discCost.push(bestDist / T.cellScale)
+    vs.discCell.push(bestCell) // gradual-knowledge:
     vs.targetYear.fill(-1) // re-evaluate known targets
   }
   log.outcome.push(1)

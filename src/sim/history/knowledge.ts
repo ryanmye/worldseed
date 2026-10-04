@@ -20,11 +20,13 @@
 // settlements (voyages.ts), or when a trade partner search links them
 // (trade.ts). The first meeting of a pair is logged as FirstContact with
 // the two settlements through which it happened. Peoples in contact form a
-// network (the connected components of the contact graph): when two networks
-// first touch, every member learns everything any member knows, and from then on
-// what one member learns reaches the others every KNOW.shareStep years. So
-// contact is transitive only through sharing: A meets B, learns of C's lands
-// from B, and may sail there, which makes its own first contact with C.
+// network (the connected components of the contact graph). gradual-knowledge:
+// at first contact each side learns only what the other knows near the
+// meeting; afterwards what one people knows reaches each people it has met as
+// a spreading front, fast between trading partners and slowly by bare contact
+// (knowledgeSpread.ts). So contact is transitive only through sharing: A meets
+// B, learns of C's lands from B (later than B did), and may sail there, which
+// makes its own first contact with C.
 //
 // Decisions are limited by knowledge (migration.ts: groups move only through
 // cells their people knows, and join only settlements of their own people or
@@ -39,6 +41,8 @@ import { smoothstep } from '../util.ts'
 import { KNOW } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
+import { createSpread, revealNear } from './knowledgeSpread.ts' // gradual-knowledge:
+import type { SpreadState } from './knowledgeSpread.ts'
 
 /** How a pair of peoples first met (Knowledge.via; for the stats harness). */
 export const ContactVia = {
@@ -64,7 +68,7 @@ export interface Knowledge {
   near: Uint8Array
   /** Contact network per people: the smallest people id of its connected component. */
   net: Int32Array
-  /** Cells each people learned for itself since the last share (shared with its network every KNOW.shareStep years). */
+  /** Cells each people learned since the last spread step (gradual-knowledge: they feed the fronts of knowledgeSpread.ts). */
   fresh: number[][]
   /** Last settlement whose sight covered each cell, or -1 (to tell when a new settlement is founded where an old one can see it). */
   seenFrom: Int32Array
@@ -85,6 +89,8 @@ export interface Knowledge {
   depth: Int32Array
   /** Plain hops of the margin around journeys and routes at this resolution. */
   marginHops: number
+  /** gradual-knowledge: fronts of knowledge between peoples in contact (knowledgeSpread.ts). */
+  spread: SpreadState
 }
 
 export function createKnowledge(s: HistoryState, P: number): Knowledge {
@@ -121,6 +127,7 @@ export function createKnowledge(s: HistoryState, P: number): Knowledge {
     queue: new Int32Array(N),
     depth: new Int32Array(N),
     marginHops: Math.max(1, Math.round((KNOW.margin * T.n) / 48)),
+    spread: createSpread(P, N, T.n), // gradual-knowledge:
   }
 }
 
@@ -154,7 +161,8 @@ export function learn(s: HistoryState, p: number, c: number): void {
 
 /**
  * Settlements a and b (of different peoples) meet this year: logs FirstContact the first time
- * their peoples meet, and merges their networks (everyone in both learns everything either knew).
+ * their peoples meet, and merges their networks. gradual-knowledge: the two peoples learn what the
+ * other knows near the meeting (knowledgeSpread.ts revealNear); the rest reaches them later.
  */
 export function meet(s: HistoryState, a: number, b: number, how: ContactVia): void {
   const k = s.know
@@ -165,26 +173,11 @@ export function meet(s: HistoryState, a: number, b: number, how: ContactVia): vo
   k.via[pa * k.P + pb] = how
   k.via[pb * k.P + pa] = how
   logEvent(s, EventType.FirstContact, a, b, pb)
+  revealNear(s, a, b) // gradual-knowledge: (was: both networks pooled everything they knew)
   const na = k.net[pa], nb = k.net[pb]
-  if (na === nb) return // already in one network: they share already
-  const members: number[] = []
-  for (let p = 0; p < k.P; p++) if (k.net[p] === na || k.net[p] === nb) members.push(p)
+  if (na === nb) return // already in one network
   const lo = na < nb ? na : nb
-  for (const p of members) k.net[p] = lo
-  // Pool what all members know.
-  const known = k.known, N = k.N, year = s.year
-  for (let c = 0; c < N; c++) {
-    let any = false, all = true
-    for (let m = 0; m < members.length; m++) {
-      if (known[members[m] * N + c] >= 0) any = true
-      else all = false
-    }
-    if (!any || all) continue
-    for (let m = 0; m < members.length; m++) {
-      const i = members[m] * N + c
-      if (known[i] < 0) known[i] = year
-    }
-  }
+  for (let p = 0; p < k.P; p++) if (k.net[p] === na || k.net[p] === nb) k.net[p] = lo
 }
 
 /** Settlements a and b of different peoples see each other: their peoples are neighbours. */
@@ -331,27 +324,6 @@ export function learnPath(s: HistoryState, via: number, path: readonly number[],
   return k.fresh[p].length - fresh0
 }
 
-/** Peoples in one network share what each learned since the last share. */
-function share(s: HistoryState): void {
-  const k = s.know
-  const { P, N, known, net, fresh } = k
-  const year = s.year
-  for (let p = 0; p < P; p++) {
-    const list = fresh[p]
-    if (list.length === 0) continue
-    const n = net[p]
-    for (let q = 0; q < P; q++) {
-      if (q === p || net[q] !== n) continue
-      const base = q * N
-      for (let t = 0; t < list.length; t++) {
-        const i = base + list[t]
-        if (known[i] < 0) known[i] = year
-      }
-    }
-  }
-  for (let p = 0; p < P; p++) fresh[p].length = 0
-}
-
 /** Settlement `id` looks again if its sight grew by KNOW.regrow hops or it built a port since its last look. */
 function relook(s: HistoryState, id: number): void {
   const k = s.know
@@ -363,7 +335,7 @@ function relook(s: HistoryState, id: number): void {
   look(s, id, r)
 }
 
-/** System (end of year): settlements and expedition bases look again as their sight grows; networks share what they learned. */
+/** System (end of year): settlements and expedition bases look again as their sight grows (gradual-knowledge: sharing is knowledgeSpread.ts). */
 export function knowledgeSystem(s: HistoryState): void {
   const K = KNOW
   const k = s.know
@@ -374,5 +346,4 @@ export function knowledgeSystem(s: HistoryState): void {
     const outposts = s.outposts
     for (let t = 0; t < outposts.length; t++) relook(s, outposts[t])
   }
-  if (s.year % K.shareStep === 0) share(s)
 }

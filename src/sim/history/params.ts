@@ -730,3 +730,27 @@ export const ROAD = {
   discount: 0.35,
   epsilon: 0.5 / 255,
 }
+
+// ---------------------------------------------------------------------------
+// gradual-knowledge / frontier: constants added for gradual sharing of knowledge after contact
+// (knowledgeSpread.ts) and for frontier settlement (frontier.ts). Kept together here for the merge.
+
+/**
+ * gradual-knowledge: knowledge passing between peoples in contact (knowledgeSpread.ts). At first contact each side
+ * learns what the other knows within revealHops plain hops (n = 48) of the two settlements that met, and the other's
+ * settlements within revealSettleHops. Afterwards,
+ * every `step` years, the learner's front advances (contact + near + trade * v / (v + tradeHalf)) * (1 + craftsTech * (Crafts - 1))
+ * hops a year into what the teacher knows (near: settlements of the two have seen each other; v: their smoothed
+ * trade volume, loads a year), at most maxHops per step.
+ */
+export const KNOW_SPREAD = {
+  step: 5,
+  revealHops: 5,
+  revealSettleHops: 12,
+  contact: 0.01,
+  near: 0.03,
+  trade: 8,
+  tradeHalf: 1200,
+  craftsTech: 0.25,
+  maxHops: 20,
+}

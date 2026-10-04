@@ -60,6 +60,7 @@ import { createPortSearch, structureSystem } from './structures.ts'
 import type { HistoryState } from './state.ts'
 import { createState } from './state.ts'
 import { knowledgeSystem } from './knowledge.ts'
+import { knowledgeSpreadSystem } from './knowledgeSpread.ts' // gradual-knowledge:
 import type { CradlePlan } from './peoples.ts'
 import { namePeoples, seedPeoples } from './peoples.ts'
 import { buildTerrain } from './terrain.ts'
@@ -367,6 +368,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     explorationSystem(s, explore)
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
+    knowledgeSpreadSystem(s, techState) // gradual-knowledge: fronts of knowledge between peoples in contact
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
