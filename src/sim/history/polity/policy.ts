@@ -91,6 +91,8 @@ export interface PairPolicy {
   nbBA: Float64Array
   /** War epoch of the last embargo refresh. */
   epoch: number
+  /** How hidden the way is (pairs under a duty or an embargo; goods: the smuggled share of a secret's monopoly rent). */
+  hide: Float64Array
 }
 
 export function makePolicy(n: number): PairPolicy {
@@ -102,6 +104,7 @@ export function makePolicy(n: number): PairPolicy {
     revAB: new Float64Array(n), revBA: new Float64Array(n), cutAB: new Float64Array(n), cutBA: new Float64Array(n), bestAB: new Float64Array(n), bestBA: new Float64Array(n),
     gAB: new Int32Array(n), gBA: new Int32Array(n), epoch: -1, route: new Int32Array(n).fill(-1), lossV: new Float64Array(n), legal: new Float64Array(n),
     vAB: new Float64Array(n), vBA: new Float64Array(n), pvAB: new Float64Array(n), pvBA: new Float64Array(n), dbAB: new Float64Array(n), dbBA: new Float64Array(n), nbAB: new Float64Array(n), nbBA: new Float64Array(n),
+    hide: new Float64Array(n),
   }
 }
 
@@ -170,7 +173,7 @@ export function routeSea(s: HistoryState, ps: PolityState, ts: TradeState, r: nu
 }
 
 /** Per polity this year: the capital of an enemy at war raiding its sea routes with privateers (-1 none). */
-function privateers(s: HistoryState, ps: PolityState, out: Int32Array): void {
+export function privateers(s: HistoryState, ps: PolityState, out: Int32Array): void {
   for (const p of ps.alive) out[p] = -1
   for (const w of ps.activeWars) {
     const p = ps.wAtt[w], q = ps.wDef[w]
@@ -297,6 +300,7 @@ function pairOne(s: HistoryState, ps: PolityState, ts: TradeState, pc: PairPolic
     if (e < hubE) { hubE = e; hub = x }
   }
   const hide = X.hideBase + (coastal ? X.hideSea : 0) + X.hideRough * 0.5 * (defenseD[ca] + defenseD[cb]) + (outlaw ? X.hideTransit : 0)
+  pc.hide[i] = hide
   const ea = pa >= 0 ? enforcement(s, ps, a, pa) : 0, eb = pb >= 0 ? enforcement(s, ps, b, pb) : 0
   if (block) {
     const e = ea > eb ? ea : eb

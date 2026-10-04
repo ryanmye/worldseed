@@ -70,6 +70,10 @@ import { incomeWatch, pairPolicy } from './polity/policy.ts' // polities: (v2) d
 import type { PairPolicy } from './polity/policy.ts' // polities:
 import { SMUGGLE, TARIFF } from './polity/params.ts' // polities:
 import { ACCOUNTS, flushAccounts } from './polity/outlaw.ts' // polities:
+// goods: high-value classes, stocks and merchants, middlemen, the long-haul layer (goods/*); contraband is polities v2's.
+import { HVR, cutOf, goodsSettle, goodsStock, hvLoads, hvMoved, hvPair, hvPrice, hvTransport, pairCuts } from './goods/market.ts'
+import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
+import { noteIncome } from './goods/state.ts'
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -148,6 +152,8 @@ export interface TradeState {
   // species-v2: worth of Cloth, Luxury and Stimulant at each settlement this year ([id * G + g], g >= 6; cashCrops.ts), and the transport factor of its grain (storage.ts).
   worth: Float64Array
   perish: Float64Array
+  /** goods: 1 for the high-value classes priced by scarcity (goods/market.ts hvPrice), or null while the goods system is off. */
+  hv: Uint8Array | null
 
   // Settlement-graph search.
   gDist: Float64Array
@@ -215,6 +221,7 @@ export function createTrade(cellCount: number): TradeState {
     pack: new Float64Array(S),
     worth: new Float64Array(S * G), // species-v2
     perish: new Float64Array(S).fill(1), // species-v2
+    hv: null, // goods: (set by index.ts when the system is on)
     gDist: new Float64Array(S),
     gPrev: new Int32Array(S),
     gStamp: new Int32Array(S),
@@ -409,8 +416,8 @@ function findEdge(ts: TradeState, u: number, v: number): number {
   return -1
 }
 
-/** Cell path along a settlement chain (consecutive cells adjacent, loops cut out). */
-function chainPath(s: HistoryState, ts: TradeState, chain: number[]): number[] {
+/** Cell path along a settlement chain (consecutive cells adjacent, loops cut out). (goods: exported for the long-haul legs) */
+export function chainPath(s: HistoryState, ts: TradeState, chain: number[]): number[] {
   const { pathStamp, pathPos } = ts
   const run = ++ts.pathRun
   const out: number[] = []
@@ -652,6 +659,7 @@ function setFoodPrices(s: HistoryState, ts: TradeState, i: number): void {
 function setGoodPrice(ts: TradeState, i: number, g: number): void {
   const k = i * G + g
   const D = ts.demand[k]
+  if (ts.hv !== null && ts.hv[g] === 1) { hvPrice(ts, k, D); return } // goods: scarcity prices of the high-value classes
   const inv = 1 / (1 + ts.stock[k] / D)
   const V = g >= 6 ? ts.worth[k] : GOODS.value[g] // species-v2: the new goods' worth varies (wealth, habit)
   ts.price[k] = V * 2 * inv
@@ -707,11 +715,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   const need = GOODS.need
   const workHalf = GOODS.workHalf
   const tech = s.tech
+  const gx = s.goods // goods:
   let traders = 0
   trader.fill(0, 0, s.count) // (abandoned settlements never trade)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
-    const on = s.pop[id] >= TRADE.minPop ? 1 : 0
+    const on = s.pop[id] >= TRADE.minPop || (gx !== null && id < gx.cap && gx.postOf[id] >= 0) ? 1 : 0 // goods: trading posts always trade
     trader[id] = on
     traders += on
     income[id] = 0
@@ -752,6 +761,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     ts.bid[id] = 1 + WEALTH.bid * prosperity(s, id)
     ts.pack[id] = packOf(s, id)
     marketGoods(s, ts, id, o, demTech) // species-v2: Cloth, Luxury, Stimulant (and bamboo timber)
+    if (gx !== null) goodsStock(s, ts, gx, id, o, demTech) // goods: held stocks, class units by variety, the new classes
     ts.perish[id] = perishOf(s, id) // species-v2
     setFoodPrices(s, ts, id)
     for (let g = FOOD; g < G; g++) setGoodPrice(ts, id, g)
@@ -831,6 +841,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     const cut = SMUGGLE.hubCut * net * got
     if (dir === 0) { x.revAB[p] += seized * pt; x.cutAB[p] += cut; if (cut > x.bestAB[p]) { x.bestAB[p] = cut; x.gAB[p] = g } }
     else { x.revBA[p] += seized * pt; x.cutBA[p] += cut; if (cut > x.bestBA[p]) { x.bestBA[p] = cut; x.gBA[p] = g } }
+    if (gx !== null && g >= 7) { // goods: the high-value classes (their variety mix moves; secret contraband is the smuggled seeds' channel)
+      hvMoved(s, ts, gx, from, to, g, qq, pt, 1)
+      income[from] += qq * margin * V[g]
+      pairFlow[(p * G + g) * 2 + dir] += qq
+      return
+    }
     stock[kf] -= qq
     stock[kt] += qq
     if (g >= 7) stimFlow(v2, g, from, to, qq, stock[kf] + qq, pt)
@@ -857,8 +873,9 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       const g = goods[gi]
       if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue
       const tg = tUnit[g] * c
-      const tA = g === 0 ? tg * perish[a] : tg
-      const tB = g === 0 ? tg * perish[b] : tg
+      const hv = gx !== null && g >= 7 // goods: high-value classes travel by the value density of the sender's mix
+      const tA = hv ? hvTransport(gx, a, g, stock[oa + g]) * c : g === 0 ? tg * perish[a] : tg
+      const tB = hv ? hvTransport(gx, b, g, stock[ob + g]) * c : g === 0 ? tg * perish[b] : tg
       const mg = minGap[g]
       const gap = price[ob + g] - price[oa + g]
       if (bk === 2 && g < FOOD) { // (an embargo stops all but food)
@@ -872,6 +889,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       else if (-gap > prem * tB + mg && x.sBA[p] > 0) smuggleFlow(p, b, a, g, -gap - prem * tB, 1, x.sBA[p], x.eBA[p])
     }
   }
+  if (gx !== null) { pairCuts(s, ts, gx); forwardPrices(s, ts, gx) } // goods: middlemen's cuts, merchants' forward prices
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
@@ -896,6 +914,10 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       for (let gi = 0; gi < nGoods; gi++) {
         const g = goods[gi]
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
+        if (gx !== null && g >= 7) { // goods: high-value classes (polities: under the duty's wedge, its flows summed for the accounts)
+          if (hvPair(s, ts, gx, p, a, b, g, c, wAB, wBA) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
+          continue
+        }
         const gap = price[ob + g] - price[oa + g]
         const tr = g === 0 ? tUnit[0] * c * (gap > 0 ? perish[a] : perish[b]) : tUnit[g] * c // species-v2: perishable grain
         let from: number, to: number, net: number, dir: number
@@ -928,6 +950,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     }
   }
 
+  if (gx !== null) longHaulSweep(s, ts, gx) // goods: mart to mart, one leg a year
+
   // Routes: open on first flow, record volume and goods.
   for (let p = 0; p < P; p++) {
     const a = pairA[p], b = pairB[p]
@@ -956,11 +980,13 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     throughYear[a] += TRADE.ownWeight * vol
     throughYear[b] += TRADE.ownWeight * vol
     const transit = ts.rTransit[r]
+    const tollVol = gx !== null ? vol - hvLoads(ts, p) : vol // goods: high-value goods pay their cut instead
     for (let k = 0; k < transit.length; k++) {
       const x = transit[k]
       if (s.abandoned[x] >= 0) continue
       throughYear[x] += vol
-      income[x] += TRADE.toll * vol
+      income[x] += TRADE.toll * tollVol
+      if (gx !== null && ts.trader[x]) { const cut = cutOf(s, x) * gx.pairHv[p]; income[x] += cut; noteIncome(s, gx, 14, cut) } // goods: every hand takes a cut
     }
   }
 
@@ -976,6 +1002,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     s.food[id] = F >= p ? 1 : F / p
     s.foodImport[id] += WEALTH.importSmoothing * (F - food0[id] - s.foodImport[id])
   }
+  if (gx !== null) goodsSettle(s, ts, gx) // goods: workshops, consumption, tools and arms, stocks carried over
   settle(s, ts)
 }
 

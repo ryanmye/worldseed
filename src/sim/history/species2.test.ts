@@ -2,7 +2,7 @@
 // new History fields, their structural invariants, and dynamics bounds (see speciesV2.ts and the files it runs).
 
 import { describe, expect, it } from 'vitest'
-import { EventType, SpeciesCategory } from '../../contract.ts'
+import { EventType, GOOD_COUNT, SpeciesCategory } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -278,7 +278,7 @@ describe('species v2', () => {
         // The species mix of its stimulant stock sums to the stock.
         let t = 0
         for (let k = 0; k < STIMULANTS.length; k++) { const a = sp.v2.amt[id * STIMULANTS.length + k]; expect(a).toBeGreaterThanOrEqual(-1e-9); t += a }
-        const st = ts.stock[id * 9 + 8]
+        const st = ts.stock[id * GOOD_COUNT + 8] // (goods: 13 classes)
         if (Math.abs(t - st) > 1e-6 * (1 + st)) throw new Error(`stimulant mix ${t} vs stock ${st} at ${id} in ${s.year}`)
       }
     })

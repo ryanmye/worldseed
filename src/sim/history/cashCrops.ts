@@ -17,15 +17,16 @@
 // buyers of Luxury and Stimulant pay CASHCROP.pay of their value out of their wealth: luxuries are a sink of wealth,
 // producers and the traders between them grow rich, and a habit's drain is a real outflow. No randomness.
 
-import { SpeciesCategory, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
+import { GOOD_COUNT, SpeciesCategory, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
 import { CASHCROP, GOODS, HABIT, SPECIES2, TECHNIQUE2, WEALTH } from './params.ts'
 import type { HistoryState } from './state.ts'
 import type { MarketView } from './species.ts'
 import { CASH, hasBit, NST, prosperityOf, SP, SPECIES_TABLE, STAPLE_IDS, STIM_INDEX, STIMULANTS, TECH_BIT, TQ } from './species.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
+import { cashCoefReset, cashCoefSet, cashMinFit, cashPrice } from './goods/hooks.ts' // goods:
 
-const G = 9 // (GOOD_COUNT)
+const G = GOOD_COUNT // (goods: 13 classes now)
 
 /** Recomputes settlement `id`'s cash-crop shares, outputs per unit of land and food multiplier (see the header). */
 export function cashUpdate(s: HistoryState, v: SpeciesV2, tv: MarketView, id: number): void {
@@ -43,6 +44,7 @@ export function cashUpdate(s: HistoryState, v: SpeciesV2, tv: MarketView, id: nu
   const o = id * G
   const pf = trader && tv.price[o] > SPECIES2.minFoodPrice ? tv.price[o] : SPECIES2.minFoodPrice
   const tgt = TGT
+  const gx = s.goods // goods: Luxury in class units by relative worth, silk as Finery, rarer luxury crops
   let sum = 0
   // The cash crops it holds (a species once held is never lost, so no other has a share).
   let nh = 0
@@ -53,10 +55,10 @@ export function cashUpdate(s: HistoryState, v: SpeciesV2, tv: MarketView, id: nu
     tgt[q] = 0
     const x = CASH[q]
     const fc = sp.fitCatch[x * N + c]
-    if (fc < X.minFit) continue
+    if (fc < (gx !== null ? cashMinFit(gx, x) : X.minFit)) continue
     const d = SPECIES_TABLE[x]
     let t: number
-    if (trader) t = smoothstep(0, 1, (tv.price[o + d.good] * d.cashYield * fc * skill(d.crafts, crafts)) / pf - 1)
+    if (trader) t = smoothstep(0, 1, ((gx !== null ? cashPrice(gx, tv.price, o, x) : tv.price[o + d.good]) * d.cashYield * fc * skill(d.crafts, crafts)) / pf - 1)
     else t = d.category === SpeciesCategory.Stimulant ? 1 : 0
     tgt[q] = t
     sum += t
@@ -69,6 +71,7 @@ export function cashUpdate(s: HistoryState, v: SpeciesV2, tv: MarketView, id: nu
   v.coef[v0] = 0; v.coef[v0 + 1] = 0; v.coef[v0 + 2] = 0
   const NK = v.NK
   for (let k = 0; k < NK; k++) v.stimCoef[id * NK + k] = 0
+  if (gx !== null) cashCoefReset(gx, id, s.count, NC) // goods:
   let tot = 0
   for (let h = 0; h < nh; h++) {
     const q = HELDQ[h]
@@ -84,6 +87,7 @@ export function cashUpdate(s: HistoryState, v: SpeciesV2, tv: MarketView, id: nu
     const d = SPECIES_TABLE[sx]
     const out = x * d.cashYield * sp.fitCatch[sx * N + c] * skill(d.crafts, crafts)
     v.coef[v0 + d.good - 6] += out
+    if (gx !== null) cashCoefSet(gx, id, NC, q, out) // goods: per crop, for its variety
     const k = STIM_INDEX[sx]
     if (k >= 0) v.stimCoef[id * NK + k] += out
   }
@@ -155,6 +159,7 @@ export function marketGoods(s: HistoryState, m: CashMarket, id: number, o: numbe
   if (cropFood < 0) cropFood = 0
   const left = 1 - v.cut[id]
   const pot = cropFood / (left > 0.05 ? left : 0.05)
+  if (s.goods !== null) s.goods.pot[id] = pot // goods: (the crops' class units are reckoned on it)
   const v0 = id * 3
   const cloth = v.coef[v0] * pot + v.wool[id] * exp * lf
   const lux = v.coef[v0 + 1] * pot

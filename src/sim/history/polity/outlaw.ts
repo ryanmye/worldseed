@@ -32,6 +32,7 @@ import { enforcement, navyOf, routeSea, watch } from './policy.ts'
 import { FAR, ensureRoutesP, localOf, projAt } from './state.ts'
 import type { PolityState } from './state.ts'
 import { atWar } from './formation.ts'
+import { legLaneMap, legOutlaw } from '../goods/longhaul.ts' // goods: the long-haul legs' sea lanes and roads
 
 /** Years between the market's accounts (duties, contraband, plunder paid out): flushAccounts at the end of each such year's market. */
 export const ACCOUNTS = 5
@@ -57,6 +58,9 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
     if (code === 0 && !(lv > 0)) continue
     let sm = pc.smug[p]
     if (code !== 0 && pc.block[p] === 0) {
+      // (goods: contraband evading a secret's monopoly rent was summed as it moved, with the hubs' cuts)
+      const rent = s.goods !== null
+      if (rent && sm > 0) smug += sm
       // A duty pair: a share sigma of what crossed evaded the duty as contraband; a share seize * enforcement of that was
       // caught (its worth to the collector: the goods are not taken out of the market), the rest paid the hub's cut.
       for (let dir = 0; dir < 2; dir++) {
@@ -77,6 +81,13 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
         if (k > 0) cut(s, ps, dir === 0 ? pc.hAB[p] : pc.hBA[p], k, k, dir === 0 ? pc.gAB[p] : pc.gBA[p], q, income)
         if (dir === 0) { pc.vAB[p] = 0; pc.pvAB[p] = 0; pc.dbAB[p] = 0; pc.nbAB[p] = 0; pc.bestAB[p] = 0 }
         else { pc.vBA[p] = 0; pc.pvBA[p] = 0; pc.dbBA[p] = 0; pc.nbBA[p] = 0; pc.bestBA[p] = 0 }
+      }
+      // (goods: the hubs' cuts of the rent evaded; without goods a cut left from an embargo waits for the next one, as before)
+      if (rent) {
+        let x = pc.cutAB[p]
+        if (x > 0) { cut(s, ps, pc.hAB[p], x, x, pc.gAB[p], pc.qAB[p], income); pc.cutAB[p] = 0 }
+        x = pc.cutBA[p]
+        if (x > 0) { cut(s, ps, pc.hBA[p], x, x, pc.gBA[p], pc.qBA[p], income); pc.cutBA[p] = 0 }
       }
     } else if (code !== 0) {
       // An embargo or a war: the seizures and the cuts were summed as the contraband moved.
@@ -119,13 +130,16 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
     const c = ps.pCapital[p]
     if (c < ps.seen) inc += ps.incSm[c]
   }
+  // (goods: the long-haul legs' duties, contraband and plunder, paid as they moved)
+  const la = ps.legAcc
+  if (la[0] > 0 || la[1] > 0 || la[2] > 0 || la[3] > 0) { legal += la[0]; smug += la[1]; pir += la[2]; band += la[3]; la.fill(0) }
   const d = ps.diag
   d.yRev[s.year] = rev * years; d.yCapInc[s.year] = inc * years
   d.yLegal[s.year] = legal; d.ySmug[s.year] = smug; d.yPir[s.year] = pir; d.yBand[s.year] = band
 }
 
 /** The smugglers' cut x reaches hub h (best: the largest single cut, of good g, evading polity q). */
-function cut(s: HistoryState, ps: PolityState, h: number, x: number, best: number, g: number, q: number, income: Float64Array): void {
+export function cut(s: HistoryState, ps: PolityState, h: number, x: number, best: number, g: number, q: number, income: Float64Array): void {
   if (s.abandoned[h] >= 0) return
   income[h] += x
   if (h >= ps.seen) return
@@ -203,6 +217,7 @@ export function laneMap(s: HistoryState, ps: PolityState, ts: TradeState): void 
   ps.nearRoutes = R
   ps.nearOff = off
   ps.nearId = Int32Array.from(ids)
+  if (s.goods !== null) legLaneMap(s, ps, s.goods) // goods: the long-haul legs' traffic draws pirates too
 }
 
 /** System part (every slow step): pirates rise and fall; routes' losses to pirates and bandits; outlaw danger on coasts and roads. */
@@ -298,6 +313,7 @@ export function outlawStep(s: HistoryState, ps: PolityState, ts: TradeState): vo
     ps.rBand[r] = band
     ps.rBandBy[r] = band > 0 ? bb : -1
   }
+  if (s.goods !== null) legOutlaw(s, ps, s.goods) // goods: pirates on the long-haul legs' sea lanes, bandits on their roads
   outlawCells(s, ps, ts)
 }
 

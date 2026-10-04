@@ -1,7 +1,7 @@
 // polities v2: tests of trade policy, the outlaw economy, civil wars, partitions and bonds between states.
 
 import { describe, expect, it } from 'vitest'
-import { BondEnd, BondKind, EventType, PolityEnd, PolityOrigin, StructureType, WarKind, WarOutcome } from '../../contract.ts'
+import { BondEnd, BondKind, EventType, GOOD_COUNT, PolityEnd, PolityOrigin, StructureType, WarKind, WarOutcome } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 
@@ -190,7 +190,7 @@ function checkV2(w: World, h: History): void {
         const st = h.settlements[e.settlement]
         expect(e.year >= st.foundedYear && (st.abandonedYear < 0 || e.year <= st.abandonedYear)).toBe(true)
         if (e.type !== EventType.SmugglingRing) expect(coastal(st.cell)).toBe(true)
-        if (e.type === EventType.SmugglingRing) expect(e.value >= 0 && e.value < 9).toBe(true)
+        if (e.type === EventType.SmugglingRing) expect(e.value >= 0 && e.value < GOOD_COUNT).toBe(true)
         break
       }
       case EventType.Blockade:

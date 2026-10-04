@@ -609,11 +609,11 @@ export const MOVE_COST = {
  */
 export const GOODS = {
   /** Worth of one unit (a unit of food feeds one person for a year). Trade volume is counted in loads: units * value. */
-  value: [1, 1.2, 1.4, 2, 5, 6, 2.5, 14, 9], // (species-v2: Cloth, Luxury, Stimulant appended)
+  value: [1, 1.2, 1.4, 2, 5, 6, 2.5, 14, 9, 10, 20, 50, 25], // (species-v2: Cloth, Luxury, Stimulant appended; goods: Metalware, Finery, Treasure, Wares, empty unless the goods system is on)
   /** Need per person per year (food needs sum to 1: the preferred diet); Cloth, Luxury, Stimulant scaled by wealth, size and habit (CASHCROP). */
-  need: [0.55, 0.15, 0.3, 0.08, 0.03, 0.025, 0.05, 0.008, 0.004],
+  need: [0.55, 0.15, 0.3, 0.08, 0.03, 0.025, 0.05, 0.008, 0.004, 0.012, 0.004, 0.002, 0.001],
   /** Transport cost per unit per cell unit of route cost, at productivity 1. */
-  transport: [0.035, 0.045, 0.04, 0.05, 0.06, 0.06, 0.05, 0.06, 0.055],
+  transport: [0.035, 0.045, 0.04, 0.05, 0.06, 0.06, 0.05, 0.06, 0.055, 0.06, 0.05, 0.03, 0.05],
   /** Transport gets cheaper with technology: divided by 1 + transportTech * (productivity - 1). */
   transportTech: 0.6,
   /** Non-food needs grow with technology: need * (1 + demandTech * (productivity - 1)). */
