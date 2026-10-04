@@ -359,6 +359,9 @@ function checkInvariants(w: World, h: History): void {
       case EventType.LeisureTravel: case EventType.ResortFounded: case EventType.ResortInFashion: case EventType.ResortDeclined:
       case EventType.ResortAbandoned: case EventType.SightRecognised:
         break
+      // renaming: places renamed (checked against History.renamings in renaming/renaming.test.ts).
+      case EventType.PlaceRenamed:
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
