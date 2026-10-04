@@ -553,7 +553,7 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
             smug = true
             if (MART.hubTransit && lp.hub[k] >= 0 && lp.hubE[k] < enf) hub = lp.hub[k]
           } else if (pt >= 0) {
-            duty = P2.pTariff[pt]
+            duty = P2.pTariff[pt] * TARIFF.hv
             if (duty > 0) {
               enf = et
               const x = X.share * lp.hide[k] * (1 - et) * (duty / (duty + X.tauHalf))

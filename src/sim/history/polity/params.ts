@@ -329,6 +329,8 @@ export const TARIFF = {
   food: 0.2,
   /** Merchants pass most of a duty on to the buyers: only this share of it enters the price gap a flow must beat. */
   wedge: 0.3,
+  /** goods: the high-value classes (Luxury to Wares, and the long-haul legs) pay this share of the rate (with the goods system off, Luxury and Stimulant pay it all). */
+  hv: 1,
   /** The rate moves this share of the way to its target a year; at most max. */
   rate: 0.1,
   max: 0.6,

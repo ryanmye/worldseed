@@ -858,12 +858,14 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     else { setGoodPrice(ts, from, g); setGoodPrice(ts, to, g) }
   }
   const wedge = TARIFF.wedge, foodDuty = TARIFF.food
+  const hvDuty = TARIFF.hv // goods: the high-value classes pay this share of the rate
   /** A flow q of good g on duty pair p (dir 0: a to b), net gap net, at the importer's price pt: summed for marketClosed. */
   const dutyFlow = (p: number, g: number, dir: number, q: number, net: number, pt: number): void => {
     const x = pc as PairPolicy
     const v = q * V[g], w = q * pt
-    if (dir === 0) { x.vAB[p] += v; x.pvAB[p] += w; x.dbAB[p] += (g < FOOD ? foodDuty : 1) * w; x.nbAB[p] += net * q; if (v > x.bestAB[p]) { x.bestAB[p] = v; x.gAB[p] = g } }
-    else { x.vBA[p] += v; x.pvBA[p] += w; x.dbBA[p] += (g < FOOD ? foodDuty : 1) * w; x.nbBA[p] += net * q; if (v > x.bestBA[p]) { x.bestBA[p] = v; x.gBA[p] = g } }
+    const fw = g < FOOD ? foodDuty : gx !== null && g >= 7 ? hvDuty : 1
+    if (dir === 0) { x.vAB[p] += v; x.pvAB[p] += w; x.dbAB[p] += fw * w; x.nbAB[p] += net * q; if (v > x.bestAB[p]) { x.bestAB[p] = v; x.gAB[p] = g } }
+    else { x.vBA[p] += v; x.pvBA[p] += w; x.dbBA[p] += fw * w; x.nbBA[p] += net * q; if (v > x.bestBA[p]) { x.bestBA[p] = v; x.gBA[p] = g } }
   }
   /** A pair under an embargo (food legal, under a duty) or at war: contraband only. */
   const blocked = (p: number, a: number, b: number, c: number, oa: number, ob: number): void => {
@@ -926,7 +928,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (hvOff && g >= 7) break
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         if (gx !== null && g >= 7) { // goods: high-value classes (polities: under the duty's wedge, its flows summed for the accounts)
-          if (hvPair(s, ts, gx, p, a, b, g, c, wAB, wBA) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
+          if (hvPair(s, ts, gx, p, a, b, g, c, wAB * hvDuty, wBA * hvDuty) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
           continue
         }
         const gap = price[ob + g] - price[oa + g]
