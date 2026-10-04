@@ -20,8 +20,8 @@ import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, ty
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
 import { floraOf, GROUND, GROUND_KINDS, kaykitFits, LANDMARK_STONE, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
 import { createOriginEnv, planOrigin } from './origin.ts'
-import { createTownPlan, GroundKind, LANDMARK_CIVIC, Role, townExtent, Ward, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
-import { CivicPiece, landmarkPieces, SacredPiece } from './landmarkShapes.ts'
+import { createTownPlan, GroundKind, LANDMARK_CIVIC, LANDMARK_PACK, Role, townExtent, Ward, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { CivicPiece, landmarkPieces, PackPiece, SacredPiece } from './landmarkShapes.ts'
 
 import { landmarkKindsOf, landmarksOf } from '../../ui/landmarksData.ts'
 import { RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
@@ -225,6 +225,10 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   let N = settlements.length
 
   const footprint = (m: number) => lib.models[m]?.footprint ?? 0
+  /** A Role.Landmark kind's piece in its atlas, and the piece's sizes. */
+  const pieceIndex = (code: number) => (code >= LANDMARK_PACK ? code - LANDMARK_PACK : code >= LANDMARK_CIVIC ? code - LANDMARK_CIVIC : code)
+  const pieceInfo = (code: number) => (code >= LANDMARK_PACK ? lib.packPieces : code >= LANDMARK_CIVIC ? lib.civicPieces : lib.sacredPieces)[pieceIndex(code)]
+
   const heightOf = (m: number) => lib.models[m]?.height ?? 0
   const has = (m: number) => lib.models[m] != null
 
@@ -732,7 +736,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       case Role.Stockade: return styleModel(s, Kind.Fort)
       case Role.Boat: return it.kind === 1 && has(Model.FishingBoat) ? Model.FishingBoat : has(Model.Boat) ? Model.Boat : -1
       case Role.Landmark: {
-        const m = it.kind >= LANDMARK_CIVIC ? Model.LandmarkCivic : Model.LandmarkSacred
+        const m = it.kind >= LANDMARK_PACK ? Model.LandmarkPack : it.kind >= LANDMARK_CIVIC ? Model.LandmarkCivic : Model.LandmarkSacred
         return has(m) ? m : -1
       }
       case Role.Haystack: return has(Model.Haystack) ? Model.Haystack : -1
@@ -769,16 +773,16 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     setColours(st, id, it, k)
     if (it.role === Role.Landmark) {
       // a landmark: one piece of its atlas (aInfo.x -(piece + 1), its eave for a ruin's break), in the town's stone
-      const civic = it.kind >= LANDMARK_CIVIC
-      const pc = civic ? lib.civicPieces[it.kind - LANDMARK_CIVIC] : lib.sacredPieces[it.kind]
+      const civic = it.kind >= LANDMARK_CIVIC && it.kind < LANDMARK_PACK
+      const pi = pieceIndex(it.kind)
+      const pc = pieceInfo(it.kind)
       if (!pc || pc.height <= 0) return
-      const p0 = civic ? it.kind - LANDMARK_CIVIC : it.kind
-      const timber = civic ? p0 === CivicPiece.Stronghold || p0 === CivicPiece.TimberHall || p0 === CivicPiece.Scaffold : p0 === SacredPiece.GreatStave || p0 === SacredPiece.Stave
+      const timber = it.kind >= LANDMARK_PACK ? false : civic ? pi === CivicPiece.Stronghold || pi === CivicPiece.TimberHall || pi === CivicPiece.Scaffold : pi === SacredPiece.GreatStave || pi === SacredPiece.Stave
       const g = lin(timber ? WALL_STONE[style] : LANDMARK_STONE[style], 0.96 + 0.1 * it.jitter)
       wallTmp[0] = g[0]; wallTmp[1] = g[1]; wallTmp[2] = g[2]
       const sc = MODEL_SPECS[model].scale
       const rr = pc.footprint * sc * Math.max(it.sx, it.sz)
-      infoTmp[0] = -((civic ? it.kind - LANDMARK_CIVIC : it.kind) + 1); infoTmp[1] = 0; infoTmp[2] = pc.eave; infoTmp[3] = Math.min(0.999, Math.max(0, it.jitter))
+      infoTmp[0] = -(pi + 1); infoTmp[1] = 0; infoTmp[2] = pc.eave; infoTmp[3] = Math.min(0.999, Math.max(0, it.jitter))
       const sink = sinkFor(rr)
       writeSlot(w, model, it.threshold, it.yaw, sink, it.sx, it.sy, it.sz, roofTmp, wallTmp, 0, (1.1 * pc.footprint * sc) / Math.max(1e-9, footprint(model)), infoTmp)
       w.height[w.height.length - 1] = pc.height * sc * it.sy - sink
@@ -1751,19 +1755,19 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       if (!d || lm < 0 || lm >= d.L.count) return null
       const L = d.L
       const pieces = landmarkPieces(L.kind[lm], L.form[lm], L.variant[lm], styleOf(id), lm)
-      const info = (code: number) => (code >= LANDMARK_CIVIC ? lib.civicPieces[code - LANDMARK_CIVIC] : lib.sacredPieces[code])
+      const info = pieceInfo
       const a = info(pieces.code), e = pieces.extra >= 0 ? info(pieces.extra) : null
       if (!a) return null
       // the KayKit pieces of landmarks.glb (empty when it did not load)
-      const pack = (p: number) => ((lib.civicPieces[p]?.height ?? 0) > 0 ? LANDMARK_CIVIC + p : -1)
+      const pack = (p: number) => ((lib.packPieces[p]?.height ?? 0) > 0 ? LANDMARK_PACK + p : -1)
       const great = L.rank[lm] === 0
       const c = pieces.code - LANDMARK_CIVIC
       return townExtra(id, `L${lm}`, (p) => p.landmark({
         kind: L.kind[lm], ord: d.ord[lm], code: pieces.code, hx: a.hx, hz: a.hz, h: a.height, great,
         extra: pieces.extra, ehx: e ? e.hx : 0, ehz: e ? e.hz : 0, scaffold: LANDMARK_CIVIC + CivicPiece.Scaffold,
-        yard: great ? pack(CivicPiece.BuildYard) : -1,
-        outbuilding: great && L.kind[lm] !== LandmarkKind.Monument ? pack(CivicPiece.RuinHouse) : -1,
-        tower: c === CivicPiece.Keep || c === CivicPiece.Stronghold ? pack(CivicPiece.Watchtower) : c === CivicPiece.Citadel ? pack(CivicPiece.RoundTower) : -1,
+        yard: great ? pack(PackPiece.BuildYard) : -1,
+        outbuilding: great && L.kind[lm] !== LandmarkKind.Monument ? pack(PackPiece.RuinHouse) : -1,
+        tower: c === CivicPiece.Keep || c === CivicPiece.Stronghold ? pack(PackPiece.Watchtower) : c === CivicPiece.Citadel ? pack(PackPiece.RoundTower) : -1,
       }))
     },
 

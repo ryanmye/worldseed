@@ -223,8 +223,16 @@ export interface Site {
   landmarks?: number[]
 }
 
+/** (landmarks data) Radius (plan units) of the open ground round a great landmark in the patch the plan keeps for it, by LandmarkKind: several houses across. */
+const LM_CLEAR: Record<number, number> = { [LandmarkKind.Castle]: 2.6, [LandmarkKind.Palace]: 2.4, [LandmarkKind.GreatTemple]: 2.4, [LandmarkKind.MarketHall]: 1.7, [LandmarkKind.CouncilHouse]: 1.7, [LandmarkKind.Library]: 1.6, [LandmarkKind.Guildhall]: 1.4, [LandmarkKind.Baths]: 1.7 }
+/** The open ground round it beyond the building's own reach (plan units): a bailey, a square, a precinct. */
+const LM_MARGIN = 1.0
+
 /** Role.Landmark kinds from this up are civic pieces (kind - LANDMARK_CIVIC); below, sacred ones. */
 export const LANDMARK_CIVIC = 32
+/** Role.Landmark kinds from this up are the KayKit pieces of landmarks.glb (kind - LANDMARK_PACK: landmarkShapes.ts PackPiece). */
+export const LANDMARK_PACK = 64
+
 
 /** What TownPlan.landmark places: the landmark's kind and its number among the town's landmarks of that kind, and its pieces. */
 export interface LandmarkSpec {
@@ -1476,6 +1484,33 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
 
   // ---- landmarks with their keys (ranked into the lot order later) ----
   stageAt = 'landmarks'
+  // ---- (landmarks data) each landmark at a place of its own ----
+  /** Patches kept for the landmarks known when the plan was made: per (kind, number) key, -1 none (a lot or the open country then). */
+  const lmSlot = new Map<number, number>()
+  /** Radius of the open ground kept round a great landmark (plan units), by its key. */
+  const lmClearAt = new Map<number, number>()
+  {
+    const cath = placedAt[Ward.Cathedral] ?? [], markets = placedAt[Ward.Market] ?? []
+    const halls = order.filter((i) => patches[i].ward === Ward.Landmark)
+    const admin = order.find((i) => patches[i].ward === Ward.Admin) ?? -1
+    const seen = new Int32Array(32)
+    let hall = 0
+    for (const k of lmList) {
+      const ord = seen[k]++
+      let p = -1
+      if (k === LK.Castle && ord === 0) p = citadel
+      else if (k === LK.Palace && ord === 0) p = order.find((i) => patches[i].ward === Ward.Palace) ?? -1
+      else if (k === LK.GreatTemple && ord === 0) p = cath[0] ?? -1
+      else if (k === LK.Temple) p = cath[ord + (lmGreatTemple ? 1 : 0)] ?? -1
+      else if (k === LK.MarketHall && ord === 0) p = markets[0] ?? -1
+      else if (k === LK.CouncilHouse && ord === 0) p = admin
+      else if ((k === LK.Guildhall || k === LK.Library || k === LK.Baths) && ord === 0) p = halls[hall++] ?? -1
+      lmSlot.set(k * 64 + ord, p)
+      // a great building's open ground: a bailey, a square, a precinct round it, kept clear of houses
+      const r = p < 0 ? 0 : LM_CLEAR[k] ?? 0
+      if (r > 0) { lmClearAt.set(k * 64 + ord, r); for (const l of lots) if (!l.empty && Math.hypot(l.cx - patches[p].cx, l.cy - patches[p].cy) < r + LM_MARGIN) l.empty = true }
+    }
+  }
   interface Pending { item: PlanItem; key: number; minPop: number; r: number }
   const pend: Pending[] = []
   const style = site.style
@@ -2252,28 +2287,6 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     drain(placeLoop({ x, y, shore, gate }, threshold, true, into))
   }
 
-  // ---- (landmarks data) each landmark at a place of its own ----
-  /** Patches kept for the landmarks known when the plan was made: per (kind, number) key, -1 none (a lot or the open country then). */
-  const lmSlot = new Map<number, number>()
-  {
-    const cath = placedAt[Ward.Cathedral] ?? [], markets = placedAt[Ward.Market] ?? []
-    const halls = order.filter((i) => patches[i].ward === Ward.Landmark)
-    const admin = order.find((i) => patches[i].ward === Ward.Admin) ?? -1
-    const seen = new Int32Array(32)
-    let hall = 0
-    for (const k of lmList) {
-      const ord = seen[k]++
-      let p = -1
-      if (k === LK.Castle && ord === 0) p = citadel
-      else if (k === LK.Palace && ord === 0) p = palacePatch
-      else if (k === LK.GreatTemple && ord === 0) p = cath[0] ?? -1
-      else if (k === LK.Temple) p = cath[ord + (lmGreatTemple ? 1 : 0)] ?? -1
-      else if (k === LK.MarketHall && ord === 0) p = markets[0] ?? -1
-      else if (k === LK.CouncilHouse && ord === 0) p = admin
-      else if ((k === LK.Guildhall || k === LK.Library || k === LK.Baths) && ord === 0) p = halls[hall++] ?? -1
-      lmSlot.set(k * 64 + ord, p)
-    }
-  }
   /** Largest scale (up to smax) at which a box of half sizes hx, hz turned to yaw fits round (x, y) inside convex polygon p, less margin m. */
   const fitBox = (p: number[], x: number, y: number, yaw: number, hx: number, hz: number, smax: number, m: number): number => {
     const ux = Math.cos(yaw), uy = Math.sin(yaw)
@@ -2325,7 +2338,6 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     let patch = lmSlot.get(salt) ?? -1
     const smax = spec.great ? 1.5 : 1.05
     // (taller than its footprint alone would make it: a landmark rises over the roofs; the more so in a city of tall houses)
-    const lift = kind === LK.Monument ? 1 : (kind === LK.Castle ? 1.2 : spec.great ? 1.45 : 1.25) * (isCity ? 1.12 : 1)
     const inPatch = (i: number, m = 0.14) => {
       const pa = patches[i]
       x = pa.cx; y = pa.cy
@@ -2389,7 +2401,12 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
       ward = Ward.Plaza
       patch = -2
     }
-    if (patch >= 0) inPatch(patch, kind === LK.Castle ? 0.12 : 0.06)
+    if (patch >= 0) {
+      inPatch(patch, kind === LK.Castle ? 0.12 : 0.06)
+      // a great one fills the open ground kept round it
+      const r = lmClearAt.get(salt) ?? 0
+      if (r > 0) s = Math.max(s, Math.min(2.6, (r - 0.1) / Math.hypot(spec.hx, spec.hz)))
+    }
     else if (patch === -1) {
       // a landmark the plan kept no room for: the empty lot it fits best near the plaza (village patches: one of the inner ones)
       if (!isTown) {
@@ -2416,6 +2433,12 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     s = Math.max(spec.great ? 0.6 : 0.45, s)
     // (on wet ground or over a river: smaller, then where it may)
     for (let t = 0; t < 4 && !site.clear(x, y, Math.min(spec.hx, spec.hz) * s * 0.7); t++) s *= 0.85
+    // its height: its own proportions, raised (at most by half) until it stands well over the roofs, twice a city's houses
+    // (a great one; a temple half again, its tower or dome above them)
+    const minH = (spec.great ? 2.3 : 1.6) * (isCity ? 1.25 : 1)
+    // (a broad building, a temple on its podium, a ziggurat, a market hall, keeps its proportions: only towers and spires are raised)
+    const tall = spec.h > 1.25 * Math.min(spec.hx, spec.hz) * 2
+    const lift = kind === LK.Monument || kind === LK.Shrine || !tall ? 1 : Math.min(1.5, Math.max(1, minH / Math.max(0.1, spec.h * s)))
     out.push({ ...base, role: Role.Landmark, x, y, yaw, sx: s, sz: s, sy: s * lift, threshold: LandmarkPart.Building, ward })
     const ux = Math.cos(yaw), uy = Math.sin(yaw)
     // the plan's yaw is the model's x axis; its front (+z) faces (sin yaw, -cos yaw)
@@ -2450,12 +2473,6 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     for (let q = 0; q < 2; q++) {
       const a = (rnd(salt * 8 + q, 0x73) * 2 - 1) * 0.7, b = q ? 0.6 : -0.5
       out.push({ ...base, kind: 0, role: Role.Grove, x: x + (ux * a * spec.hx + fx * b * spec.hz) * s, y: y + (uy * a * spec.hx + fy * b * spec.hz) * s, yaw: q * 2.3, sx: 0.5, sz: 0.5, sy: 0.55, threshold: LandmarkPart.Debris, ward })
-    }
-    // a castle on the citadel's patch: the citadel's own wall round its bailey, a gate toward the plaza
-    if (kind === LK.Castle && patch >= 0 && patch === citadel) {
-      const wall: PlanItem[] = []
-      placeCitadelWallInto(LandmarkPart.Works, wall)
-      for (const it of wall) out.push({ ...it, threshold: LandmarkPart.Works })
     }
     return out
   }

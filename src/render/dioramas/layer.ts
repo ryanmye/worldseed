@@ -685,7 +685,19 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       const x = set.mat[12], y = set.mat[13], z = set.mat[14], l = Math.hypot(x, y, z)
       return [+((Math.asin(y / l) * 180) / Math.PI).toFixed(4), +((Math.atan2(x / l, z / l) * 180) / Math.PI).toFixed(4)]
     }
+    // (perf=1: landmark lm's slot set: per slot its model, part, info and axis lengths)
+    ;(globalThis as unknown as { __dioramaLandmarkSets: (id: number, lm: number) => unknown }).__dioramaLandmarkSets = (id, lm) => {
+      const set = layouts?.landmark(id, lm)
+      if (!set) return null
+      const out = []
+      for (let k = 0; k < set.n; k++) {
+        const m = set.mat, o = k * 16
+        out.push({ model: set.model[k], part: set.threshold[k], info: Array.from(set.info.subarray(k * 4, k * 4 + 4)), sx: +Math.hypot(m[o], m[o + 1], m[o + 2]).toExponential(3), sy: +Math.hypot(m[o + 4], m[o + 5], m[o + 6]).toExponential(3), sz: +Math.hypot(m[o + 8], m[o + 9], m[o + 10]).toExponential(3) })
+      }
+      return out
+    }
     // (perf=1: where landmark lm of settlement id stands on screen, CSS px [x, y], or null off the view)
+
     ;(globalThis as unknown as { __dioramaLandmarkScreen: (id: number, lm: number) => number[] | null }).__dioramaLandmarkScreen = (id, lm) => {
       const set = layouts?.landmark(id, lm)
       if (!set || set.n === 0) return null

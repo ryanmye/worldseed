@@ -64,11 +64,15 @@ export const CivicPiece = {
   MarketHall: 6, Guildhall: 7, Lighthouse: 8, Library: 9,
   Column: 10, Obelisk: 11, Mausoleum: 12, PyramidTomb: 13,
   Baths: 14, CouncilHouse: 15, Scaffold: 16, Cloister: 17,
-  /** From the KayKit pack (public/models/landmarks/landmarks.glb), appended to the atlas when it loads (else empty). */
-  RuinHouse: 18, BuildYard: 19, BuildA: 20, BuildB: 21, BuildC: 22, Watchtower: 23, RoundTower: 24,
 } as const
-/** Mesh names in landmarks.glb of the civic pieces from CIVIC_PIECES on. */
-export const CIVIC_PACK_PIECES = ['ruin_house', 'build_yard', 'build_a', 'build_b', 'build_c', 'watchtower', 'round_tower'] as const
+/**
+ * Pieces of the third atlas (models.ts Model.LandmarkPack): the KayKit pieces of public/models/landmarks/landmarks.glb (empty if it
+ * did not load). An atlas of their own: they are detailed (some 12k triangles together), so the generated atlases stay light.
+ */
+export const PackPiece = { RuinHouse: 0, BuildYard: 1, BuildA: 2, BuildB: 3, BuildC: 4, Watchtower: 5, RoundTower: 6 } as const
+/** Mesh names in landmarks.glb, by PackPiece. */
+export const PACK_PIECES = ['ruin_house', 'build_yard', 'build_a', 'build_b', 'build_c', 'watchtower', 'round_tower'] as const
+
 
 export const CIVIC_PIECES = 18
 

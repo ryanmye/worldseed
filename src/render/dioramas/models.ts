@@ -9,7 +9,7 @@
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { CIVIC_PACK_PIECES, CIVIC_PIECES, civicPieceGeometry,
+import { PACK_PIECES, CIVIC_PIECES, civicPieceGeometry,
  mergeAtlas, SACRED_PIECES, sacredPieceGeometry, type PieceGeometry } from './landmarkShapes.ts'
 import {
   buildBanner, buildBlob, buildBoat, buildDam, buildHaystacks, buildRubble, buildSmoke, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
@@ -60,9 +60,11 @@ export const Model = {
   LandmarkSacred: 27,
   /** Landmarks: keeps, palaces, halls, lighthouses, monuments, the scaffold and the cloister, one atlas. */
   LandmarkCivic: 28,
+  /** Landmarks: the KayKit pieces of landmarks.glb (builders' yard, construction stages, ruined house, towers), one atlas. */
+  LandmarkPack: 29,
 } as const
 export type Model = (typeof Model)[keyof typeof Model]
-const FLORA_BASE = 29
+const FLORA_BASE = 30
 const STYLE_BASE = FLORA_BASE + FLORA_COUNT
 export const MODEL_COUNT = STYLE_BASE + STYLE_COUNT * KIND_COUNT
 
@@ -122,6 +124,7 @@ export const MODEL_SPECS: readonly ModelSpec[] = (() => {
     S(null, KK), // smoke
     S(null, KK, true), // landmarks: sacred atlas
     S(null, KK, true), // landmarks: civic atlas
+    S(null, KK, true), // landmarks: KayKit atlas
   ]
   for (let f = 0; f < FLORA_COUNT; f++) specs.push(S(null, KK))
   for (let s = 0; s < STYLE_COUNT; s++) for (let k = 0; k < KIND_COUNT; k++) specs.push(S(null, KK, true))
@@ -155,6 +158,7 @@ export interface ModelLibrary {
   /** Pieces of the landmark atlases (Model.LandmarkSacred, Model.LandmarkCivic), by piece number. */
   sacredPieces: PieceInfo[]
   civicPieces: PieceInfo[]
+  packPieces: PieceInfo[]
   blob: THREE.BufferGeometry
   dispose(): void
 }
@@ -187,7 +191,8 @@ function generated(id: number): THREE.BufferGeometry | null {
     case Model.Rubble: return buildRubble()
     case Model.Smoke: return buildSmoke()
     case Model.LandmarkSacred: return atlas(SACRED_PIECES, sacredPieceGeometry, atlasInfo.sacred)
-    case Model.LandmarkCivic: return atlas(CIVIC_PIECES + CIVIC_PACK_PIECES.length, civicOrPacked, atlasInfo.civic)
+    case Model.LandmarkCivic: return atlas(CIVIC_PIECES, civicPieceGeometry, atlasInfo.civic)
+    case Model.LandmarkPack: return atlas(PACK_PIECES.length, packedPiece, atlasInfo.pack)
   }
   if (id >= STYLE_BASE) {
     const k = id - STYLE_BASE
@@ -197,10 +202,9 @@ function generated(id: number): THREE.BufferGeometry | null {
   return null
 }
 
-/** A civic piece: generated, or (from CIVIC_PIECES on) a KayKit piece of landmarks.glb; an empty piece if the file did not load. */
-function civicOrPacked(p: number): PieceGeometry {
-  if (p < CIVIC_PIECES) return civicPieceGeometry(p)
-  const g = packed.get(CIVIC_PACK_PIECES[p - CIVIC_PIECES])
+/** A KayKit piece of landmarks.glb (PackPiece p); an empty piece if the file did not load. */
+function packedPiece(p: number): PieceGeometry {
+  const g = packed.get(PACK_PIECES[p])
   if (!g) {
     const e = new THREE.BufferGeometry()
     e.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 0, -1, 0, 0, -1, 0], 3))
@@ -215,7 +219,7 @@ function civicOrPacked(p: number): PieceGeometry {
 }
 
 /** Pieces of the two landmark atlases as built (generated), and their merged geometries. */
-const atlasInfo = { sacred: [] as PieceInfo[], civic: [] as PieceInfo[] }
+const atlasInfo = { sacred: [] as PieceInfo[], civic: [] as PieceInfo[], pack: [] as PieceInfo[] }
 function atlas(n: number, make: (p: number) => PieceGeometry, out: PieceInfo[]): THREE.BufferGeometry {
   const gs: THREE.BufferGeometry[] = []
   out.length = 0
@@ -272,6 +276,8 @@ async function load(): Promise<ModelLibrary> {
     models,
     sacredPieces: atlasInfo.sacred,
     civicPieces: atlasInfo.civic,
+    packPieces: atlasInfo.pack,
+
     blob,
     dispose() {
       for (const m of models) m?.geometry.dispose()
