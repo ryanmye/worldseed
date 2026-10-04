@@ -445,8 +445,9 @@ export const IDEA = {
    * of eraWeight[era] over the ideas held (a people that knows more can do more, with diminishing returns; the first ideas weigh most).
    */
   capMul: 0.5,
-  /** The field caps of an idea by era, times capMul (the early ideas made the most difference). */
-  capEra: [2, 1.4, 0.6, 0.9, 2],
+  /** The field caps of an idea by era, times capMul (the early ideas made the most difference). (Era 3 0.9 and era 4 2 before the
+   * merge with the claims: with soft wider, the leading worlds ran ahead of main in the last centuries.) */
+  capEra: [2, 1.4, 0.6, 0.75, 1.5],
   general: 0.15,
   eraWeight: [3.2, 1, 0.6, 0.8, 1],
   /** Share of the general part per field (Farming, Seafaring, Metalworking, Crafts). */
@@ -459,7 +460,9 @@ export const IDEA = {
   practice: 1.5,
   catchUp: 0.05,
   capBase: 0.05,
-  soft: 0.12,
+  /** (0.12 before the merge with the claims: the slowest worlds, a few peoples of a few thousand each, came to no leisure travel or
+   * ocean lane by 2000; wider, a level runs a little further above its cap, and those worlds catch up enough.) */
+  soft: 0.16,
   slack: 0.05,
   decay: 0.004,
   useFloor: 0.4,
