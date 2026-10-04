@@ -207,7 +207,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   if (ck >= 0) {
     const leg = g.sSubject[ck]
     const far = g.legB[leg]
-    if (s.abandoned[far] >= 0) { g.urge[h] = 0; return }
+    if (s.abandoned[far] >= 0 || far === h) { g.urge[h] = 0; return } // (a chart to its own mart: nowhere to sail)
     srcCell = s.cell[far]
     targetMart = far
     v = g.legVariety[leg]
@@ -531,7 +531,7 @@ export function chartedExpedition(s: HistoryState, g: GoodsState, k: number, q: 
     if (s.people[m] !== q || !g.isMart[m] || s.port[m] < 0) continue
     if (best < 0 || s.through[m] > s.through[best]) best = m
   }
-  if (best < 0 || g.legA[g.sSubject[k]] === best) return
+  if (best < 0 || g.legA[g.sSubject[k]] === best || g.legB[g.sSubject[k]] === best) return
   g.urgeChart[best] = k + 1
 }
 
