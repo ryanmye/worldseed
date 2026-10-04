@@ -1,0 +1,202 @@
+/* Ideas panel, inspector ideas section, Ideas legend, ideas chronicle dots (ideasPanel.ts, ideasFormat.ts) */
+
+.ideas {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
+  max-height: max(110px, min(420px, 44vh));
+  min-height: 92px; /* open: the head and a few rows (collapsed: the head alone) */
+  display: flex;
+  flex-direction: column;
+}
+.ideas.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.ideas.collapsed .gp-body {
+  display: none;
+}
+.ideas .gp-count {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* rows: the name in full, the year and first people give way */
+.ideas .gp-row {
+  grid-template-columns: 10px auto minmax(0, 1fr) auto auto;
+}
+.ideas .gp-row .gp-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-bar {
+  width: 30px;
+}
+.ip-bar > span {
+  background: linear-gradient(90deg, #4f9a9a, #f6e7a0);
+}
+.ip-unknown {
+  font-size: 11px;
+  font-style: italic;
+  padding-left: 18px;
+}
+.ip-hot {
+  color: #fff1c4;
+}
+.ip-pn {
+  color: var(--text-2);
+}
+/* channel pips: own gold, received in the channel's colour, lost hollow grey, not held a dark socket */
+.ip-pip {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  vertical-align: 0;
+}
+.ip-pip.own {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(1.05);
+  box-shadow: 0 0 0 1px rgba(80, 56, 0, 0.9);
+}
+.ip-pip.lost {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(170, 170, 178, 0.85);
+}
+.ip-pip.none {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: none;
+}
+.ip-strip .ip-pip.sel {
+  outline: 1px solid #ffffff;
+  outline-offset: 1px;
+}
+.ip-strip .ip-pip {
+  cursor: pointer;
+}
+.ip-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 0 2px 4px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.ip-people {
+  margin: 1px 0 4px;
+}
+.ip-people-line {
+  display: grid;
+  grid-template-columns: 10px auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  padding: 0 4px 0 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.ip-people-line .gp-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 1px 4px 0 18px;
+}
+/* the selected idea: play its spread, the ramp of when, its journey */
+.ip-play-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 3px;
+}
+.ip-play {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+.ip-ramp-wrap,
+.ip-legend-ramp {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ip-legend-ramp {
+  margin: 2px 0 3px;
+}
+.ip-ramp {
+  display: inline-block;
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+}
+.ip-ramp.wide {
+  flex: 1;
+}
+.ip-journey {
+  max-height: 150px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.ip-step {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.ip-step .ip-pip {
+  flex: none;
+  transform-origin: center;
+}
+.ip-step-text {
+  min-width: 0;
+  color: var(--text-dim);
+}
+.ip-step.lost .ip-step-text {
+  color: var(--text-faint);
+}
+.ip-step.ip-first .ip-step-text {
+  color: #fff1c4;
+}
+.ip-y {
+  flex: none;
+  display: inline-block;
+  width: 32px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.ip-legend-note {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+/* inspector */
+.insp-ideas {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+/* chronicle dots */
+.ev-idea .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.9);
+  background: #ffd666;
+  box-shadow: 0 0 0 1px #5a4310;
+}
+.ev-ideaLost .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px #b8b4a6;
+}

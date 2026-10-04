@@ -136,6 +136,7 @@ const MODE_LABELS: Record<ViewMode, string> = {
   resources: 'Resources',
   fever: 'Fever',
   scenery: 'Scenery',
+  ideas: 'Ideas',
 }
 
 const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Map', people: 'People', movement: 'Movement' }
@@ -149,6 +150,7 @@ const LAYER_ORDER: Record<string, number> = {
   rivers: 0, clouds: 1, mapClouds: 1, labels: 2, graticule: 3, mapNight: 4,
   markers: 0, buildings: 1, farmland: 2, structures: 3, peoples: 4, factions: 5, disease: 6,
   journeys: 0, expeditions: 1, roads: 2, trade: 3, longhaul: 4, travel: 5,
+  ideas: 7,
 }
 
 /** The view menu's groups (and the order V steps through). */
@@ -157,6 +159,7 @@ export const VIEW_GROUPS: readonly { label: string; modes: readonly ViewMode[] }
   { label: 'Land and food', modes: ['population', 'capacity', 'landuse', 'crops', 'herds', 'cash'] },
   { label: 'States and beliefs', modes: ['factions', 'danger', 'faiths'] },
   { label: 'Goods, travel, sickness', modes: ['resources', 'scenery', 'fever'] },
+  { label: 'Know-how', modes: ['ideas'] },
 ]
 /** Every view mode in menu order. */
 const MENU_MODES: readonly ViewMode[] = [...VIEW_GROUPS.flatMap((g) => g.modes), ...VIEW_MODES.filter((m) => !VIEW_GROUPS.some((g) => g.modes.includes(m)))]

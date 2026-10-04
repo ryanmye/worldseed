@@ -13,6 +13,7 @@
 //   upper right  a quarantine flag (disease.ts)
 //   below        a fort's or a victualling station's tower (longhaul.ts)
 //   right        a factory's pennant beside its host (longhaul.ts)
+//   lower left   where a selected idea was conceived (a sparkle) or lost (a cross) (ideas.ts)
 //
 // Priority: where two kinds would share a slot the more lasting one keeps it (a capital over a holy
 // city) and the other moves one step out; a sight that repeats what another layer already marks is
@@ -39,4 +40,5 @@ const float WS_SLOT_UPPER_LEFT = 2.3562;
 const float WS_SLOT_LEFT = 3.1416;
 const float WS_SLOT_UPPER_RIGHT = 0.7854;
 const float WS_SLOT_BELOW = -1.5708;
+const float WS_SLOT_LOWER_LEFT = -2.3562;
 `

@@ -34,6 +34,8 @@ export const ViewMode = {
   Fever: 'fever',
   /** tourism: scenery per land cell, coloured by what makes it fine (History.scenery, sceneryKind; ui/tourismPanel.ts; hidden without it). */
   Scenery: 'scenery',
+  /** ideas: peoples' lands by the number of ideas held at the year, or by when they took up the selected idea (ui/ideasPanel.ts colours it; hidden without ideas). */
+  Ideas: 'ideas',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -56,6 +58,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Resources,
   ViewMode.Fever,
   ViewMode.Scenery,
+  ViewMode.Ideas,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -85,6 +88,7 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Factions:
     case ViewMode.Danger:
     case ViewMode.Faiths:
+    case ViewMode.Ideas:
     case ViewMode.Resources: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
@@ -272,6 +276,8 @@ export interface ModeData {
   feverRgb?: Uint8Array | null
   /** Scenery view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
   sceneryRgb?: Uint8Array | null
+  /** Ideas view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
+  ideasRgb?: Uint8Array | null
 }
 
 /** Capacity and Population views: heat ramp over a 0..1 normalised value. */
@@ -377,6 +383,16 @@ export function colorForMode(
       const water = e < 0 || world.lake?.[i] === 1
       const c = mode === ViewMode.Scenery ? data?.sceneryRgb : data?.feverRgb
       if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (c && c.length >= (i + 1) * 3) {
+        out[o] = (c[i * 3] / 255) * scale
+        out[o + 1] = (c[i * 3 + 1] / 255) * scale
+        out[o + 2] = (c[i * 3 + 2] / 255) * scale
+      } else write(DANGER_LAND, out, o, scale)
+      return
+    }
+    case ViewMode.Ideas: {
+      const c = data?.ideasRgb
+      if (e < 0 || world.lake?.[i] === 1) write(FACTIONS_WATER, out, o, scale)
       else if (c && c.length >= (i + 1) * 3) {
         out[o] = (c[i * 3] / 255) * scale
         out[o + 1] = (c[i * 3 + 1] / 255) * scale
