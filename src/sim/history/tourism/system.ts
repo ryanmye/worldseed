@@ -35,6 +35,8 @@ import { Place } from '../exploration.ts'
 import { atWar } from '../polity/formation.ts'
 import { embargoCode } from '../polity/policy.ts'
 import { Tier, tierOf } from '../polity/state.ts'
+import { loseFort, loseWalls } from '../polity/danger.ts'
+import { minesAbandoned } from '../goods/deposits.ts'
 import { LEISURE, RESORT, SIGHT, TRAVEL } from './params.ts'
 import type { TourismState } from './state.ts'
 import { addDestination, ensureTourism } from './state.ts'
@@ -651,6 +653,11 @@ function spending(s: HistoryState, tz: TourismState, ts: TradeState): void {
         const idx = s.living.indexOf(h)
         abandon(s, h)
         if (idx >= 0) s.living.splice(idx, 1)
+        // (its walls, fort and mines fall with it this year, as after the abandonment system: the polity and goods systems
+        // only see the Abandoned event next year, which would log their loss a year after the town was given up)
+        const ps = s.pol
+        if (ps !== null && h < ps.seen) { if (ps.walls[h] > 0) loseWalls(s, ps, h); if (ps.fort[h] >= 0) loseFort(s, ps, h) }
+        if (s.goods !== null) minesAbandoned(s, s.goods, h)
         tradeAbandonSystem(s, ts)
         tz.incomeSm[h] = 0
         continue
