@@ -13,6 +13,9 @@ import type { TradeState } from '../trade.ts'
 import { NEVER, inContact } from './state.ts'
 import type { PolityState } from './state.ts'
 import { POLITY, RELATION } from './params.ts'
+import { tied } from '../rulers/marriage.ts' // rulers:
+import { MARRIAGE } from '../rulers/params.ts' // rulers:
+import { faithRivalry } from '../religion/system.ts' // religion:
 
 function key(p: number, q: number): number {
   return p < q ? p * 65536 + q : q * 65536 + p
@@ -103,6 +106,8 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
       const h = r < hunger.length && hungerN[r] > 0 ? hunger[r] / hungerN[r] : 0
       d += X.claim * (c / (c + X.claimHalf)) + (ps.pPeople[a] !== ps.pPeople[b] ? X.differ : 0) + X.hunger * h +
         (s.year - ps.relLastWar[r] < X.recentYears ? X.recentWar : 0) - X.trade * (v / (v + X.tradeHalf))
+      if (s.rul !== null && tied(s.rul, a, b)) d -= MARRIAGE.rivalry // rulers: a marriage tie
+      if (s.rel !== null) d += faithRivalry(s, s.rel, a, b) // religion: faiths shared or opposed
     }
     x += step * d
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x

@@ -102,26 +102,41 @@ function aggregates(h: History, years: number): { pop: number[]; living: number[
   return { pop, living, routes, towns, cities, extinct: h.peoples.length - alive.size }
 }
 
-export function tourismSeedStats(seed: number, years: number, off: boolean, detail: boolean): TourismRow {
-  const w = generateWorld(seed)
+/** World income per decade and resort food bought, measured by a probe during the run (tourismSeedStats; pass it to runHistory to reuse a run). */
+export interface TourismProbe {
+  probe: (s: HistoryState) => void
+  incDecade: number[]
+  bought: number
+  resortSupply: number
+}
+export function newTourismProbe(): TourismProbe {
   // World income: positive yearly wealth gains (after the 2% decay) of living settlements, per decade.
-  const incDecade: number[] = []
   let prevW = new Float64Array(0)
-  let bought = 0, resortSupply = 0
-  const probe = (s: HistoryState): void => {
-    let inc = 0
-    for (const id of s.living) { const pw = id < prevW.length ? prevW[id] : 0; const d = s.wealth[id] - pw * 0.98; if (d > 0) inc += d }
-    const dec = (s.year / 10) | 0
-    while (incDecade.length <= dec) incDecade.push(0)
-    incDecade[dec] += inc
-    if (prevW.length < s.count) prevW = new Float64Array(2 * s.count)
-    for (const id of s.living) prevW[id] = s.wealth[id]
-    const tz = s.tz
-    if (tz && tz.anyResort) for (const id of s.living) if (tz.resort[id]) { resortSupply += s.pop[id]; bought += Math.min(s.pop[id], tz.incomeSm[id] / RESORT.perHead) }
+  const tp: TourismProbe = {
+    incDecade: [], bought: 0, resortSupply: 0,
+    probe: (s: HistoryState): void => {
+      let inc = 0
+      for (const id of s.living) { const pw = id < prevW.length ? prevW[id] : 0; const d = s.wealth[id] - pw * 0.98; if (d > 0) inc += d }
+      const dec = (s.year / 10) | 0
+      while (tp.incDecade.length <= dec) tp.incDecade.push(0)
+      tp.incDecade[dec] += inc
+      if (prevW.length < s.count) prevW = new Float64Array(2 * s.count)
+      for (const id of s.living) prevW[id] = s.wealth[id]
+      const tz = s.tz
+      if (tz && tz.anyResort) for (const id of s.living) if (tz.resort[id]) { tp.resortSupply += s.pop[id]; tp.bought += Math.min(s.pop[id], tz.incomeSm[id] / RESORT.perHead) }
+    },
   }
+  return tp
+}
+
+/** One seed's row; `pre` reuses a finished run made with `pre.tp.probe` (one run per seed for all harnesses). */
+export function tourismSeedStats(seed: number, years: number, off: boolean, detail: boolean, pre?: { w: World; run: ReturnType<typeof runHistory>; ms: number; tp: TourismProbe }): TourismRow {
+  const w = pre ? pre.w : generateWorld(seed)
+  const tp = pre ? pre.tp : newTourismProbe()
   const t0 = performance.now()
-  const run = runHistory(w, { years }, probe)
-  const ms = performance.now() - t0
+  const run = pre ? pre.run : runHistory(w, { years }, tp.probe)
+  const ms = pre ? pre.ms : performance.now() - t0
+  const incDecade = tp.incDecade
   const h = run.history
   let msOff = NaN
   let agOff: ReturnType<typeof aggregates> | null = null
@@ -184,7 +199,7 @@ export function tourismSeedStats(seed: number, years: number, off: boolean, deta
     kinds, meanRank: rn > 0 ? rk / rn : NaN,
     inFashion: ev.filter((e) => e.type === EventType.ResortInFashion).length, declined: ev.filter((e) => e.type === EventType.ResortDeclined).length,
     abandoned: ev.filter((e) => e.type === EventType.ResortAbandoned).length, sights: h.sights.length,
-    resortBought: resortSupply > 0 ? bought / resortSupply : NaN, sightKinds: SIGHT_NAMES.map((_, k) => h.sights.filter((x) => x.kind === k).length), pairs: F.count, rows: F.rowCount, bytes,
+    resortBought: tp.resortSupply > 0 ? tp.bought / tp.resortSupply : NaN, sightKinds: SIGHT_NAMES.map((_, k) => h.sights.filter((x) => x.kind === k).length), pairs: F.count, rows: F.rowCount, bytes,
   }
   if (detail) console.log(detailText(w, h, row))
   void S

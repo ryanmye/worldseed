@@ -52,6 +52,9 @@ export interface DiseaseState {
   quar: Int32Array
   /** Settlements with an active outbreak, in order struck. */
   active: number[]
+  /** Recovery: people before the outbreak (0: none), and the settlements recovering (in order struck). */
+  recPre: Float64Array
+  rec: number[]
   /** Trade cost multiplier per settlement (1 where untouched); null-like when tmulOn is false (no settlement touched this year). */
   tmul: Float64Array
   tmulOn: boolean
@@ -275,7 +278,7 @@ export function createDisease(world: World, T: Terrain, region: Uint16Array, reg
     feverId, campId, fever, rng,
     cap, seen: 0,
     sus: new Uint8Array(cap * D), lastEpi: new Int32Array(cap * D).fill(-1), act: new Uint8Array(cap), actEnd: new Int32Array(cap), actRate: new Float64Array(cap), actEpi: new Int32Array(cap).fill(-1), actForce: new Float64Array(cap),
-    tradeUntil: new Int32Array(cap).fill(-1), quar: new Int32Array(cap).fill(-1), active: [],
+    tradeUntil: new Int32Array(cap).fill(-1), quar: new Int32Array(cap).fill(-1), active: [], recPre: new Float64Array(cap), rec: [],
     tmul: new Float64Array(cap).fill(1), tmulOn: false, tmulList: [],
     tol: new Float64Array(P), endemic: new Uint8Array(P * D), ever: new Uint8Array(P * D), lastIn: new Int32Array(P * D).fill(-1000000), lastGreat: new Int32Array(P).fill(-1000000), endRate: new Float64Array(P),
     linkN: 0, lOff: new Int32Array(1), lTo: new Int32Array(0), lW: new Float64Array(0), lSea: new Uint8Array(0), linkYear: -1, cross: [], hit: [],
@@ -307,5 +310,6 @@ export function ensureDisease(dz: DiseaseState, count: number): void {
   dz.tradeUntil = i32(dz.tradeUntil, -1)
   dz.quar = i32(dz.quar, -1)
   dz.tmul = f64(dz.tmul, 1)
+  dz.recPre = f64(dz.recPre, 0)
   dz.cap = size
 }

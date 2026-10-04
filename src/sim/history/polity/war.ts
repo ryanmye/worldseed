@@ -41,6 +41,8 @@ import { relIdx, relationOf } from './relations.ts'
 import { FAR, clampAsab, endPolity, horseOf, inCrisis, isCapital, localOf, moveCapital, projAt, setPolity, submits, wallFactor } from './state.ts'
 import { atWar } from './formation.ts'
 import type { PolityState } from './state.ts'
+import { rulerCapitalFell, rulerWar } from '../rulers/system.ts' // rulers:
+import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -80,8 +82,11 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      if (rng.next() >= POLITY.slowStep * WAR.declare * drive) continue
+      const mul = (s.rul !== null ? rulerWar(s.rul, p) : 1) * (s.rel !== null ? holyDrive(s, s.rel, p, q) : 1) // rulers: a warlike ruler; religion: holy war
+      if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
+      const w0 = ps.wKind.length
       declare(s, ps, r, p, q)
+      if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
     }
   }
 }
@@ -269,6 +274,7 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
 
 /** q's capital fell to p in war w: members submit to the shock, the rest keep a rump or split. */
 function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q: number, fallen: number): void {
+  if (s.rul !== null) rulerCapitalFell(ps, s.rul, q) // rulers: the ruler may die as the capital falls
   const rest = membersOf(s, ps, q)
   let pop0 = s.pop[fallen]
   for (const j of rest) pop0 += s.pop[j]

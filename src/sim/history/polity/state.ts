@@ -18,6 +18,7 @@ import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, FORT, POLITY, UNREST } from './params.ts'
 import { armsQuality } from '../goods/hooks.ts' // goods:
+import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -640,6 +641,7 @@ export function newPolity(s: HistoryState, ps: PolityState, capital: number, ori
   ps.alive.push(p) // (ids ascend)
   setPolity(s, ps, capital, p, 0)
   logEvent(s, EventType.PolityFounded, capital, parent >= 0 ? ps.pCapital[parent] : -1, p)
+  if (s.rul !== null) rulerNewPolity(s, ps, s.rul, p) // rulers: its first ruler
   return p
 }
 
@@ -680,6 +682,7 @@ export function endPolity(s: HistoryState, ps: PolityState, p: number, cause: Po
     if (ps.bKind[k] !== BondKind.Alliance && ps.pSub[ps.bA[k]] === k) ps.pSub[ps.bA[k]] = -1
     ps.activeBonds.splice(j, 1)
   }
+  if (s.rul !== null) rulerPolityEnded(s, ps, s.rul, p) // rulers: the reign ends with the realm
   logEvent(s, EventType.PolityEnded, ps.pCapital[p], by, p)
 }
 

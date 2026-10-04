@@ -349,6 +349,11 @@ function checkInvariants(w: World, h: History): void {
       // disease: epidemics, endemic sickness, quarantine, armies (checked against their tables in disease/disease.test.ts).
       case EventType.DiseaseAppeared: case EventType.GreatEpidemic: case EventType.EpidemicEnded: case EventType.CityStricken:
       case EventType.Quarantine: case EventType.Endemic: case EventType.ArmyStricken:
+      // rulers and religion (checked against their tables in rulers/rulers.test.ts and religion/religion.test.ts).
+      case EventType.RulerAcceded: case EventType.ReignEnded: case EventType.DynastyFounded: case EventType.DynastyEnded: case EventType.Regency:
+      case EventType.UnionFormed: case EventType.UnionDissolved: case EventType.RoyalMarriage: case EventType.SuccessionWar:
+      case EventType.FaithFounded: case EventType.RulerConverted: case EventType.StateReligion: case EventType.Schism: case EventType.Persecution:
+      case EventType.HolyWar: case EventType.HolyCityFell: case EventType.FaithDied: case EventType.FaithReached:
         break
       // tourism: leisure travel, resorts and sights (checked against their tables in tourism/tourism.test.ts).
       case EventType.LeisureTravel: case EventType.ResortFounded: case EventType.ResortInFashion: case EventType.ResortDeclined:

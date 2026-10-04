@@ -33,9 +33,9 @@ export interface DiseaseDef {
 }
 
 export const DISEASE_DEFS: Record<string, DiseaseDef> = {
-  pox: { archetype: 'pox', kind: DiseaseKind.Crowd, mortality: 0.3, attack: 0.8, beta: 0.55, duration: 2, crowd: 800, sea: 1, seaTech: 0, fade: 0, susMin: 0.25, ccs: 14000, endemicDeath: 0.00015, load: 0.1 },
-  measles: { archetype: 'measles', kind: DiseaseKind.Crowd, mortality: 0.12, attack: 0.95, beta: 0.8, duration: 1, crowd: 1500, sea: 1, seaTech: 2.4, fade: 0, susMin: 0.12, ccs: 24000, endemicDeath: 0.0001, load: 0.16 },
-  flux: { archetype: 'flux', kind: DiseaseKind.Crowd, mortality: 0.09, attack: 0.7, beta: 0.6, duration: 1, crowd: 600, sea: 0.8, seaTech: 0, fade: 0.02, susMin: 0.3, ccs: 10000, endemicDeath: 0.00008, load: 0.22 },
+  pox: { archetype: 'pox', kind: DiseaseKind.Crowd, mortality: 0.3, attack: 0.8, beta: 0.55, duration: 2, crowd: 800, sea: 1, seaTech: 0, fade: 0, susMin: 0.25, ccs: 14000, endemicDeath: 0.00009, load: 0.1 },
+  measles: { archetype: 'measles', kind: DiseaseKind.Crowd, mortality: 0.12, attack: 0.95, beta: 0.8, duration: 1, crowd: 1500, sea: 1, seaTech: 2.4, fade: 0, susMin: 0.12, ccs: 24000, endemicDeath: 0.00006, load: 0.16 },
+  flux: { archetype: 'flux', kind: DiseaseKind.Crowd, mortality: 0.09, attack: 0.7, beta: 0.6, duration: 1, crowd: 600, sea: 0.8, seaTech: 0, fade: 0.02, susMin: 0.3, ccs: 10000, endemicDeath: 0.00005, load: 0.22 },
   plague: { archetype: 'plague', kind: DiseaseKind.Plague, mortality: 0.46, attack: 0.85, beta: 0.6, duration: 2, crowd: 400, sea: 1.3, seaTech: 0, fade: 0.004, susMin: 0.35, ccs: 0, endemicDeath: 0, load: 0 },
   fever: { archetype: 'fever', kind: DiseaseKind.Fever, mortality: 0, attack: 0, beta: 0, duration: 1, crowd: 0, sea: 0, seaTech: 0, fade: 0, susMin: 0, ccs: 0, endemicDeath: 0, load: 0 },
   typhus: { archetype: 'typhus', kind: DiseaseKind.Camp, mortality: 0.15, attack: 0.6, beta: 0.08, duration: 1, crowd: 2500, sea: 0.5, seaTech: 0, fade: 0.01, susMin: 0.3, ccs: 0, endemicDeath: 0, load: 0 },
@@ -86,10 +86,15 @@ export const DZ = {
   contactReach: 0.8,
   maxContact: 0.4,
   /** Plague: spill from the reservoir a year (when settlements of spillPop trade there); a returning focus after a great wave. */
-  spill: 1 / 550,
+  spill: 1 / 700,
   spillPop: 800,
-  /** Spills reach traders within this chord of the reservoir's centre (or in its region); the busiest is struck. */
+  /** Spills reach traders in the reservoir's region or within a chord of its centre that widens from spillReach to spillFar
+   * between the years spillFrom and spillFull (smoothstep: trade reaches farther); the busiest is struck, nearer ones first
+   * (weight 1 / (1 + (d / spillReach)^2)). */
   spillReach: 0.25,
+  spillFar: 0.5,
+  spillFrom: 800,
+  spillFull: 1400,
   focusDecay: 0.985,
   focusChance: 0.015,
   focusMax: 1,
@@ -99,11 +104,11 @@ export const DZ = {
   great: 0.05,
   greatMin: 800,
   /** Labour: the year's food multiplier (econ) falls by min(labourMax, labour * yearly death rate) in a struck settlement. */
-  labour: 1.5,
+  labour: 1,
   labourMax: 0.35,
   /** Trade: a struck settlement's pairs cost tradeHit times more while it is sick and tradeYears after. */
-  tradeHit: 1.4,
-  tradeYears: 2,
+  tradeHit: 1.25,
+  tradeYears: 1,
   /** Flight: from a struck place of fleeMin or more, flee * toll of its people (at most fleeMax) go to a neighbour of the same people, with the sickness. */
   flee: 0.2,
   fleeMax: 0.05,
@@ -112,8 +117,15 @@ export const DZ = {
   desertPop: 200,
   desertLoss: 0.3,
   desert: 0.35,
+  /** Recovery: once an outbreak has passed, a settlement that is fed (food >= 1) regains rebound of the gap to its people before
+   * it, a year, until it is back (the survivors marry younger and fill the empty land: waves, not a lasting tax). */
+  rebound: 0.03,
   /** Unrest in a polity member: += unrest * toll. */
   unrest: 1.2,
+  /** rulers: an outbreak at a capital takes its ruler (and each heir) with chance toll * court (rulers/system.ts rulerPlague). */
+  court: 0.5,
+  /** religion: a town (TOWN_POPULATION) struck with a toll of at least woeToll counts as a woe (religion/system.ts religionPlague). */
+  woeToll: 0.04,
   /** Armies: exhaustion += armyExhaust * toll at a sick target; camp fever chance per campaign (twice at a siege) and its exhaustion. */
   armyExhaust: 2,
   camp: 0.03,
@@ -141,7 +153,7 @@ export const FEVER = {
   /** Paddy rice or irrigated fields: times paddy. */
   paddy: 1.25,
   /** Extra deaths a year at intensity 1 with no tolerance (residual for the fully tolerant: mort * (1 - tolMax)). */
-  mort: 0.004,
+  mort: 0.001,
   /** Tolerance per people: += step * adapt * exposure * (tolMax - tol); a people founded on fever ground (deep-time natives) starts at tolMax * min(1, start * exposure). */
   tolMax: 0.8,
   adapt: 0.004,
@@ -155,7 +167,7 @@ export const FEVER = {
   /** Armies: an attacker campaigning on fever ground gains army * intensity * (1 - tolerance) exhaustion. */
   army: 0.25,
   /** Migrants judge a new site on fever ground at 1 - site * intensity * (1 - their people's tolerance) of its worth ('bad air'). */
-  site: 0.5,
+  site: 0.2,
 }
 
 /** Quarantine (Venice 1377 trentino, Ragusa): wealthy, well-governed ports of polity members, from a Crafts level. */

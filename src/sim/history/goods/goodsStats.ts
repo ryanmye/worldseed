@@ -7,9 +7,10 @@
 // marts, arms and tools, technology divergence, traditions, mining booms, runaway checks, time and memory.
 
 import { DepositKind, EventType, LegKind, PostKind, SecretKind, TOWN_POPULATION } from '../../../contract.ts'
-import type { History } from '../../../contract.ts'
+import type { History, World } from '../../../contract.ts'
 import { generateWorld } from '../../index.ts'
 import { runHistory } from '../index.ts'
+import type { HistoryRun } from '../index.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { HISTORY_STATS_SEEDS } from '../stats.ts'
@@ -26,7 +27,7 @@ function pct(a: number[], p: number): number { const b = a.filter((x) => Number.
 function fmt(x: number, d = 1): string { return !Number.isFinite(x) ? '-' : Math.abs(x) >= 10000 ? (x / 1000).toFixed(0) + 'k' : x.toFixed(d) }
 
 /** What a probe records of the internal state during a run. */
-interface Probe {
+export interface Probe {
   /** Distances (km) from the origin of each named Luxury / Finery unit held by traders at the end, weighted by amount. */
   dist: number[]; distW: number[]
   /** Price records: year, variety, source ratio, far ratio, far distance (km). */
@@ -45,7 +46,7 @@ interface Probe {
 const CASH_IDX: Int32Array & { n: number } = Object.assign(new Int32Array(64).fill(-1), { n: CASH.length })
 CASH.forEach((x, q) => { CASH_IDX[x] = q })
 
-function newProbe(): Probe { return { dist: [], distW: [], price: [], toolMul: [], relay: [], wph: [], through: [], treasure: [], polArms: new Map() } }
+export function newProbe(): Probe { return { dist: [], distW: [], price: [], toolMul: [], relay: [], wph: [], through: [], treasure: [], polArms: new Map() } }
 
 function chordKm(P: Float32Array, a: number, b: number): number {
   const dx = P[a * 3] - P[b * 3], dy = P[a * 3 + 1] - P[b * 3 + 1], dz = P[a * 3 + 2] - P[b * 3 + 2]
@@ -54,7 +55,7 @@ function chordKm(P: Float32Array, a: number, b: number): number {
   return R_KM * (c + (c * c * c) / 24 + (3 * c * c * c * c * c) / 640)
 }
 
-function probeFn(pr: Probe, years: number): (s: HistoryState, t: TradeState) => void {
+export function probeFn(pr: Probe, years: number): (s: HistoryState, t: TradeState) => void {
   return (s: HistoryState, t: TradeState) => {
     const g = s.goods
     if (g === null) return
@@ -166,12 +167,12 @@ function aggregates(h: History, row: Record<string, number>, suffix: string): vo
 }
 
 /** Runs one seed and measures it (goods on), with the goods-off aggregates when `off`. */
-export function goodsSeedStats(seed: number, off: boolean, detail: boolean): GoodsSeedStats {
-  const w = generateWorld(seed)
-  const pr = newProbe()
+export function goodsSeedStats(seed: number, off: boolean, detail: boolean, pre?: { w: World; run: HistoryRun; pr: Probe; ms: number }): GoodsSeedStats {
+  const w = pre ? pre.w : generateWorld(seed)
+  const pr = pre ? pre.pr : newProbe()
   const t0 = performance.now()
-  const run = runHistory(w, {}, probeFn(pr, 2000))
-  const ms = performance.now() - t0
+  const run = pre ? pre.run : runHistory(w, {}, probeFn(pr, 2000))
+  const ms = pre ? pre.ms : performance.now() - t0
   const h = run.history
   const T = run.terrain
   const row: Record<string, number> = { ms }

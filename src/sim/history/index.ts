@@ -56,6 +56,18 @@
 // contact passes the peoples' crowd diseases (the species system's contact epidemic is then this system's). Streams
 // 'history-disease-pool' (the world's diseases, plague reservoirs) and 'history-disease' (everything else); disease names
 // from 'names-disease-<id>'. Switched off, the history is exactly the one without it.
+// rulers (rulers/; HistoryOptions.rulers, needs polities): named rulers, heirs, successions, houses, marriages and
+// unions, from 'history-rulers' (names from 'names-house-<id>', 'names-ruler-<id>' and endings per language).
+// religion (religion/; HistoryOptions.religion): faiths, spread, conversion, churches, schism, persecution and holy war,
+// from 'history-religion', at the end of the year before the snapshots (names from 'names-faith-<id>').
+// tourism (tourism/; HistoryOptions.tourism): scenery, sights, leisure travel and resort towns, from
+// 'history-tourism-springs' and 'history-tourism'; resorts buy their food after the tax (tourismProvision) and visitors
+// wear roads before the road system.
+// The year's end runs goods, then tourism, then disease, then religion, then one milestone pass (refugees from sickness and
+// persecution). Tourism comes before disease so the year's visitors (tz.fFrom/fTo/fVis) carry sickness the same year
+// (DiseaseVia.Visitors); religion after disease so a town struck hard is a woe for religion the same year, and its
+// pilgrims (rel.pilgrims, read by tourismExtraScores) feed next year's destinations. An epidemic at a capital may take
+// its ruler and heirs (disease/system.ts strike), which the rulers system (in politySystem) enacts the next year.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -114,6 +126,16 @@ import { createDisease } from './disease/state.ts'
 import type { DiseaseDiag, DiseaseState } from './disease/state.ts'
 import { diseaseSnapshot, diseaseSystem } from './disease/system.ts'
 import { assembleDisease, emptyDiseaseHistory } from './disease/assemble.ts'
+// rulers: named rulers, houses, successions, marriages and unions (rulers/).
+import { RULERS } from './rulers/params.ts'
+import { createRulers } from './rulers/state.ts'
+import type { RulerDiag } from './rulers/state.ts'
+import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
+// religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
+import { RELIGION } from './religion/params.ts'
+import { createReligionSystem, religionSnapshot, religionYear } from './religion/system.ts'
+import type { ReligionDiag } from './religion/state.ts'
+import { assembleReligion, emptyReligionHistory } from './religion/assemble.ts'
 // tourism: scenery, sights, leisure travel and resort towns (tourism/).
 import { TOURISM_ON } from './tourism/params.ts'
 import { createTourism } from './tourism/state.ts'
@@ -176,6 +198,10 @@ export interface HistoryDiagnostics {
   /** disease: the disease system's records, and its state at the end (absent when it is off; the state is the live one: read only). */
   disease2?: DiseaseDiag
   diseaseState?: DiseaseState
+  /** rulers: counters of the rulers system (absent when it is off). */
+  rulers?: RulerDiag
+  /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
+  religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
   tourism?: TourismDiag
 }
@@ -353,6 +379,12 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // goods: the goods system, unless switched off.
   const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
   s.goods = gx
+  // rulers: rulers and houses (they need the polities), unless switched off.
+  const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
+  s.rul = rul
+  // religion: faiths, unless switched off.
+  const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
+  s.rel = rel
   // tourism: scenery and the scenic spots, unless switched off.
   const tz = (options?.tourism ?? TOURISM_ON) ? createTourism(world, terrain, P, createRng(seed, 'history-tourism-springs'), createRng(seed, 'history-tourism')) : null
   s.tz = tz
@@ -423,6 +455,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesV2Snapshot(s) // species-v2: habit, storable
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
     if (dz) diseaseSnapshot(dz) // disease:
+    if (rel) religionSnapshot(s, rel) // religion:
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -480,7 +513,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
     if (tz) tourismYear(s, tz, trade, explore) // tourism: sights, destinations, leisure travel, resorts
-    if (dz) { diseaseSystem(s, dz, trade, techState); milestoneSystem(s) } // disease: outbreaks spread and take their toll; endemic sickness, fever (refugees may lift a town over a milestone)
+    if (dz) diseaseSystem(s, dz, trade, techState) // disease: outbreaks spread and take their toll (visitors carry them too); endemic sickness, fever
+    const fled = rel ? religionYear(s, rel, trade) : false // religion: spread, conversion, churches, schism, persecution, pilgrims, flight
+    if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -530,6 +565,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const goodsHist = gx ? assembleGoods(gx, years, tradeSnapshotCount, S, names, peoples.map((p) => p.name)) : emptyGoodsHistory()
     for (const x of goodsHist.posts) if (x.settlement >= 0 && (x.kind === 1 || x.kind === 2)) settlements[x.settlement].post = true
     const diseaseHist = dz ? assembleDisease(world, dz, naming, peoples.map((p) => p.name), snapshotCount) : emptyDiseaseHistory() // disease:
+    // rulers, religion: (empty when off).
+    const rulHist = rul ? assembleRulers(world, rul, pol ? pol.P : 0, naming) : emptyRulerHistory()
+    const relHist = rel ? assembleReligion(world, rel, naming, peoples.map((p) => p.name), snapshotCount, S, pol ? pol.P : 0) : emptyReligionHistory()
     const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
     return {
       history: {
@@ -549,6 +587,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...polHist, // polities:
         ...goodsHist, // goods:
         ...diseaseHist, // disease:
+        ...rulHist, // rulers:
+        ...relHist, // religion:
         ...tourismHist, // tourism:
       },
       terrain,
@@ -567,6 +607,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         goods: gx ? copyGoodsDiag(gx.diag) : undefined, // goods:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
+        rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
       },
     }

@@ -62,7 +62,7 @@ export const LEISURE = {
   rate: 0.03,
   wLo: 2,
   wHi: 16,
-  cLo: 3.3,
+  cLo: 3.6, // (3.3 before the merge with rulers, religion and the disease retune: their worlds reach Crafts and wealth sooner)
   cHi: 6.0,
   capitalEase: 0.5,
   capitalReach: 0.5,
@@ -187,4 +187,6 @@ export const SIGHT = {
   polarTemp: 0.15,
   /** Holy-city hook scores (hooks.ts) at least this make a settlement a destination. */
   holyMin: 0.2,
+  /** religion: a holy city's score is x / (x + holyHalf) for its pilgrims' income x a year (0.2 at 100, 0.5 at 400; hooks.ts). */
+  holyHalf: 400,
 }
