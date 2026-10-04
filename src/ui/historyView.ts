@@ -63,6 +63,7 @@ import { createRulersView } from './rulersPanel.ts'
 import { createFaithsView, type FaithsBuilt } from './faithsPanel.ts'
 import { createDiseaseView, type DiseaseBuilt } from './diseasePanel.ts'
 import { createTourismView, type TourismBuilt } from './tourismPanel.ts'
+import { createCitiesView, type CitiesBuilt } from './citiesPanel.ts'
 import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
@@ -431,6 +432,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     addLayerToggle: deps.addLayerToggle,
     setViewModeAvailable: deps.setViewModeAvailable,
   })
+  // cities: ranked list of towns and cities by population (right column; owns no 3D layer)
+  const cities = createCitiesView({
+    right: deps.right,
+    onSelectSettlement: (id) => api.select(id, true),
+  })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -546,6 +552,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths?: FaithsBuilt | null
     disease?: DiseaseBuilt | null
     tourism?: TourismBuilt | null
+    cities?: CitiesBuilt | null
   }
 
   function disposeBuilt(b: Built) {
@@ -600,6 +607,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     rulers.commit(null)
     disease.commit(null, false)
     tourism.commit(null, false)
+    cities.commit(null, null, null)
     timeline.setSparkline(null, 1)
     polityLayer = null
     geo = null
@@ -661,6 +669,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       { name: 'faiths', run: () => (b.faiths = faiths.build(w, h)) },
       { name: 'disease', run: () => (b.disease = disease.build(w, h, b.index!.maxPopulation)) },
       { name: 'tourism', run: () => (b.tourism = tourism.build(w, h, b.index!.maxPopulation)) },
+      { name: 'cities', run: () => (b.cities = cities.build(w, h)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
       { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
@@ -797,6 +806,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths.commit(b.faiths ?? null, extend)
     disease.commit(b.disease ?? null, extend)
     tourism.commit(b.tourism ?? null, extend)
+    cities.commit(b.cities ?? null, h, index.peoples)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     polityLayer = b.polities?.layer ?? null
@@ -842,6 +852,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths.showSettlement(id)
     disease.showSettlement(id)
     tourism.showSettlement(id)
+    cities.showSettlement(id)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -1075,6 +1086,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.setWorld(w)
       disease.setWorld(w)
       tourism.setWorld(w)
+      cities.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
@@ -1189,6 +1201,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.showSettlement(selected)
       disease.showSettlement(selected)
       tourism.showSettlement(selected)
+      cities.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -1418,6 +1431,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.tick(year, timeline.playing && timeline.speed >= 4, deps.camera, drawSize, pixelRatio)
       disease.tick(year, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       tourism.tick(year, fx, deps.camera, drawSize, pixelRatio)
+      cities.tick(year)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()
