@@ -15,6 +15,8 @@ import { speciesOnFounded } from './species.ts'
 import type { PolityState } from './polity/state.ts' // polities:
 import type { GoodsState } from './goods/state.ts' // goods:
 import type { DiseaseState } from './disease/state.ts' // disease:
+import type { RulerState } from './rulers/state.ts' // rulers:
+import type { ReligionState } from './religion/state.ts' // religion:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -151,6 +153,10 @@ export interface HistoryState {
   goods: GoodsState | null
   // disease: the disease system's state (disease/state.ts), or null when it is switched off (every hook is then a no-op).
   dz: DiseaseState | null
+  // rulers: the rulers system's state (rulers/state.ts), or null when it (or the polity system) is off.
+  rul: RulerState | null
+  // religion: the religion system's state (religion/state.ts), or null when it is switched off.
+  rel: ReligionState | null
 }
 
 /**
@@ -245,6 +251,8 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     pol: null, // polities: (set by index.ts when the system is on)
     goods: null, // goods: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
+    rul: null, // rulers: (set by index.ts when the system is on)
+    rel: null, // religion: (set by index.ts when the system is on)
   }
 }
 

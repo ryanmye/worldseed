@@ -39,6 +39,7 @@ import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
 import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
+import { rulerYear } from '../rulers/system.ts' // rulers:
 
 let mapHeap: Heap | null = null
 
@@ -133,6 +134,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   }
   campaigns(s, ps)
   warYear(s, ps)
+  if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
   if (s.year % POLITY.step !== 0) return
   controlPass(s, ps, ps.heap)
   dangerStep(s, ps)
