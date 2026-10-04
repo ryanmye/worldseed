@@ -149,7 +149,7 @@ void main() {
     float g = (mode < 3.5 ? (kind > 1.5 ? 4.0 : 5.5) : 3.5) * s;
     off = ws_slotAt(WS_SLOT_LOWER_LEFT, r, g, s);
     ext = g + 3.0;
-  } else if (mode > 4.5) ext = r + 6.0 * s + 2.0;
+  } else if (mode > 4.5) ext = r + 10.0 * s + 2.0;
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
   clip.xy += (position.xy * ext + off) * uPixelRatio * 2.0 / uViewport * clip.w;
   gl_Position = clip;
@@ -164,6 +164,7 @@ void main() {
 `
 
 const MARK_FRAG = /* glsl */ `
+uniform float uSizeScale;
 varying vec2 vPx;
 flat varying float vMode;
 varying float vR;
@@ -221,11 +222,12 @@ void main() {
     float x = min(sdSeg(p, vec2(-R, -R), vec2(R, R)), sdSeg(p, vec2(-R, R), vec2(R, -R))) - 0.8;
     o = glyph(x, vec3(0.7, 0.7, 0.74), dark, 0.9);
   } else if (vMode < 5.5) {
-    // a settlement of a people holding it: a ring in the colour of when
-    o = glyph(abs(d - R - 2.6) - 1.3, vCol, dark, 0.8);
+    // a settlement of a people holding it: a soft halo and a ring in the colour of when (holders' towns read as a patch)
+    float halo = (1.0 - smoothstep(R + 3.0, R + 9.0 * uSizeScale, d)) * step(R, d) * 0.32;
+    o = over(glyph(abs(d - R - 2.8) - 1.5, vCol, dark, 0.8), vec4(vCol * halo, halo));
   } else if (vMode < 6.5) {
     // not yet: a faint hollow ring
-    o = glyph(abs(d - R - 2.4) - 0.45, vec3(0.75, 0.78, 0.84), dark, 0.4) * 0.38;
+    o = glyph(abs(d - R - 2.4) - 0.4, vec3(0.75, 0.78, 0.84), dark, 0.3) * 0.28;
   } else {
     // lost there: a grey broken ring
     float ang = atan(p.y, p.x);
