@@ -45,6 +45,8 @@ export interface Inspector {
   readonly diseaseSlot: HTMLElement
   /** Empty element under the sickness for its travel: a resort, visitors and their home towns, sights, where its people travel, the view (filled by tourismPanel.ts; hidden while empty). */
   readonly travelSlot: HTMLElement
+  /** ideas: empty element under the travel for its ideas: conceived here, entered its people's lands here, went out from here, refused here (filled by ideasPanel.ts; hidden while empty). */
+  readonly ideasSlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -83,6 +85,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-goods hidden"></div>
     <div class="insp-disease hidden"></div>
     <div class="insp-travel hidden"></div>
+    <div class="insp-ideas hidden"></div>
     <div class="insp-species hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
@@ -319,6 +322,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const goodsSlot = q<HTMLDivElement>('.insp-goods')
   const diseaseSlot = q<HTMLDivElement>('.insp-disease')
   const travelSlot = q<HTMLDivElement>('.insp-travel')
+  const ideasSlot = q<HTMLDivElement>('.insp-ideas')
 
   return {
     peopleSlot,
@@ -328,6 +332,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     goodsSlot,
     diseaseSlot,
     travelSlot,
+    ideasSlot,
     get selected() {
       return selected
     },

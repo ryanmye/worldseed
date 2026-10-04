@@ -118,6 +118,8 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   }
+  // ideas: the adoptions table (its typed columns, fresh per run)
+  if (partial.ideaAdoptions) for (const v of Object.values(partial.ideaAdoptions)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend }, [...transfer])
 }

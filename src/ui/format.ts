@@ -9,6 +9,7 @@ import { describeTourismEvent, describeTourismEventFor, tourismEventKind } from 
 import { describeRulersEvent, describeRulersEventFor, rulersEventKind } from './rulersFormat.ts'
 import { renamedName } from './renamingData.ts'
 import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
+import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 
 /**
  * Display name of a settlement (its procedural name; a numbered fallback for histories without names). renaming: the name it
@@ -52,6 +53,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'travel' | 'resort' | 'sight'
   // renaming (renamingFormat.ts): a place renamed
   | 'renamed'
+  // ideas (ideasFormat.ts): conceived and taken up; lost and refused
+  | 'idea' | 'ideaLost'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -226,7 +229,7 @@ export function describePeoplesEvent(h: History, e: HistoryEvent, southern = fal
     case PeoplesEvent.TechAdvance: {
       const p = peopleOf(h, e.settlement)
       const t = thePeople(h, p)
-      return `${t.charAt(0).toUpperCase()}${t.slice(1)} advance in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
+      return `${t.charAt(0).toUpperCase()}${t.slice(1)} advance in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}` + techAdvanceNote(h, e) // ideas: the idea behind it
     }
     default:
       return describeSpeciesEvent(h, e, -1)
@@ -269,7 +272,7 @@ function describePeoplesEventFor(h: History, e: HistoryEvent, id: number): strin
     case PeoplesEvent.Discovery:
       return `Its expedition reached ${discoveryPlace(h, e, null)}`
     case PeoplesEvent.TechAdvance:
-      return `Advanced in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
+      return `Advanced in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}` + techAdvanceNote(h, e) // ideas: the idea behind it
     default:
       return describeSpeciesEvent(h, e, id)
   }
@@ -331,6 +334,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.Drain: return 'habit'
     case EventType.Panzootic: return 'plague'
     case EventType.PlaceRenamed: return 'renamed'
+    case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
     default: return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (tourismEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
@@ -384,6 +388,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEvent(h, e) ?? `${name} is renamed`
+      if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
@@ -457,6 +462,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEventFor(h, e, id) ?? 'Renamed'
+      if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)

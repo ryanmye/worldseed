@@ -64,6 +64,7 @@ import { createFaithsView, type FaithsBuilt } from './faithsPanel.ts'
 import { createDiseaseView, type DiseaseBuilt } from './diseasePanel.ts'
 import { createTourismView, type TourismBuilt } from './tourismPanel.ts'
 import { createCitiesView, type CitiesBuilt } from './citiesPanel.ts'
+import { createIdeasView, type IdeasBuilt } from './ideasPanel.ts'
 import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
@@ -432,6 +433,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     addLayerToggle: deps.addLayerToggle,
     setViewModeAvailable: deps.setViewModeAvailable,
   })
+  // ideas: panel, ideas layer, Ideas view, inspector section (its Esc deselects an idea first)
+  const ideas = createIdeasView({ right: deps.right, inspectorSlot: inspector.ideasSlot, planetGroup: deps.planetGroup, getGlobe: deps.getGlobe, setUrlParam: deps.setUrlParam, onSelectSettlement: (id) => api.select(id, true), flyToCell: (cell) => goodsFly(cell), playFrom: (y) => { timeline.setYear(y); timeline.play(); requestRender(); deps.wake() }, addLayerToggle: deps.addLayerToggle, setViewModeAvailable: deps.setViewModeAvailable })
   // cities: ranked list of towns and cities by population (right column; owns no 3D layer)
   const cities = createCitiesView({
     right: deps.right,
@@ -519,11 +522,13 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     goods.setKnownMask(cells)
     disease.setKnownMask(cells)
     tourism.setKnownMask(cells)
+    ideas.setKnownMask(cells)
     const on = cells !== null
     goods.setMasked(on)
     faiths.setMasked(on)
     disease.setMasked(on)
     tourism.setMasked(on)
+    ideas.setMasked(on)
     disease.setKnownPeople(on && peoples.selection !== null && peoples.selection >= 0 ? peoples.selection : -1)
     // the clouds go over the mist; the masked markers over the clouds (nothing unknown is drawn by them)
     if (layer) layer.mesh.renderOrder = on ? 9.7 : 8
@@ -552,6 +557,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths?: FaithsBuilt | null
     disease?: DiseaseBuilt | null
     tourism?: TourismBuilt | null
+    ideas?: IdeasBuilt | null
     cities?: CitiesBuilt | null
   }
 
@@ -579,6 +585,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths.disposeBuilt(b.faiths)
     disease.disposeBuilt(b.disease)
     tourism.disposeBuilt(b.tourism)
+    ideas.disposeBuilt(b.ideas)
   }
 
   function clearLayer() {
@@ -607,6 +614,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     rulers.commit(null)
     disease.commit(null, false)
     tourism.commit(null, false)
+    ideas.commit(null, false, null)
     cities.commit(null, null, null)
     timeline.setSparkline(null, 1)
     polityLayer = null
@@ -669,6 +677,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       { name: 'faiths', run: () => (b.faiths = faiths.build(w, h)) },
       { name: 'disease', run: () => (b.disease = disease.build(w, h, b.index!.maxPopulation)) },
       { name: 'tourism', run: () => (b.tourism = tourism.build(w, h, b.index!.maxPopulation)) },
+      { name: 'ideas', run: () => (b.ideas = ideas.build(w, h, b.index!.maxPopulation)) },
       { name: 'cities', run: () => (b.cities = cities.build(w, h)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
@@ -806,6 +815,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths.commit(b.faiths ?? null, extend)
     disease.commit(b.disease ?? null, extend)
     tourism.commit(b.tourism ?? null, extend)
+    ideas.commit(b.ideas ?? null, extend, index.peoples ?? null)
     cities.commit(b.cities ?? null, h, index.peoples)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
@@ -852,6 +862,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     faiths.showSettlement(id)
     disease.showSettlement(id)
     tourism.showSettlement(id)
+    ideas.showSettlement(id)
     cities.showSettlement(id)
   }
 
@@ -1086,6 +1097,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.setWorld(w)
       disease.setWorld(w)
       tourism.setWorld(w)
+      ideas.setWorld(w)
       cities.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
@@ -1201,6 +1213,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.showSettlement(selected)
       disease.showSettlement(selected)
       tourism.showSettlement(selected)
+      ideas.showSettlement(selected)
       cities.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
@@ -1244,6 +1257,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.setViewMode(mode)
       disease.setViewMode(mode)
       tourism.setViewMode(mode)
+      ideas.setViewMode(mode)
       speciesLayer?.setOriginCategory(speciesViewCategory(mode))
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
@@ -1319,7 +1333,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const withDisease = d ? (withFaith ? `${withFaith} · ${d}` : d) : withFaith
       // travel: a sight, a visited place or resort there; the scenery on the Scenery view
       const t = tourism.describeCell(cell)
-      return t ? (withDisease ? `${withDisease} · ${t}` : t) : withDisease
+      const withTravel = t ? (withDisease ? `${withDisease} · ${t}` : t) : withDisease
+      // ideas: the land's people and its ideas, on the Ideas view
+      const iw = ideas.describeCell(cell)
+      return iw ? (withTravel ? `${withTravel} · ${iw}` : iw) : withTravel
     },
     setPeopleTint(on: boolean) {
       peoples.setTint(on)
@@ -1413,6 +1430,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         goods.setYield(near, far)
         disease.setYield(near, far)
         tourism.setYield(near, far)
+        ideas.setYield(near, far)
         // merchants and travelling groups are 3D carts and ships once the models are in:
         // their flat markers have gone by the distance at which the models are full size
         const tNear = dioramas.active ? DIORAMA_NEAR : 0
@@ -1431,6 +1449,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       faiths.tick(year, timeline.playing && timeline.speed >= 4, deps.camera, drawSize, pixelRatio)
       disease.tick(year, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       tourism.tick(year, fx, deps.camera, drawSize, pixelRatio)
+      ideas.tick(year, pos.s0, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       cities.tick(year)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)

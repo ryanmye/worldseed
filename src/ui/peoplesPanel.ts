@@ -78,6 +78,16 @@ export function setPeopleDiseaseNote(fn: ((p: number, year: number, s0: number) 
   peopleDiseaseNote = fn
 }
 
+/** ideas: lines of the selected people (ideas held, own and received, the latest, lost and refused: ui/ideasPanel.ts), and the idea behind a technology bar, or null without ideas. */
+let peopleIdeasNote: ((p: number, year: number) => string[]) | null = null
+export function setPeopleIdeasNote(fn: ((p: number, year: number) => string[]) | null): void {
+  peopleIdeasNote = fn
+}
+let peopleTechNote: ((p: number, field: number, year: number) => string) | null = null
+export function setPeopleTechNote(fn: ((p: number, field: number, year: number) => string) | null): void {
+  peopleTechNote = fn
+}
+
 const pct = (x: number) => (x > 0 && x < 0.005 ? '<1%' : `${Math.round(x * 100)}%`)
 
 /** Technology levels when the history has them: technology[(s * P + p) * TECH_FIELD_COUNT + f]. */
@@ -400,7 +410,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
         for (let f = 0; f < TECH_FIELD_COUNT; f++) {
           const v = tech[(s * P + p) * TECH_FIELD_COUNT + f]
           r.bars[f].style.height = `${Math.round(2 + 10 * Math.min(1, v / techMax))}px`
-          r.bars[f].title = `${TECH_FIELD_NAMES[f]} ${v.toFixed(1)}`
+          r.bars[f].title = `${TECH_FIELD_NAMES[f]} ${v.toFixed(1)}` + (peopleTechNote?.(p, f, s * index.history.snapshotInterval) ?? '')
         }
       }
     }
@@ -412,6 +422,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     }
     {
       const lines = selection !== null && selection >= 0 ? (peopleDiseaseNote?.(selection, year, s) ?? []) : []
+      if (selection !== null && selection >= 0 && peopleIdeasNote) lines.push(...peopleIdeasNote(selection, year))
       const text = lines.length && selection !== null ? [`The ${data.names[selection]}:`, ...lines].join('\n') : ''
       if (text !== shownDiseaseNote) {
         shownDiseaseNote = text

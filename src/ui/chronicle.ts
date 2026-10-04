@@ -17,6 +17,7 @@ import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, ruler
 import { addShortcut } from './shortcuts.ts'
 import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
+import { describeIdeasGroup, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
 
 const ROWS = 40
 
@@ -301,6 +302,13 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       const bucket = isSightGroup(h.events[ev]) ? FOUNDING_BUCKET_YEARS : FASHION_BUCKET_YEARS
       yearText = `${Math.floor(h.events[ev].year / bucket) * bucket}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if (kind === EntryKind.Ideas && m > 1) {
+      // ideas: an idea spreading in a half-century, a network's first arrivals, an idea's refusals (dated by the first)
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeIdeasGroup(h, members)
+      yearText = String(h.events[ix.notableMembers[lo]].year)
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost && (h.events[ev].type as number) < 20) {
       const e = h.events[ev]
       text = (e.type as number) === PeoplesEvent.Landfall
@@ -330,6 +338,9 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     else if ((kind === EntryKind.Single && isDiseaseHeadline(h, h.events[ev])) || (kind === EntryKind.Disease && m > 1 && isDiseaseGroupHeadline(h.events[ev]))) r.li.className = `ev-${ek} notable headline`
     // tourism: a people's first leisure travel, a resort town founded
     else if (kind === EntryKind.Single && isTourismHeadline(h.events[ev])) r.li.className = `ev-${ek} notable`
+    // ideas: an idea first conceived anywhere, an idea's first arrival in a world cut off from it (a network's together); independent origins and losses notable
+    else if ((kind === EntryKind.Single && isIdeasHeadline(h, h.events[ev])) || (kind === EntryKind.Ideas && m > 1 && isIdeasGroupHeadline(h, [...ix.notableMembers.subarray(lo, lo + m)].map((i) => h.events[i])))) r.li.className = `ev-${ek} notable headline`
+    else if (kind === EntryKind.Single && isIdeasNotable(h.events[ev])) r.li.className = `ev-${ek} notable`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`
