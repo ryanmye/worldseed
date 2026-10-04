@@ -67,6 +67,44 @@ export interface OverlayOptions {
 
 export type LayerGroup = 'nature' | 'people' | 'movement'
 
+/**
+ * The window rect left free of the panels right now (CSS px from each edge): past the side
+ * columns, below the top bar and above the timeline bar. `left` only counts what sits below
+ * the top bar in the left column (the inspector, once open) — the top bar's own width is far
+ * wider than it is relevant for past its own height, which is what `top` is for instead.
+ * render/mapControls.ts fits and centres the whole-world map in it; main.ts offsets the
+ * camera's view (globe and map alike) so its rendered centre sits in the middle of it instead
+ * of the middle of the window.
+ */
+export interface ViewportInset {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
+
+const ZERO_INSET: ViewportInset = { left: 0, right: 0, top: 0, bottom: 0 }
+let freeInset: ViewportInset = ZERO_INSET
+const insetListeners = new Set<(inset: ViewportInset) => void>()
+
+/** The current free rect (see ViewportInset); current as of the last relayout() or construction. */
+export function getFreeViewportInset(): ViewportInset {
+  return freeInset
+}
+
+/** Notified whenever the free rect changes (a panel opens, closes, resizes, or the window does). */
+export function onFreeViewportChange(cb: (inset: ViewportInset) => void): () => void {
+  insetListeners.add(cb)
+  return () => insetListeners.delete(cb)
+}
+
+function setFreeViewportInset(next: ViewportInset) {
+  const prev = freeInset
+  if (prev.left === next.left && prev.right === next.right && prev.top === next.top && prev.bottom === next.bottom) return
+  freeInset = next
+  for (const cb of insetListeners) cb(next)
+}
+
 /** One layer toggle (see Overlay.addLayerToggle). */
 export interface LayerToggle {
   /** Stable key: remembered in localStorage under it (see loadLayerPrefs). */
@@ -141,6 +179,9 @@ export interface Overlay {
   relayout(): void
   /** Reflect the Globe / Map switch. */
   setProjection(map: boolean): void
+  /** The goods legend under Trade shows only these (ascending ids), so it does not grow to every
+   * defined good; call with the goods actually traded in the current history (tradePanel.goodsInUse). */
+  setGoodsInUse(goods: readonly number[]): void
 }
 
 let uid = 0
@@ -431,18 +472,24 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     },
   })
   addLayerToggle({ key: 'roads', label: 'Roads', group: 'movement', checked: initial.roads ?? true, title: 'Roads and bridges', onChange: (s) => callbacks.onRoadsToggle?.(s) })
-  // what the merchants carry, while Trade is on
+  // what the merchants carry, while Trade is on: only the goods actually traded in this history
+  // (setGoodsInUse, called from main.ts once it has one), so the legend does not grow to every
+  // defined good (GOOD_NAMES can have more entries than any one world ever uses)
   const legend = document.createElement('div')
   legend.className = 'goods-legend'
   legend.setAttribute('aria-label', 'Goods carried by merchants')
-  GOOD_NAMES.forEach((name, g) => {
-    const item = document.createElement('span')
-    const dot = document.createElement('span')
-    dot.className = 'good-dot'
-    dot.style.background = GOOD_COLORS[g]
-    item.append(dot, name)
-    legend.appendChild(item)
-  })
+  function renderLegend(goods: readonly number[]) {
+    legend.replaceChildren()
+    for (const g of goods) {
+      const item = document.createElement('span')
+      const dot = document.createElement('span')
+      dot.className = 'good-dot'
+      dot.style.background = GOOD_COLORS[g] ?? '#888'
+      item.append(dot, GOOD_NAMES[g] ?? 'goods')
+      legend.appendChild(item)
+    }
+  }
+  renderLegend(GOOD_NAMES.map((_, g) => g))
   legend.classList.toggle('hidden', !tradeBox.checked)
   groups.get('movement')!.parentElement!.appendChild(legend)
 
@@ -502,12 +549,32 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   function relayout() {
     const tl = bottom.getBoundingClientRect()
     const reserveTimeline = tl.height > 0 ? window.innerHeight - tl.top + GAP - 16 : 0
-    const lw = left.getBoundingClientRect().width
-    const rw = right.getBoundingClientRect().width
-    const leftUnder = tl.height > 0 && 16 + lw + GAP > tl.left
-    const rightUnder = tl.height > 0 && window.innerWidth - 16 - rw - GAP < tl.right
+    const lr = left.getBoundingClientRect()
+    const rr = right.getBoundingClientRect()
+    const leftUnder = tl.height > 0 && 16 + lr.width + GAP > tl.left
+    const rightUnder = tl.height > 0 && window.innerWidth - 16 - rr.width - GAP < tl.right
     root.style.setProperty('--left-reserve', `${Math.max(leftUnder ? reserveTimeline : 0, 104)}px`)
     root.style.setProperty('--right-reserve', `${rightUnder ? reserveTimeline : 0}px`)
+    // The top bar sits at the top of the left column and is far wider than the rest of it is
+    // ever tall for: using the whole left column's width (lr.width, which is the top bar's
+    // width whenever the inspector is closed) as a left inset would reserve that width for
+    // the full window height, when really only a strip at the very top (the top bar's own
+    // height) needs keeping clear there. So: `top` comes from the top bar's height, and
+    // `left` comes only from whatever sits below it in the column (the inspector, once a
+    // settlement is selected; 0 when it is closed).
+    const tbRect = topBar.getBoundingClientRect()
+    let belowTopBar = 0
+    for (const child of left.children) {
+      if (child === topBar) continue
+      const r = (child as HTMLElement).getBoundingClientRect()
+      if (r.width > 0) belowTopBar = Math.max(belowTopBar, r.right)
+    }
+    setFreeViewportInset({
+      left: belowTopBar > 0 ? belowTopBar + GAP : 0,
+      right: rr.width > 0 ? window.innerWidth - rr.left + GAP : 0,
+      top: tbRect.height > 0 ? tbRect.bottom + GAP : 0,
+      bottom: tl.height > 0 ? window.innerHeight - tl.top + GAP : 0,
+    })
   }
   let relayoutQueued = false
   const queueRelayout = () => {
@@ -603,6 +670,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     setProjection(map: boolean) {
       setProjection(map)
       syncCount()
+    },
+    setGoodsInUse(goods: readonly number[]) {
+      renderLegend(goods)
     },
   }
 }

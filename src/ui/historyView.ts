@@ -48,6 +48,7 @@ import { createSpeciesView } from './speciesPanel.ts'
 import { buildContactPulses, type ContactPulses } from '../render/knownWorld.ts'
 import { buildPopulationDensity, type PopulationDensity } from './populationDensity.ts'
 import { createPolitiesView, type PolitiesBuilt } from './politiesPanel.ts'
+import type { PolityLayer } from '../render/polities.ts'
 import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
@@ -114,6 +115,12 @@ export interface HistoryView {
   /** Settlement under CSS pixel (x, y) relative to the canvas, or -1. */
   pickAt(x: number, y: number): number
   select(id: number, fly: boolean): void
+  /**
+   * A click that hit no settlement landed on cell `cell`: if the Factions layer or view is
+   * on and the cell belongs to a polity, select it (deselecting if it is already selected).
+   * No-op off the Factions view, over water, or on unclaimed land.
+   */
+  selectFactionAt(cell: number): void
   setHover(id: number): void
   setViewMode(mode: ViewMode): void
   setMarkersVisible(show: boolean): void
@@ -210,6 +217,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let discoveries: DiscoveryLayer | null = null
   let speciesLayer: SpeciesLayer | null = null
   let epidemics: ContactPulses | null = null
+  /** Per-cell polity ids of the faction layer (WATER, -1 or an id), for click-to-select-faction. */
+  let polityLayer: PolityLayer | null = null
   let expeditionsVisible = true
   /** Selected species (-1 none), and what the Crops / Herds colours and the grown discs last showed. */
   let speciesSelected = -1
@@ -475,6 +484,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labels = null
     }
     polities.commit(null, null, false)
+    polityLayer = null
     geo = null
   }
 
@@ -659,6 +669,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, w, h, { population: (id) => settlementLayer.displayedPopulation(id) }, NORM_YEARS)
     labels.setVisible(labelsVisible)
     polities.commit(b.polities ?? null, labels, extend)
+    polityLayer = b.polities?.layer ?? null
     globe?.setCapacity(h.capacity)
     popDensity = b.population ?? null
     shownPopS0 = -1
@@ -1024,6 +1035,14 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         api.setHover(-1) // the marker under the pointer is about to move away
       }
       shownS0 = -1 // force an inspector refresh this frame
+    },
+    selectFactionAt(cell: number) {
+      // describeCell gates on the same thing (the Factions layer or view on, the cell on
+      // land and owned): a non-empty description means cells[cell] is a valid polity id
+      const taken = polities.describeCell(cell) !== ''
+      const p = taken && polityLayer?.cells ? polityLayer.cells[cell] : -1
+      if (p < 0) return
+      polities.select(p === polities.selected ? -1 : p)
     },
     setHover(id: number) {
       if (id === hovered) return

@@ -43,10 +43,28 @@ import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, networkRouteSamples, routeNetwork } from './routeCurves.ts'
 
-/** Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury, stimulant. Chosen to read on water and land alike (luxuries a royal violet apart from the ore's magenta, stimulants a bright orange apart from the livestock's coral). */
-export const GOOD_COLORS: readonly string[] = ['#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#a65cff', '#ff9a2e']
-/** Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. The palette has no spare slots, so cloth, luxury and stimulant reuse the closest existing tints. */
-const GOOD_PALETTE = [3, 6, 5, 4, 2, 7, 1, 5, 7]
+/**
+ * Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury,
+ * stimulant, metalware, finery, treasure, wares. Chosen to read on water and land alike (luxuries a royal
+ * violet apart from the ore's magenta, stimulants a bright orange apart from the livestock's coral). The
+ * last four (added for the 13-good contract) are a slate-grey for metalware (apart from ore's magenta and
+ * cloth's blue), a rose pink for finery (apart from luxury's violet and livestock's coral), a gilt gold for
+ * treasure (apart from grain's paler yellow) and a sandy tan for wares (apart from salt's near-white and
+ * stimulant's orange). Only the first GOOD_COUNT entries are ever read, so this stays correct at 9 goods too.
+ */
+export const GOOD_COLORS: readonly string[] = [
+  '#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#a65cff', '#ff9a2e',
+  '#8aa8b0', '#ff6fb8', '#d9a62a', '#c2a46a',
+]
+/**
+ * Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. That palette has
+ * only 7 usable tint slots, already one each for the original 9 goods (with luxury and stimulant reusing
+ * cloth's and salt's own closest tints), so metalware, finery, treasure and wares each reuse whichever
+ * existing tint reads closest to them: metalware the ore's slate blue, finery the livestock's brick red
+ * (both warm, both apart from luxury's own violet dot colour), treasure the grain's ochre (gilt gold), and
+ * wares the salt's thatch brown (sandy tan). Only the first GOOD_COUNT entries are ever read.
+ */
+const GOOD_PALETTE = [3, 6, 5, 4, 2, 7, 1, 5, 7, 2, 5, 3, 7]
 
 /** Height of the routes above the ground (as the journey trails, so ships and carts sit right). */
 const LIFT = 0.0032

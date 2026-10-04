@@ -14,7 +14,11 @@
 //    stronger) on the Danger view, where they show even with the Trade layer off.
 //  - Marks (one instanced draw): a black sail over each pirate haven, sized by its strength and
 //    fading in and out with it between snapshots; a small lantern by each smugglers' hub
-//    (contraband >= HUB_CONTRABAND of its income); a hatched ring round each blockaded port
+//    (contraband >= HUB_CONTRABAND of its income). Both taper with zoom (uHavenZoom, update()):
+//    zoomed out to the globe or whole map only the strongest havens show, smaller and dimmer;
+//    zooming in brings the weaker ones into view and grows both toward their close-up size and
+//    brightness, so the sails declutter a whole-world view without changing the close-up look.
+//    A hatched ring round each blockaded port
 //    from the Blockade event until its war ends; and pirate ships, dark hulls under black
 //    sails cruising now and then along the preyed-upon sea links near their haven (which link,
 //    which way and when are hashed from the haven, the ship and the year: a pure function of the
@@ -186,6 +190,7 @@ uniform float uDanger;
 uniform vec2 uViewport;
 uniform float uPixelRatio;
 uniform float uSizeScale;
+uniform float uHavenZoom;
 uniform vec3 uCamObj;
 varying vec2 vPx;
 flat varying float vKind;
@@ -199,12 +204,18 @@ void main() {
   float facing = ws_facing(dot(up, normalize(uCamObj - pos)));
   float kind = aA.x;
   float v = mix(aA.z, aA.w, uFrac);
-  float alpha = kind < 0.5 ? smoothstep(0.0, 0.06, v) : kind < 1.5 ? smoothstep(${(HUB_CONTRABAND / 255 - 0.03).toFixed(3)}, ${(HUB_CONTRABAND / 255 + 0.05).toFixed(3)}, v) : v;
+  // zoomed out to the globe or whole map, only the strongest havens show, smaller and dimmer;
+  // zooming in brings in the weaker ones and grows them toward their full close-up look. Hubs
+  // (lanterns) keep their own strength cut but share the same size/opacity taper.
+  float havenCut = mix(0.42, 0.0, uHavenZoom);
+  float alpha = kind < 0.5 ? smoothstep(havenCut, havenCut + 0.1, v) : kind < 1.5 ? smoothstep(${(HUB_CONTRABAND / 255 - 0.03).toFixed(3)}, ${(HUB_CONTRABAND / 255 + 0.05).toFixed(3)}, v) : v;
+  if (kind < 1.5) alpha *= mix(0.5, 1.0, uHavenZoom);
   if (facing <= 0.0 || alpha <= 0.003 || (uMaskOn > 0.5 && uYear < aKnown)) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
   float size = kind < 0.5 ? (4.6 + 5.2 * sqrt(clamp(v, 0.0, 1.0))) * (uDanger > 0.5 ? 1.15 : 1.0) : aA.y;
+  if (kind < 1.5) size *= mix(0.6, 1.0, uHavenZoom);
   size *= uSizeScale;
   float ext = size + 3.0;
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
@@ -482,6 +493,7 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     uViewport: { value: new THREE.Vector2(1, 1) },
     uPixelRatio: { value: 1 },
     uSizeScale: { value: 1 },
+    uHavenZoom: { value: 1 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uSunObj: { value: SUN_DIRECTION.clone() },
     uDaylight: sunUniforms.uDaylight,
@@ -794,6 +806,10 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
       laneShared.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, alt / 0.6)))
       mu.uSizeScale.value = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / Math.max(1.05, dist))))
       mu.uNear.value = Math.min(1, Math.max(0.25, (alt - 0.012) / 0.05))
+      // 1 close in (today's full look) .. 0 at the globe's or whole map's own zoom (fewer, smaller,
+      // dimmer havens and lanterns); works unchanged on the flat map, whose camera distance in the
+      // planet group's local space tapers the same way as the globe's (see uClose/uSizeScale above).
+      mu.uHavenZoom.value = 1 - smooth(1.6, 3.2)
       if (laneShared.uClose.value <= 0.003) {
         smuggleMesh.visible = false
         lossMesh.visible = false

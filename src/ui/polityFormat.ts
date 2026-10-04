@@ -484,6 +484,60 @@ export function describeAlliances(h: History, members: readonly HistoryEvent[]):
   return `${listWords(names, 4)} ally against ${polityName(pd, allianceGroupPolity(members[0]), 'a common rival')}` + (members.length > 1 ? ` (${members.length} alliances)` : '')
 }
 
+/** Whether a BecameVassal event (the bond made, not thrown off) is already said by the PeaceMade line of the war
+ * that ended it this year (same two polities, outcome Vassalage or Tribute): the chronicle then shows only the
+ * peace line (which already states the outcome via warOutcomeWords), not a separate "X bows to Y" line too. */
+export function vassalSaidByPeace(h: History, e: HistoryEvent): boolean {
+  if (e.extra === 1) return false
+  const pd = politiesOf(h)
+  const W = pd?.wars
+  if (!pd || !W) return false
+  const v = polOf(pd, e.settlement, e.year)
+  const o = bondGroupPolity(e)
+  for (let w = 0; w < W.count; w++) {
+    if (Math.abs(W.endYear[w] - e.year) > 1) continue
+    if (W.outcome[w] !== WarOutcome.Vassalage && W.outcome[w] !== WarOutcome.Tribute) continue
+    const a = W.attacker[w], d = W.defender[w]
+    if ((a === v && d === o) || (a === o && d === v)) return true
+  }
+  return false
+}
+
+/** Whether `e` is a Built event raising walls (not a fort or another structure). */
+export function isWallBuilt(h: History, e: HistoryEvent): boolean {
+  return e.type === 4 && h.structures?.[e.other]?.type === StructureType.Walls
+}
+
+/** Group of a wall-building event for the chronicle: the builder's polity at the time (-1 stateless or unknown). */
+export function wallGroupPolity(h: History, e: HistoryEvent): number {
+  const pd = politiesOf(h)
+  return pd ? polOf(pd, e.settlement, e.year) : -1
+}
+
+/**
+ * Whether a Built-walls event is a polity capital's first ring: a milestone kept as its own chronicle line
+ * rather than folded into the routine wall-building other towns in the realm are grouped into.
+ */
+export function isCapitalFirstWalls(h: History, e: HistoryEvent): boolean {
+  const pd = politiesOf(h)
+  if (!pd) return false
+  const before = (pd.wallsOf.get(e.settlement) ?? []).filter((id) => {
+    const st = h.structures[id]
+    return st.builtYear < e.year && (st.lostYear < 0 || st.lostYear > e.year)
+  }).length
+  if (before > 0) return false // not its first ring
+  return pd.list.some((x) => x.capitals.includes(e.settlement))
+}
+
+/** Chronicle line for the walls raised by one polity's towns in a decade ("Vashtar walls 6 towns"). */
+export function describeWalls(h: History, members: readonly HistoryEvent[]): string {
+  if (members.length === 0) return ''
+  const pd = politiesOf(h)
+  const g = wallGroupPolity(h, members[0])
+  const gn = pd && g >= 0 ? polityName(pd, g) : 'Towns'
+  return pd && g >= 0 ? `${gn} walls ${members.length} towns` : `${members.length} towns raise walls`
+}
+
 /** Chronicle line for the forts built in a decade ("6 forts rise on the borders, at Frifinlom, Ifimu, Frilis and 3 more"). */
 export function describeForts(h: History, members: readonly HistoryEvent[]): string {
   const at: string[] = []

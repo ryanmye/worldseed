@@ -4,8 +4,8 @@
 // chronicle show about states at a year is a cheap function of that year.
 //
 //  - Alive polities per snapshot (CSR, ascending id) with their members, population and tier
-//    (Chiefdom, Kingdom or Empire, derived as in the contract: Empire at 60k+ people or two
-//    peoples each >= 15% with 25+ members; Kingdom at 6+ members and 5k+ people).
+//    (Chiefdom, Kingdom or Empire; see TIER_RULE below for the exact thresholds, which the UI
+//    sets deliberately differently from the simulation's own rule).
 //  - Capitals (from capitals / capitalYears), successors (parent links), wars per polity,
 //    political events per polity, walls and sacks per settlement, army journeys.
 //  - The polity of every cell at (snapshot s, land snapshot q): owner settlement
@@ -29,21 +29,33 @@ export type PolityTier = (typeof PolityTier)[keyof typeof PolityTier]
 export const TIER_WORDS: readonly string[] = ['Chiefdom', 'Kingdom', 'Empire']
 
 /**
- * The tier rule (contract.ts, the comment on Polity), the one place the UI decides "Chiefdom", "Kingdom" or "Empire":
- * Empire at max(empirePop, empireWorld * world people) people or more, or with multiPeoples peoples each holding at least
- * multiShare of its people and multiMembers members or more; Kingdom at kingdomMembers members and max(kingdomPop,
- * kingdomWorld * world people) people; else Chiefdom. "World people" is everyone living in a settlement (not an expedition
- * base) at the snapshot. As the contract states it now (absolute thresholds): the values below. The rule relative to the
- * world's population (Empire at max(20k, 8% of the world) or multi-people, Kingdom at 6+ members and max(2k, 0.8%)) is
- *   { empirePop: 20000, empireWorld: 0.08, kingdomPop: 2000, kingdomWorld: 0.008, ... }
+ * The tier rule, the one place the UI decides "Chiefdom", "Kingdom" or "Empire". This intentionally
+ * DIFFERS from (and overrides, for display purposes) the simulation's own tier rule in contract.ts/sim:
+ * the simulation was calling small multi-people states (e.g. 4-13 thousand people spread over a couple
+ * of peoples) an "Empire", which reads wrong in the UI, so the thresholds below add a population floor
+ * to the multi-people path and tie both the Empire and Kingdom floors to world population. If the
+ * thresholds ever need to change again, THIS object is the single place to adjust - nothing else in
+ * the UI should hardcode a tier threshold.
+ *
+ * Empire: pop >= max(empirePop, empireWorld * world people), OR (at least multiPeoples peoples each
+ *   holding >= multiShare of its members, with >= multiMembers members, AND pop >= max(multiPop,
+ *   multiWorld * world people)).
+ * Kingdom: members >= kingdomMembers AND pop >= max(kingdomPop, kingdomWorld * world people).
+ * Otherwise: Chiefdom.
+ * "World people" is everyone living in a settlement (not an expedition base) at the snapshot.
  * A League (PolityOrigin.League) is always "League of ..." whatever its tier (tierWord).
  */
-export const TIER_RULE = { empirePop: 60000, empireWorld: 0, kingdomPop: 5000, kingdomWorld: 0, kingdomMembers: 6, multiShare: 0.15, multiPeoples: 2, multiMembers: 25 }
+export const TIER_RULE = {
+  empirePop: 20000, empireWorld: 0.08,
+  kingdomPop: 2000, kingdomWorld: 0.008, kingdomMembers: 6,
+  multiShare: 0.15, multiPeoples: 2, multiMembers: 25, multiPop: 10000, multiWorld: 0.04,
+}
 
 /** Tier of a polity of `pop` people in `members` settlements, `peoplesAtShare` of its peoples holding TIER_RULE.multiShare of it or more, in a world of `worldPop` people. */
 export function tierOf(pop: number, members: number, peoplesAtShare: number, worldPop: number): PolityTier {
   const R = TIER_RULE
-  if (pop >= Math.max(R.empirePop, R.empireWorld * worldPop) || (peoplesAtShare >= R.multiPeoples && members >= R.multiMembers)) return PolityTier.Empire
+  const multiEmpire = peoplesAtShare >= R.multiPeoples && members >= R.multiMembers && pop >= Math.max(R.multiPop, R.multiWorld * worldPop)
+  if (pop >= Math.max(R.empirePop, R.empireWorld * worldPop) || multiEmpire) return PolityTier.Empire
   if (members >= R.kingdomMembers && pop >= Math.max(R.kingdomPop, R.kingdomWorld * worldPop)) return PolityTier.Kingdom
   return PolityTier.Chiefdom
 }

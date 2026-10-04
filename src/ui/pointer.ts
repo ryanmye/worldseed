@@ -1,6 +1,8 @@
 // Pointer input on the globe canvas: the terrain readout follows the cursor, the
 // settlement marker under it is highlighted, and a click (press and release without
 // dragging) selects the nearest marker near the pointer or deselects when there is none.
+// A click that hits no marker falls back to selecting the faction owning the cell under
+// it, through deps.selectFactionAt (a no-op off the Factions view or over unclaimed land).
 // Shift-drag or right-drag places the sun over the point under the pointer.
 // Hover work (terrain pick, marker pick, readout) runs at most once per animation frame,
 // and the readout is rewritten only when the cell under the pointer changes.
@@ -28,6 +30,12 @@ export interface PointerDeps {
   pickSettlement(x: number, y: number): number
   hoverSettlement(id: number): void
   selectSettlement(id: number): void
+  /**
+   * A click hit no settlement marker and landed on cell `cell`: offer it as a faction
+   * territory pick (selects or deselects the polity owning it, if any and if the Factions
+   * layer or view is on; a no-op otherwise). Optional: without it, such clicks only deselect.
+   */
+  selectFactionAt?(cell: number): void
   /** Sun drag: the world-space direction under the pointer (the sun goes overhead there). */
   dragSun?(dirWorld: THREE.Vector3): void
 }
@@ -236,7 +244,10 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     updateReadout(e.clientX, e.clientY)
     if (press.moved) return
     const [x, y] = local(e)
-    deps.selectSettlement(deps.pickSettlement(x, y))
+    const id = deps.pickSettlement(x, y)
+    deps.selectSettlement(id)
+    // no marker under the click: offer the cell under it (if the ray hit one) as a faction pick
+    if (id < 0 && shownCell >= 0) deps.selectFactionAt?.(shownCell)
   })
   canvas.addEventListener('pointerleave', () => {
     move.pending = false

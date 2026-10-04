@@ -17,8 +17,10 @@
 //    polities at war glow red and pulse with the year. Triangles with no owned corner are
 //    culled in the vertex shader. The texture is rewritten only when a snapshot changes.
 //    Spheres (polities v2, History.bonds): a vassal's land is drawn in its overlord's colour
-//    with diagonal stripes of its own (screen-space, so they stay crisp at every zoom), so a
-//    hegemon's sphere reads as one block with its members visible inside it; a tributary
+//    with diagonal stripes of its own (phased by the pre-warp object-space position, so they
+//    hold still on the land while panning on the globe or the flat map alike, and scaled by the
+//    pixel footprint to keep a steady screen width at any zoom), so a hegemon's sphere reads as
+//    one block with its members visible inside it; a tributary
 //    keeps its colour with thin faint stripes of its overlord's; the border between an
 //    overlord and its vassal (or two vassals of one overlord) is thinner and fainter than an
 //    outer border. A small relation texture (overlord and kind per polity) is rewritten only
@@ -241,11 +243,13 @@ float pl_dash(vec2 g, float period, float shift) {
   float k = floor(a / 0.7853982 + 0.5) * 0.7853982;
   return fract(dot(gl_FragCoord.xy, vec2(cos(k), sin(k))) / period + shift);
 }
-// 1 on a diagonal stripe of the screen (period and stripe width in pixels), antialiased
-float pl_stripe(float period, float width) {
-  float u = (gl_FragCoord.x + gl_FragCoord.y) * 0.7071068;
+// 1 on a diagonal stripe of the surface (period, width and antialiasing edge in world units):
+// phased by p (the pre-warp object-space position, vObj — the same point on the globe and on
+// the flat map, so the stripes hold still under the land instead of swimming with the screen)
+float pl_stripe(vec3 p, float aa, float period, float width) {
+  float u = (p.x + p.y + p.z) * 0.5773503;
   float d = abs(mod(u, period) - 0.5 * period);
-  return 1.0 - smoothstep(0.5 * width - 0.6, 0.5 * width + 0.6, d);
+  return 1.0 - smoothstep(0.5 * width - aa, 0.5 * width + aa, d);
 }
 vec3 pl_heat(float x) {
   vec3 c0 = vec3(0.20, 0.10, 0.30), c1 = vec3(0.55, 0.12, 0.30), c2 = vec3(0.86, 0.30, 0.12), c3 = vec3(1.0, 0.78, 0.30);
@@ -372,9 +376,14 @@ void main() {
     vec3 c = pl_color(dom);
     if (overD >= -0.5) {
       vec3 oc = pl_color(overD);
+      // stripe scale from the pixel footprint (world units per pixel, already used above for the
+      // coast and noise antialiasing), so the stripes keep a steady screen width at any zoom
+      float sAA = footprint * 0.6;
+      // on the Terrain tint the fill is faint (uTint, below): a little stronger stripe blend keeps it readable
+      float sBoost = tint ? 1.3 : 1.0;
       // a vassal: its overlord's colour with stripes of its own; a tributary: its own with thin faint stripes of its overlord's
-      if (relD.y < 1.5) c = mix(oc, c, 0.85 * pl_stripe(9.0 * uPxR, 2.8 * uPxR));
-      else c = mix(c, oc, 0.42 * pl_stripe(12.0 * uPxR, 1.3 * uPxR));
+      if (relD.y < 1.5) c = mix(oc, c, min(1.0, 0.85 * sBoost) * pl_stripe(p, sAA, 9.0 * footprint, 2.8 * footprint));
+      else c = mix(c, oc, min(1.0, 0.42 * sBoost) * pl_stripe(p, sAA, 12.0 * footprint, 1.3 * footprint));
     }
     // over the terrain a little more chroma, so a pale tint still reads against greens and sands
     if (tint) c = max(mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 1.35), vec3(0.0));

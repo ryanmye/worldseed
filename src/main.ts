@@ -6,7 +6,8 @@ import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
 import { buildAtmosphere, buildClouds, buildStarfield, type Clouds } from './render/sky.ts'
-import { createOverlay, loadLayerPrefs } from './ui/overlay.ts'
+import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
+import { goodsInUse } from './ui/tradePanel.ts'
 import { attachPointer } from './ui/pointer.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
@@ -309,6 +310,7 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
     console.info(`history: ${msg.history.years} years, ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
     // towns and fields flatten the ground (terrainHeight.ts) before any layer is placed on it
     if (currentWorld) setTerrainHistory(currentWorld, msg.history)
+    overlay.setGoodsInUse(goodsInUse(msg.history.trade))
     if (msg.extend) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
@@ -656,6 +658,7 @@ const pointerInput = attachPointer({
   pickSettlement: (x, y) => historyView.pickAt(x, y),
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
+  selectFactionAt: (cell) => historyView.selectFactionAt(cell),
   dragSun: (dir) => {
     setSunToward(dir)
     syncSun()
@@ -818,13 +821,39 @@ function ambientFps(): number {
   return Math.min(qs.ambientFps, Math.max(2, (speed * pxPerUnit) / 0.6))
 }
 
+/**
+ * Shifts the camera's rendered frame (not its zoom or aspect) so its centre sits in the
+ * window's free rect (ui/overlay.ts) instead of dead centre, on both the globe and the map:
+ * a pure screen-space recentring away from whatever the side panels cover. setViewOffset
+ * needs updateProjectionMatrix() to take effect; picking (pointer.ts) and labels (labels.ts)
+ * stay correct because they read the camera's own projection matrix.
+ */
+function syncViewportOffset() {
+  const inset = getFreeViewportInset()
+  const w = window.innerWidth, h = window.innerHeight
+  camera.setViewOffset(w, h, (inset.right - inset.left) / 2, (inset.bottom - inset.top) / 2, w, h)
+  camera.updateProjectionMatrix()
+}
+
 function applySize() {
   sizeDirty = false
   camera.aspect = window.innerWidth / window.innerHeight
-  camera.updateProjectionMatrix()
+  syncViewportOffset()
   renderer.setPixelRatio(pixelRatio)
   renderer.setSize(window.innerWidth, window.innerHeight)
+  // the window resized: the free rect's fraction of it changed even if the panels didn't
+  if (mapOn) mapControls.refitWhole()
 }
+
+// The free rect itself can change without a window resize (a panel opens, closes or is
+// dragged wider): recentre the camera and, on the map, re-fit the whole world if the user
+// has not panned or zoomed away from it since the last automatic fit (mapControls.ts).
+onFreeViewportChange(() => {
+  syncViewportOffset()
+  if (mapOn) mapControls.refitWhole()
+  requestRender()
+  wake()
+})
 
 /**
  * The projection of the moment (render/mapProjection.ts): the morph amount, the map centred

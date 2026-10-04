@@ -8,7 +8,7 @@ import { EventType } from '../contract.ts'
 import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeLandfallBurst, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
-import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, isPolityHeadline } from './polityFormat.ts'
+import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
 import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
 import { addShortcut } from './shortcuts.ts'
 
@@ -244,12 +244,13 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeLandfallBurst(h, h.events[ev], m, oneSender)
       yearText = `${Math.floor(h.events[ev].year / ISLAND_BUCKET_YEARS) * ISLAND_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
-    } else if ((kind === EntryKind.PolityGains || kind === EntryKind.Raids || kind === EntryKind.Revolts || kind === EntryKind.Bonds || kind === EntryKind.Alliances || kind === EntryKind.Blockades || kind === EntryKind.Forts) && m > 1) {
-      // a polity's minor gains, or raids on towns, in one decade (second version: vassal bonds per overlord, alliances per rival, blockades per blockader)
+    } else if ((kind === EntryKind.PolityGains || kind === EntryKind.Raids || kind === EntryKind.Revolts || kind === EntryKind.Bonds || kind === EntryKind.Alliances || kind === EntryKind.Blockades || kind === EntryKind.Forts || kind === EntryKind.Walls) && m > 1) {
+      // a polity's minor gains, or raids on towns, in one decade (second version: vassal bonds per overlord, alliances per rival, blockades per blockader; walls: per polity)
       const members = []
       for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
       text = kind === EntryKind.PolityGains ? describeGains(h, members) : kind === EntryKind.Raids ? describeRaids(h, members) : kind === EntryKind.Revolts ? describeRevolts(h, members)
-        : kind === EntryKind.Bonds ? describeBonds(h, members) : kind === EntryKind.Alliances ? describeAlliances(h, members) : kind === EntryKind.Forts ? describeForts(h, members) : describeBlockades(h, members)
+        : kind === EntryKind.Bonds ? describeBonds(h, members) : kind === EntryKind.Alliances ? describeAlliances(h, members) : kind === EntryKind.Forts ? describeForts(h, members)
+        : kind === EntryKind.Walls ? describeWalls(h, members) : describeBlockades(h, members)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost && (h.events[ev].type as number) < 20) {

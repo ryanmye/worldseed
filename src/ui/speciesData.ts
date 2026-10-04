@@ -140,6 +140,16 @@ const PALETTE = [
 ]
 
 /**
+ * Goods for archetypes whose yielded good is renamed by a soon-landing contract change, picked by whether
+ * the new Good member already exists (so this keeps working before and after that merge lands). Only silk
+ * is called out by name: it yields Good.Finery once the contract defines it, else falls back to its old
+ * Good.Luxury.
+ */
+const CASH_GOOD = {
+  silk: 'Finery' in Good ? (Good as unknown as Record<string, number>).Finery : Good.Luxury,
+} as const
+
+/**
  * Colour, gloss and (where it is not its category's) the good yielded, per archetype key as
  * the simulation names them. Colours are distinct within each map view: the staples among
  * themselves, the herd animals among themselves, the fibre, luxury and stimulant crops
@@ -173,7 +183,7 @@ const LOOK: Record<string, { css: string; gloss: string; good?: number }> = {
   cotton: { css: '#f0f1ee', gloss: 'a fibre shrub' },
   flax: { css: '#8cc0ff', gloss: 'a fibre plant for linen' },
   hemp: { css: '#8a9a3c', gloss: 'a rope fibre' },
-  silk: { css: '#c3a4ff', gloss: 'a thread-spinning grub', good: Good.Luxury },
+  silk: { css: '#c3a4ff', gloss: 'a thread-spinning grub', good: CASH_GOOD.silk },
   bamboo: { css: '#3fd0c0', gloss: 'a giant grass for building', good: -1 },
   // luxuries and dyes
   sugarcane: { css: '#f5ea8c', gloss: 'a sweet cane' },

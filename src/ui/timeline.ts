@@ -114,16 +114,17 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   const aliveText = document.createTextNode('')
   const popText = document.createTextNode('')
   const tierText = document.createTextNode('')
-  /** polities v2: the largest bloc (a sphere or a state) and its share of the people. */
-  const blocText = document.createElement('div')
+  /** polities v2: the largest bloc (a sphere or a state) and its share of the people, folded into the
+   * second stats line (not its own line) so the timeline bar is never taller than its pre-polities height. */
+  const blocText = document.createElement('span')
   blocText.className = 'tl-bloc'
   const statusText = document.createElement('span')
   statusText.className = 'tl-status'
   const statLine1 = document.createElement('div')
   statLine1.append(aliveText, popText)
   const statLine2 = document.createElement('div')
-  statLine2.append(tierText)
-  stats.append(statLine1, statLine2, blocText, statusText)
+  statLine2.append(tierText, blocText)
+  stats.append(statLine1, statLine2, statusText)
 
   const speedBox = document.createElement('div')
   speedBox.className = 'tl-speed'
@@ -501,7 +502,7 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       // polities: states, and wars while any is fought
       if (states !== undefined && states > 0) t += `${t ? ' · ' : ''}${plural(states, 'state', 'states')}`
       if (wars !== undefined && wars > 0) t += `${t ? ' · ' : ''}${plural(wars, 'war', 'wars')}`
-      const bl = largest ? `Largest bloc: ${largest} of the people` : ''
+      const bl = largest ? ` · Largest bloc: ${largest} of the people` : ''
       if (bl !== shownBloc) {
         shownBloc = bl
         blocText.textContent = bl

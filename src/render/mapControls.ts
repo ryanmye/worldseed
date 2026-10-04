@@ -11,6 +11,7 @@
 
 import * as THREE from 'three'
 import { equalEarthKx, equalEarthLat, equalEarthY, X_EDGE, Y_POLE } from './mapProjection.ts'
+import { getFreeViewportInset } from '../ui/overlay.ts'
 
 export interface MapControls {
   /** Listening to input (map mode, not during the morph). */
@@ -25,6 +26,13 @@ export interface MapControls {
   stop(): void
   /** Altitude at which the whole map fits the window (with a margin), and the current one. */
   fitAltitude(): number
+  /**
+   * Snap back to the whole-world fit, centred — but only if the view is still (close to)
+   * that fit: a real user pan or zoom (or a sync() that lands away from it) marks the view
+   * dirty and this becomes a no-op, so a panel opening or resizing never fights a view the
+   * user chose. Called from main.ts when the free viewport rect changes.
+   */
+  refitWhole(): void
   readonly altitude: number
   /** The view's latitude and longitude (planet space, radians). */
   readonly lat: number
@@ -45,6 +53,8 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
   /** Glide velocity in screen px per second (x right, y down). */
   let vx = 0, vy = 0
   let moved = false
+  /** Set by a real user pan/zoom (or a sync() landing away from the whole-world fit); see refitWhole. */
+  let dirty = false
   const pointers = new Map<number, { x: number; y: number }>()
   let pinchDist = 0
   let lastMove = 0
@@ -55,10 +65,18 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
   const tanHalf = () => Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
   /** Map units per CSS pixel at altitude a. */
   const unitsPerPx = (a: number) => (2 * a * tanHalf()) / Math.max(1, canvas.clientHeight || window.innerHeight)
+  /** Fraction of the window's width/height the side panels, top bar and timeline leave free (ui/overlay.ts). */
+  const freeFractions = () => {
+    const vw = canvas.clientWidth || window.innerWidth
+    const vh = canvas.clientHeight || window.innerHeight
+    const inset = getFreeViewportInset()
+    return { w: Math.max(0.2, (vw - inset.left - inset.right) / vw), h: Math.max(0.2, (vh - inset.top - inset.bottom) / vh) }
+  }
   const fit = () => {
     const t = tanHalf()
-    // (a little short of the window's width: the side panels cover its edges)
-    return Math.max((Y_POLE * 1.12) / t, (X_EDGE * 1.04) / (t * camera.aspect * 0.8))
+    const { w, h } = freeFractions()
+    // (a little short of the free rect: the panels, and a margin, must not cover it)
+    return Math.max((Y_POLE * 1.12) / (t * h), (X_EDGE * 1.04) / (t * camera.aspect * w))
   }
   const maxAlt = () => fit() * 1.3
   /** Map y the centre may reach: the map's top edge down to mid screen up close, less as the map shrinks, centred once it fits. */
@@ -100,9 +118,21 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
   }
   const tmpP = new THREE.Vector3()
 
+  /**
+   * Screen point (canvas-relative CSS px) that (lon0, lat0) actually renders at: the canvas
+   * centre, shifted by the same amount main.ts offsets the camera's view by (setViewOffset,
+   * recentring it in the free rect left by the side panels). Pointer math (the zoom anchor,
+   * the pinch midpoint) is relative to this, not the canvas centre, so it keeps tracking the
+   * map point under the pointer rather than the point under the covered canvas centre.
+   */
+  const screenCenter = (r: { width: number; height: number }) => {
+    const inset = getFreeViewportInset()
+    return [r.width / 2 + (inset.left - inset.right) / 2, r.height / 2 + (inset.top - inset.bottom) / 2]
+  }
   const local = (ev: PointerEvent | WheelEvent) => {
     const r = canvas.getBoundingClientRect()
-    return [ev.clientX - r.left - r.width / 2, ev.clientY - r.top - r.height / 2]
+    const [cx, cy] = screenCenter(r)
+    return [ev.clientX - r.left - cx, ev.clientY - r.top - cy]
   }
 
   canvas.addEventListener('pointerdown', (ev) => {
@@ -116,6 +146,7 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
       const [a, b] = [...pointers.values()]
       pinchDist = Math.hypot(a.x - b.x, a.y - b.y)
     }
+    dirty = true
     onStart()
   })
   canvas.addEventListener('pointermove', (ev) => {
@@ -129,7 +160,8 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
       const [a, b] = [...pointers.values()]
       const d = Math.hypot(a.x - b.x, a.y - b.y)
       const r = canvas.getBoundingClientRect()
-      const mx = (a.x + b.x) / 2 - r.left - r.width / 2, my = (a.y + b.y) / 2 - r.top - r.height / 2
+      const [cx, cy] = screenCenter(r)
+      const mx = (a.x + b.x) / 2 - r.left - cx, my = (a.y + b.y) / 2 - r.top - cy
       panPx(dx / 2, dy / 2, my)
       if (pinchDist > 0 && d > 0) zoomBy(pinchDist / d, mx, my, true)
       pinchDist = d
@@ -164,6 +196,7 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
       ev.preventDefault()
       const dy = ev.deltaMode === 1 ? ev.deltaY * 16 : ev.deltaMode === 2 ? ev.deltaY * 400 : ev.deltaY
       const [x, y] = local(ev)
+      dirty = true
       onStart()
       // as the globe's wheel (OrbitControls, zoom speed 0.8): the camera's distance from the
       // planet's centre scales by 0.95^(0.8 per 100 px of wheel), so it slows down far out
@@ -204,6 +237,13 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
       alt = Math.max(MAP_MIN_ALT, d - 1)
       altTarget = Math.min(maxAlt(), alt)
       vx = vy = 0
+      // a view taken from the camera counts as dirty unless it lands on the whole-world fit,
+      // centred (e.g. the initial switch to the map, with no dist/lon/lat override). The
+      // tolerance (10%) must clear the margin the default view's own distance is computed
+      // with (fitAltitude() * 1.02, a 2% margin, in main.ts) by a wide floating-point-safe
+      // gap, or the default view's own sync() call could register as dirty on rounding noise
+      // alone and permanently defeat refitWhole() for a user who never touched the view.
+      dirty = Math.abs(alt - fit()) > fit() * 0.1 || Math.abs(lat0) > 1e-3 || Math.abs(wrapLon(lon0)) > 1e-3
     },
     update(dt: number) {
       const was = moved
@@ -249,6 +289,14 @@ export function createMapControls(camera: THREE.PerspectiveCamera, canvas: HTMLC
       altTarget = alt
     },
     fitAltitude: fit,
+    refitWhole() {
+      if (dirty) return
+      altTarget = fit()
+      alt = altTarget
+      lat0 = 0
+      lon0 = 0
+      apply()
+    },
     get altitude() {
       return alt
     },

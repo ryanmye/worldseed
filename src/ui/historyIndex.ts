@@ -7,7 +7,7 @@ import { LAST_SHOWN_EVENT, PeoplesEvent } from './format.ts'
 import type { PeoplesData } from './peoplesData.ts'
 import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
-import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isMinorGain, revoltPolity } from './polityFormat.ts'
+import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -45,6 +45,8 @@ export const EntryKind = {
   Blockades: 15,
   /** polities (second version): forts built in one decade (anywhere). */
   Forts: 16,
+  /** polities: walls built by one polity's towns in one decade (a capital's first ring is never grouped: it stays a line of its own). */
+  Walls: 17,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -558,6 +560,16 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     revoltsPerKey.set(k, (revoltsPerKey.get(k) ?? 0) + 1)
   })
   const revoltEntry = new Map<number, number>()
+  // polities: walls built by one polity's towns, per decade, gathered when two or more (a capital's first ring stays its own line, see isCapitalFirstWalls)
+  const wallKeyOfEvent = new Map<number, number>()
+  const wallsPerKey = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    if (!isWallBuilt(h, e) || isCapitalFirstWalls(h, e)) return
+    const k = (wallGroupPolity(h, e) + 2) * 1000 + bucketOf(e.year)
+    wallKeyOfEvent.set(i, k)
+    wallsPerKey.set(k, (wallsPerKey.get(k) ?? 0) + 1)
+  })
+  const wallEntry = new Map<number, number>()
   // polities, second version: vassal bonds per overlord, alliances per rival, blockades per blockader, per decade, gathered when two or more
   const v2Group = (e: { type: number; year: number }, i: number) => {
     const t = e.type as number
@@ -589,6 +601,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     while (nextSmallRaid < smallRaids.length && smallRaids[nextSmallRaid].year < e.year) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
     if (!isShownType(e.type)) continue
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
+    if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
     else if (isColony(e.type, e.other, e.settlement) && (foundingsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(foundingEntry, bucketOf(e.year), EntryKind.Foundings, i)
     else if (e.type === EventType.Migration && (migrationsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(migrationEntry, bucketOf(e.year), EntryKind.Migrations, i)
@@ -599,6 +612,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (gainKeyOfEvent.has(i) && (gainsPerKey.get(gainKeyOfEvent.get(i)!) ?? 0) >= 2) join(gainEntry, gainKeyOfEvent.get(i)!, EntryKind.PolityGains, i)
     else if ((e.type as number) === 29 && (raidsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(raidEntry, bucketOf(e.year), EntryKind.Raids, i)
     else if (revoltKeyOfEvent.has(i) && (revoltsPerKey.get(revoltKeyOfEvent.get(i)!) ?? 0) >= 2) join(revoltEntry, revoltKeyOfEvent.get(i)!, EntryKind.Revolts, i)
+    else if (wallKeyOfEvent.has(i) && (wallsPerKey.get(wallKeyOfEvent.get(i)!) ?? 0) >= 2) join(wallEntry, wallKeyOfEvent.get(i)!, EntryKind.Walls, i)
     else if (v2KeyOfEvent.has(i) && (v2PerKey.get(v2KeyOfEvent.get(i)!) ?? 0) >= 2) join(v2Entry, v2KeyOfEvent.get(i)!, v2Kind(e.type as number), i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
