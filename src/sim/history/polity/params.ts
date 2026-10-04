@@ -30,7 +30,7 @@ export const POLITY = {
   /** Grain share gamma = 1 - fishFrac - liveWeight * liveFrac (the tax base; species storableShare later). */
   liveWeight: 0.6,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
-  submit: 1.8,
+  submit: 2.2,
   subBase: 0.3,
   foreign: 0.5,
   /** Accretion: at most this many settlements join a polity per slow step, the most dominated first. */
