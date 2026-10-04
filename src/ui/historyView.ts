@@ -3,7 +3,9 @@
 // lights, trade routes and merchants, roads and bridges, the inspector and the chronicle;
 // expedition bases, lost expeditions and discoveries (outposts.ts, discoveries.ts, from
 // expeditionsData.ts); the species panel, the Crops and Herds views, origins and the
-// exchange web, and epidemic pulses (speciesPanel.ts, render/species.ts, from speciesData.ts).
+// exchange web, and epidemic pulses (speciesPanel.ts, render/species.ts, from speciesData.ts);
+// goods and the long-distance trade: lanes, relay legs, marts, posts, deposits, the Resources and
+// price views and the Goods and trade panel (goodsPanel.ts, render/longhaul.ts, from goodsData.ts).
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
@@ -18,7 +20,7 @@
 
 import * as THREE from 'three'
 import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
-import { isWaterCell, lakeArray, type GlobeMesh } from '../render/globe.ts'
+import { isWaterCell, lakeArray, surfaceRadius, type GlobeMesh } from '../render/globe.ts'
 import { ViewMode, densityRampCss } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
 import type { CameraFly } from '../render/cameraFly.ts'
@@ -49,6 +51,7 @@ import { buildContactPulses, type ContactPulses } from '../render/knownWorld.ts'
 import { buildPopulationDensity, type PopulationDensity } from './populationDensity.ts'
 import { createPolitiesView, type PolitiesBuilt } from './politiesPanel.ts'
 import type { PolityLayer } from '../render/polities.ts'
+import { createGoodsView, type GoodsBuilt } from './goodsPanel.ts'
 import type { LayerToggle } from './overlay.ts'
 
 export interface HistoryViewDeps {
@@ -337,6 +340,27 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     layerOn: initial.factions ?? true,
     initialPolity: initial.polity ?? null,
   })
+  // goods and trade: panel, long-haul layer, inspector section (its Esc deselects a tradition, secret, deposit or lane first)
+  const goods = createGoodsView({
+    right: deps.right,
+    inspectorSlot: inspector.goodsSlot,
+    planetGroup: deps.planetGroup,
+    setUrlParam: deps.setUrlParam,
+    onSelectSettlement: (id) => api.select(id, true),
+    flyToCell: (cell) => {
+      if (!world || cell < 0 || cell >= world.grid.cellCount) return
+      deps.onFly()
+      deps.planetGroup.updateWorldMatrix(true, false)
+      const P = world.grid.positions
+      const r = surfaceRadius(world, cell)
+      tmp.set(P[cell * 3] * r, P[cell * 3 + 1] * r, P[cell * 3 + 2] * r).applyMatrix4(deps.planetGroup.matrixWorld)
+      deps.fly.flyTo(tmp, Math.min(deps.camera.position.length(), FLY_DIST))
+      requestRender()
+      deps.wake()
+    },
+    addLayerToggle: deps.addLayerToggle,
+    setViewModeAvailable: deps.setViewModeAvailable,
+  })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -415,7 +439,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     speciesLayer?.setKnownMask(cells)
     epidemics?.setKnownMask(cells)
     polities.setKnownMask(cells)
+    goods.setKnownMask(cells)
     const on = cells !== null
+    goods.setMasked(on)
     // the clouds go over the mist; the masked markers over the clouds (nothing unknown is drawn by them)
     if (layer) layer.mesh.renderOrder = on ? 9.7 : 8
     outposts?.setFlagOrder(on ? 9.72 : 8.3)
@@ -439,6 +465,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     speciesLayer?: SpeciesLayer | null
     epidemics?: ContactPulses | null
     polities?: PolitiesBuilt | null
+    goods?: GoodsBuilt | null
   }
 
   function disposeBuilt(b: Built) {
@@ -461,6 +488,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   function disposeStaged(b: Built) {
     disposeBuilt(b)
     polities.disposeBuilt(b.polities)
+    goods.disposeBuilt(b.goods)
   }
 
   function clearLayer() {
@@ -484,6 +512,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labels = null
     }
     polities.commit(null, null, false)
+    goods.commit(null, false)
     polityLayer = null
     geo = null
   }
@@ -538,6 +567,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       },
       { name: 'population', run: () => (b.population = buildPopulationDensity(w, b.index!)) },
       { name: 'polities', run: () => (b.polities = polities.build(w, h)) },
+      // (after the factions: posts take their owners' faction colours)
+      { name: 'goods', run: () => (b.goods = goods.build(w, h, b.index!.maxPopulation)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
       { name: 'journeys', run: () => (b.journeys = b.index!.journeys ? buildJourneyLayer(w, b.index!.journeys, NORM_YEARS) : null) },
       { name: 'structures', run: () => (b.structures = b.index!.structures.length > 0 ? buildStructureLayer(w, b.index!.structures, h.settlements) : null) },
@@ -669,6 +700,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     labels = createLabelLayer(deps.canvas.parentElement ?? document.body, deps.canvas.nextSibling, w, h, { population: (id) => settlementLayer.displayedPopulation(id) }, NORM_YEARS)
     labels.setVisible(labelsVisible)
     polities.commit(b.polities ?? null, labels, extend)
+    goods.commit(b.goods ?? null, extend)
     polityLayer = b.polities?.layer ?? null
     globe?.setCapacity(h.capacity)
     popDensity = b.population ?? null
@@ -707,6 +739,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     peoples.showSettlement(id)
     speciesView.showSettlement(id, index.isOutpost[id] === 1)
     polities.showSettlement(id)
+    goods.showSettlement(id)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -931,6 +964,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       inspector.hide()
       peoples.setWorld(w)
       polities.setWorld(w)
+      goods.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
@@ -1021,6 +1055,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       peoples.showSettlement(selected)
       speciesView.showSettlement(selected, selected >= 0 && index.isOutpost[selected] === 1)
       polities.showSettlement(selected)
+      goods.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -1059,6 +1094,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       applyMarkerStyle()
       speciesView.setViewMode(mode)
       polities.setViewMode(mode)
+      goods.setViewMode(mode)
       speciesLayer?.setOriginCategory(speciesViewCategory(mode))
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
@@ -1089,6 +1125,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       structuresVisible = show
       requestRender()
       if (structures) structures.mesh.visible = show
+      goods.setStructuresVisible(show) // (deposits go with the ports, dams and mines)
     },
     setBuildingsVisible(show: boolean) {
       buildingsVisible = show
@@ -1121,7 +1158,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const places = faction ? (named ? `${faction} · ${named}` : faction) : named
       const ed = index?.expeditions
       const note = ed && world ? discoveryNote(ed, world, index!.history, cell, year) : ''
-      return note ? (places ? `${places}. ${note}` : note) : places
+      const withNote = note ? (places ? `${places}. ${note}` : note) : places
+      // goods: a deposit or a trading post there
+      const g = goods.describeCell(cell)
+      return g ? (withNote ? `${withNote} · ${g}` : g) : withNote
     },
     setPeopleTint(on: boolean) {
       peoples.setTint(on)
@@ -1211,6 +1251,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         layer.setYield(near, far)
         structures?.setYield(near, far)
         outposts?.setYield(near, far)
+        goods.setYield(near, far)
         // merchants and travelling groups are 3D carts and ships once the models are in:
         // their flat markers have gone by the distance at which the models are full size
         const tNear = dioramas.active ? DIORAMA_NEAR : 0
@@ -1224,6 +1265,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       // factions: effects step back at high playback speed (as the merchants do)
       const fx = !timeline.playing ? 1 : timeline.speed >= 16 ? 0.35 : timeline.speed >= 4 ? 0.75 : 1
       polities.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio)
+      goods.tick(year, pos.s0, pos.s1, pos.frac, fx, deps.camera, drawSize, pixelRatio)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()

@@ -35,6 +35,8 @@ export interface Inspector {
   readonly speciesSlot: HTMLElement
   /** Empty element under the people for the settlement's faction and danger (filled by politiesPanel.ts; hidden while empty). */
   readonly politySlot: HTMLElement
+  /** Empty element under the faction for its industries, crafts, mart, posts, prices and deposits (filled by goodsPanel.ts; hidden while empty). */
+  readonly goodsSlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -68,6 +70,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-places hidden"></div>
     <div class="insp-people hidden"></div>
     <div class="insp-faction hidden"></div>
+    <div class="insp-goods hidden"></div>
     <div class="insp-species hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
@@ -292,11 +295,13 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const peopleSlot = q<HTMLDivElement>('.insp-people')
   const speciesSlot = q<HTMLDivElement>('.insp-species')
   const politySlot = q<HTMLDivElement>('.insp-faction')
+  const goodsSlot = q<HTMLDivElement>('.insp-goods')
 
   return {
     peopleSlot,
     speciesSlot,
     politySlot,
+    goodsSlot,
     get selected() {
       return selected
     },
@@ -433,6 +438,8 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
               ? `Walls built in ${st.builtYear}, ${wallSlighted(politiesOf(index.history), selected, st.lostYear) ? 'slighted' : 'abandoned'} in ${st.lostYear}`
               : `Walls${ring > 0 ? ` (ring ${ring + 1})` : ''}, built in ${st.builtYear}`
           } else if (st.type === StructureType.Fort) item.textContent = `Fort on its border, built in ${st.builtYear}` + (ruined ? `, abandoned in ${st.lostYear}` : '')
+          else if (st.type === StructureType.Mine) item.textContent = `Mine, sunk in ${st.builtYear}` + (ruined ? `, abandoned in ${st.lostYear}` : '')
+          else if (st.type === StructureType.Factory) item.textContent = `Merchants' quarter abroad, opened in ${st.builtYear}` + (ruined ? `, closed in ${st.lostYear}` : '')
           else item.textContent = `${st.type === StructureType.Dam ? 'Dam' : 'Port'}, built in ${st.builtYear}` + (ruined ? `, in ruins since ${st.lostYear}` : '')
           structuresEl.appendChild(item)
           shown++

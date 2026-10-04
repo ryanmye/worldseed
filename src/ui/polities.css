@@ -422,3 +422,10 @@
 .tl-bloc:empty {
   display: none;
 }
+/* the Factions detail: embargoes in force and goods (secrets, lanes, posts) */
+.fp-d-line.fp-embargo {
+  color: #f2c46a;
+}
+.fp-d-line.fp-goods {
+  color: var(--text-2);
+}

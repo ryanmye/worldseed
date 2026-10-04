@@ -12,6 +12,8 @@
 //    in (sooner than ports and dams: there are few of them and they mark the frontiers);
 //    no 3D model stands in for it up close, so it does not yield to the dioramas. (Walls
 //    are drawn by the 3D towns, not here.)
+//  - A mine (goods) is a dark earthen badge with a crossed pick and hammer on its deposit's
+//    cell, from mid zoom like the forts; it greys out when the deposit gives out.
 //
 // Icons scale with the on-screen size of a grid cell: hidden at full-globe zoom,
 // clear when zoomed in. They are culled on the far side and fade at the limb.
@@ -62,7 +64,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
   const water = (i: number) => isWaterCell(world, lake, i)
   const cellSpacing = Math.sqrt((4 * Math.PI) / cellCount)
 
-  const list = structures.filter((st) => st.cell >= 0 && st.cell < cellCount && (st.type === StructureType.Port || st.type === StructureType.Dam || st.type === StructureType.Fort))
+  const list = structures.filter((st) => st.cell >= 0 && st.cell < cellCount && (st.type === StructureType.Port || st.type === StructureType.Dam || st.type === StructureType.Fort || st.type === StructureType.Mine))
   const n = list.length
   const aPos = new Float32Array(Math.max(1, n) * 3)
   const aDir = new Float32Array(Math.max(1, n) * 3)
@@ -116,7 +118,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
     const cell = st.cell
     unit(cell, c)
     let r = surfaceRadius(world, cell)
-    if (st.type === StructureType.Fort) {
+    if (st.type === StructureType.Fort || st.type === StructureType.Mine) {
       // on its cell, upright
       aPos.set([c.x * (r + LIFT), c.y * (r + LIFT), c.z * (r + LIFT)], k * 3)
       aDir.set([0, 0, 0], k * 3)
@@ -211,7 +213,7 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
       ${RELIEF_GLSL}
       attribute vec3 aPos;
       attribute vec3 aDir;
-      attribute vec4 aInfo; // built year, lost year, type (0 port, 1 dam, 3 fort)
+      attribute vec4 aInfo; // built year, lost year, type (0 port, 1 dam, 3 fort, 4 mine)
       uniform float uYear;
       uniform float uAnimYears;
       uniform vec3 uCamObj;
@@ -254,7 +256,10 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         float e = b - 1.0;
         float pop = b >= 1.0 ? 1.0 : 1.0 + (c1 + 1.0) * e * e * e + c1 * e * e;
         vec2 size;
-        if (vType > 2.5) {
+        if (vType > 3.5) {
+          float R = clamp(0.18 * cellPx, 4.5, 8.5);
+          size = vec2(R, R);
+        } else if (vType > 2.5) {
           float R = clamp(0.2 * cellPx, 5.0, 10.0);
           size = vec2(R, R);
         } else if (vType < 0.5) {
@@ -321,7 +326,26 @@ export function buildStructureLayer(world: World, structures: Structure[], settl
         vec3 c = vec3(0.0);
         float a = 0.0;
         float rimD; // signed distance of the icon body, for the build ring
-        if (vType > 2.5) {
+        if (vType > 3.5) {
+          // a mine: a dark earthen badge with a crossed pick and hammer
+          float R = vSize.x;
+          vec2 p = vPx;
+          float d = length(p) - R;
+          float bodyA = 1.0 - smoothstep(-0.5, 0.5, d);
+          float rim = smoothstep(-1.6, -0.6, d);
+          float sw = max(1.1, 0.14 * R);
+          float h1 = sdSeg(p, vec2(-0.55 * R, -0.55 * R), vec2(0.5 * R, 0.5 * R));
+          float h2 = sdSeg(p, vec2(0.55 * R, -0.55 * R), vec2(-0.5 * R, 0.5 * R));
+          // the pick's blade and the hammer's head across the handle ends
+          float pick = sdSeg(p, vec2(0.18 * R, 0.68 * R), vec2(0.7 * R, 0.2 * R));
+          float hammer = sdSeg(p, vec2(-0.66 * R, 0.32 * R), vec2(-0.32 * R, 0.66 * R)) - 0.08 * R;
+          float g = min(min(h1, h2) - sw * 0.5, min(pick - sw * 0.6, hammer - sw * 0.5));
+          float glyphA = 1.0 - smoothstep(-0.5, 0.5, g);
+          vec3 badge = mix(vec3(0.2, 0.13, 0.07), vec3(0.85, 0.7, 0.45), rim);
+          c = mix(badge, vec3(0.98, 0.88, 0.62), glyphA * (1.0 - rim)) * bodyA;
+          a = bodyA;
+          rimD = d;
+        } else if (vType > 2.5) {
           // a fort: a stone tower with three merlons, a dark door, a dark outline
           float R = vSize.x;
           vec2 p = vPx;

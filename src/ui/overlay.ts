@@ -131,6 +131,7 @@ const MODE_LABELS: Record<ViewMode, string> = {
   cash: 'Cash crops',
   factions: 'Factions',
   danger: 'Danger',
+  resources: 'Resources',
 }
 
 const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }

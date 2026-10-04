@@ -42,6 +42,8 @@ import { createSurface, rand4, type Probe } from './surface.ts'
 import { FACADE_PACK, FACADE_SMOKE } from './material.ts'
 import { isHouseKind } from './shapes.ts'
 import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type TownPolityState } from '../../ui/politiesData.ts'
+import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
+import { WorksKind } from './town.ts'
 
 /**
  * Camera distance (to each instance) at which models are full size, and where they are
@@ -467,6 +469,9 @@ interface Stats {
   ruins: number
   palaces: number
   camps: number
+  /** Goods: works sets drawn (forges, dyers, warehouses, guild halls, mints, foreign compounds, mine workings) and their pieces. */
+  works: number
+  workPieces: number
   burnt: number
   smoke: number
 }
@@ -546,7 +551,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const byDist = (a: number, b: number) => visD[a] - visD[b]
   /** (perf=1) What kept the last rebuild pending. */
   const pendWhy = { vnull: 0, vgen: 0, snull: 0, sgen: 0, farm: 0, forest: 0 }
-  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, burnt: 0, smoke: 0 }
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, works: 0, workPieces: 0, burnt: 0, smoke: 0 }
   const perfOn = typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)
   // (perf=1: the history, for console expressions over it)
   if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
@@ -732,6 +737,64 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     }
     return bannerRgb
   }
+  // ---------- goods (ui/goodsData.ts, the tables behind townGoodsState): works in the towns ----------
+  // The years each work stands come from the history exactly (industry bits per trade snapshot,
+  // the mines and the posts), so the instance set is a pure function of the window like the walls.
+  interface Works { kind: number; from: number; to: number; n: number; pop: number; rgb: Float32Array | null; cell: number }
+  let worksMap = new Map<number, Works[]>()
+  const worksOf = (id: number): Works[] => {
+    let out = worksMap.get(id)
+    if (out) return out
+    out = []
+    const gd = goodsOf(h)
+    if (gd) {
+      const popYear = (y: number) => {
+        const sn = Math.max(0, Math.min(lastSnap, Math.round(y / interval)))
+        return h.population[sn * N + id]
+      }
+      // industries: the spans of trade snapshots with a bit set, merged over gaps under 30 years
+      const spans = (mask: number, extra: number): [number, number, boolean][] => {
+        const res: [number, number, boolean][] = []
+        if (!gd.industry) return res
+        let from = -1, more = false
+        for (let q = 0; q <= gd.TS; q++) {
+          const b = q < gd.TS ? gd.industry[q * N + id] : 0
+          if (b & mask) {
+            if (from < 0) from = q * gd.TI
+            if (b & extra) more = true
+          } else if (from >= 0) {
+            const to = q < gd.TS ? q * gd.TI : NEVER
+            const last = res[res.length - 1]
+            if (last && from - last[1] < 30) {
+              last[1] = to
+              last[2] = last[2] || more
+            } else res.push([from, to, more])
+            from = -1
+            more = false
+          }
+        }
+        return res
+      }
+      for (const [from, to, blades] of spans(2 | 16, 16)) out.push({ kind: WorksKind.Forge, from, to, n: 1 + (blades ? 1 : 0) + (popYear(from) > 8000 ? 1 : 0), pop: popYear(from), rgb: null, cell: -1 })
+      for (const [from, to, dye] of spans(4 | 8, 8)) out.push({ kind: WorksKind.Textile, from, to, n: 1 + (dye ? 1 : 0), pop: popYear(from), rgb: null, cell: -1 })
+      for (const [from, to] of spans(256, 0)) out.push({ kind: WorksKind.Warehouses, from, to, n: 2, pop: popYear(from), rgb: null, cell: -1 })
+      for (const [from, to] of spans(512, 0)) out.push({ kind: WorksKind.Guild, from, to, n: 1, pop: popYear(from), rgb: null, cell: -1 })
+      for (const [from, to] of spans(1024, 0)) out.push({ kind: WorksKind.Mint, from, to, n: 1, pop: popYear(from), rgb: null, cell: -1 })
+      for (const st of h.structures) if (st.type === StructureType.Mine && st.settlement === id) out.push({ kind: WorksKind.Mine, from: st.builtYear, to: st.lostYear >= 0 ? st.lostYear : NEVER, n: 1, pop: popYear(st.builtYear), rgb: null, cell: st.cell })
+      for (const x of gd.postsHosted.get(id) ?? []) {
+        const p = gd.posts[x]
+        if (p.kind !== 0) continue
+        const c = ownerRgb(gd, p.owner, p.foundedYear)
+        const rgb = new Float32Array(3)
+        for (let k = 0; k < 3; k++) rgb[k] = c[k] <= 0.04045 ? c[k] / 12.92 : Math.pow((c[k] + 0.055) / 1.055, 2.4)
+        out.push({ kind: WorksKind.Factory, from: p.foundedYear, to: p.endedYear >= 0 ? p.endedYear : NEVER, n: 1, pop: popYear(p.foundedYear), rgb, cell: -1 })
+      }
+    }
+    worksMap.set(id, out)
+    return out
+  }
+  const GUILD_GOLD = new Float32Array([0.95, 0.62, 0.12])
+
   const smokeMat = new Float32Array(16)
   const sackY = new Float64Array(2), sackShare = new Float64Array(2), sackA = new Float64Array(6)
   const ringIds: number[] = []
@@ -757,7 +820,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.villages = 0
     stats.villageInstances = 0
     stats.farVillages = 0
-    stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = 0
+    stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = stats.works = stats.workPieces = 0
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -1009,6 +1072,25 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
                 stats.camps++
               }
             }
+          }
+        }
+        // ---- goods: forges, dyers, warehouses, a guild hall, a mint, a foreign compound, mine workings ----
+        const allWorks = worksOf(id)
+        let kinds = 0
+        for (const wk of allWorks) kinds |= 1 << wk.kind
+        for (const wk of allWorks) {
+          const from = Math.max(wk.from, s.foundedYear), to = Math.min(wk.to, end)
+          if (from >= to || from > y1 + interval || to < yP - 2) continue
+          const angle = wk.cell >= 0 ? layouts.angleTo(id, wk.cell) : 0
+          tl = performance.now()
+          const set = layouts.townExtra(id, `g${wk.kind}:${kinds}:${Math.round(wk.pop / 250)}:${wk.n}:${wk.cell >= 0 ? Math.round(angle * 20) : 0}`, (p) => p.works(wk.kind, wk.pop, wk.n, angle, kinds))
+          spent += performance.now() - tl
+          if (!set) { pending = true; continue }
+          stats.works++
+          stats.workPieces += set.n
+          for (let k = 0; k < set.n; k++) {
+            if (set.model[k] === Model.Banner) pushSlots(set, k, from, to, 0, false, 0, 0, wk.rgb ?? GUILD_GOLD)
+            else pushSlots(set, k, from, to)
           }
         }
       }
@@ -1359,6 +1441,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       polStates = new Map()
       sackFrom = null
       palaces = new Map()
+      worksMap = new Map()
       if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
       groundEpoch++
       shownS0 = -1

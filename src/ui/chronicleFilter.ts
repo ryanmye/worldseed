@@ -29,6 +29,7 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
     case EntryKind.TradeClosings:
     case EntryKind.Named:
     case EntryKind.Landfalls:
+    case EntryKind.Goods:
       return TRADE
   }
   if (!first) return TRADE
@@ -37,7 +38,10 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t >= 20 && t <= 43) return POLITICS
   if ((t === 4 || t === 7) && isWallEvent(h, first)) return POLITICS
   if ((t === 4 || t === 7) && h.structures?.[first.other]?.type === 3) return POLITICS // forts
+  if ((t === 4 || t === 7) && (h.structures?.[first.other]?.type === 4 || h.structures?.[first.other]?.type === 5)) return TRADE // mines and merchants' quarters
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
+  // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration
+  if (t >= 50 && t <= 65) return TRADE
   return SETTLEMENT
 }

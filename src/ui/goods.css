@@ -1,0 +1,336 @@
+/* Goods and trade panel, inspector goods section, Resources legend, goods chronicle dots (goodsPanel.ts, goodsFormat.ts) */
+
+.goods {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(360px, 38vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.gp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.gp-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.gp-count {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.goods.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.goods.collapsed .gp-body {
+  display: none;
+}
+.gp-body {
+  margin-top: 4px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.gp-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.gp-tab {
+  flex: 1;
+  padding: 2px 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--ctl-bg);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.gp-tab:hover {
+  background: var(--ctl-bg-hover);
+}
+.gp-tab.active {
+  background: rgba(255, 214, 120, 0.2);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 120, 0.35);
+}
+.gp-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  column-gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 4px 2px 2px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.gp-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.gp-row.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.gp-row.ended {
+  color: var(--text-faint);
+}
+.gp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-sub {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+.gp-num {
+  min-width: 18px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.gp-dot {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+.gp-qbar {
+  display: inline-block;
+  width: 34px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  vertical-align: 1px;
+}
+.gp-qbar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #c98a3a, #ffe2a0);
+}
+.gp-note {
+  margin: 4px 2px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.gp-cap {
+  margin: 5px 2px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.gp-line {
+  margin: 1px 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.gp-line b {
+  color: var(--text);
+}
+.gp-faint {
+  color: var(--text-faint);
+}
+.gp-hot {
+  color: #ffd27a;
+}
+.gp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 2px 2px 4px;
+}
+.gp-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--ctl-border);
+  border-radius: 9px;
+  background: var(--ctl-bg);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.gp-chip.active {
+  background: rgba(255, 214, 120, 0.22);
+  color: var(--text);
+  border-color: rgba(255, 214, 120, 0.5);
+}
+.gp-ramp {
+  display: flex;
+  justify-content: space-between;
+  margin: 3px 2px 2px;
+  padding: 0 3px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  line-height: 14px;
+  color: #10131a;
+  background: linear-gradient(90deg, #299ed9, #59db9e, #fadb52, #f26b33, #db2452);
+}
+.gp-link {
+  display: inline;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #9fd6ea;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(159, 214, 234, 0.35);
+  text-underline-offset: 2px;
+}
+.gp-link:hover {
+  color: #d4f0fa;
+}
+.gp-detail {
+  margin-top: 6px;
+  padding: 6px 2px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.gp-detail.hidden {
+  display: none;
+}
+.gp-d-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 2px 2px;
+}
+.gp-close {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: var(--ctl-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+/* a secret's holders over time */
+.gp-tl {
+  position: relative;
+  margin: 2px 2px 0;
+}
+.gp-tl-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) 7.6em;
+  align-items: center;
+  column-gap: 5px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.gp-tl-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-tl-track {
+  position: relative;
+  height: 7px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.gp-tl-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+.gp-tl-ch {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gp-tl-cursor {
+  display: none;
+}
+/* the inspector's goods section */
+.insp-goods {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.insp-goods.hidden {
+  display: none;
+}
+.insp-goods > div + div {
+  margin-top: 1px;
+}
+/* the Resources view's legend */
+.gp-legend-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 8px;
+  margin-bottom: 4px;
+}
+.gp-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+/* chronicle dots */
+.ev-deposit .ev-text::before {
+  background: #f2c14e;
+  box-shadow: 0 0 0 1.5px #6b4a10;
+}
+.ev-mine .ev-text::before {
+  background: #8a6a3a;
+}
+.ev-craft .ev-text::before {
+  background: #ff7fc4;
+}
+.ev-secret .ev-text::before {
+  background: #9fe39a;
+  box-shadow: 0 0 0 1.5px #24402a;
+}
+.ev-lane .ev-text::before {
+  background: #ffe9a8;
+  box-shadow: 0 0 0 1.5px #a07a2a;
+}
+.ev-post .ev-text::before {
+  background: #7fb6ff;
+}

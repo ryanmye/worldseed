@@ -27,7 +27,7 @@
 //    when the set of bonds in force changes (checked once per whole year). A civil war's
 //    front (the pretender against its parent) is dashed crimson and gold, crawling with the
 //    year, unlike a foreign war's pulsing red; an embargoed border (politiesData embargoesAt:
-//    neighbours not at war whose trade is mostly contraband) is dashed amber and black. The
+//    the embargoes the history records, short of war) is dashed amber and black. The
 //    dashes run along the border: their direction is the border's own (from the screen
 //    gradient of the owners' weight ratio) snapped to 45 degrees, so they stay steady along a
 //    stretch of border instead of scrambling with its noise.
@@ -50,7 +50,7 @@ import { RELIEF_GLSL, relief, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
-import { bondActive, capitalAt, cellPolities, embargoesAt, landSnapNear, polityAt, PolityEvent, SACK_YEARS, tradeSnapNear, type PolitiesData } from '../ui/politiesData.ts'
+import { bondActive, capitalAt, cellPolities, embargoesAt, landSnapNear, polityAt, PolityEvent, SACK_YEARS, type PolitiesData } from '../ui/politiesData.ts'
 import { BondKind, WarKind } from '../contract.ts'
 
 const TEX_W = 512
@@ -974,9 +974,9 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     relTex.needsUpdate = true
   }
 
-  /** Embargoed pairs at the trade snapshot nearest `y` (rewritten when it changes). */
+  /** Embargoed pairs at the whole year `y` (politiesData embargoesAt: the recorded table; rewritten when the year changes). */
   function writeEmbargoes(y: number) {
-    const t = tradeSnapNear(pd, y)
+    const t = Math.floor(y)
     if (t === shownEmbSnap) return
     shownEmbSnap = t
     const e = embargoesAt(pd, t)

@@ -294,7 +294,32 @@ export interface TownPlan {
   palace(tier: number): PlanItem[] | null
   /** Barracks and a stockade on open ground outside the main gate of the ring for `pop` (the town's edge for 0); threshold k: the k-th to stand (k + 1 garrison units). */
   camp(pop: number, n: number): PlanItem[] | null
+  /**
+   * Goods (ui/goodsData.ts townGoodsState): works on empty lots (lots that never hold a house) of the town as
+   * it stood at population `pop`: `kind` a WorksKind, `n` units (threshold k: the k-th unit; a compound's
+   * pieces share theirs), `angle` the direction (radians in the plan frame) of a mine's deposit, `kinds` the
+   * kinds this town ever has (bits 1 << WorksKind: a kind keeps its best lots from the kinds after it).
+   */
+  works(kind: number, pop: number, n: number, angle: number, kinds: number): PlanItem[] | null
 }
+
+/** What townGoodsState puts into a town (TownPlan.works). */
+export const WorksKind = {
+  /** Smiths' quarter: forges with their chimneys by the river (water power), else at the town's edge. */
+  Forge: 0,
+  /** Weavers' lofts and dyers' works by the river. */
+  Textile: 1,
+  /** Warehouses by the harbour, else by the market. */
+  Warehouses: 2,
+  /** A guild hall by the plaza. */
+  Guild: 3,
+  /** A walled foreign merchants' compound by the harbour or the main gate, its banner in the owner's colour. */
+  Factory: 4,
+  /** Mine workings: headframes and spoil heaps at the edge toward the deposit. */
+  Mine: 5,
+  /** A mint by the plaza (a strong stone hall). */
+  Mint: 6,
+} as const
 
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))
 
@@ -375,6 +400,7 @@ export function createTownPlan(site: Site): TownPlan {
     ruinRing: (pop, deadline) => (plan ? scaledAll(plan.ruinRing(pop, deadline)) : null),
     palace: (tier) => (plan ? scaledAll(plan.palace(tier)) : null),
     camp: (pop, n) => (plan ? scaledAll(plan.camp(pop, n)) : null),
+    works: (kind, pop, n, angle, kinds) => (plan ? scaledAll(plan.works(kind, pop, n, angle, kinds)) : null),
   }
 }
 
@@ -813,7 +839,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   const touchesWater = (i: number) => patches[i].poly.t.some((t) => t >= 0 && patches[t].water) || (patches[i].poly.t.some((t) => t === -1) && site.wet(patches[i].cx * 1.3, patches[i].cy * 1.3, 0))
   if (patches[0].water || patches.every((p) => p.water)) {
     // all water as drawn (a settlement on a lake shore cell, say): nothing to build on
-    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [] }
+    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [], works: () => [] }
   }
 
   // ---- 3. growth: the patches ranked by their distance from the plaza as a town grows ----
@@ -1965,6 +1991,149 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     diag.camp = [out.length, cand.length, +tx.toFixed(2), +ty.toFixed(2)]
     return out
   }
+  /**
+   * (goods) Works on empty lots (never a house: no household moves) of the town as it stood at population pop,
+   * chosen by kind: by the river or the water for forges and dyers, by the harbour or the market for warehouses,
+   * by the plaza for a guild hall or a mint, by the harbour or the main gate for a foreign compound, just past the
+   * town's edge toward the deposit for mine workings. Deterministic in its arguments (cached by the layout).
+   */
+  /** (goods) How well an empty lot suits works of a kind (lower is better), from its place in the plan only. */
+  const worksScore = (kind: number, l: Lot): number => {
+    const pi = l.patch
+    const w = patches[pi].ward
+    const dPlaza = Math.hypot(l.cx - plazaX, l.cy - plazaY)
+    const river = nearRiverPatch(pi), water = touchesWater(pi)
+    const ra = site.routes[0] ?? 0
+    const dn = Math.hypot(l.cx, l.cy) || 1
+    if (kind === WorksKind.Forge) return (river ? 0 : 3) + (6 - Math.min(6, dPlaza)) * 0.4
+    if (kind === WorksKind.Textile) return (river ? 0 : water ? 1.5 : 3) + dPlaza * 0.15
+    if (kind === WorksKind.Warehouses) return (w === Ward.Harbour ? 0 : water && site.port ? 0.8 : w === Ward.Merchant ? 1.6 : 3) + dPlaza * 0.2
+    if (kind === WorksKind.Factory) return site.port ? (w === Ward.Harbour || water ? 0 : 3) + dPlaza * 0.1 : (1 - (l.cx * Math.cos(ra) + l.cy * Math.sin(ra)) / dn) * 3 + dPlaza * 0.1
+    return dPlaza
+  }
+  /** (goods) Kinds in order of who gets a contested lot first, and how many lots each keeps from the kinds after it. */
+  const WORKS_PRIORITY = [WorksKind.Factory, WorksKind.Guild, WorksKind.Mint, WorksKind.Warehouses, WorksKind.Forge, WorksKind.Textile]
+  const WORKS_KEEP = 3
+  /** (goods) Empty lots of the town within reach k that suit works of a kind, best first, without the lots the kinds before it keep (memoised: deterministic in kind and k). */
+  const worksLots = new Map<number, number[]>()
+  const lotsFor = (kind: number, k: number, kinds: number): number[] => {
+    const key = (kinds * 8 + kind) * 100000 + k
+    const hit = worksLots.get(key)
+    if (hit) return hit
+    const kept = new Set<number>()
+    for (const o of WORKS_PRIORITY) {
+      if (o === kind) break
+      if (kinds & (1 << o)) for (const q of lotsFor(o, k, kinds).slice(0, WORKS_KEEP)) kept.add(q)
+    }
+    const c: { q: number; d: number }[] = []
+    for (let q = 0; q < lots.length; q++) {
+      const l = lots[q]
+      // (forges, dyers and warehouses may stand just past the edge, as works do; the halls and the compound within)
+      const edge = kind === WorksKind.Forge || kind === WorksKind.Textile || kind === WorksKind.Warehouses ? 3 : 0
+      if (!l.empty || kept.has(q) || rankOf[l.patch] >= k + edge) continue
+      const w = patches[l.patch].ward
+      if (paved(w) || w === Ward.Park || w === Ward.Green) continue
+      if (Math.abs(area(l.poly)) < (kind === WorksKind.Factory ? 0.5 : 0.25)) continue
+      c.push({ q, d: worksScore(kind, l) + 0.3 * rnd(q, 0x50 + kind) + (rankOf[l.patch] >= k ? 1.5 : 0) })
+    }
+    c.sort((a, b) => a.d - b.d || a.q - b.q)
+    const out = c.map((x) => x.q)
+    worksLots.set(key, out)
+    return out
+  }
+  /**
+   * (goods) Works on empty lots (never a house: no household moves) of the town as it stood at population pop,
+   * chosen by kind: by the river or the water for forges and dyers, by the harbour or the market for warehouses,
+   * by the plaza for a guild hall or a mint, by the harbour or the main gate for a foreign compound, just past the
+   * town's edge toward the deposit for mine workings. Each lot is kept for one kind (ownerOfLot). Deterministic in
+   * its arguments (cached by the layout).
+   */
+  const works = (kind: number, pop: number, n: number, angle: number, kinds: number): PlanItem[] => {
+    const out: PlanItem[] = []
+    const k = Math.max(1, ringReach(Math.max(pop, 1)))
+    const adx = Math.cos(angle), ady = Math.sin(angle)
+    const cand: { l: Lot; d: number }[] = []
+    for (let q = 0; q < lots.length; q++) {
+      const l = lots[q]
+      if (!l.empty) continue
+      const pi = l.patch
+      const w = patches[pi].ward
+      if (paved(w) || (patches[pi].inner && leafy(w))) continue
+      const a = Math.abs(area(l.poly))
+      if (a < (kind === WorksKind.Factory ? 0.6 : 0.35)) continue
+      const rank = rankOf[pi]
+      let d: number
+      if (kind === WorksKind.Mine) {
+        // just beyond the town toward the deposit
+        if (rank < k || rank > k + 24) continue
+        const dn = Math.hypot(l.cx, l.cy) || 1
+        d = (1 - (l.cx * adx + l.cy * ady) / dn) * 6 + (rank - k) * 0.08
+      } else continue
+      cand.push({ l, d })
+    }
+    if (kind !== WorksKind.Mine) lotsFor(kind, k, kinds).forEach((q, i) => cand.push({ l: lots[q], d: i }))
+    cand.sort((a, b) => a.d - b.d || a.l.key - b.l.key)
+    const taken: number[] = []
+    const base = { kind: 0, style, roof: hash4(seed, id, 0x35, kind) % 5, wall: hash4(seed, id, 0x36, kind) % 4, homes: 0 }
+    let j = 0
+    for (const { l } of cand) {
+      if (j >= n) break
+      let near = false
+      for (let q = 0; q < taken.length && !near; q += 2) if (Math.hypot(taken[q] - l.cx, taken[q + 1] - l.cy) < (kind === WorksKind.Factory ? 1.6 : 0.9)) near = true
+      if (near || !site.clear(l.cx, l.cy, kind === WorksKind.Factory ? 0.5 : 0.3)) continue
+      taken.push(l.cx, l.cy)
+      const yaw = Math.atan2(l.uy, l.ux)
+      const sc = Math.max(0.55, Math.min(0.95, Math.sqrt(Math.abs(area(l.poly))) * 0.5))
+      const jit = rnd(j, 0x3f + kind)
+      const at = { ...base, x: l.cx, y: l.cy, yaw, threshold: j, jitter: jit }
+      if (kind === WorksKind.Forge) {
+        // a forge, and a tall chimney stack beside it
+        out.push({ ...at, role: Role.Blacksmith, sx: sc, sz: sc, sy: sc, ward: Ward.Craftsmen })
+        const cx = l.cx + Math.cos(yaw) * sc * 0.55, cy = l.cy + Math.sin(yaw) * sc * 0.55
+        if (site.clear(cx, cy, 0.12)) out.push({ ...at, role: Role.Tower, x: cx, y: cy, sx: 0.16, sz: 0.16, sy: 0.95 + 0.3 * jit, ward: Ward.Craftsmen })
+      } else if (kind === WorksKind.Textile) {
+        // a mill race works the looms and fulling stocks; drying racks (haystack-like bales) beside
+        out.push({ ...at, role: nearRiverPatch(l.patch) ? Role.Watermill : Role.House, kind: Kind.Long, sx: sc, sz: sc, sy: sc, ward: Ward.Craftsmen })
+        const bx = l.cx - Math.sin(yaw) * sc * 0.6, by = l.cy + Math.cos(yaw) * sc * 0.6
+        if (site.clear(bx, by, 0.12)) out.push({ ...at, role: Role.Haystack, x: bx, y: by, sx: 0.45, sz: 0.45, sy: 0.5, ward: Ward.Craftsmen })
+      } else if (kind === WorksKind.Warehouses) {
+        // long warehouse ranges along the street
+        out.push({ ...at, role: Role.House, kind: Kind.Long, sx: sc * 1.15, sz: sc * 1.15, sy: sc * 1.1, ward: Ward.Harbour })
+      } else if (kind === WorksKind.Guild || kind === WorksKind.Mint) {
+        out.push({ ...at, role: kind === WorksKind.Mint ? Role.Castle : Role.Hall, sx: sc * (kind === WorksKind.Mint ? 0.55 : 1.05), sz: sc * (kind === WorksKind.Mint ? 0.55 : 1.05), sy: sc * (kind === WorksKind.Mint ? 0.55 : 1.05), ward: Ward.Admin })
+        if (kind === WorksKind.Guild) out.push({ ...at, role: Role.Banner, x: l.cx + Math.sin(yaw) * (sc * 0.7), y: l.cy - Math.cos(yaw) * (sc * 0.7), sx: 1, sz: 1, sy: 1.3, ward: Ward.Admin })
+      } else if (kind === WorksKind.Factory) {
+        // a walled compound: a hall and a warehouse inside a square wall, the owner's banner at its gate
+        // (houses, not the style's great hall: they scale with the plan like the wall round them)
+        const h = 0.62
+        const ux = Math.cos(yaw), uy = Math.sin(yaw), vx = -uy, vy = ux
+        // its paved yard
+        out.push({ ...at, role: Role.Ground, kind: GroundKind.Plaza, sx: h * 2.1, sz: h * 2.1, sy: 1, ward: Ward.Merchant })
+        out.push({ ...at, role: Role.House, kind: Kind.Tall, x: l.cx + vx * h * 0.35, y: l.cy + vy * h * 0.35, yaw: yaw + Math.PI, sx: 0.8, sz: 0.8, sy: 1.2, ward: Ward.Merchant })
+        out.push({ ...at, role: Role.House, kind: Kind.Long, x: l.cx - vx * h * 0.25 + ux * h * 0.3, y: l.cy - vy * h * 0.25 + uy * h * 0.3, sx: 0.65, sz: 0.65, sy: 0.8, ward: Ward.Harbour })
+        for (const [ox, oy, len, along] of [[0, 1, 2, 1], [0, -1, 2, 1], [1, 0, 2, 0], [-1, 0, 2, 0]] as const) {
+          const mx = l.cx + (ux * ox + vx * oy) * h, my = l.cy + (uy * ox + vy * oy) * h
+          // the gate side (toward the street, -v) has a gap for the gate
+          if (oy === -1) {
+            for (const sgn of [-1, 1]) out.push({ ...at, role: Role.WallSeg, x: mx + ux * h * 0.6 * sgn, y: my + uy * h * 0.6 * sgn, yaw, sx: h * 0.75, sz: 0.7, sy: 0.75, ward: -1 })
+            out.push({ ...at, role: Role.Banner, x: mx - vx * 0.18, y: my - vy * 0.18, sx: 1.2, sz: 1.2, sy: 1.7, ward: -1 })
+            continue
+          }
+          out.push({ ...at, role: Role.WallSeg, x: mx, y: my, yaw: along ? yaw : yaw + Math.PI / 2, sx: h * len, sz: 0.7, sy: 0.75, ward: -1 })
+        }
+      } else {
+        // a headframe over the shaft and spoil heaps round it
+        out.push({ ...at, role: Role.Tower, sx: 0.5, sz: 0.5, sy: 0.75 + 0.25 * jit, ward: Ward.Outskirts })
+        for (let q = 0; q < 3; q++) {
+          const a = yaw + q * 2.1 + jit, rr = 0.45 + 0.2 * rnd(j * 3 + q, 0x4e)
+          const x = l.cx + Math.cos(a) * rr, y = l.cy + Math.sin(a) * rr
+          if (site.clear(x, y, 0.12)) out.push({ ...at, role: Role.Rubble, x, y, yaw: a, sx: 0.9 + 0.4 * rnd(q, 0x4f), sz: 0.9, sy: 1.1, ward: Ward.Outskirts })
+        }
+      }
+      j++
+    }
+    return out
+  }
   /** Watabou's Castle: the citadel's own wall round its patch, a gate on the side toward the plaza. */
   const placeCitadelWall = (threshold: number) => {
     if (citadel < 0) return
@@ -2359,6 +2528,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     ruinRing,
     palace,
     camp,
+    works,
   }
 }
 

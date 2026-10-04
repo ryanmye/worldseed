@@ -22,7 +22,7 @@
 // for a settlement and a year, the wall rings in use with their build years, slighted walls,
 // how recently it was sacked, whether it is a capital, and a rough garrison size.
 
-import { BondKind, CITY_POPULATION, EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarKind, type Bonds, type History, type HistoryEvent, type Polity, type RaidSummary, type Wars, type World } from '../contract.ts'
+import { BondKind, CITY_POPULATION, EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarKind, type Bonds, type Embargoes, type History, type HistoryEvent, type Polity, type RaidSummary, type Wars, type World } from '../contract.ts'
 
 export const PolityTier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
 export type PolityTier = (typeof PolityTier)[keyof typeof PolityTier]
@@ -174,8 +174,11 @@ export interface PolitiesData {
   /** Settlements that were ever a smugglers' hub (contraband >= HUB_CONTRABAND) or a pirate haven (piracy > 0) at some snapshot. */
   hubSettlements: Int32Array
   havenSettlements: Int32Array
-  /** Embargoed pairs per trade snapshot (lazily, see embargoesAt). */
+  /** Embargoed pairs per trade snapshot (lazily, see embargoesAt; inferred only for histories without the recorded table). */
   embargoCache: Map<number, Int32Array>
+  /** Embargoes as the history records them (History.embargoes), and the entries of each polity (as either side), or null without them. */
+  embargoes: Embargoes | null
+  embargoesOf: number[][]
 }
 
 const cache = new WeakMap<History, PolitiesData | null>()
@@ -360,6 +363,16 @@ function buildPolitiesData(h: History): PolitiesData | null {
     hubSettlements: new Int32Array(0),
     havenSettlements: new Int32Array(0),
     embargoCache: new Map(),
+    embargoes: null,
+    embargoesOf: list.map(() => []),
+  }
+  const EM = p.embargoes
+  if (EM && EM.count > 0 && EM.a && EM.a.length >= EM.count && EM.b && EM.startYear && EM.endYear) {
+    pd.embargoes = EM
+    for (let k = 0; k < EM.count; k++) {
+      if (EM.a[k] >= 0 && EM.a[k] < P) pd.embargoesOf[EM.a[k]].push(k)
+      if (EM.b[k] >= 0 && EM.b[k] < P && EM.b[k] !== EM.a[k]) pd.embargoesOf[EM.b[k]].push(k)
+    }
   }
 
   // ---- polities v2: bonds, trade policy, the outlaw economy (each optional) ----
@@ -625,12 +638,43 @@ export function atWarAt(pd: PolitiesData, p: number, q: number, year: number): b
 export const tradeSnapNear = (pd: PolitiesData, year: number) => (pd.trade ? Math.max(0, Math.min(pd.trade.snapshots - 1, Math.round(year / pd.trade.interval))) : 0)
 
 /**
- * Embargoed pairs at trade snapshot t, flat [p, q, ...] with p < q: neighbouring polities, not at war and not bound,
- * whose trade with each other is at least EMBARGO_SHARE contraband. (The history does not record embargoes: an embargo
- * short of war stops all legal trade but in food, so what still crosses is mostly smuggled; pairs that stopped trading
- * altogether cannot be told apart from pairs that never traded.) Cached per trade snapshot.
+ * Embargoed pairs at `year`, flat [p, q, ...] with p < q. From the recorded table (History.embargoes) when the history
+ * has one: the embargoes in force at the year that are not swallowed by a war between the two (war stops all trade
+ * anyway, and the war front is drawn instead). Older histories without the table fall back to inferring them per trade
+ * snapshot (inferredEmbargoesAt).
  */
-export function embargoesAt(pd: PolitiesData, t: number): Int32Array {
+export function embargoesAt(pd: PolitiesData, year: number): Int32Array {
+  const EM = pd.embargoes
+  if (!EM) return inferredEmbargoesAt(pd, tradeSnapNear(pd, year))
+  const out: number[] = []
+  for (let k = 0; k < EM.count; k++) {
+    if (EM.startYear[k] > year || (EM.endYear[k] >= 0 && year >= EM.endYear[k])) continue
+    const p = Math.min(EM.a[k], EM.b[k]), q = Math.max(EM.a[k], EM.b[k])
+    if (atWarAt(pd, p, q, year)) continue
+    out.push(p, q)
+  }
+  return Int32Array.from(out)
+}
+
+/** Embargoes in force on polity p at `year`: the other side and the start year of each. */
+export function embargoesOn(pd: PolitiesData, p: number, year: number): { other: number; since: number }[] {
+  const EM = pd.embargoes
+  const out: { other: number; since: number }[] = []
+  if (!EM || p < 0 || p >= pd.count) return out
+  for (const k of pd.embargoesOf[p]) {
+    if (EM.startYear[k] > year || (EM.endYear[k] >= 0 && year >= EM.endYear[k])) continue
+    out.push({ other: EM.a[k] === p ? EM.b[k] : EM.a[k], since: EM.startYear[k] })
+  }
+  return out
+}
+
+/**
+ * Embargoed pairs at trade snapshot t inferred from the trade (histories without History.embargoes), flat [p, q, ...]
+ * with p < q: neighbouring polities, not at war and not bound, whose trade with each other is at least EMBARGO_SHARE
+ * contraband (an embargo short of war stops all legal trade but in food, so what still crosses is mostly smuggled).
+ * Cached per trade snapshot.
+ */
+function inferredEmbargoesAt(pd: PolitiesData, t: number): Int32Array {
   const T = pd.trade, SM = pd.smuggle
   if (!T || !SM) return new Int32Array(0)
   t = Math.max(0, Math.min(T.snapshots - 1, t))

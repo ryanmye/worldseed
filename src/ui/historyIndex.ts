@@ -7,6 +7,7 @@ import { LAST_SHOWN_EVENT, PeoplesEvent } from './format.ts'
 import type { PeoplesData } from './peoplesData.ts'
 import type { SpeciesData } from './speciesData.ts'
 import type { ExpeditionData } from './expeditionsData.ts'
+import { goodsGroupKey, goodsOtherIsSettlement, isGoodsEvent } from './goodsFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
@@ -47,6 +48,8 @@ export const EntryKind = {
   Forts: 16,
   /** polities: walls built by one polity's towns in one decade (a capital's first ring is never grouped: it stays a line of its own). */
   Walls: 17,
+  /** goods: deposit finds per decade, bypassed towns and lost fleets per leg and decade, posts per owner and decade (goodsFormat.ts goodsGroupKey). */
+  Goods: 18,
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
@@ -357,7 +360,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) // 20-43: polities (35-43 the second version); 44-49: species, second version
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) // 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -370,7 +373,9 @@ function otherIsSettlement(type: number): boolean {
     // polities: the conqueror's, old, defending or receiving capital (not the capital of every town that joins)
     type === 21 || type === 22 || type === 24 || type === 25 || type === 30 || type === 32 || type === 33 ||
     // polities, second version: the capital risen against, the absorbed realm's, the overlord's, the ally's, the suppressing and blockading fleets' capital
-    type === 35 || type === 37 || type === 38 || type === 39 || type === 42 || type === 43
+    type === 35 || type === 37 || type === 38 || type === 39 || type === 42 || type === 43 ||
+    // goods: the source, owner, home or far mart of a tradition, secret, lane or post
+    goodsOtherIsSettlement(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -588,6 +593,17 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     v2PerKey.set(k, (v2PerKey.get(k) ?? 0) + 1)
   })
   const v2Entry = new Map<number, number>()
+  // goods: deposit finds per decade, bypassed towns and lost fleets per leg, posts per owner (goodsGroupKey), gathered when two or more
+  const goodsKeyOfEvent = new Map<number, number>()
+  const goodsPerKey = new Map<number, number>()
+  h.events.forEach((e, i) => {
+    if (!isGoodsEvent(e.type as number)) return
+    const k = goodsGroupKey(e)
+    if (k < 0) return
+    goodsKeyOfEvent.set(i, k)
+    goodsPerKey.set(k, (goodsPerKey.get(k) ?? 0) + 1)
+  })
+  const goodsEntry = new Map<number, number>()
   const v2Kind = (t: number) => (t === 38 ? EntryKind.Bonds : t === 39 ? EntryKind.Alliances : t === 4 ? EntryKind.Forts : EntryKind.Blockades)
   const raidsPerBucket = perBucket(29, () => true)
   const raidEntry = new Map<number, number>()
@@ -614,6 +630,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (revoltKeyOfEvent.has(i) && (revoltsPerKey.get(revoltKeyOfEvent.get(i)!) ?? 0) >= 2) join(revoltEntry, revoltKeyOfEvent.get(i)!, EntryKind.Revolts, i)
     else if (wallKeyOfEvent.has(i) && (wallsPerKey.get(wallKeyOfEvent.get(i)!) ?? 0) >= 2) join(wallEntry, wallKeyOfEvent.get(i)!, EntryKind.Walls, i)
     else if (v2KeyOfEvent.has(i) && (v2PerKey.get(v2KeyOfEvent.get(i)!) ?? 0) >= 2) join(v2Entry, v2KeyOfEvent.get(i)!, v2Kind(e.type as number), i)
+    else if (goodsKeyOfEvent.has(i) && (goodsPerKey.get(goodsKeyOfEvent.get(i)!) ?? 0) >= 2) join(goodsEntry, goodsKeyOfEvent.get(i)!, EntryKind.Goods, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })

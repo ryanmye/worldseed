@@ -176,6 +176,8 @@ export interface Layouts {
   wallPop(id: number, structureId: number): number
   /** Polity data: a slot set made from settlement id's plan (cached by key), or null while the plan is not set up. */
   townExtra(id: number, key: string, make: (plan: TownPlan) => PlanItem[] | null): SlotSet | null
+  /** Goods: direction (radians in settlement id's plan frame) toward cell `cell` (a mine's deposit), 0 before its layout exists. */
+  angleTo(id: number, cell: number): number
 }
 
 /**
@@ -1700,6 +1702,13 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     },
     wallPop: (id, sid) => wallPopsOf(id).get(sid) ?? 0,
     townExtra,
+    angleTo(id: number, cell: number) {
+      const st = states.get(id)
+      if (!st || cell < 0) return 0
+      const tx = (GP[cell * 3] - st.ox) * st.ex + (GP[cell * 3 + 1] - st.oy) * st.ey + (GP[cell * 3 + 2] - st.oz) * st.ez
+      const ty = (GP[cell * 3] - st.ox) * st.nx + (GP[cell * 3 + 1] - st.oy) * st.ny + (GP[cell * 3 + 2] - st.oz) * st.nz
+      return Math.atan2(ty, tx)
+    },
     settlement: getSettlement,
     settlementReady(id, need) {
       const st = states.get(id)

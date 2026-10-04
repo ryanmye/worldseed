@@ -38,7 +38,7 @@ import type { LabelLayer, RegionLabel } from '../render/labels.ts'
 import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
-import { assignPolityColors, blockadesAt, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
+import { assignPolityColors, blockadesAt, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -91,6 +91,12 @@ export interface PolitiesView {
   setTradeVisible(on: boolean): void
   /** "Kingdom of Vashtar" for the faction holding a cell at the year shown, or ''. */
   describeCell(cell: number): string
+}
+
+/** Goods lines of a faction's detail (secrets held, lanes, posts: ui/goodsPanel.ts), or null without goods data. */
+let polityGoodsNote: ((p: number, year: number) => (string | Node)[][]) | null = null
+export function setPolityGoodsNote(fn: ((p: number, year: number) => (string | Node)[][]) | null): void {
+  polityGoodsNote = fn
 }
 
 const ORIGIN_WORDS: Record<number, string> = {
@@ -613,6 +619,10 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         const spark = tariffSpark(pd, selected)
         if (spark) t.append(spark)
       }
+      // embargoes in force (History.embargoes): drawn as a dashed amber border where the two meet
+      for (const em of embargoesOn(pd, selected, year)) line('Under embargo with ', polityLink(em.other, pd.names[em.other]), ` since ${em.since}`).classList.add('fp-embargo')
+      // goods: secrets held, lanes and trading posts (goodsPanel.ts)
+      for (const parts of polityGoodsNote?.(selected, year) ?? []) line(...parts).classList.add('fp-goods')
     }
     // capitals
     const caps: [number, number][] = []

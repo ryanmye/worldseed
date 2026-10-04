@@ -3,6 +3,7 @@
 import { EventType, FeatureKind, StructureType, type GeoFeature, type History, type HistoryEvent } from '../contract.ts'
 import { describePolityEvent, describePolityEventFor, isWallEvent, polityEventKind } from './polityFormat.ts'
 import { describeSpeciesV2Event, tameVerb } from './speciesFormat.ts'
+import { describeGoodsEvent, describeGoodsEventFor, describeMineBuilt, goodsEventKind } from './goodsFormat.ts'
 
 /** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
@@ -31,6 +32,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
   // polities, second version: civil wars, bonds, the outlaw economy, forts
   | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
+  // goods (goodsFormat.ts): deposits and mines, craft traditions, secrets, lanes, trading posts
+  | 'deposit' | 'craft' | 'secret' | 'lane' | 'post' | 'mine'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -280,7 +283,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.Founded: return 'founded'
     case EventType.Abandoned: return 'abandoned'
     case EventType.Famine: return 'famine'
-    case EventType.Built: return (e.value as number) === StructureType.Fort ? 'fort' : 'built'
+    case EventType.Built: return (e.value as number) === StructureType.Fort ? 'fort' : (e.value as number) === StructureType.Mine ? 'mine' : (e.value as number) === StructureType.Factory ? 'post' : 'built'
     case EventType.BecameTown: return 'town'
     case EventType.BecameCity: return 'city'
     case EventType.StructureLost: return 'lost'
@@ -302,7 +305,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.HabitSpreads:
     case EventType.Drain: return 'habit'
     case EventType.Panzootic: return 'plague'
-    default: return (polityEventKind(null, e) as EventKind | null) ?? 'migration'
+    default: return (goodsEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
 
@@ -313,7 +316,7 @@ function structureTypeOf(h: History, e: HistoryEvent): number {
 }
 
 export function structureName(type: number): string {
-  return type === StructureType.Dam ? 'dam' : type === StructureType.Fort ? 'fort' : 'port'
+  return type === StructureType.Dam ? 'dam' : type === StructureType.Fort ? 'fort' : type === StructureType.Mine ? 'mine' : type === StructureType.Factory ? 'factory' : 'port'
 }
 
 /** One-line description of an event for the global chronicle. */
@@ -330,6 +333,8 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Built:
       if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `${name} raises walls`
       if (structureTypeOf(h, e) === StructureType.Fort) return `${name} builds a fort on its border`
+      if (structureTypeOf(h, e) === StructureType.Mine) return describeMineBuilt(h, e, -1) ?? `${name} sinks a mine`
+      if (structureTypeOf(h, e) === StructureType.Factory) return `${name} opens a merchants' quarter abroad`
       return structureTypeOf(h, e) === StructureType.Dam ? `${name} dams the river` : `${name} builds a port`
     case EventType.BecameTown:
       return `${name} grows into a town`
@@ -338,6 +343,8 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.StructureLost:
       if (isWallEvent(h, e)) return describePolityEvent(h, e) ?? `The walls of ${name} fall into ruin`
       if (structureTypeOf(h, e) === StructureType.Fort) return `The fort of ${name} is abandoned`
+      if (structureTypeOf(h, e) === StructureType.Mine) return `The mine of ${name} is abandoned`
+      if (structureTypeOf(h, e) === StructureType.Factory) return `The merchants' quarter of ${name} abroad is closed`
       return structureTypeOf(h, e) === StructureType.Dam ? `The dam of ${name} falls into ruin` : `The port of ${name} falls into ruin`
     case EventType.TradeOpened: {
       const x = exchange(h, e, e.settlement)
@@ -348,7 +355,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Migration:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
     default:
-      return describePeoplesEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
+      return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
 
@@ -398,6 +405,8 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.Built:
       if (isWallEvent(h, e)) return describePolityEventFor(h, e, id) ?? 'Raised walls'
       if (structureTypeOf(h, e) === StructureType.Fort) return 'Built a fort on its border'
+      if (structureTypeOf(h, e) === StructureType.Mine) return describeMineBuilt(h, e, id) ?? 'Sank a mine'
+      if (structureTypeOf(h, e) === StructureType.Factory) return "Opened a merchants' quarter abroad"
       return structureTypeOf(h, e) === StructureType.Dam ? 'Dammed the river' : 'Built a port'
     case EventType.BecameTown:
       return `Grew into a town (${formatInt(e.value)} people)`
@@ -416,7 +425,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.TradeClosed:
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
-      return describePeoplesEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
+      return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)
   }

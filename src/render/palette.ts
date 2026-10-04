@@ -26,6 +26,8 @@ export const ViewMode = {
   Factions: 'factions',
   /** polities: danger (raids, war, lawlessness) per land cell as a heat map (render/polities.ts), over a neutral base. */
   Danger: 'danger',
+  /** goods: deposits, mines and the industries of towns over a muted relief (ui/goodsPanel.ts, render/longhaul.ts; hidden without goods data). */
+  Resources: 'resources',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -44,6 +46,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Cash,
   ViewMode.Factions,
   ViewMode.Danger,
+  ViewMode.Resources,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -71,7 +74,8 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Herds:
     case ViewMode.Cash:
     case ViewMode.Factions:
-    case ViewMode.Danger: return BlendStyle.Categorical
+    case ViewMode.Danger:
+    case ViewMode.Resources: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
 }
@@ -276,6 +280,10 @@ const LANDUSE_WILD = rgb(46, 52, 50)
 const FACTIONS_STATELESS = rgb(96, 97, 92)
 const FACTIONS_WATER = rgb(18, 30, 52)
 const DANGER_LAND = rgb(42, 46, 48)
+/** Resources view: low ground and high ground of its muted relief. */
+const RESOURCES_LOW = rgb(74, 80, 70)
+const RESOURCES_HIGH = rgb(150, 132, 108)
+const RESOURCES_WATER = rgb(34, 48, 66)
 
 export function colorForMode(
   mode: ViewMode,
@@ -352,6 +360,13 @@ export function colorForMode(
     case ViewMode.Danger: {
       const water = e < 0 || world.lake?.[i] === 1
       write(water ? (mode === ViewMode.Factions ? FACTIONS_WATER : CAPACITY_WATER) : mode === ViewMode.Factions ? FACTIONS_STATELESS : DANGER_LAND, out, o, scale)
+      return
+    }
+    case ViewMode.Resources: {
+      // a muted relief: the ground darker low, paler and browner in the hills, where the ores lie
+      const water = e < 0 || world.lake?.[i] === 1
+      if (water) write(RESOURCES_WATER, out, o, scale)
+      else write(lerp3(RESOURCES_LOW, RESOURCES_HIGH, Math.sqrt(Math.max(0, e) / 0.6)), out, o, scale)
       return
     }
   }

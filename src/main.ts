@@ -39,6 +39,7 @@ import { loadPref, savePref } from './ui/panels.ts'
 // expeditions=0 (no expedition trails, supply lines, lost-expedition marks or discoveries), species=<id> (select a species),
 // view=crops|herds (main staple / herd animal per cell, when the history has them),
 // factions=0 (no faction tint and borders on the Terrain view), polity=<id> (select a faction), view=factions|danger (when the history has them)
+// longhaul=0 (no lanes, relay legs, marts or posts), tradition=<id>, secret=<id>, deposit=<id>, lane=<leg id>, price=<good 7..11> (the Goods panel), view=resources
 // map=1|0 (the flat map, Equal Earth; else the remembered choice), mapcenter=<degrees> (its central meridian)
 
 const params = new URLSearchParams(window.location.search)
@@ -366,6 +367,7 @@ function clearHistoryParams() {
   setUrlParam('known', null)
   setUrlParam('species', null)
   setUrlParam('polity', null)
+  for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price']) setUrlParam(k, null)
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -489,6 +491,8 @@ overlay.setViewModeAvailable(ViewMode.Cash, false)
 // the Factions and Danger views need the history's polities (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Factions, false)
 overlay.setViewModeAvailable(ViewMode.Danger, false)
+// the Resources view needs the history's goods (deposits, industries)
+overlay.setViewModeAvailable(ViewMode.Resources, false)
 overlay.addLayerToggle({
   key: 'expeditions',
   label: 'Expeditions',
