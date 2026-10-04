@@ -61,6 +61,8 @@ export interface IdeaDef {
   technique: number
   /** Era 0..4 (the first villages, towns, states, the high middle ages, the early modern centuries): its weight in the general cap (IDEA.eraWeight). */
   era: number
+  /** Its own weight in the general cap (times the era's; absent: 1): the plough, bronze, iron and writing counted most. */
+  weight?: number
   /** Conceptions per century by a people meeting the preconditions in full (weight 1), times IDEA.conceive. */
   chance: number
   /** Precondition weight 0..1 of people p. */
@@ -109,52 +111,52 @@ const towns = (c: IdeaCtx, p: number, n: number): number => ss(0, n, c.towns[p])
 export const IDEA_DEFS: IdeaDef[] = [
   // --- The first villages ---
   {
-    key: 'pottery', name: 'pottery', kind: IdeaKind.Crafts, pre: [], technique: -1, era: 0, chance: 5,
+    key: 'pottery', name: 'pottery', kind: IdeaKind.Crafts, pre: [], technique: -1, era: 0, weight: 0.4, chance: 5,
     cond: (c, p) => ss(200, 800, c.big[p]), teach: 15, fragile: 0.4, resist: 0, theft: 0,
     caps: [0.04, 0, 0.02, 0.12], craft: 0.03, effect: 'storage and cooking; Crafts, Farming',
     history: 'Fired clay vessels arose independently in Jomon Japan and China (c. 16000-14000 BCE), in the Sahara and Near East (c. 9000-7000 BCE) and the Americas; Tasmanians and some Polynesians lost it.',
   },
   {
-    key: 'sail', name: 'the sail', kind: IdeaKind.Seafaring, pre: [], technique: -1, era: 0, chance: 2,
+    key: 'sail', name: 'the sail', kind: IdeaKind.Seafaring, pre: [], technique: -1, era: 0, weight: 0.6, chance: 2,
     cond: (c, p) => ss(0.05, 0.4, c.coast[p] + 0.5 * c.river[p]) * ss(300, 1500, c.pop[p]), teach: 15, fragile: 0.3, resist: 0, theft: 0,
     use: (c, p) => ss(0, 0.2, c.coast[p] + 0.5 * c.river[p]), caps: [0, 0.3, 0, 0.02], seaCost: 0.06, range: 0.05,
     effect: 'Seafaring, sea costs, range',
     history: 'Sails drove Nile boats by c. 3200 BCE and Austronesian outriggers later; Mesoamerica had none until Europeans came.',
   },
   {
-    key: 'ard', name: 'the plough', kind: IdeaKind.Farming, pre: [], technique: -1, era: 0, chance: 0.8,
+    key: 'ard', name: 'the plough', kind: IdeaKind.Farming, pre: [], technique: -1, era: 0, weight: 1.6, chance: 0.8,
     cond: (c, p) => c.draught[p] * ss(500, 2500, c.pop[p]), teach: 15, fragile: 0.2, resist: 0, theft: 0,
     use: (c, p) => c.draught[p], caps: [0.3, 0, 0.02, 0], effect: 'Farming (needs draught animals)',
     history: 'The ard was drawn by oxen in Mesopotamia by c. 4000 BCE and spread across Eurasia and North Africa; without draught animals the Americas never used it.',
   },
   {
-    key: 'loom', name: 'the loom', kind: IdeaKind.Crafts, pre: [], technique: -1, era: 0, chance: 1.2,
+    key: 'loom', name: 'the loom', kind: IdeaKind.Crafts, pre: [], technique: -1, era: 0, weight: 0.5, chance: 1.2,
     cond: (c, p) => c.fibre[p] * ss(400, 2000, c.big[p]), teach: 20, fragile: 0.3, resist: 0, theft: 0,
     caps: [0, 0, 0, 0.1], craft: 0.06, effect: 'cloth workshops; Crafts',
     history: 'Warp-weighted and backstrap looms are Neolithic; the treadle loom came from China to Europe by the 11th century.',
   },
   {
-    key: 'irrigation', name: 'canal irrigation', kind: IdeaKind.Farming, pre: [], technique: -1, era: 0, chance: 0.8,
+    key: 'irrigation', name: 'canal irrigation', kind: IdeaKind.Farming, pre: [], technique: -1, era: 0, weight: 1.3, chance: 0.8,
     cond: (c, p) => ss(0.02, 0.15, c.dryRiver[p]) * ss(800, 3000, c.pop[p]), teach: 25, fragile: 0.3, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.15, c.dryRiver[p] + 0.3 * c.dry[p]), caps: [0.2, 0, 0, 0.02], farm: 0.3,
-    effect: 'food on dry river land (+30%); Farming',
+    use: (c, p) => ss(0, 0.15, c.dryRiver[p] + 0.3 * c.dry[p]), caps: [0.2, 0, 0, 0.02], farm: 0.15,
+    effect: 'food on dry river land (+15%); Farming',
     history: 'Canals fed the fields of Mesopotamia (c. 6000 BCE), Egypt, the Indus, the Yellow River and coastal Peru, each worked out apart where dry plains met great rivers.',
   },
   {
-    key: 'calendar', name: 'the calendar', kind: IdeaKind.Knowledge, pre: [], technique: -1, era: 0, chance: 1,
+    key: 'calendar', name: 'the calendar', kind: IdeaKind.Knowledge, pre: [], technique: -1, era: 0, weight: 0.6, chance: 1,
     cond: (c, p) => ss(1500, 6000, c.pop[p]) * ss(800, 3000, c.big[p]), teach: 40, fragile: 0.2, resist: 0, theft: 0,
     caps: [0.04, 0.05, 0, 0.04], learn: 0.05, effect: 'the farming year and the stars; Farming, Seafaring',
     history: 'Egyptian, Babylonian, Chinese and Maya calendars were each worked out by watching the sky over the farming year.',
   },
   {
-    key: 'bronze', name: 'bronze', kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 0, chance: 0.5,
+    key: 'bronze', name: 'bronze', kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 0, weight: 1.6, chance: 0.5,
     cond: (c, p) => ss(0.05, 0.4, c.ore[p]) * ss(1000, 4000, c.pop[p]), teach: 40, fragile: 0.5, resist: 0, theft: 1,
     use: (c, p) => 0.5 + 0.5 * ss(0, 0.3, c.ore[p] + 0.2 * c.lanes[p]), caps: [0.03, 0.02, 0.35, 0.08], war: 0.06,
     effect: 'Metalworking, war; needs tin and copper',
     history: 'Arsenical then tin bronze in the Near East (c. 3300 BCE), China (c. 2000 BCE) and the Andes; when tin trade failed after 1200 BCE bronze-working towns fell back.',
   },
   {
-    key: 'wheel', name: 'the wheel', kind: IdeaKind.Transport, pre: [], technique: -1, era: 0, chance: 0.4,
+    key: 'wheel', name: 'the wheel', kind: IdeaKind.Transport, pre: [], technique: -1, era: 0, weight: 1.2, chance: 0.4,
     cond: (c, p) => c.draught[p] * ss(1500, 6000, c.pop[p]) * (0.4 + 0.6 * ss(0.1, 0.5, c.open[p])), teach: 12, fragile: 0.2, resist: 0, theft: 0,
     use: (c, p) => 0.1 + 0.9 * c.draught[p], caps: [0.04, 0, 0.04, 0.1], land: 0.12,
     effect: 'carts: overland trade reach; Crafts (little use without draught animals)',
@@ -162,25 +164,25 @@ export const IDEA_DEFS: IdeaDef[] = [
   },
   // --- The first towns ---
   {
-    key: 'riding', name: 'horse riding', kind: IdeaKind.War, pre: [], technique: -1, era: 1, chance: 1,
+    key: 'riding', name: 'horse riding', kind: IdeaKind.War, pre: [], technique: -1, era: 1, weight: 0.7, chance: 1,
     cond: (c, p) => c.horse[p] * ss(0.1, 0.5, c.open[p]), teach: 20, fragile: 0.1, resist: 0, theft: 0,
     use: (c, p) => c.horse[p], caps: [0.02, 0, 0, 0.02], war: 0.07, land: 0.05, effect: 'cavalry and couriers (needs horses)',
     history: 'Riding began on the Eurasian steppe (c. 3500 BCE, Botai and after); horsemen carried it wherever horses went.',
   },
   {
-    key: 'potterWheel', name: "the potter's wheel", kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 1, chance: 0.8,
+    key: 'potterWheel', name: "the potter's wheel", kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 1, weight: 0.7, chance: 0.8,
     cond: (c, p) => towns(c, p, 1) * ss(1500, 4000, c.big[p]), teach: 20, fragile: 0.3, resist: 0, theft: 0,
-    caps: [0, 0, 0, 0.12], craft: 0.05, effect: 'workshop output; Crafts',
+    caps: [0, 0, 0, 0.08], craft: 0.05, effect: 'workshop output; Crafts',
     history: 'Mesopotamia c. 4500-3500 BCE, then Egypt, the Indus and China; unknown in the pre-Columbian Americas.',
   },
   {
-    key: 'iron', name: 'iron smelting', kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 1, chance: 0.35,
+    key: 'iron', name: 'iron smelting', kind: IdeaKind.Crafts, pre: ['pottery'], technique: -1, era: 1, weight: 1.6, chance: 0.35,
     cond: (c, p) => ss(0.05, 0.4, c.ore[p]) * ss(1.2, 1.45, c.metal[p]) * ss(2000, 8000, c.pop[p]), teach: 50, fragile: 0.3, resist: 0, theft: 1,
     caps: [0.2, 0.02, 0.45, 0.06], war: 0.1, effect: 'iron tools and arms; Metalworking, Farming, war',
     history: 'Smelted in Anatolia and the Levant by 1200 BCE, perhaps independently in West Africa (Nok, c. 900 BCE); China cast it by 500 BCE. Smiths kept the craft close and it spread with them.',
   },
   {
-    key: 'writing', name: 'writing', kind: IdeaKind.Administration, pre: ['calendar'], technique: -1, era: 1, chance: 0.4,
+    key: 'writing', name: 'writing', kind: IdeaKind.Administration, pre: ['calendar'], technique: -1, era: 1, weight: 1.5, chance: 0.4,
     cond: (c, p) => towns(c, p, 2) * (0.3 + 0.7 * ss(-1, 1, c.tier[p])) * ss(50, 400, c.trade[p] + c.big[p] / 50), teach: 150, fragile: 0.5, resist: 0, theft: 0,
     caps: [0.05, 0.05, 0.05, 0.15], admin: 0.15, learn: 0.2, effect: 'records, accounts, rule at a distance; learning; Crafts',
     history: 'Invented at least four times: Sumer (c. 3200 BCE), Egypt, China (c. 1200 BCE) and Mesoamerica (c. 600 BCE). It took scribes schooled for years; Mycenaean Greece lost Linear B in its collapse.',
@@ -195,7 +197,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'coinage', name: 'coinage', kind: IdeaKind.Administration, pre: ['bronze'], technique: -1, era: 1, chance: 0.5,
     cond: (c, p) => ss(150, 800, c.trade[p]) * ss(-1, 1, c.tier[p]), teach: 15, fragile: 0.2, resist: 0, theft: 0,
-    caps: [0, 0, 0.05, 0.12], land: 0.05, admin: 0.06, effect: 'cheaper trade, taxes; Crafts',
+    caps: [0, 0, 0.05, 0.08], land: 0.05, admin: 0.06, effect: 'cheaper trade, taxes; Crafts',
     history: 'Lydia struck electrum coins c. 630 BCE and China its spade money about then, independently; coins spread with every army and merchant within two centuries.',
   },
   {
@@ -225,7 +227,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'glass', name: 'glass', kind: IdeaKind.Crafts, pre: ['potterWheel'], technique: -1, era: 1, chance: 0.5,
     cond: (c, p) => towns(c, p, 2) * ss(1.35, 1.6, c.crafts[p]), teach: 60, fragile: 0.4, resist: 0, theft: 1,
-    caps: [0, 0.02, 0.02, 0.08], craft: 0.04, effect: 'workshop output; Crafts',
+    caps: [0, 0.02, 0.02, 0.05], craft: 0.04, effect: 'workshop output; Crafts',
     history: 'Glass beads in Mesopotamia c. 2500 BCE; glassblowing in Syria (1st century BCE) spread through the Roman world; Venice later guarded its Murano secrets.',
   },
   // --- The first states ---
@@ -250,7 +252,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'mathematics', name: 'positional numbers', kind: IdeaKind.Knowledge, pre: ['writing'], technique: -1, era: 2, chance: 0.4,
     cond: (c, p) => ss(0, 1, c.cities[p]) * ss(1.5, 1.9, c.crafts[p]), teach: 120, fragile: 0.3, resist: R_GUILD, theft: 0,
-    caps: [0.04, 0.08, 0.06, 0.12], learn: 0.1, effect: 'reckoning: learning; Crafts, Seafaring',
+    use: (c, p) => ss(0, 2, c.cities[p]), caps: [0.04, 0.1, 0.06, 0.16], learn: 0.1, effect: 'reckoning: learning; Crafts, Seafaring',
     history: 'Indian numerals with zero (by c. 500 CE) reached Baghdad by 825 (al-Khwarizmi) and Europe with Fibonacci (1202); Florence\'s money-changers banned them from account books in 1299, and they were in wide use only by 1500.',
   },
   {
@@ -262,7 +264,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'paper', name: 'paper', kind: IdeaKind.Crafts, pre: ['writing'], technique: -1, era: 2, chance: 0.4,
     cond: (c, p) => c.fibre[p] * towns(c, p, 3) * ss(1.6, 2.0, c.crafts[p]), teach: 80, fragile: 0.2, resist: 0, theft: 1,
-    caps: [0, 0, 0, 0.14], admin: 0.06, craft: 0.03, learn: 0.1, effect: 'cheap records: rule, learning; Crafts',
+    caps: [0, 0, 0, 0.1], admin: 0.06, craft: 0.03, learn: 0.1, effect: 'cheap records: rule, learning; Crafts',
     history: 'Cai Lun\'s paper (105 CE) stayed Chinese for six centuries; papermakers taken at Talas (751) brought it to Samarkand, then Baghdad (794), Spain (c. 1150) and Italy (1276).',
   },
   {
@@ -293,38 +295,38 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'lateen', name: 'the lateen sail', kind: IdeaKind.Seafaring, pre: ['sail'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(100, 600, c.trade[p]), teach: 8, fragile: 0.1, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.25, 0, 0], seaCost: 0.05, effect: 'sailing into the wind: sea costs',
+    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.15, 0, 0], seaCost: 0.05, effect: 'sailing into the wind: sea costs',
     history: 'Rigged in the Indian Ocean and the eastern Mediterranean by late antiquity, taken up by every Mediterranean shipwright.',
   },
   {
     key: 'rudder', name: 'the stern rudder', kind: IdeaKind.Seafaring, pre: ['keel'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(1.5, 1.8, c.sea[p]), teach: 15, fragile: 0.1, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.25, 0, 0], seaCost: 0.05, range: 0.05,
+    use: (c, p) => ss(0, 0.15, c.port[p] + 0.3 * c.coast[p]), caps: [0, 0.15, 0, 0], seaCost: 0.05, range: 0.05,
     effect: 'bigger ships: sea costs, range',
     history: 'Han Chinese junks steered by stern rudders in the 1st century CE; they appear in Europe c. 1180.',
   },
   {
     key: 'compass', name: 'the compass', kind: IdeaKind.Seafaring, pre: ['iron', 'sail'], technique: -1, era: 3, chance: 0.25,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(1.7, 2.1, c.sea[p]) * ss(1.6, 2.0, c.metal[p]), teach: 6, fragile: 0.1, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.35, 0.02, 0], range: 0.15, seaCost: 0.06, effect: 'open-sea range (+15%); copied on sight by seafarers',
+    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.4, 0.02, 0], range: 0.15, seaCost: 0.06, effect: 'open-sea range (+15%); copied on sight by seafarers',
     history: 'Described by Shen Kuo (1088) and in use on Chinese ships by 1117; in Europe by Neckam\'s day (c. 1190) and among Arab pilots by 1232. It was of use only to those who sailed out of sight of land.',
   },
   {
     key: 'spinningWheel', name: 'the spinning wheel', kind: IdeaKind.Crafts, pre: ['loom'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => c.fibre[p] * towns(c, p, 2) * ss(1.5, 1.9, c.crafts[p]), teach: 15, fragile: 0.1, resist: 0, theft: 0,
-    caps: [0.02, 0, 0, 0.14], craft: 0.06, effect: 'yarn for the looms: workshop output; Crafts',
+    caps: [0.02, 0, 0, 0.08], craft: 0.06, effect: 'yarn for the looms: workshop output; Crafts',
     history: 'Spun in India by c. 500-1000 CE, in Baghdad by the 13th century and in Europe by c. 1280 (the Speyer guild rules of 1280).',
   },
   {
     key: 'cartography', name: 'cartography', kind: IdeaKind.Knowledge, pre: ['writing', 'mathematics'], technique: -1, era: 3, chance: 0.4,
     cond: (c, p) => ss(0, 2, c.lanes[p] + c.port[p] * 5) * ss(1.6, 2.0, c.sea[p] + 0.2 * c.crafts[p]), teach: 40, fragile: 0.2, resist: 0, theft: 1,
-    caps: [0, 0.2, 0, 0.04], range: 0.05, effect: 'charts: range; Seafaring',
+    caps: [0, 0.2, 0, 0.06], range: 0.05, effect: 'charts: range; Seafaring',
     history: 'Ptolemy\'s Geography, Pei Xiu\'s grids (3rd century) and the portolan charts of 13th-century Genoa and Majorca.',
   },
   {
     key: 'clock', name: 'the mechanical clock', kind: IdeaKind.Knowledge, pre: ['watermill', 'mathematics'], technique: -1, era: 3, chance: 0.3,
     cond: (c, p) => ss(0, 2, c.cities[p]) * ss(2.0, 2.5, c.crafts[p]), teach: 40, fragile: 0.1, resist: 0, theft: 0,
-    caps: [0, 0.1, 0.08, 0.12], learn: 0.05, effect: 'gearing and time: Crafts, Metalworking, Seafaring',
+    use: (c, p) => ss(0, 2, c.cities[p]), caps: [0, 0.15, 0.12, 0.35], learn: 0.05, effect: 'gearing and time: Crafts, Metalworking, Seafaring',
     history: 'Su Song\'s astronomical clock tower (1088) stood alone; Europe\'s verge-and-foliot clocks (c. 1280-1300) filled every town square within a century.',
   },
   {
@@ -337,7 +339,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'banking', name: 'bills of exchange', kind: IdeaKind.Administration, pre: ['coinage', 'mathematics'], technique: -1, era: 4, chance: 0.3,
     cond: (c, p) => ss(0, 2, c.lanes[p]) * ss(400, 2000, c.trade[p]) * ss(0, 2, c.cities[p]), teach: 60, fragile: 0.2, resist: R_FAITH, theft: 0,
-    caps: [0, 0.04, 0, 0.2], land: 0.06, seaCost: 0.04, admin: 0.05, effect: 'credit for long-haul trade: trade costs, Crafts',
+    use: (c, p) => ss(0, 3, c.cities[p] + c.lanes[p]), caps: [0, 0.06, 0, 0.6], land: 0.06, seaCost: 0.04, admin: 0.05, effect: 'credit for long-haul trade: trade costs, Crafts',
     history: 'The Islamic suftaja and Tang China\'s flying money (9th century); Genoese and Florentine bills of exchange from the 12th-13th centuries, slowed where usury was condemned.',
   },
   {
@@ -349,13 +351,13 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'printing', name: 'printing', kind: IdeaKind.Knowledge, pre: ['paper', 'writing'], technique: -1, era: 4, chance: 0.2,
     cond: (c, p) => ss(0, 2, c.cities[p]) * ss(2.2, 2.7, c.crafts[p]), teach: 30, fragile: 0.1, resist: R_FAITH | R_GUILD, theft: 0,
-    caps: [0, 0.04, 0.1, 0.3], admin: 0.05, learn: 0.35, effect: 'books: learning (ideas travel faster), Crafts',
+    use: (c, p) => ss(0, 3, c.cities[p]), caps: [0, 0.06, 0.1, 0.85], admin: 0.05, learn: 0.35, effect: 'books: learning (ideas travel faster), Crafts',
     history: 'Block printing in Tang China, movable type by Bi Sheng (c. 1040); Gutenberg\'s press (c. 1450) reached some 270 European towns by 1500, while Ottoman scribes and clergy kept it out until 1727.',
   },
   {
     key: 'navigation', name: 'celestial navigation', kind: IdeaKind.Seafaring, pre: ['keel', 'mathematics'], technique: -1, era: 4, chance: 0.25,
     cond: (c, p) => ss(0.05, 0.3, c.port[p]) * ss(2.0, 2.5, c.sea[p]), teach: 100, fragile: 0.2, resist: 0, theft: 0,
-    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.45, 0, 0], range: 0.2, effect: 'ocean range (+20%); Seafaring',
+    use: (c, p) => ss(0, 0.1, c.port[p]), caps: [0, 0.6, 0, 0], range: 0.2, effect: 'ocean range (+20%); Seafaring',
     history: 'Polynesian wayfinders read stars and swells; the astrolabe and quadrant let 15th-century Portuguese pilots find their latitude, a skill taught in schools for years.',
   },
   {
@@ -385,7 +387,7 @@ export const IDEA_DEFS: IdeaDef[] = [
   {
     key: 'science', name: 'the experimental method', kind: IdeaKind.Knowledge, pre: ['printing', 'mathematics'], technique: -1, era: 4, chance: 0.2,
     cond: (c, p) => ss(1, 4, c.cities[p]) * ss(2.6, 3.2, c.crafts[p]), teach: 60, fragile: 0.1, resist: R_FAITH, theft: 0,
-    caps: [0.15, 0.15, 0.4, 0.25], learn: 0.3, effect: 'organised discovery: learning, every field',
+    use: (c, p) => ss(0, 4, c.cities[p]), caps: [0.15, 0.25, 0.5, 0.7], learn: 0.3, effect: 'organised discovery: learning, every field',
     history: 'Ibn al-Haytham\'s optics (11th century) and Bacon, Galileo and the Royal Society (1660) in the age of print; their journals carried it.',
   },
 ]
@@ -420,8 +422,8 @@ export function easeOf(d: IdeaDef): number {
  *   Theft (ideas with theft): q a kingdom or empire, twice at war with h.
  *   Pulses (events): Migration (migrants of h joining a town of q: size / (size + migHalf)), Conquest (a town of one taken by an army of
  *   the other: both ways), Marriage (a royal marriage between their houses: both ways).
- * The adoption's how is the channel that carried most of the progress; from the source with the strongest link then; via the
- * settlement of q through which that channel ran.
+ * The adoption's how is a channel drawn in proportion to the progress each carried; from the holder met that carries most on it
+ * then (else the strongest source); via the settlement of q through which that channel ran (its largest if none is known).
  *
  * Resistance (ideas with resist flags): faith = faithResist * zeal of q's universal faith; ruler = rulerResist * (1 - tolerance) *
  * (warlike ideas: 1 - warlike; others: piety) of the ruler of q's largest settlement's polity; guild = guildResist * n / (n + 1), n the
@@ -431,21 +433,29 @@ export function easeOf(d: IdeaDef): number {
  * small = 1 - smoothstep(lossLow, lossHigh, pop), collapse = collapseMul when pop < collapseShare * peak (peak: the highest
  * population, falling by peakDecay a year), support the sum of R over the holders q has met. Ideas resting on a lost one go too.
  *
- * Effects (each held idea times useFloor + (1 - useFloor) * use): the technology caps 1 + capBase + sum of (capMul * caps + general * eraWeight[era]);
- * the levers as multipliers 1 + sum of the shares (toll 1 + sum, at least tollMin). The technology system slows growth above the
- * cap: practice * growth / (1 + ((L - C) / soft)^2), gains by diffusion at most up to C + slack, and a level above C + slack falls back by
+ * Effects (each held idea times useFloor + (1 - useFloor) * use): the technology caps 1 + capBase + capMul * sum of caps + general * sqrt(sum of eraWeight[era]);
+ * the levers as multipliers 1 + lever * sum of the shares (toll 1 + sum, at least tollMin; farm per settlement). The technology system slows growth above the
+ * cap: practice * growth / (1 + ((L - C) / soft)^2) (below it practice * growth + catchUp * (C - L)), gains by diffusion at most up to C + slack, and a level above C + slack falls back by
  * decay * (L - C - slack) a year (an idea lost).
  */
 export const IDEA = {
   step: 5,
-  /** Multipliers of every idea's caps and chance; general: what every idea adds to every field's cap (a people that knows more can do more). */
-  capMul: 0.45,
-  general: 0.04,
-  /** The general weight of an idea by era: the first ideas did the most (a people with none of them is far behind). */
-  eraWeight: [2.2, 1.6, 1.1, 0.9, 0.9],
-  conceive: 1,
-  /** Growth from practice (technology.ts) times this while ideas are on: the caps, not practice, set the pace. */
-  practice: 2,
+  /**
+   * Multipliers of every idea's caps and chance; general: every field's cap also rises by general * sqrt(score), score the sum
+   * of eraWeight[era] over the ideas held (a people that knows more can do more, with diminishing returns; the first ideas weigh most).
+   */
+  capMul: 0.5,
+  general: 0.22,
+  eraWeight: [2.4, 1, 0.6, 0.7, 0.7],
+  /** Share of the general part per field (Farming, Seafaring, Metalworking, Crafts). */
+  generalField: [1, 1, 1, 1],
+  /** Multiplier of the levers (land, seaCost, range, war, defence, admin, craft; not toll or farm). */
+  lever: 0.2,
+  conceive: 0.045,
+  /** Growth from practice (technology.ts) times this while ideas are on: the caps, not practice, set the pace; below the cap a level
+   * also closes catchUp of the distance a year (the practice of ideas newly held). */
+  practice: 1.5,
+  catchUp: 0.04,
   capBase: 0.15,
   soft: 0.12,
   slack: 0.05,
@@ -457,12 +467,14 @@ export const IDEA = {
   cardwell: 0.25,
   cardDecay: 0.004,
   /** Recombination: conception chance * (1 + combo * ideas held); scale: * sqrt(pop / popRef) within [scaleMin, scaleMax]. */
-  combo: 0.08,
+  combo: 0.45,
+  /** Scale linear in population (else its square root). */
+  scaleLinear: true,
   popRef: 10000,
-  scaleMin: 0.3,
-  scaleMax: 3,
+  scaleMin: 0.2,
+  scaleMax: 2.5,
   /** Backwardness: learning from a people whose summed technology is x times one's own, times 1 + backward * (x - 1) (x > 1). */
-  backward: 3,
+  backward: 7,
   forget: 0.01,
   adopt: 0.6,
   /** Channel knobs, by IdeaHow (Invented and Lost unused). */
@@ -475,9 +487,9 @@ export const IDEA = {
   visitorHalf: 40,
   migHalf: 150,
   /** Pulses in years of a strong link: migrants (times size / (size + migHalf)), a conquest (each way), a royal marriage (each way). */
-  pulseMig: 6,
+  pulseMig: 10,
   pulseConquest: 15,
-  pulseMarriage: 6,
+  pulseMarriage: 10,
   /** Lane volume smoothing a year. */
   laneSmooth: 0.2,
   faithResist: 0.85,

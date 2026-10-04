@@ -403,7 +403,7 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
     // Ideas beget ideas (recombination), more people conceive more, and a people far behind learns eagerly from those ahead.
     let nHeld = 0
     for (let i = 0; i < I; i++) nHeld += held[q * I + i]
-    let scale = Math.sqrt(c.pop[q] / X.popRef)
+    let scale = X.scaleLinear ? c.pop[q] / X.popRef : Math.sqrt(c.pop[q] / X.popRef)
     if (scale < X.scaleMin) scale = X.scaleMin
     else if (scale > X.scaleMax) scale = X.scaleMax
     const boost = (1 + X.combo * nHeld) * scale
@@ -452,15 +452,27 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
         const [r, why] = d.resist ? resistance(s, ix, q, i) : [0, -1]
         const x = rng.next()
         if (x < chance * (1 - r)) {
-          // How: the channel that carried most of the progress; from the strongest source; via that channel's gateway.
-          let how: number = IdeaHow.Contact, hv = -1
-          for (let cc = 1; cc < CH; cc++) if (acc[ao + cc] > hv) { hv = acc[ao + cc]; how = cc }
-          const o = (q * P + bestH) * CH + how
+          // How: a channel drawn in proportion to the progress each carried; from the holder met that carries most on it now (else the
+          // strongest source); via that channel's gateway.
+          let tot = 0
+          for (let cc = 1; cc < CH; cc++) tot += acc[ao + cc]
+          let how: number = IdeaHow.Contact
+          let u2 = rng.next() * tot
+          for (let cc = 1; cc < CH; cc++) { const a = acc[ao + cc]; if (!(a > 0)) continue; how = cc; u2 -= a; if (u2 < 0) break }
+          let from = bestH, fv = 0
+          for (let h = 0; h < P; h++) {
+            if (h === q || !held[h * I + i] || !(c.pop[h] > 0) || k.contact[q * P + h] < 0) continue
+            const oh = (q * P + h) * CH + how
+            const v = rate[oh] * dt + pulse[oh]
+            if (v > fv) { fv = v; from = h }
+          }
+          const o = (q * P + from) * CH + how
           const isPulse = pulse[o] > 0 && pulse[o] >= rate[o] * dt
           let via = isPulse ? ix.pgQ[o] : ix.gwQ[o], src = isPulse ? ix.pgH[o] : ix.gwH[o]
+          if (fv <= 0) { via = ix.largest[q]; src = ix.largest[from] }
           if (via < 0 || s.abandoned[via] >= 0) via = ix.largest[q]
-          if (src >= 0 && s.abandoned[src] >= 0) src = ix.largest[bestH]
-          record(s, ix, i, q, how, bestH, via, src)
+          if (src < 0 || s.abandoned[src] >= 0 || s.people[src] !== from) src = ix.largest[from]
+          record(s, ix, i, q, how, from, via, src)
         } else if (x < chance && r > 0 && !ix.refused[qi]) {
           ix.refused[qi] = 1
           ix.diag.resisted++
