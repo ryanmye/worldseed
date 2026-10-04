@@ -32,7 +32,7 @@ export function hashPreTourism(hi: History): string {
   for (const k of Object.keys(r).filter((x) => !TOURISM_KEYS.has(x) && x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions').sort()) { // (renaming, ideas: later than tourism)
     h = fnvBytes(h, enc.encode(k))
     if (k === 'settlements') h = hv(h, hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }))
-    else if (k === 'events') h = hv(h, hi.events.filter((e) => e.type < 100 || (e.type > 109 && e.type < 120))) // (ideas: 120-129 later)
+    else if (k === 'events') h = hv(h, hi.events.filter((e) => e.type < 100 || (e.type > 109 && (e.type < 120 || e.type > 129)))) // (ideas: 120-129 later; claims' 130 kept)
     else h = hv(h, r[k])
   }
   return (h >>> 0).toString(16)
