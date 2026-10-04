@@ -3,46 +3,57 @@
 // output is its own table of landmarks and their changes, which assemble.ts names (History.landmarks) and turns into the
 // landmark events (great ones only).
 //
-// Great works (LandmarkRank.Great; at most one of each kind per town, victory monuments and tombs aside), begun at the
-// scans every LANDMARK.step years unless said otherwise, each with its chance per scan (params.ts):
-//   Castle        the capital of a realm of Kingdom tier or more, held castleYears, with castlePop people (castle); any capital
-//                 held forceYears with forcePop people that has neither castle nor palace begins one at once (the guarantee:
-//                 every city that has long been a capital has a great work); or a frontier fortress: a town of fortPop
-//                 people of such a realm, taken in war or besieged in the last fortWindow years (fort).
-//   Palace        the capital of a kingdom held palaceYears (an empire's palaceEmpireYears), palacePop people, rich.
-//   GreatTemple   the holy city of a living universal faith (holyPop; holy); the capital of a kingdom whose majority follows
-//                 its state faith (seatTemplePop; seatTemple); a rich city of piousPop whose majority faith holds piousShare
-//                 under a ruler of piety piousRuler (pious).
-//   Monastery     a pious ruler (piety monkPiety) of a faith of organisation monkOrg founds one (one per reign) in the largest
-//                 town of the realm (monkPop) that follows the ruler's faith and has none.
-//   MarketHall    a mart of the long-haul trade of martPop people, rich (mart); a city of hubPop, hubRich times as rich (hub).
-//   Guildhall     the seat of a craft tradition renowned in the last guildWindow years, guildPop people (guild).
-//   Lighthouse    a port at an end of an open long-haul lane over the deep sea (oceanCells), lightPop people (light).
-//   Library       a rich city of libraryPop whose people holds writing (library; x libPaper with paper, x libPrinting with printing).
-//   Monument      at the peace of a war won (gains, conquest or tribute) by a realm of Kingdom tier whose ruler is warlike
-//                 (monumentWar), at its capital (monumentPop): monument; begun that year, one per reign.
-//   Mausoleum     at the death of the founder of a house (tombFounder) or of a ruler of a long great reign (tombReign years,
-//                 ability tombAbility; tombGreat), at the capital of a kingdom (tombPop); begun that year.
-//   Baths         a resort at hot springs (SceneryBit.Spring on or beside its cell), bathsPop (baths); a town of springTownPop by
-//                 springs, rich (springTown).
+// Great works (LandmarkRank.Great; at most one of each kind per town, a second only once the first was given up), begun at the
+// scans every LANDMARK.step years unless said otherwise, each with its chance per scan (params.ts). Each needs its people (the
+// ...Pop minimum) and its town among the world's largest (the ...Rank-th largest living town's people at the scan), so a crowded
+// world raises no more of them than a sparse one:
+//   Castle        the capital of a realm of Kingdom tier or more, held castleYears, castlePop/castleRank (castle); a frontier fortress:
+//                 a town of fortPop/castleRank of such a realm, taken in war or besieged in the last fortWindow years (fort). The
+//                 guarantee, without a draw or a rank: any capital held forceYears with forcePop people that has neither castle nor
+//                 palace begins one at that scan (the scans fall on the snapshot years, so every city of 10,000 people that has been
+//                 a capital for 30 years has a castle or palace begun by then; tested as an invariant).
+//   Palace        the capital of a kingdom held palaceYears (an empire's palaceEmpireYears), palacePop/palaceRank, rich.
+//   GreatTemple   the holy city of a living universal faith (holyPop/holyRank; holy); the capital of a kingdom whose majority follows
+//                 its state faith (seatTemplePop/templeRank; seatTemple); a rich city of piousPop/templeRank whose majority faith
+//                 holds piousShare under a ruler of piety piousRuler (pious).
+//   Monastery     a pious ruler (piety monkPiety) of a faith of organisation monkOrg founds one (one per reign; monastery) in the
+//                 largest town of the realm (monkPop/monkRank) that follows the ruler's faith and has none.
+//   MarketHall    a mart of the long-haul trade of martPop/martRank, rich (mart); a city of hubPop/hubRank, hubRich times as rich (hub).
+//   Guildhall     the seat of a craft tradition renowned in the last guildWindow years, guildPop/guildRank (guild).
+//   Lighthouse    a port at an end of an open long-haul lane over the deep sea (oceanCells), lightPop/lightRank (light).
+//   Library       a rich city of libraryPop/libraryRank whose people holds writing (library; x libPaper with paper, x libPrinting
+//                 with printing).
+//   Monument      at the peace of a war won (a conquest, or monumentTaken towns taken) by a realm of monumentTier whose ruler is
+//                 warlike (monumentWar), at its capital (monumentPop/monumentRank): monument; begun that year, one per reign.
+//   Mausoleum     at the death of a ruler at the capital (tombPop/tombRank): the founder of a house who reigned tombFounderReign years
+//                 over an empire (tombFounder), or a long great reign (tombReign years, ability tombAbility) over a kingdom or more
+//                 (tombGreat); begun that year. Not for a ruler slain at the sack of the capital or overthrown.
+//   Baths         a resort at hot springs (SceneryBit.Spring on or beside its cell), bathsPop (baths); a town of
+//                 springTownPop/springRank by springs, rich (springTown).
 //   CouncilHouse  the capital of a league or of an elective state (an elective law, or a league's elected head), held
-//                 councilYears, councilPop people (council).
+//                 councilYears, councilPop/councilRank (council).
 // Lesser (LandmarkRank.Lesser, no events): a Temple of its majority faith for a town of templePop people for templeYears, one
 // more per templeStep people up to templeMax (temple); a folk Shrine for a settlement of shrinePop people for shrineYears whose
 // majority holds a traditional faith, one (shrine).
 // Each work takes buildMin..buildMax years (by kind, drawn at the start). It is given up (Unfinished) if its town is abandoned or
 // sacked, or (great ones) the builder's realm ends or loses the town, before it is finished.
 // A standing landmark is neglected when its town stays under neglectShare of its peak since completion for neglectYears, or (a
-// seat) its town has not been a capital for seatYears; it falls into ruin ruinMin..ruinMax years into its neglect, at once when
-// its town is abandoned, and with a chance when it is sacked (sackGreat, sackCastle, sackLesser); a neglected or ruined one in a
-// living town is restored (restore; a ruin at ruinRestore of it) when the town is back over restoreShare of the peak and rich, a
-// seat a capital again, or a house of worship under a pious ruler. A house of worship is rededicated (Converted) when its town's
-// majority (convertShare) follows another faith (convertLesser, convertGreat per scan), and a great one when the state faith of
-// the realm holding it changes (convertState). No change within minGap years of the last (sacks and abandonment excepted).
-// Building traditions (LandmarkForm): each faith's is fixed when it first appears, from its founding settlement's lands and a
-// draw from 'landmarks-faith-<id>' (a schism keeps its parent's with another variant); a great temple or temple of a steepled,
-// domed or pagoda tradition begun before its builders hold mathematics takes the early form (ziggurat for a hot dry homeland,
-// else columned); shrines are stone circles.
+// seat: a capital's castle, a palace, a council house) its town has not been a capital for seatYears (a castle only if its town
+// is also under castleKeep of the peak: else it stands on as a governor's seat); it falls into ruin ruinMin..ruinMax years into its
+// neglect, at once when its town is abandoned, and with a chance when it is sacked (sackGreat, sackCastle, sackLesser). A neglected
+// or ruined one in a living town is restored (restore; a ruin at ruinRestore of it) when the town is back over restoreShare of the
+// peak and rich, a seat a capital again with restoreSeat of the peak, a house of worship under a pious ruler (restorePiety, the
+// town at restorePious), a shrine when its town (restoreShare) holds a traditional faith again; the ruins of an abandoned town
+// stay ruins. A house of worship is rededicated (Converted) when its town's majority (convertShare) follows another faith
+// (convertLesser, convertGreat per scan; a great one not while its realm's state faith is the one it serves), and a great one
+// when the state faith of the realm holding it changes (convertState); a folk shrine whose town took up a universal faith falls
+// into neglect instead. No change within minGap years of the last (completion, sacks, abandonment and giving up excepted).
+// Building traditions (LandmarkForm): each faith's is fixed when it first appears, from its founding settlement's lands
+// (traditionOf: mountains, hot dry lands, cold lands, rainforest, savanna, cool and warm temperate forest, grassland) and a draw
+// from 'landmarks-faith-<id>' (a universal faith draws no ziggurat or stone circle: those are the folk traditions'; a schism keeps
+// its parent's form with another variant, from its own stream); a great temple of a steepled, domed or pagoda tradition begun
+// before its builders hold mathematics takes the early form (ziggurat for a hot dry homeland, else columned); a town's temple and
+// a monastery take the tradition as it is (a church is a church); shrines are stone circles.
 // Every other draw comes from 'history-landmarks', in the order of the events, then of the works in progress, then of the
 // settlements by id, then the polities and the landmarks by id: deterministic, and nothing depends on the run's length.
 
@@ -80,19 +91,27 @@ function hotDry(s: HistoryState, c: number): boolean {
   return w.biome[c] === Biome.Desert || (w.temperature[c] > 0.62 && w.rainfall[c] < 0.32)
 }
 
-/** The tradition of a faith founded at cell c: weighted forms by its lands, drawn from the faith's own stream. */
-function traditionOf(s: HistoryState, c: number, f: number): { form: number; variant: number } {
+/**
+ * The tradition of faith f founded at cell c: weighted forms by its lands, drawn from the faith's own stream. A universal faith
+ * (the kind that spreads across peoples) does not build ziggurats or stone circles: those are the old folk traditions' (its
+ * other weights are scaled up instead).
+ */
+function traditionOf(s: HistoryState, c: number, f: number, universal: boolean): { form: number; variant: number } {
   const w = s.world
   const rng = createRng(w.seed, `landmarks-faith-${f}`)
   const b = w.biome[c], t = w.temperature[c], e = w.elevation[c]
   let forms: number[], weights: number[]
-  if (b === Biome.Mountain || e > 0.45) { forms = [FM.Pagoda, FM.Stupa]; weights = [0.5, 0.5] }
-  else if (hotDry(s, c)) { forms = [FM.Ziggurat, FM.Domed]; weights = [0.45, 0.55] }
-  else if (b === Biome.Rainforest) { forms = [FM.Pagoda, FM.Stupa, FM.Ziggurat]; weights = [0.35, 0.35, 0.3] }
-  else if (b === Biome.Savanna) { forms = [FM.Domed, FM.Stupa, FM.Circle]; weights = [0.4, 0.35, 0.25] }
-  else if (b === Biome.Taiga || b === Biome.Tundra || b === Biome.Ice || t < 0.35) { forms = [FM.Stave, FM.Steepled]; weights = [0.55, 0.45] }
-  else { forms = [FM.Steepled, FM.Columned, FM.Domed]; weights = [0.4, 0.3, 0.3] }
-  let x = rng.next(), form = forms[forms.length - 1]
+  if (b === Biome.Mountain || e > 0.2) { forms = [FM.Pagoda, FM.Stupa, FM.Steepled]; weights = [0.45, 0.35, 0.2] }
+  else if (hotDry(s, c)) { forms = [FM.Domed, FM.Ziggurat, FM.Steepled, FM.Columned]; weights = [0.45, 0.3, 0.15, 0.1] }
+  else if (b === Biome.Taiga || b === Biome.Tundra || b === Biome.Ice || t < 0.45) { forms = [FM.Steepled, FM.Stave]; weights = [0.55, 0.45] }
+  else if (b === Biome.Rainforest) { forms = [FM.Pagoda, FM.Stupa, FM.Steepled, FM.Domed, FM.Ziggurat]; weights = [0.3, 0.2, 0.2, 0.15, 0.15] }
+  else if (b === Biome.Savanna) { forms = [FM.Domed, FM.Steepled, FM.Stupa, FM.Columned, FM.Circle, FM.Ziggurat]; weights = [0.25, 0.25, 0.15, 0.15, 0.1, 0.1] }
+  else if (b === Biome.TemperateForest && t < 0.52) { forms = [FM.Steepled, FM.Stave, FM.Columned]; weights = [0.5, 0.35, 0.15] }
+  else if (b === Biome.Grassland) { forms = [FM.Steepled, FM.Domed, FM.Columned, FM.Stupa]; weights = [0.3, 0.3, 0.3, 0.1] }
+  else { forms = [FM.Steepled, FM.Domed, FM.Columned]; weights = [0.5, 0.25, 0.25] }
+  let sum = 0
+  for (let i = 0; i < forms.length; i++) { if (universal && (forms[i] === FM.Ziggurat || forms[i] === FM.Circle)) weights[i] = 0; sum += weights[i] }
+  let x = rng.next() * sum, form = forms[0]
   for (let i = 0; i < forms.length; i++) { x -= weights[i]; if (x < 0) { form = forms[i]; break } }
   return { form, variant: rng.int(0, 3) }
 }
@@ -111,7 +130,7 @@ function newFaiths(s: HistoryState, lm: LandmarksState): void {
       lm.faithVariant.push((lm.faithVariant[par] + 1 + rng.int(0, 2)) % 4)
       lm.faithHot.push(lm.faithHot[par])
     } else {
-      const t = traditionOf(s, c, f)
+      const t = traditionOf(s, c, f, rel.kind[f] === FaithKind.Universal)
       lm.faithForm.push(t.form)
       lm.faithVariant.push(t.variant)
       lm.faithHot.push(hotDry(s, c) ? 1 : 0)
@@ -174,6 +193,44 @@ function springNear(s: HistoryState, c: number): boolean {
   return false
 }
 
+/** People a town needs for a great work: `min`, and to be among the world's `rank` largest towns at the last scan. */
+function need(lm: LandmarksState, min: number, rank: number): number {
+  const t = lm.top[rank - 1]
+  return t > min ? t : min
+}
+
+/**
+ * The world's towns at the scan, in one pass: the TOP_TOWNS largest living towns' populations (descending; 0 where there are
+ * fewer), and the mean wealth per head of the towns of 1,000 people or more.
+ */
+function worldTowns(s: HistoryState, lm: LandmarksState): void {
+  const top = lm.top
+  top.fill(0)
+  const K = top.length
+  let sw = 0, sp = 0
+  for (let v = 0; v < s.count; v++) {
+    if (s.abandoned[v] >= 0 || s.outpost[v]) continue
+    const x = s.pop[v]
+    if (x >= 1000) { sw += s.wealth[v]; sp += x }
+    if (x <= top[K - 1]) continue
+    let j = K - 1
+    while (j > 0 && top[j - 1] < x) { top[j] = top[j - 1]; j-- }
+    top[j] = x
+  }
+  lm.worldWpc = sp > 0 ? sw / sp : 0
+}
+
+/** The least population any great work needs at this scan (the forced castle's, or a kind's minimum and rank; resorts aside). */
+function greatGate(lm: LandmarksState): number {
+  const X = LANDMARK
+  let g = X.forcePop
+  const pairs = [X.castlePop, X.castleRank, X.fortPop, X.castleRank, X.palacePop, X.palaceRank, X.holyPop, X.holyRank, X.seatTemplePop, X.templeRank, X.piousPop, X.templeRank,
+    X.monkPop, X.monkRank, X.martPop, X.martRank, X.hubPop, X.hubRank, X.guildPop, X.guildRank, X.lightPop, X.lightRank, X.libraryPop, X.libraryRank,
+    X.springTownPop, X.springRank, X.councilPop, X.councilRank]
+  for (let k = 0; k < pairs.length; k += 2) { const x = need(lm, pairs[k], pairs[k + 1]); if (x < g) g = x }
+  return g
+}
+
 /** True if the town has no great landmark of kind k (begun and not given up). */
 function lacks(has: number, k: number): boolean {
   return (has & (1 << k)) === 0
@@ -200,7 +257,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   if (isWorship(kind) && faith >= 0 && faith < lm.faithForm.length) {
     form = kind === KD.Shrine ? FM.Circle : lm.faithForm[faith]
     variant = lm.faithVariant[faith]
-    if ((kind === KD.GreatTemple || kind === KD.Temple) && (form === FM.Steepled || form === FM.Domed || form === FM.Pagoda) && !holds(s, builders, I_MATH, 2)) form = lm.faithHot[faith] ? FM.Ziggurat : FM.Columned
+    if (kind === KD.GreatTemple && (form === FM.Steepled || form === FM.Domed || form === FM.Pagoda) && !holds(s, builders, I_MATH, 2)) form = lm.faithHot[faith] ? FM.Ziggurat : FM.Columned
   } else variant = lm.rng.int(0, 3)
   if (ruler < 0) ruler = rulerOf(s, p)
   const R = s.rul
@@ -225,7 +282,6 @@ function newSettlements(s: HistoryState, lm: LandmarksState): void {
   const n = s.count
   if (lm.seen >= n) return
   ensureLandmarkSettlements(lm, n)
-  for (let id = lm.seen; id < n; id++) lm.peak[id] = s.pop[id]
   lm.seen = n
 }
 
@@ -281,8 +337,9 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
         ensureLandmarkPolities(lm, ps.P)
         const c = ps.pCapital[p]
         const r = rulerOf(s, p)
-        if (r < 0 || R.rWar[r] < X.monumentWar || lm.monuRuler[p] === r || s.abandoned[c] >= 0 || s.pop[c] < X.monumentPop) break
-        if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) < Tier.Kingdom) break
+        if (r < 0 || R.rWar[r] < X.monumentWar || lm.monuRuler[p] === r || s.abandoned[c] >= 0 || s.pop[c] < need(lm, X.monumentPop, X.monumentRank) || !lacks(lm.has[c], KD.Monument)) break
+        if (o !== WarOutcome.Conquest && ps.wTaken[w] < X.monumentTaken) break
+        if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) < X.monumentTier) break
         if (rng.next() >= X.monument) break
         lm.monuRuler[p] = r
         begin(s, lm, c, KD.Monument, p, r, -1, -1, 0)
@@ -295,12 +352,12 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
         if (R.rDied[r] !== year || cause === ReignEnd.Sack || cause === ReignEnd.Overthrown) break
         const p = R.rPolity[r]
         const c = e.settlement
-        if (p < 0 || ps.pEnded[p] >= 0 || ps.pCapital[p] !== c || s.abandoned[c] >= 0 || s.pop[c] < X.tombPop) break
+        if (p < 0 || ps.pEnded[p] >= 0 || ps.pCapital[p] !== c || s.abandoned[c] >= 0 || s.pop[c] < need(lm, X.tombPop, X.tombRank) || !lacks(lm.has[c], KD.Mausoleum)) break
         const d = R.rDyn[r]
-        const founder = d >= 0 && R.dFounder[d] === r
-        const great = year - R.rAcc[r] >= X.tombReign && R.rAbility[r] >= X.tombAbility
+        const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
+        const founder = d >= 0 && R.dFounder[d] === r && year - R.rAcc[r] >= X.tombFounderReign && tier >= Tier.Empire
+        const great = year - R.rAcc[r] >= X.tombReign && R.rAbility[r] >= X.tombAbility && tier >= Tier.Kingdom
         if (!founder && !great) break
-        if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) < Tier.Kingdom) break
         if (rng.next() >= (founder ? X.tombFounder : X.tombGreat)) break
         begin(s, lm, c, KD.Mausoleum, p, r, -1, -1, 0)
         break
@@ -315,7 +372,7 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
         const n = lm.lKind.length
         for (let id = 0; id < n; id++) {
           const k = lm.lKind[id]
-          if ((k !== KD.GreatTemple && k !== KD.Monastery) || !standing(lm.lState[id]) || lm.lCur[id] === f) continue
+          if ((k !== KD.GreatTemple && k !== KD.Monastery) || !standing(lm.lState[id]) || lm.lCur[id] === f || year - lm.lSince[id] < X.minGap) continue
           const v = lm.lSett[id]
           if (s.abandoned[v] >= 0 || ps.polity[v] !== p) continue
           if (rng.next() >= X.convertState) continue
@@ -365,10 +422,9 @@ function scan(s: HistoryState, lm: LandmarksState): void {
   const year = s.year
   const n = s.count
   lm.diag.scans++
-  // The world's wealth per head (towns), polities' tiers, holy cities, ocean lanes.
-  let sw = 0, sp = 0
-  for (let v = 0; v < n; v++) if (s.abandoned[v] < 0 && !s.outpost[v] && s.pop[v] >= 1000) { sw += s.wealth[v]; sp += s.pop[v] }
-  lm.worldWpc = sp > 0 ? sw / sp : 0
+  worldTowns(s, lm)
+  const gate = greatGate(lm)
+  // Polities' tiers, holy cities, ocean lanes.
   const rich = (v: number, mul: number): boolean => s.pop[v] > 0 && s.wealth[v] >= mul * X.richMul * lm.worldWpc * s.pop[v]
   if (ps !== null) {
     ensureLandmarkPolities(lm, ps.P)
@@ -399,68 +455,71 @@ function scan(s: HistoryState, lm: LandmarksState): void {
   for (let v = 0; v < n; v++) {
     if (s.abandoned[v] >= 0 || s.outpost[v]) continue
     const pop = s.pop[v]
-    if (pop > lm.peak[v]) lm.peak[v] = pop
-    const m = majority(s, v)
-    if (pop >= X.templePop) { if (lm.bigSince[v] < 0) lm.bigSince[v] = year } else lm.bigSince[v] = -1
-    if (pop >= X.shrinePop && m >= 0 && rel !== null && rel.kind[m] === FaithKind.Traditional) { if (lm.shrineSince[v] < 0) lm.shrineSince[v] = year } else lm.shrineSince[v] = -1
     const p = ps !== null ? ps.polity[v] : -1
     const cap = p >= 0 && ps !== null && ps.pCapital[p] === v
     if (cap) lm.lastCap[v] = year
-    if (pop < X.bathsPop) continue
-    const has = lm.has[v]
-    const tier = p >= 0 ? lm.tierP[p] : -1
-    const capYears = cap && ps !== null ? year - capSince(ps, p) : -1
-    const ruler = rulerOf(s, p)
-    const people = p >= 0 && ps !== null ? ps.pPeople[p] : s.people[v]
-    // Castle (the guarantee first: no draw).
-    if (lacks(has, KD.Castle) && lacks(has, KD.Palace) && cap && capYears >= X.forceYears && pop >= X.forcePop) { lm.diag.forced++; begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
-    else if (lacks(has, KD.Castle) && cap && tier >= Tier.Kingdom && capYears >= X.castleYears && pop >= X.castlePop) { if (rng.next() < X.castle) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
-    else if (lacks(has, KD.Castle) && p >= 0 && tier >= Tier.Kingdom && pop >= X.fortPop && year - lm.warYear[v] <= X.fortWindow) { lm.diag.fortTowns++; if (rng.next() < X.fort) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 0) }
-    // Palace.
-    if (lacks(has, KD.Palace) && cap && tier >= Tier.Kingdom && capYears >= (tier >= Tier.Empire ? X.palaceEmpireYears : X.palaceYears) && pop >= X.palacePop && rich(v, 1)) {
-      if (rng.next() < X.palace) begin(s, lm, v, KD.Palace, p, -1, -1, -1, 1)
-    }
-    // Great temple.
-    if (lacks(has, KD.GreatTemple) && rel !== null) {
-      let f = -1, chance = 0
-      const sf = stateFaith(s, p)
-      if (lm.holyAt[v] >= 0 && pop >= X.holyPop) { f = lm.holyAt[v]; chance = X.holy }
-      else if (cap && tier >= Tier.Kingdom && sf >= 0 && sf === m && pop >= X.seatTemplePop) { f = sf; chance = X.seatTemple }
-      else if (m >= 0 && pop >= X.piousPop && majorityShare(s, v) >= X.piousShare && ruler >= 0 && R !== null && R.rPiety[ruler] >= X.piousRuler && rich(v, 1)) { f = m; chance = X.pious }
-      if (f >= 0 && rng.next() < chance) begin(s, lm, v, KD.GreatTemple, p, -1, f, -1, 0)
-    }
-    // Monastery: the largest eligible town of each realm (judged after the loop).
-    if (lacks(has, KD.Monastery) && rel !== null && R !== null && p >= 0 && ps !== null && pop >= X.monkPop && ruler >= 0 && m >= 0 && R.rFaith[ruler] === m && R.rPiety[ruler] >= X.monkPiety && rel.org[m] >= X.monkOrg && lm.monkRuler[p] !== ruler) {
-      const b = lm.monkBest[p]
-      if (b < 0 || pop > s.pop[b]) lm.monkBest[p] = v
-    }
-    // Market hall.
-    if (lacks(has, KD.MarketHall) && g !== null) {
-      if (v < g.isMart.length && g.isMart[v] && pop >= X.martPop && rich(v, 1)) { if (rng.next() < X.mart) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
-      else if (pop >= X.hubPop && rich(v, X.hubRich)) { if (rng.next() < X.hub) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
-    }
-    // Guildhall.
-    if (lacks(has, KD.Guildhall) && lm.renowned[v] >= 0 && year - lm.renowned[v] <= X.guildWindow && pop >= X.guildPop) {
-      if (rng.next() < X.guild) begin(s, lm, v, KD.Guildhall, p, -1, -1, lm.renownT[v], 0)
-    }
-    // Lighthouse.
-    if (lacks(has, KD.Lighthouse) && s.port[v] >= 0 && lm.laneMark[v] === year && pop >= X.lightPop) {
-      if (rng.next() < X.light) begin(s, lm, v, KD.Lighthouse, p, -1, -1, -1, 0)
-    }
-    // Library.
-    if (lacks(has, KD.Library) && pop >= X.libraryPop && rich(v, 1) && holds(s, people, I_WRITING, X.libTech)) {
-      const mul = holds(s, people, I_PRINTING, X.libTech + 1) ? X.libPrinting : holds(s, people, I_PAPER, X.libTech + 0.5) ? X.libPaper : 1
-      if (rng.next() < X.library * mul) begin(s, lm, v, KD.Library, p, -1, -1, -1, 0)
-    }
-    // Baths.
-    if (lacks(has, KD.Baths) && tz !== null && springNear(s, s.cell[v])) {
-      if (v < tz.cap && tz.resort[v]) { if (rng.next() < X.baths) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
-      else if (pop >= X.springTownPop && rich(v, 1)) { if (rng.next() < X.springTown) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
-    }
-    // Council house.
-    if (lacks(has, KD.CouncilHouse) && cap && ps !== null && capYears >= X.councilYears && pop >= X.councilPop) {
-      const elective = ps.pOrigin[p] === PolityOrigin.League || (ruler >= 0 && R !== null && (R.rDyn[ruler] < 0 || R.rLaw[ruler] === SuccessionLaw.Elective))
-      if (elective && rng.next() < X.council) begin(s, lm, v, KD.CouncilHouse, p, -1, -1, -1, 1)
+    const resort = tz !== null && v < tz.cap && tz.resort[v] === 1
+    if (pop < X.minPop && !resort) { lm.bigSince[v] = -1; lm.shrineSince[v] = -1; continue } // (minPop is at most templePop, shrinePop and the great works' minimums)
+    const m = majority(s, v)
+    if (pop >= X.templePop) { if (lm.bigSince[v] < 0) lm.bigSince[v] = year } else lm.bigSince[v] = -1
+    if (pop >= X.shrinePop && m >= 0 && rel !== null && rel.kind[m] === FaithKind.Traditional) { if (lm.shrineSince[v] < 0) lm.shrineSince[v] = year } else lm.shrineSince[v] = -1
+    // Great works (none below the scan's gate, the least any of them needs: greatGate; resorts aside, for their baths).
+    if (pop >= gate || resort) {
+      const has = lm.has[v]
+      const tier = p >= 0 ? lm.tierP[p] : -1
+      const capYears = cap && ps !== null ? year - capSince(ps, p) : -1
+      const ruler = rulerOf(s, p)
+      const people = p >= 0 && ps !== null ? ps.pPeople[p] : s.people[v]
+      // Castle (the guarantee first: no draw).
+      if (lacks(has, KD.Castle) && lacks(has, KD.Palace) && cap && capYears >= X.forceYears && pop >= X.forcePop) { lm.diag.forced++; begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
+      else if (lacks(has, KD.Castle) && cap && tier >= Tier.Kingdom && capYears >= X.castleYears && pop >= need(lm, X.castlePop, X.castleRank)) { if (rng.next() < X.castle) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
+      else if (lacks(has, KD.Castle) && p >= 0 && tier >= Tier.Kingdom && pop >= need(lm, X.fortPop, X.castleRank) && year - lm.warYear[v] <= X.fortWindow) { lm.diag.fortTowns++; if (rng.next() < X.fort) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 0) }
+      // Palace.
+      if (lacks(has, KD.Palace) && cap && tier >= Tier.Kingdom && capYears >= (tier >= Tier.Empire ? X.palaceEmpireYears : X.palaceYears) && pop >= need(lm, X.palacePop, X.palaceRank) && rich(v, 1)) {
+        if (rng.next() < X.palace) begin(s, lm, v, KD.Palace, p, -1, -1, -1, 1)
+      }
+      // Great temple.
+      if (lacks(has, KD.GreatTemple) && rel !== null) {
+        let f = -1, chance = 0
+        const sf = stateFaith(s, p)
+        if (lm.holyAt[v] >= 0 && pop >= need(lm, X.holyPop, X.holyRank)) { f = lm.holyAt[v]; chance = X.holy }
+        else if (cap && tier >= Tier.Kingdom && sf >= 0 && sf === m && pop >= need(lm, X.seatTemplePop, X.templeRank)) { f = sf; chance = X.seatTemple }
+        else if (m >= 0 && pop >= need(lm, X.piousPop, X.templeRank) && majorityShare(s, v) >= X.piousShare && ruler >= 0 && R !== null && R.rPiety[ruler] >= X.piousRuler && rich(v, 1)) { f = m; chance = X.pious }
+        if (f >= 0 && rng.next() < chance) begin(s, lm, v, KD.GreatTemple, p, -1, f, -1, 0)
+      }
+      // Monastery: the largest eligible town of each realm (judged after the loop).
+      if (lacks(has, KD.Monastery) && rel !== null && R !== null && p >= 0 && ps !== null && pop >= need(lm, X.monkPop, X.monkRank) && ruler >= 0 && m >= 0 && R.rFaith[ruler] === m && R.rPiety[ruler] >= X.monkPiety && rel.org[m] >= X.monkOrg && lm.monkRuler[p] !== ruler) {
+        const b = lm.monkBest[p]
+        if (b < 0 || pop > s.pop[b]) lm.monkBest[p] = v
+      }
+      // Market hall.
+      if (lacks(has, KD.MarketHall) && g !== null) {
+        if (v < g.isMart.length && g.isMart[v] && pop >= need(lm, X.martPop, X.martRank) && rich(v, 1)) { if (rng.next() < X.mart) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
+        else if (pop >= need(lm, X.hubPop, X.hubRank) && rich(v, X.hubRich)) { if (rng.next() < X.hub) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
+      }
+      // Guildhall.
+      if (lacks(has, KD.Guildhall) && lm.renowned[v] >= 0 && year - lm.renowned[v] <= X.guildWindow && pop >= need(lm, X.guildPop, X.guildRank)) {
+        if (rng.next() < X.guild) begin(s, lm, v, KD.Guildhall, p, -1, -1, lm.renownT[v], 0)
+      }
+      // Lighthouse.
+      if (lacks(has, KD.Lighthouse) && s.port[v] >= 0 && lm.laneMark[v] === year && pop >= need(lm, X.lightPop, X.lightRank)) {
+        if (rng.next() < X.light) begin(s, lm, v, KD.Lighthouse, p, -1, -1, -1, 0)
+      }
+      // Library.
+      if (lacks(has, KD.Library) && pop >= need(lm, X.libraryPop, X.libraryRank) && rich(v, 1) && holds(s, people, I_WRITING, X.libTech)) {
+        const mul = holds(s, people, I_PRINTING, X.libTech + 1) ? X.libPrinting : holds(s, people, I_PAPER, X.libTech + 0.5) ? X.libPaper : 1
+        if (rng.next() < X.library * mul) begin(s, lm, v, KD.Library, p, -1, -1, -1, 0)
+      }
+      // Baths.
+      if (lacks(has, KD.Baths) && tz !== null && springNear(s, s.cell[v])) {
+        if (v < tz.cap && tz.resort[v]) { if (pop >= X.bathsPop && rng.next() < X.baths) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
+        else if (pop >= need(lm, X.springTownPop, X.springRank) && rich(v, 1)) { if (rng.next() < X.springTown) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
+      }
+      // Council house.
+      if (lacks(has, KD.CouncilHouse) && cap && ps !== null && capYears >= X.councilYears && pop >= need(lm, X.councilPop, X.councilRank)) {
+        const elective = ps.pOrigin[p] === PolityOrigin.League || (ruler >= 0 && R !== null && (R.rDyn[ruler] < 0 || R.rLaw[ruler] === SuccessionLaw.Elective))
+        if (elective && rng.next() < X.council) begin(s, lm, v, KD.CouncilHouse, p, -1, -1, -1, 1)
+      }
     }
     // Lesser: temples and a shrine.
     if (m >= 0) {
@@ -505,14 +564,18 @@ function scan(s: HistoryState, lm: LandmarksState): void {
     if (standing(st)) {
       if (pop > lm.lRef[id]) lm.lRef[id] = pop
       if (pop < X.neglectShare * lm.lRef[id]) { if (lm.lLow[id] < 0) lm.lLow[id] = year } else lm.lLow[id] = -1
-      const seatLost = lm.lSeat[id] === 1 && year - lm.lastCap[v] >= X.seatYears
+      // (a castle that was a seat stands on as a governor's or a lord's while its town keeps castleKeep of its peak)
+      const seatLost = lm.lSeat[id] === 1 && year - lm.lastCap[v] >= X.seatYears && (kind !== KD.Castle || pop < X.castleKeep * lm.lRef[id])
       if ((lm.lLow[id] >= 0 && year - lm.lLow[id] >= X.neglectYears) || seatLost) {
         lm.lDue[id] = year + rng.int(X.ruinMin, X.ruinMax)
         change(s, lm, id, ST.Neglected, -1, -1, -1)
         continue
       }
-      if (worship && m >= 0 && m !== lm.lCur[id] && majorityShare(s, v) >= X.convertShare) {
-        if (rng.next() < (lm.lRank[id] === LandmarkRank.Lesser ? X.convertLesser : X.convertGreat)) {
+      if (worship && m >= 0 && m !== lm.lCur[id] && majorityShare(s, v) >= X.convertShare && (lm.lRank[id] === LandmarkRank.Lesser || stateFaith(s, p) !== lm.lCur[id])) {
+        // (a folk shrine whose town has taken up a universal faith falls out of use; a great house of its realm's state faith is kept)
+        if (kind === KD.Shrine && rel !== null && rel.kind[m] !== FaithKind.Traditional) {
+          if (rng.next() < X.convertLesser) { lm.lDue[id] = year + rng.int(X.ruinMin, X.ruinMax); change(s, lm, id, ST.Neglected, -1, -1, -1) }
+        } else if (rng.next() < (lm.lRank[id] === LandmarkRank.Lesser ? X.convertLesser : X.convertGreat)) {
           lm.lCur[id] = m
           change(s, lm, id, ST.Converted, m, p, capitalOf(s, p))
         }
@@ -523,7 +586,8 @@ function scan(s: HistoryState, lm: LandmarksState): void {
     const cap = p >= 0 && ps !== null && ps.pCapital[p] === v
     const ruler = rulerOf(s, p)
     let can: boolean
-    if (lm.lSeat[id] === 1) can = cap
+    if (lm.lSeat[id] === 1) can = cap && pop >= X.restoreSeat * lm.lRef[id]
+    else if (kind === KD.Shrine) can = m >= 0 && rel !== null && rel.kind[m] === FaithKind.Traditional && pop >= X.restoreShare * lm.lRef[id]
     else {
       can = pop >= X.restoreShare * lm.lRef[id] && rich(v, 1)
       if (!can && worship && ruler >= 0 && R !== null && R.rPiety[ruler] >= X.restorePiety && pop >= X.restorePious * lm.lRef[id]) can = true

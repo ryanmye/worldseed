@@ -1595,8 +1595,10 @@ export type LandmarkRank = (typeof LandmarkRank)[keyof typeof LandmarkRank]
  * The building form of a house of worship (History.landmarks.form for GreatTemple, Monastery, Temple and Shrine; 0 for the other kinds,
  * whose shape the renderer takes from the town's building style). Each faith has a building tradition fixed at its founding
  * (History.landmarks.faithForm): from its founding people's lands and a seeded draw, kept wherever it spreads; a schism inherits its
- * parent's form with another variant. A great temple raised before its builders hold the mathematics for vaults and domes is built in
- * the tradition's early form (a ziggurat or a columned temple).
+ * parent's form with another variant; a universal faith never has the Ziggurat or Circle tradition (those are folk faiths'). A
+ * great temple of a Steepled, Domed or Pagoda tradition raised before its builders hold the mathematics for vaults and domes is
+ * built in the tradition's early form (a ziggurat where the faith's homeland is hot and dry, else a columned temple); a town's
+ * temple and a monastery take the tradition as it is; a shrine is always a Circle.
  */
 export const LandmarkForm = {
   Steepled: 0, // a church or cathedral: a long nave with a steepled tower

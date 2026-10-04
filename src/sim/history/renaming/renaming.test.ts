@@ -31,9 +31,9 @@ const isOurs = (t: number): boolean => t >= 110 && t <= 119
 export function hashPreRenaming(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions').sort()) { // (ideas: later than renaming)
+  for (const k of Object.keys(r).filter((x) => x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions' && x !== 'landmarks').sort()) { // (ideas, landmarks: later than renaming)
     h = fnvBytes(h, enc.encode(k))
-    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 120 || e.type > 129)) : r[k])
+    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 120 || e.type > 129) && (e.type < 140 || e.type > 149)) : r[k])
   }
   return (h >>> 0).toString(16)
 }
@@ -209,7 +209,7 @@ describe('renaming', () => {
   it('switched off, the history is the one from before the renaming system, with the renamings empty', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...opts, renaming: false, ideas: false }) // (ideas: later, off here too)
+      const h = simulateHistory(w, { years, ...opts, renaming: false, ideas: false, landmarks: false }) // (ideas, landmarks: later, off here too)
       expect(hashPreRenaming(h)).toBe(hash)
       expect(h.renamings.count + h.renamings.name.length + h.renamings.settlement.length).toBe(0)
       expect(h.events.some((e) => isOurs(e.type))).toBe(false)

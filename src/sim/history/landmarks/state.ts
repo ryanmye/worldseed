@@ -7,14 +7,14 @@ import { createRng } from '../../rng.ts'
 import type { HistoryState } from '../state.ts'
 
 export const NEVER = -1000000
+/** How many of the world's largest towns the scans rank (LANDMARK's ...Rank thresholds are at most this). */
+export const TOP_TOWNS = 32
 
 export interface LandmarksState {
   rng: Rng
   // --- Per settlement (capacity `cap`; ids [0, seen) set) ---
   cap: number
   seen: number
-  /** Peak population seen at the scans. */
-  peak: Float64Array
   /** The settlement's landmarks as a list in begun order: first and last landmark (-1), lNext links them. */
   head: Int32Array
   tail: Int32Array
@@ -93,6 +93,8 @@ export interface LandmarksState {
   evSeen: number
   /** Mean wealth per head of the world's towns at the last scan. */
   worldWpc: number
+  /** Populations of the world's TOP_TOWNS largest living towns at the last scan, descending (0 where fewer). */
+  top: Float64Array
   diag: LandmarksDiag
 }
 
@@ -110,7 +112,7 @@ export function createLandmarksState(s: HistoryState): LandmarksState {
   const st = {
     rng: createRng(s.world.seed, 'history-landmarks'),
     cap, seen: 0,
-    peak: new Float64Array(cap), head: new Int32Array(cap).fill(-1), tail: new Int32Array(cap).fill(-1), has: new Int32Array(cap),
+    head: new Int32Array(cap).fill(-1), tail: new Int32Array(cap).fill(-1), has: new Int32Array(cap),
     bigSince: new Int32Array(cap).fill(-1), shrineSince: new Int32Array(cap).fill(-1), warYear: new Int32Array(cap).fill(NEVER), lastCap: new Int32Array(cap).fill(NEVER),
     renowned: new Int32Array(cap).fill(-1), renownT: new Int32Array(cap).fill(-1), holyAt: new Int32Array(cap).fill(-1), laneMark: new Int32Array(cap).fill(NEVER),
     pcap, monkRuler: new Int32Array(pcap).fill(-1), monuRuler: new Int32Array(pcap).fill(-1), tierP: new Int32Array(pcap), monkBest: new Int32Array(pcap).fill(-1),
@@ -121,7 +123,7 @@ export function createLandmarksState(s: HistoryState): LandmarksState {
     lState: [] as number[], lSince: [] as number[], lCur: [] as number[], lRef: [] as number[], lLow: [] as number[], lDue: [] as number[], lSeat: [] as number[], lNext: [] as number[],
     building: [] as number[],
     cLm: [] as number[], cYear: [] as number[], cState: [] as number[], cFaith: [] as number[], cPol: [] as number[], cOther: [] as number[],
-    evSeen: 0, worldWpc: 0,
+    evSeen: 0, worldWpc: 0, top: new Float64Array(TOP_TOWNS),
     diag: { scans: 0, forced: 0, fortTowns: 0, monkChances: 0, sackRolls: 0, stateConversions: 0 },
   }
   return st
@@ -138,7 +140,6 @@ export function ensureLandmarkSettlements(lm: LandmarksState, need: number): voi
   if (need <= lm.cap) return
   let size = lm.cap
   while (size < need) size *= 2
-  lm.peak = grow(lm.peak, size)
   lm.head = grow(lm.head, size, -1)
   lm.tail = grow(lm.tail, size, -1)
   lm.has = grow(lm.has, size)

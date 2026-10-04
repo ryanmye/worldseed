@@ -9,7 +9,7 @@ import { runHistory } from '../index.ts'
 import { TQ } from '../species.ts'
 import { IDEA, IDEA_DEFS, TQ_BREEDING, TQ_HEAVY_PLOUGH, TQ_ROTATION, TQ_TERRACE } from './params.ts'
 
-const IDEAS_KEYS = new Set(['ideas', 'ideaAdoptions'])
+const IDEAS_KEYS = new Set(['ideas', 'ideaAdoptions', 'landmarks']) // (landmarks: later than the ideas, off in the golden runs)
 const isOurs = (t: number): boolean => t >= 120 && t <= 129
 
 function fnvBytes(h: number, b: Uint8Array): number {
@@ -33,7 +33,7 @@ export function hashPreIdeas(hi: History): string {
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => !IDEAS_KEYS.has(x)).sort()) {
     h = fnvBytes(h, enc.encode(k))
-    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type)) : r[k])
+    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 140 || e.type > 149)) : r[k]) // (landmarks: 140-149 later)
   }
   return (h >>> 0).toString(16)
 }
@@ -164,7 +164,7 @@ describe('ideas', () => {
   it('switched off, the history is the one from before the ideas system, with the ideas fields empty', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...opts, ideas: false })
+      const h = simulateHistory(w, { years, ...opts, ideas: false, landmarks: false })
       expect(hashPreIdeas(h)).toBe(hash)
       expect(h.ideas.length + h.ideaAdoptions.count + h.ideaAdoptions.idea.length).toBe(0)
       expect(h.events.some((e) => isOurs(e.type))).toBe(false)
