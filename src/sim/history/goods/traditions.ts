@@ -190,6 +190,7 @@ export function carryCraft(s: HistoryState, g: GoodsState, from: number, to: num
     if (t < 0 || g.tEnd[t] >= 0) continue
     let chance: number
     if (cause === 1) chance = X.deport
+    else if (cause === 2) chance = X.defect // (craftsmen who defect with a secret: secrets.ts pushAt drew that chance already)
     else {
       const pop = s.pop[from] + group
       chance = X.carry * (group / pop) * push * (1 - 0.7 * protection(s, g, c, from))

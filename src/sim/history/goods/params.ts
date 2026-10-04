@@ -252,6 +252,8 @@ export const TRADITION = {
   farHops: 12,
   /** Deportation after a Sack: chance, quality kept. */
   deport: 0.3,
+  /** Craftsmen defecting with a craft secret (secrets.ts pushAt) carry their tradition with this chance. */
+  defect: 0.5,
   deportQ: 0.7,
   /** A seat is lost after deadYears with u below deadU. */
   deadYears: 30,
@@ -284,8 +286,9 @@ export const MART = {
   legYears: 1,
   /** Risk of a relay hop (per hop, a share of value). */
   risk: 0.03,
-  /** polities v2: the smugglers' hub of a leg is the least policed settlement on its way (else the importer). */
-  hubTransit: true,
+  /** polities v2: the smugglers' hub of a leg is the least policed settlement on its way (true) or its importer (false: the
+   *  long legs pass many small places, which became hubs on a few loads of luxuries). */
+  hubTransit: false,
 }
 
 /**
@@ -301,15 +304,15 @@ export const LANE = {
   /** Guess of the direct cost: transport * great-circle cells * guess * ocean factor. */
   guess: 1.3,
   /** Gates: Seafaring for an open-ocean lane, for a coastal one; overland lanes need Crafts and pack animals. */
-  oceanSea: 2.2,
+  oceanSea: 1.9,
   coastSea: 1.6,
   landCrafts: 1.8,
   /** Cost of the expedition: costMul * EXPLORE.cost * group * (1 + cells / costCells); a kingdom's capital pays with polityMul times it. */
   costMul: 2,
   polityMul: 2,
   /** Range: rangeMul times the exploration range; the search stops after maxVisits cells. */
-  rangeMul: 1.5,
-  maxVisits: 4000,
+  rangeMul: 2,
+  maxVisits: 8000,
   /** Targets: cells within targetHops of the source, or of a mart holding the variety at >= martShare. */
   targetHops: 2,
   martShare: 0.2,
@@ -387,10 +390,10 @@ export const SECRET = {
   stateless: 0.15,
   /** Monopoly rent: rho = rent * psi of the sender's price on the secret varieties leaving the holder polity. */
   rent: 0.3,
-  contact: 0.02,
+  contact: 0.006,
   /** Craft secrets pass by contact at this share of the rate (tacit skill travels with craftsmen, not goods). */
   craftContact: 0.1,
-  contactHalf: 200,
+  contactHalf: 1000,
   espionage: 0.06,
   spyLow: 0.05,
   spyHigh: 0.3,

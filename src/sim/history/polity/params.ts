@@ -330,7 +330,7 @@ export const TARIFF = {
   /** Merchants pass most of a duty on to the buyers: only this share of it enters the price gap a flow must beat. */
   wedge: 0.3,
   /** goods: the high-value classes (Luxury to Wares, and the long-haul legs) pay this share of the rate (with the goods system off, Luxury and Stimulant pay it all). */
-  hv: 1,
+  hv: 0.5,
   /** The rate moves this share of the way to its target a year; at most max. */
   rate: 0.1,
   max: 0.6,
@@ -370,7 +370,7 @@ export const SMUGGLE = {
   corruptUnrest: 0.15,
   /** A hub: contraband at least ringShare of its smoothed income and ringMin wealth a year (logged once per settlement: SmugglingRing). */
   ringShare: 0.6,
-  ringMin: 20,
+  ringMin: 80,
   /** Smoothing of incomes for the hub measure, a year. */
   smooth: 0.2,
 }
@@ -392,7 +392,7 @@ export const PIRACY = {
   rate: 0.03,
   /** A nest that took no lane at the last outlaw step aims at rival times pi*. */
   rival: 0.4,
-  laneHalf: 1500,
+  laneHalf: 2500,
   poorFood: 0.95,
   poorWealth: 0.25,
   rich: 0.5,
