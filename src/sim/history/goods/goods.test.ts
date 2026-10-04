@@ -68,14 +68,16 @@ function hashGoods(hi: History): string {
 }
 
 /**
- * Pre-goods histories: hashPre of simulateHistory with goods off must equal the history at the base commit (9a10d65, main
- * with polities v2, before the goods system was merged), with polities on and off. Recorded there with this same hash. (A later merge or retune that changes the
+ * Pre-goods histories: hashPre of simulateHistory with goods off. At the merge with polities v2 these equalled main 9a10d65
+ * (checked on every field); the joint retune then changed polities (tiers relative to the world's people, the SmugglingRing
+ * bar, havens' lane traffic), so the polity-on hashes are regenerated from the retuned goods-off history. With polities off
+ * the history is still 9a10d65's (and 8d50bc5's). A later change outside the goods system must regenerate these. (A later merge or retune that changes the
  * simulation outside the goods system must regenerate these from its own pre-goods state.)
  */
 const GOLDEN: [number, number, number | undefined, boolean, string][] = [
-  [42, 2000, undefined, true, 'fd8732dc'],
-  [3, 600, undefined, true, 'ebfc5ae5'],
-  [9, 800, 24, true, '3cf41fc'],
+  [42, 2000, undefined, true, '9f9f3911'],
+  [3, 600, undefined, true, '39a0574d'],
+  [9, 800, 24, true, 'daf67c33'],
   [7, 900, undefined, false, '1a3a2048'],
 ]
 
