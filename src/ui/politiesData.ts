@@ -4,8 +4,8 @@
 // chronicle show about states at a year is a cheap function of that year.
 //
 //  - Alive polities per snapshot (CSR, ascending id) with their members, population and tier
-//    (Chiefdom, Kingdom or Empire; see TIER_RULE below for the exact thresholds, which the UI
-//    sets deliberately differently from the simulation's own rule).
+//    (Chiefdom, Kingdom or Empire; see TIER_RULE below for the exact thresholds, which match
+//    the simulation and the contract comment).
 //  - Capitals (from capitals / capitalYears), successors (parent links), wars per polity,
 //    political events per polity, walls and sacks per settlement, army journeys.
 //  - The polity of every cell at (snapshot s, land snapshot q): owner settlement
@@ -48,7 +48,7 @@ export const TIER_WORDS: readonly string[] = ['Chiefdom', 'Kingdom', 'Empire']
 export const TIER_RULE = {
   empirePop: 20000, empireWorld: 0.08,
   kingdomPop: 2000, kingdomWorld: 0.008, kingdomMembers: 6,
-  multiShare: 0.15, multiPeoples: 2, multiMembers: 25, multiPop: 10000, multiWorld: 0.04,
+  multiShare: 0.15, multiPeoples: 2, multiMembers: 25, multiPop: 20000, multiWorld: 0,
 }
 
 /** Tier of a polity of `pop` people in `members` settlements, `peoplesAtShare` of its peoples holding TIER_RULE.multiShare of it or more, in a world of `worldPop` people. */
