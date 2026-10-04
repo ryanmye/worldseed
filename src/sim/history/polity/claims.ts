@@ -69,6 +69,11 @@ let compN = 0
 let src = new Int32Array(0)
 let won = new Int32Array(0)
 let queue = new Int32Array(0)
+/** Nobody's cells next to a state's land or claims (where a pocket can begin), and the cells two claims reached (disputes). */
+let cand = new Int32Array(0)
+let candN = 0
+let disp = new Int32Array(0)
+let dispN = 0
 const tallyP: number[] = [], tallyN: number[] = []
 
 /** The claims pass: cPol / cOwner over nobody's land (see the file comment). */
@@ -86,7 +91,7 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   if (ps.alive.length === 0) return
   const P = ps.P
   if (reach.length < P) { reach = new Float64Array(ps.pcap); heldN = new Int32Array(ps.pcap) }
-  if (hp.length < N) { hp = new Int32Array(N); mark = new Int32Array(N); comp = new Int32Array(N); src = new Int32Array(N); won = new Int32Array(N); queue = new Int32Array(N); markRun = 0 }
+  if (hp.length < N) { hp = new Int32Array(N); mark = new Int32Array(N); comp = new Int32Array(N); src = new Int32Array(N); won = new Int32Array(N); queue = new Int32Array(N); cand = new Int32Array(N); disp = new Int32Array(N); markRun = 0 }
   const mass = T.landmass
   if (massHeld.length < T.landmassSize.length) massHeld = new Uint8Array(T.landmassSize.length)
   massHeld.fill(0)
@@ -101,11 +106,12 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   // Who holds each land cell.
   const cells = ps.landCells
   hp.fill(SEA_ICE)
+  let stale = 0
   for (let t = 0; t < cells.length; t++) {
     const c = cells[t]
     if ((flag[c] & ICE) !== 0) continue
     const o = tOwner[c]
-    if (o < 0 || abandoned[o] >= 0) { hp[c] = NOBODY; continue }
+    if (o < 0 || abandoned[o] >= 0) { hp[c] = NOBODY; if (o >= 0) stale++; continue }
     const p = polity[o]
     if (p >= 0) { hp[c] = p; heldN[p]++; massHeld[mass[c]] = 1 } else hp[c] = STATELESS
   }
@@ -113,22 +119,53 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   for (const p of ps.alive) if (heldN[p] > maxHeld) maxHeld = heldN[p]
   // (no pocket larger than this can be filled)
   const maxPocket = X.pocket * maxHeld > X.pocketChief ? X.pocket * maxHeld : X.pocketChief
-  // Sources: the edge cells of every state's held land (a cell next to nobody's land), its member's grip spent.
+  // Sources: the edge cells of every state's held land (a cell next to nobody's land), its member's grip spent. They are
+  // the held neighbours of the map pass's fringe (nobody's cells next to anyone's land) while no owner has been abandoned
+  // since (else every land cell is looked at); the heap orders them by (key, cell) whatever the order they come in.
   heap.size = 0
   let srcN = 0
-  for (let t = 0; t < cells.length; t++) {
-    const c = cells[t]
-    const p = hp[c]
-    if (p < 0 || !(reach[p] > 0)) continue
-    let edge = false
-    for (let k = off[c], e = off[c + 1]; k < e; k++) if (hp[nb[k]] === NOBODY) { edge = true; break }
-    if (!edge) continue
-    const o = tOwner[c]
-    const k0 = 1 - grip(ps.dist[o], ps.pReach[p])
-    if (!(k0 < 1)) continue
-    cKey[c] = k0; cPol[c] = p; cOwner[c] = o; cPeak[c] = 0
-    src[srcN++] = c
-    heap.push(k0, c)
+  const runS = ++markRun // (sources and candidates taken)
+  const fast = stale === 0
+  candN = 0
+  dispN = 0
+  if (fast) {
+    const fringe = ps.fringeCell
+    for (let i = 0; i < fringe.length; i++) {
+      const f = fringe[i]
+      if (hp[f] !== NOBODY) continue
+      let state = false
+      for (let k = off[f], e = off[f + 1]; k < e; k++) {
+        const c = nb[k]
+        const p = hp[c]
+        if (p < 0) continue
+        state = true
+        if (mark[c] === runS) continue
+        mark[c] = runS
+        if (!(reach[p] > 0)) continue
+        const o = tOwner[c]
+        const k0 = 1 - grip(ps.dist[o], ps.pReach[p])
+        if (!(k0 < 1)) continue
+        cKey[c] = k0; cPol[c] = p; cOwner[c] = o; cPeak[c] = 0
+        src[srcN++] = c
+        heap.push(k0, c)
+      }
+      if (state) { mark[f] = runS; cand[candN++] = f } // (next to a state's land: a pocket may begin here)
+    }
+  } else {
+    for (let t = 0; t < cells.length; t++) {
+      const c = cells[t]
+      const p = hp[c]
+      if (p < 0 || !(reach[p] > 0)) continue
+      let edge = false
+      for (let k = off[c], e = off[c + 1]; k < e; k++) if (hp[nb[k]] === NOBODY) { edge = true; break }
+      if (!edge) continue
+      const o = tOwner[c]
+      const k0 = 1 - grip(ps.dist[o], ps.pReach[p])
+      if (!(k0 < 1)) continue
+      cKey[c] = k0; cPol[c] = p; cOwner[c] = o; cPeak[c] = 0
+      src[srcN++] = c
+      heap.push(k0, c)
+    }
   }
   const crest = X.crestElev, drop = X.crestDrop
   let wonN = 0
@@ -138,12 +175,16 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
     if (key > cKey[u]) continue // (cheapened since)
     const heldU = hp[u] >= 0
     const fu = flag[u]
-    if (!heldU && (fu & GREAT) !== 0) continue // (a great river: taken, not crossed)
+    if (!heldU && (fu & GREAT) !== 0) { // (a great river: taken, not crossed)
+      for (let k = off[u], e = off[u + 1]; k < e; k++) { const j = nb[k]; if (hp[j] === NOBODY && mark[j] !== runS) { mark[j] = runS; cand[candN++] = j } }
+      continue
+    }
     const p = cPol[u], r = reach[p], peak = cPeak[u], owner = cOwner[u]
     const fromDesert = !heldU && (fu & DESERT) !== 0
     for (let k = off[u], e = off[u + 1]; k < e; k++) {
       const j = nb[k]
       if (hp[j] !== NOBODY) continue // (anyone's land, ice)
+      if (mark[j] !== runS) { mark[j] = runS; cand[candN++] = j }
       if (fromDesert && (flag[j] & DESERT) === 0) continue
       const ej = elev[j]
       if (peak >= crest && ej < peak - drop) continue
@@ -151,8 +192,8 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
       if (nk > 1) continue
       const pj = cPol[j]
       if (pj >= 0) {
-        if (nk >= cKey[j]) { if (pj !== p && cDisp[j] < 0) cDisp[j] = p; continue } // (another's claim, nearer: disputed)
-        if (pj !== p && cDisp[j] < 0) cDisp[j] = pj
+        if (nk >= cKey[j]) { if (pj !== p && cDisp[j] < 0) { cDisp[j] = p; disp[dispN++] = j } continue } // (another's claim, nearer: disputed)
+        if (pj !== p && cDisp[j] < 0) { cDisp[j] = pj; disp[dispN++] = j }
       }
       if (pj < 0) won[wonN++] = j
       cKey[j] = nk; cPol[j] = p; cOwner[j] = owner; cPeak[j] = ej > peak ? ej : peak
@@ -162,10 +203,13 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   // (held cells were only sources)
   for (let i = 0; i < srcN; i++) { const c = src[i]; cPol[c] = -1; cOwner[c] = -1 }
   for (let i = 0; i < wonN; i++) hp[won[i]] = CLAIMED // (claimed by reach: cPol says by whom)
-  // Pockets: components of nobody's unclaimed land (ice aside), by their border.
+  // Pockets: components of nobody's unclaimed land (ice aside), by their border; only those next to a state's land or
+  // claims can be filled, so they are looked for from the candidates (else from every land cell). Components are apart
+  // from each other (a filled pocket is no other's border), so the order they are found in does not matter.
   const run0 = ++markRun // (component cells)
-  for (let t = 0; t < cells.length; t++) {
-    const c0 = cells[t]
+  const seeds = fast ? cand : cells, seedN = fast ? candN : cells.length
+  for (let t = 0; t < seedN; t++) {
+    const c0 = seeds[t]
     if (hp[c0] !== NOBODY || mark[c0] === run0 || massHeld[mass[c0]] === 0) continue
     compN = 0
     comp[compN++] = c0
@@ -208,6 +252,7 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
     const size = compN
     const tier = tierOf(ps.pPop[best], ps.pMembers[best], ps.pMulti[best] === 1, ps.worldPop)
     if (tier === Tier.Chiefdom ? size > X.pocketChief : size > X.pocket * heldN[best] || size > X.pocketShape * bestN * bestN) continue
+    if (fast) reorder(off, nb, run0)
     fillPocket(ps, best, off, nb, run0)
   }
   disputes(s, ps)
@@ -217,9 +262,8 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
 function disputes(s: HistoryState, ps: PolityState): void {
   const { cPol, cDisp, relDispute, relDisputeOn } = ps
   for (let r = 0; r < relDispute.length; r++) relDispute[r] = 0
-  const cells = ps.landCells
-  for (let t = 0; t < cells.length; t++) {
-    const c = cells[t]
+  for (let t = 0; t < dispN; t++) {
+    const c = disp[t]
     const a = cPol[c], b = cDisp[c]
     if (a < 0 || b < 0 || a === b) continue
     const r = relIdx(ps, a, b)
@@ -230,6 +274,30 @@ function disputes(s: HistoryState, ps: PolityState): void {
     const on = relDispute[r] >= CLAIM.disputeMin && ps.pEnded[a] < 0 && ps.pEnded[b] < 0
     if (on && relDisputeOn[r] === 0) s.events.push({ year: s.year, type: EventType.BorderDispute, settlement: ps.pCapital[a], other: ps.pCapital[b], value: b, extra: relDispute[r] })
     relDisputeOn[r] = on ? 1 : 0
+  }
+}
+
+/**
+ * The component in comp[0, compN) (marked run0) in breadth-first order from its lowest cell, as a search from every land
+ * cell in turn finds it: the order in which fillPocket hands its cells their members.
+ */
+function reorder(off: Int32Array, nb: Int32Array, run0: number): void {
+  let lo = comp[0]
+  for (let i = 1; i < compN; i++) if (comp[i] < lo) lo = comp[i]
+  if (lo === comp[0]) return
+  const runR = ++markRun
+  for (let i = 0; i < compN; i++) mark[comp[i]] = runR
+  compN = 0
+  comp[compN++] = lo
+  mark[lo] = run0
+  for (let i = 0; i < compN; i++) {
+    const c = comp[i]
+    for (let k = off[c], e = off[c + 1]; k < e; k++) {
+      const j = nb[k]
+      if (mark[j] !== runR) continue
+      mark[j] = run0
+      comp[compN++] = j
+    }
   }
 }
 
