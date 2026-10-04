@@ -11,7 +11,7 @@
 // and splits when the senior's succession is not clean (a new house, a crisis), when the junior throws off the bond, or
 // when the senior realm ends.
 
-import { AccessionHow, BondEnd, BondKind, EventType, PolityEnd, PolityOrigin, TOWN_POPULATION, UnionEnd } from '../../../contract.ts'
+import { AccessionHow, BondEnd, BondKind, EventType, PolityEnd, PolityOrigin, ReignEnd, TOWN_POPULATION, UnionEnd } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
@@ -201,7 +201,7 @@ export function unionStep(s: HistoryState, ps: PolityState, R: RulerState): void
     const j = R.uJunior[u], q = R.uSenior[u]
     if (ps.pEnded[j] >= 0 || ps.pEnded[q] >= 0) continue
     const k = R.uBond[u]
-    if (k < 0 || ps.bEnd[k] >= 0) { split(s, ps, R, u, 5, AccessionHow.Usurped); continue } // (thrown off: the junior's own house; its ruler deposed there)
+    if (k < 0 || ps.bEnd[k] >= 0) { split(s, ps, R, u, ReignEnd.Deposed, AccessionHow.Usurped); continue } // (thrown off: the junior's own house; its ruler deposed there)
     if (s.year - R.uStart[u] < MARRIAGE.mergeYears || ps.pWars[j] > 0 || ps.pWars[q] > 0) continue
     if (ps.pPeople[j] !== ps.pPeople[q] && !inContact(s, ps.pPeople[j], ps.pPeople[q])) continue
     merge(s, ps, R, u)

@@ -337,7 +337,7 @@ export function rulerNewPolity(s: HistoryState, ps: PolityState, R: RulerState, 
   if (R.ctx === Ctx.Civil) {
     // A rival claimant of the house (or a new house's man) at the rival centre.
     if (R.ctxDyn >= 0) {
-      const r = accede(s, ps, R, p, R.ctxBorn, R.ctxFemale, R.ctxDyn, AccessionHow.Claimed, R.ctxDead >= 0 ? R.rParent[R.ctxDead] : -1, -1, 0)
+      const r = accede(s, ps, R, p, R.ctxBorn, R.ctxFemale, R.ctxDyn, AccessionHow.Claimed, -1, -1, 0) // (a kinsman: brother, uncle or cousin)
       backfill(R, p, r, s.year)
     } else newHouseAccede(s, ps, R, p, AccessionHow.Claimed)
     R.ctx = Ctx.None
