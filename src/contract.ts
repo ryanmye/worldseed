@@ -205,6 +205,8 @@ export const EventType = {
   SightRecognised: 105, // a place became a sight worth the journey: `settlement` the living settlement by it (its own, the town that hosts its visitors, or the nearest); `other` the sight's own settlement (a ruin's abandoned one) or -1; `value` the sight id (History.sights, which has its cell); `extra` the SightKind
   // renaming: places renamed by history (110-119; none when HistoryOptions.renaming is false).
   PlaceRenamed: 110, // `settlement` took the name History.renamings.name[`value`] (`value` the renaming id); `other` the capital of the polity behind it at the time, the ruin whose name it revived (RenameCause.Revived), or -1; `extra` the RenameCause
+  // claims (polities): 130.
+  BorderDispute: 130, // the claims of the polities ruled from `settlement` and `other` came to meet over a stretch of unsettled land (History.claimed), a cause of rivalry between them; `value` is the polity id of `other`'s polity; `extra` the number of land cells both claim. Logged when the dispute begins (again after it lapsed)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 

@@ -1,12 +1,12 @@
 // polities: claims, the land states claim beyond their settlements' own (polity/claims.ts).
 
 import { describe, expect, it } from 'vitest'
-import { Biome } from '../../contract.ts'
+import { Biome, EventType } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
 import type { HistoryState } from './state.ts'
-import { POLITY } from './polity/params.ts'
+import { CLAIM, POLITY } from './polity/params.ts'
 
 /** Every claim pass of a run: each claimed cell checked against the state of the pass. */
 function checkPasses(w: World, years: number): { passes: number; claimed: number; pocket: number } {
@@ -133,11 +133,28 @@ describe('claims', () => {
       // (claims fill out countries; they do not swallow the world)
       expect(r.claimed).toBeLessThan(0.5 * r.held)
       expect(r.none).toBeGreaterThan(0.1 * (r.claimed + r.held + r.none))
+      // Border disputes: in map years, between two living states ruled from `settlement` and `other`, over disputeMin cells or more.
+      const capAt = (p: number, y: number): number => { const x = h.polities[p]; let c = x.capitals[0]; for (let i = 0; i < x.capitals.length; i++) if (x.capitalYears[i] <= y) c = x.capitals[i]; return c }
+      const live = (p: number, y: number): boolean => h.polities[p].foundedYear <= y && (h.polities[p].endedYear < 0 || h.polities[p].endedYear >= y)
+      let n = 0
+      for (const e of h.events) {
+        if (e.type !== EventType.BorderDispute) continue
+        n++
+        expect(e.year % POLITY.mapStep).toBe(0)
+        expect(e.extra ?? 0).toBeGreaterThanOrEqual(CLAIM.disputeMin)
+        const b = e.value
+        expect(live(b, e.year)).toBe(true)
+        expect(capAt(b, e.year)).toBe(e.other)
+        const a = h.polities.findIndex((_x, p) => p !== b && live(p, e.year) && capAt(p, e.year) === e.settlement)
+        expect(a).toBeGreaterThanOrEqual(0)
+      }
+      expect(n).toBeGreaterThan(0)
     }
   }, 240_000)
 
   it('switched off with the polities, empty', () => {
     const h = simulateHistory(generateWorld(3), { years: 400, polities: false })
     expect(h.claimed.length).toBe(0)
+    expect(h.events.some((e) => e.type === EventType.BorderDispute)).toBe(false)
   }, 60_000)
 })

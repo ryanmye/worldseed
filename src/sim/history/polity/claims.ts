@@ -13,11 +13,12 @@
 //
 // cPol / cOwner: the claiming polity and member per cell (-1: none); on held cells they are scratch of the search.
 
-import { Biome, RIVER_FLOW_THRESHOLD } from '../../../contract.ts'
+import { Biome, EventType, RIVER_FLOW_THRESHOLD } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { Heap } from '../heap.ts'
 import type { HistoryState } from '../state.ts'
 import { CLAIM } from './params.ts'
+import { relIdx } from './relations.ts'
 import { grip, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
 
@@ -65,11 +66,12 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
   const T = s.terrain
   const N = T.cellCount
   const { w, flag, off, nb } = claimStatic(s)
-  const { cOwner, cPol, cKey, cPeak, tOwner, polity } = ps
+  const { cOwner, cPol, cKey, cPeak, cDisp, tOwner, polity } = ps
   const abandoned = s.abandoned
   const elev = s.world.elevation
   cOwner.fill(-1)
   cPol.fill(-1)
+  cDisp.fill(-1)
   ps.claimYear = s.year
   if (ps.alive.length === 0) return
   const P = ps.P
@@ -128,7 +130,11 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
       if (peak >= crest && ej < peak - drop) continue
       const nk = key + w[j] / r
       if (nk > 1) continue
-      if (cPol[j] >= 0 && nk >= cKey[j]) continue
+      const pj = cPol[j]
+      if (pj >= 0) {
+        if (nk >= cKey[j]) { if (pj !== p && cDisp[j] < 0) cDisp[j] = p; continue } // (another's claim, nearer: disputed)
+        if (pj !== p && cDisp[j] < 0) cDisp[j] = pj
+      }
       cKey[j] = nk; cPol[j] = p; cOwner[j] = owner; cPeak[j] = ej > peak ? ej : peak
       heap.push(nk, j)
     }
@@ -190,6 +196,27 @@ export function claimPass(s: HistoryState, ps: PolityState): void {
     const tier = tierOf(ps.pPop[best], ps.pMembers[best], ps.pMulti[best] === 1, ps.worldPop)
     if (tier === Tier.Chiefdom ? size > X.pocketChief : size > X.pocket * heldN[best] || size > X.pocketShape * bestN * bestN) continue
     fillPocket(ps, best, abandoned, off, nb, run0)
+  }
+  disputes(s, ps)
+}
+
+/** Border disputes: cells where two neighbours' claims meet, per relation; BorderDispute when a pair's reach disputeMin. */
+function disputes(s: HistoryState, ps: PolityState): void {
+  const { cPol, cDisp, relDispute, relDisputeOn } = ps
+  for (let r = 0; r < relDispute.length; r++) relDispute[r] = 0
+  const cells = ps.landCells
+  for (let t = 0; t < cells.length; t++) {
+    const c = cells[t]
+    const a = cPol[c], b = cDisp[c]
+    if (a < 0 || b < 0 || a === b) continue
+    const r = relIdx(ps, a, b)
+    if (r >= 0) relDispute[r]++
+  }
+  for (let r = 0; r < relDispute.length; r++) {
+    const a = ps.relA[r], b = ps.relB[r]
+    const on = relDispute[r] >= CLAIM.disputeMin && ps.pEnded[a] < 0 && ps.pEnded[b] < 0
+    if (on && relDisputeOn[r] === 0) s.events.push({ year: s.year, type: EventType.BorderDispute, settlement: ps.pCapital[a], other: ps.pCapital[b], value: b, extra: relDispute[r] })
+    relDisputeOn[r] = on ? 1 : 0
   }
 }
 

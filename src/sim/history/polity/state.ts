@@ -182,6 +182,10 @@ export interface PolityState {
   cOwner: Int32Array
   cKey: Float64Array
   cPeak: Float32Array
+  /** A second state whose claim reached the cell and lost it (-1), and per relation the cells so disputed and 1 while BorderDispute stands. */
+  cDisp: Int32Array
+  relDispute: number[]
+  relDisputeOn: number[]
   claimYear: number
   /** Share of its food each member sends its capital (set every step), and the members that pay, ascending. */
   taxShare: Float64Array
@@ -399,7 +403,7 @@ export function createPolityState(s: HistoryState): PolityState {
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
     nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
-    cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), claimYear: -1,
+    cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), cDisp: new Int32Array(N).fill(-1), relDispute: [], relDisputeOn: [], claimYear: -1,
   }
   return Object.assign(base, v2) as PolityState
 }

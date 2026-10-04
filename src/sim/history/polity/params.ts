@@ -578,4 +578,11 @@ export const CLAIM = {
   /** Siting (system.ts siteFactor): a state's settlers score a site on its claims * (1 + settle), anyone else's * (1 - deter). */
   settle: 0.15,
   deter: 0.15,
+  /**
+   * Border disputes: cells both of two neighbours' claims reach (where their claims meet) count as `dispute` contested
+   * cells each in the pair's rivalry (relations.ts: claim * c / (c + claimHalf)); a pair whose claims meet over disputeMin
+   * cells or more logs BorderDispute (once, until they meet over fewer).
+   */
+  dispute: 0.2,
+  disputeMin: 4,
 }

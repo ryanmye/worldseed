@@ -3,7 +3,8 @@
 // Relations exist only between polities that border each other (a graph edge between members) and
 // whose ruling peoples are the same or have met. Every step, per pair:
 //   dR = step * [0.04 claim + 0.01 [peoples differ] + 0.02 hunger + 0.03 [war within 50 years] - 0.02 v / (v + 200)] - step * 0.01 R
-//   claim  = contested / (contested + 6)   cells in the base catchments of members of both (Carneiro's squeeze)
+//   claim  = contested / (contested + 6)   cells in the base catchments of members of both (Carneiro's squeeze), plus
+//            CLAIM.dispute per cell where the two states' claims meet (claims.ts: border disputes)
 //   hunger = mean (1 - food) of the members on the border, v = open trade loads a year between their members.
 // Pairs are kept in arrays in creation order (the Map is for lookup only); a pair whose polity ended is
 // skipped. The border edges of each pair this step are kept for the war rules.
@@ -12,7 +13,7 @@ import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { NEVER, inContact } from './state.ts'
 import type { PolityState } from './state.ts'
-import { POLITY, RELATION } from './params.ts'
+import { CLAIM, POLITY, RELATION } from './params.ts'
 import { tied } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { faithRivalry } from '../religion/system.ts' // religion:
@@ -50,6 +51,8 @@ export function ensureRelation(ps: PolityState, p: number, q: number): number {
   ps.relEmbRec.push(-1)
   ps.relEdges.push([])
   ps.relContested.push(0)
+  ps.relDispute.push(0) // (claims.ts)
+  ps.relDisputeOn.push(0)
   return i
 }
 
@@ -101,7 +104,7 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     let x = ps.relR[r]
     let d = -X.decay * x
     if (ps.relEdges[r].length > 0) {
-      const c = contested[r]
+      const c = contested[r] + CLAIM.dispute * ps.relDispute[r] // (claims meeting: border disputes)
       const v = vol[r]
       const h = r < hunger.length && hungerN[r] > 0 ? hunger[r] / hungerN[r] : 0
       d += X.claim * (c / (c + X.claimHalf)) + (ps.pPeople[a] !== ps.pPeople[b] ? X.differ : 0) + X.hunger * h +
