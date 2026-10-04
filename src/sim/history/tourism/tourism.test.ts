@@ -53,12 +53,14 @@ function hashTourism(hi: History): string {
  * the tip of that merge, verified by hashing every field against it and recorded here. A later change outside the tourism
  * system must regenerate these.
  */
+// (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
+// plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'd2422449'],
-  [3, 600, undefined, {}, 'bbe320fe'],
-  [7, 900, undefined, { polities: false, goods: false }, 'a7be5ebd'],
-  [1, 1500, undefined, { disease: false }, 'e2eedb90'],
-  [9, 800, 24, {}, '9f69cfaa'],
+  [42, 2000, undefined, {}, 'b4430c0e'],
+  [3, 600, undefined, {}, 'a24e63e4'],
+  [7, 900, undefined, { polities: false, goods: false }, '8d539b84'],
+  [1, 1500, undefined, { disease: false }, 'ab783aee'],
+  [9, 800, 24, {}, 'ed63cae2'],
 ]
 
 const worlds = new Map<number, World>()

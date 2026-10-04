@@ -46,15 +46,15 @@ function hashRenaming(hi: History): string {
 
 /**
  * Histories without the renaming system: hashPreRenaming of simulateHistory with renaming off equals the history of main
- * c4375b1 before it (every key of History), recorded there. The system is a pure consequence layer, so with it on the same
+ * c4375b1 with the trade and siting fixes merged, before it (every key of History), recorded there. The system is a pure consequence layer, so with it on the same
  * holds. A later change outside the renaming system must regenerate these.
  */
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '7d47cfd1'],
-  [3, 600, undefined, {}, '572b64d3'],
-  [7, 900, undefined, { polities: false, goods: false }, 'b545393f'],
-  [1, 1500, undefined, { disease: false }, '8ebc7735'],
-  [9, 800, 24, {}, '2c27c49d'],
+  [42, 2000, undefined, {}, '1b87790d'],
+  [3, 600, undefined, {}, 'f7ef08ab'],
+  [7, 900, undefined, { polities: false, goods: false }, '5ccf1fe7'],
+  [1, 1500, undefined, { disease: false }, '9a911db2'],
+  [9, 800, 24, {}, 'f5afa0c4'],
 ]
 
 const worlds = new Map<number, World>()
@@ -247,13 +247,20 @@ describe('renaming', () => {
     const { naming } = nameWorld(w, h.settlements)
     const base = assembleRenamings(w, rn!, h.settlements, naming, h.features, h.rulers, h.dynasties, h.faiths)
     expect(base.renamings.name).toEqual(h.renamings.name)
-    const k = base.renamings.cause.findIndex((c) => c !== RenameCause.Distinguished)
+    // (a rule that holds on any history: the first renaming that gave a new name, and the first settlement founded after it
+    // that is not that town, not a revived ruin and never renamed itself, so the collision is the only change)
+    const B = base.renamings
+    const k = B.cause.findIndex((c, i) => c !== RenameCause.Distinguished && B.restored[i] === NEW_NAME)
     expect(k).toBeGreaterThanOrEqual(0)
-    const y = base.renamings.year[k]
-    const late = h.settlements.find((s) => s.foundedYear > y)!
-    const taken = base.renamings.name[k]
+    const y = B.year[k]
+    const touched = new Set<number>() // (lookup only)
+    for (let i = 0; i < B.count; i++) { touched.add(B.settlement[i]); if (B.source[i] >= 0) touched.add(B.source[i]) }
+    const late = h.settlements.find((s) => s.foundedYear > y && !touched.has(s.id))!
+    expect(late).toBeDefined()
+    const taken = B.name[k]
     const settlements = h.settlements.map((s) => (s.id === late.id ? { ...s, name: taken } : s))
-    const out = assembleRenamings(w, rn!, settlements, naming, h.features, h.rulers, h.dynasties, h.faiths).renamings
+    const res = assembleRenamings(w, rn!, settlements, naming, h.features, h.rulers, h.dynasties, h.faiths)
+    const out = res.renamings
     const d = out.cause.findIndex((c) => c === RenameCause.Distinguished)
     expect(d).toBeGreaterThanOrEqual(0)
     expect(out.settlement[d]).toBe(late.id)
@@ -261,7 +268,13 @@ describe('renaming', () => {
     expect(out.form[d]).toBe(RenameForm.Qualified)
     expect(out.name[d].toLowerCase()).not.toBe(taken.toLowerCase())
     expect(out.count).toBe(base.renamings.count + 1)
-    checkRenamings({ ...h, settlements, renamings: out, events: weaveEvents(h.events.filter((e) => !isOurs(e.type)), out.name.map((_, i) => ({ year: out.year[i], type: EventType.PlaceRenamed, settlement: out.settlement[i], other: -1, value: i, extra: out.cause[i] }))) })
+    // (the other renamings are those of the run, the qualified row woven in)
+    for (let i = 0, j = 0; i < out.count; i++) {
+      if (i === d) continue
+      expect([out.settlement[i], out.year[i], out.name[i], out.cause[i]]).toEqual([B.settlement[j], B.year[j], B.name[j], B.cause[j]])
+      j++
+    }
+    checkRenamings({ ...h, settlements, renamings: out, events: weaveEvents(h.events.filter((e) => !isOurs(e.type)), res.events) })
   }, 300_000)
 
   it('is deterministic; a longer run repeats a shorter one exactly; a resumed run equals runs from scratch', () => {

@@ -46,12 +46,14 @@ function hashDisease(hi: History): string {
  * the disease system taken out, verified by hashing every field against it and recorded here. A later change outside the
  * disease system must regenerate these.
  */
+// (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
+// plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, 'e9e6327c'],
-  [3, 600, undefined, true, true, 'cc2907d8'],
-  [7, 900, undefined, false, false, 'd67f2287'],
-  [1, 1500, undefined, true, false, 'c5ffcdc8'],
-  [9, 800, 24, true, true, '1f1e7f79'],
+  [42, 2000, undefined, true, true, 'aa476ea1'],
+  [3, 600, undefined, true, true, 'c227185d'],
+  [7, 900, undefined, false, false, 'a43d9362'],
+  [1, 1500, undefined, true, false, '3b0b40f4'],
+  [9, 800, 24, true, true, 'f0f7bf58'],
 ]
 
 const worlds = new Map<number, World>()

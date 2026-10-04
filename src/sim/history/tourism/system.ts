@@ -642,12 +642,14 @@ function spending(s: HistoryState, tz: TourismState, ts: TradeState): void {
   let w = 0
   for (let t = 0; t < L.length; t++) {
     const h = L[t]
-    const inc = tz.incomeSm[h] + RESORT.incSmooth * (tz.income[h] - tz.incomeSm[h])
+    const raw = tz.income[h]
+    const inc = tz.incomeSm[h] + RESORT.incSmooth * (raw - tz.incomeSm[h])
     tz.income[h] = 0
     tz.incomeSm[h] = inc
     if (s.abandoned[h] >= 0) { tz.incomeSm[h] = 0; continue }
     if (tz.resort[h]) {
-      if (inc >= RESORT.minIncome) tz.lastGood[h] = s.year
+      // (the grace runs from the last year visitors paid enough, not from the smoothed income, which outlasts them)
+      if (raw >= RESORT.minIncome) tz.lastGood[h] = s.year
       else if (s.year - tz.lastGood[h] >= RESORT.grace) {
         logEvent(s, EventType.ResortAbandoned, h, -1, s.year - tz.lastGood[h])
         const idx = s.living.indexOf(h)

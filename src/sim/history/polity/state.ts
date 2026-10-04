@@ -304,6 +304,19 @@ export interface PolityDiag {
   foundHome: number[]
   /** The cell of each founding (for harness measures of site choice). */
   foundCell: number[]
+  /**
+   * Site choice against its alternatives (migration's foundings): year, the chosen cell's danger and defensibility, those of
+   * the site the group would have chosen without danger (the best of those weighed by its score without the polities' site
+   * factor), how many sites it weighed, 1 when that is the site chosen, the founders' own danger.
+   */
+  siteYear: number[]
+  siteZ: number[]
+  siteD: number[]
+  siteAltZ: number[]
+  siteAltD: number[]
+  siteAltN: number[]
+  siteSame: number[]
+  siteFromZ: number[]
   // v2, per year (index = year): duty revenue, capitals' income, value crossing restricted borders legally and as
   // contraband (loads), cargo value lost to pirates / privateers and to bandits, sum of pirate strength.
   yRev: number[]
@@ -365,6 +378,7 @@ export function createPolityState(s: HistoryState): PolityState {
     stamp: new Int32Array(cap), run: 0, ringDist: f64(cap), scratchF: f64(cap), scratchI: i32(cap),
     diag: {
       raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [],
+      siteYear: [], siteZ: [], siteD: [], siteAltZ: [], siteAltD: [], siteAltN: [], siteSame: [], siteFromZ: [],
       yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0,
     },
   }

@@ -213,12 +213,22 @@ export const DANGER = {
   /** Cell danger: owner's z plus hostileEdge on a hostile border; unowned cells wild + half the largest neighbouring owner's z. */
   hostileEdge: 0.15,
   wild: 0.1,
-  /** Flight: extra refugee chance flee * smoothstep(fleeLow, fleeHigh, z). */
+  /**
+   * Flight: extra refugee chance flee * smoothstep(fleeLow, fleeHigh, z), z the smoothed danger (or the present one if lower);
+   * under persistent danger the outlying fields go untilled: harvest * (1 - fieldsLost * smoothstep(fleeLow, fleeHigh, smoothed danger)).
+   */
+  fieldsLost: 0.18,
   flee: 0.06,
   fleeLow: 0.35,
   fleeHigh: 0.8,
-  /** Site and join scores: * (1 - site * zCell * (1 - D)), D = defensibility 0..1; walled towns pull the threatened: * (1 + z_from * wall). */
+  /**
+   * Site and join scores: * (1 - site * zCell * (1 - D)), D = defensibility 0..1; walled towns pull the threatened: * (1 + z_from * wall).
+   * New sites: * max(siteMin, 1 - siteNew * max(0, zCell - siteFree) * (1 - D)) (raided borderlands and pirate coasts, not a quiet frontier).
+   */
   site: 1.0,
+  siteNew: 5,
+  siteFree: 0.15,
+  siteMin: 0.05,
   /** Refuge: in danger, defensible sites are sought after: * (1 + refuge * z * D). */
   refuge: 6,
   /** The threatened also prefer to join towns on defensible sites: join * (1 + z_from * refugeJoin * D). */

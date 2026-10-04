@@ -63,6 +63,17 @@ export interface PolityStatRow {
   siteCellT: number
   siteHigh: number
   siteLow: number
+  /**
+   * Site choice against the site the group would have chosen without danger (migration's foundings from year 300): of
+   * those whose site without danger lay in danger >= 0.2 (raided borderlands, pirate coasts), the share that went elsewhere
+   * and the mean danger chosen minus that site's; (founders' own danger >= 0.3) the mean defensibility chosen minus that
+   * site's; counts.
+   */
+  siteQuieter: number
+  siteDz: number
+  siteDD: number
+  siteAltN: number
+  siteFearN: number
   /** Cities >= 10k walled at 2000; share of the 10 largest that are or were capitals. */
   citiesWalled: number
   topCapitals: number
@@ -341,6 +352,13 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
     if (z >= 0.4) { tHigh += t; nHigh++ } else if (z <= 0.1) { tLow += t; nLow++ }
     if (zc >= 0.4) { cHigh += t; cnHigh++ } else if (zc <= 0.1) { cLow += t; cnLow++ }
   }
+  // Site choice against the alternatives weighed.
+  let sqN = 0, sqLower = 0, sqDz = 0, sfN = 0, sfDD = 0
+  if (diag && diag.siteYear) for (let k = 0; k < diag.siteYear.length; k++) {
+    if (diag.siteYear[k] < 300) continue
+    if (diag.siteAltZ[k] >= 0.2) { sqN++; sqDz += diag.siteZ[k] - diag.siteAltZ[k]; if (!diag.siteSame[k]) sqLower++ }
+    if (diag.siteFromZ[k] >= 0.3) { sfN++; sfDD += diag.siteD[k] - diag.siteAltD[k] }
+  }
   // Walls and capitals at the end.
   const walledAt = new Uint8Array(S)
   for (const x of h.structures) if (x.type === StructureType.Walls && x.lostYear < 0) walledAt[x.settlement] = 1
@@ -468,6 +486,7 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
     kingdomLife, shortShare: P ? short / P : 0, coreYears, formed, conquered, seceded, fragmentations, absorbed,
     wars: W.count, warRate, warLength, outcomes, pop2000, popOff2000, worstFall, warAbandon: abandoned ? warAb / abandoned : 0,
     revoltRate, revoltWin, siteT: nHigh && nLow ? tHigh / nHigh - tLow / nLow : NaN, siteCellT: cnHigh && cnLow ? cHigh / cnHigh - cLow / cnLow : NaN, siteHigh: nHigh, siteLow: nLow,
+    siteQuieter: sqN ? sqLower / sqN : NaN, siteDz: sqN ? sqDz / sqN : NaN, siteDD: sfN ? sfDD / sfN : NaN, siteAltN: sqN, siteFearN: sfN,
     citiesWalled: cities ? citiesW / cities : NaN, topCapitals: top.length ? topCap / top.length : 0,
     townsDefOn, townsDefOff, townsBorderOn, townsBorderOff, lateDefOn, lateDefOff, lateBorderOn, lateBorderOff, wTOn, wTOff, wHopsOn, wHopsOff, bigOn, bigOff, citiesOn, citiesOff, townsOn, townsOff, danger, dangerHigh,
     capitalRatio: capN && memN ? capPop / capN / (memPop / memN) : NaN, capitalsCities: cities ? capCities / cities : NaN,
@@ -692,6 +711,9 @@ export function formatPolityStats(rows: PolityStatRow[]): string {
     ['  share won', '0.25-0.50', rng(col((r) => r.revoltWin))],
     ['Founding T: founders\' danger >= 0.4 minus <= 0.1 (home landmass)', '>= 0.15', rng(col((r) => r.siteT))],
     ['  by the site\'s own danger', '(info)', rng(col((r) => r.siteCellT))],
+    ['Foundings whose best site without danger was in danger >= 0.2: share that went elsewhere', '>= 0.5', rng(col((r) => r.siteQuieter))],
+    ['  danger chosen minus that site\'s', '<= -0.1', rng(col((r) => r.siteDz))],
+    ['  founders in danger >= 0.3: defensibility chosen minus that site\'s', '> 0', rng(col((r) => r.siteDD))],
     ['Cities >= 10k walled y2000', '0.40-0.90', rng(col((r) => r.citiesWalled))],
     ['Top-10 cities that are or were capitals', '>= 0.50', rng(col((r) => r.topCapitals))],
     ['Churn: changes per settlement per century', 'median <= 1.0', rng(col((r) => r.churn))],
