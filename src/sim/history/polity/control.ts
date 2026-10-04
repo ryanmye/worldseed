@@ -89,6 +89,9 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   const A = pop > 0 ? aSum / pop : 0
   ps.pAsab[p] = A
   ps.pMass[p] = A * bSum * (inCrisis(s, ps, p) ? POLITY.crisisMass : 1)
+  // Overstretch: beyond POLITY.great of the world's people a realm's armies and governors are spread thin (halved `stretch` further on).
+  const over = ps.worldPop > 0 && POLITY.stretch > 0 ? pop / ps.worldPop - POLITY.great : 0
+  if (over > 0) ps.pMass[p] /= 1 + over / POLITY.stretch
   if (s.rul !== null) ps.pMass[p] *= rulerMass(s.rul, p) // rulers: an able ruler's realm is stronger
   let multi = 0
   for (let q = 0; q < NP; q++) if (pop > 0 && peoplePop[q] >= POLITY.multiShare * pop) multi++

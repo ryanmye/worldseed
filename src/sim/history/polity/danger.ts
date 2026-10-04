@@ -78,7 +78,7 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
         }
         if ((pi < 0) !== (pv < 0) && on < D.frontier) on = D.frontier
         if (pi < 0 && pv >= 0) { front |= 1; margin = true }
-        if (other) front |= 1
+        if (other && (pi < 0 || pv !== pi || COHESION.subjects)) front |= 1 // (a people inside the realm is no frontier: subjects, not the enemy)
         if (pv < 0 && other && raiderType(s, ps, v)) {
           front |= 2
           const r = D.raider * ps.asab[v]

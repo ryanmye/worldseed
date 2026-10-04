@@ -111,7 +111,9 @@ export function civilWar(s: HistoryState, ps: PolityState, ts: TradeState, p: nu
 export function partition(s: HistoryState, ps: PolityState, p: number, members: readonly number[]): boolean {
   const cap = ps.pCapital[p]
   const lam = ps.pReach[p]
-  const need = CIVIL.heirRatio * s.pop[cap] > CIVIL.heirPop ? CIVIL.heirRatio * s.pop[cap] : CIVIL.heirPop
+  // (as for a rival centre, a large realm has many provincial seats fit for an heir: the bar falls with its size)
+  const bar = (CIVIL.heirRatio * s.pop[cap]) / (CIVIL.heirSize ? 1 + ps.pMembers[p] / CIVIL.sizeRef : 1)
+  const need = bar > CIVIL.heirPop ? bar : CIVIL.heirPop
   const heirs: number[] = []
   for (const m of members) {
     if (m === cap || ps.polity[m] !== p || s.pop[m] < need || !(ps.dist[m] < FAR) || ps.dist[m] < CIVIL.rivalDist * lam) continue
