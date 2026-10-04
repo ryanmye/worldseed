@@ -132,6 +132,25 @@ export function mapPass(s: HistoryState, ps: PolityState, ts: TradeState, heap: 
   }
   ps.borderCell = bc
   ps.borderOther = bo
+  // Wilderness: far cells keep the wild danger; cells next to owned land take their owners' (cellDanger).
+  const fc: number[] = [], fo: number[] = [0], fw: number[] = []
+  for (let t = 0; t < cells.length; t++) {
+    const c = cells[t]
+    if (tOwner[c] >= 0) continue
+    const start = fw.length
+    for (let k = off[c]; k < off[c + 1]; k++) {
+      const b = tOwner[nb[k]]
+      if (b < 0) continue
+      let dup = false
+      for (let q = start; q < fw.length; q++) if (fw[q] === b) dup = true
+      if (!dup) fw.push(b)
+    }
+    if (fw.length > start) { fc.push(c); fo.push(fw.length) }
+    ps.cellZ[c] = DANGER.wild
+  }
+  ps.fringeCell = fc
+  ps.fringeOff = fo
+  ps.fringeOwner = fw
   // Sea edges: open routes over at least two sea cells.
   for (const r of ts.openList) {
     const a = ts.rA[r], b = ts.rB[r]
@@ -184,23 +203,24 @@ export function linkNew(s: HistoryState, ps: PolityState, id: number): void {
 export function cellDanger(s: HistoryState, ps: PolityState, hostile: Uint8Array): void {
   const { tOwner, cellZ, danger } = ps
   const cells = ps.landCells
-  const { neighborOffsets: off, neighbors: nb } = s.world.grid
   const abandoned = s.abandoned
   const hEdge = DANGER.hostileEdge, wild = DANGER.wild
   for (let t = 0; t < cells.length; t++) {
     const c = cells[t]
     const o = tOwner[c]
-    let z: number
-    if (o >= 0 && abandoned[o] < 0) z = danger[o] + (hostile[c] ? hEdge : 0)
-    else {
-      let m = 0
-      for (let k = off[c]; k < off[c + 1]; k++) {
-        const b = tOwner[nb[k]]
-        if (b >= 0 && abandoned[b] < 0 && danger[b] > m) m = danger[b]
-      }
-      z = wild + 0.5 * m
-    }
+    if (o < 0) continue
+    const z = abandoned[o] < 0 ? danger[o] + (hostile[c] ? hEdge : 0) : wild
     cellZ[c] = z > 1 ? 1 : z
+  }
+  const { fringeCell, fringeOff, fringeOwner } = ps
+  for (let k = 0; k < fringeCell.length; k++) {
+    let m = 0
+    for (let q = fringeOff[k]; q < fringeOff[k + 1]; q++) {
+      const b = fringeOwner[q]
+      if (abandoned[b] < 0 && danger[b] > m) m = danger[b]
+    }
+    const z = wild + 0.5 * m
+    cellZ[fringeCell[k]] = z > 1 ? 1 : z
   }
 }
 

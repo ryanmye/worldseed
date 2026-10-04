@@ -42,18 +42,27 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   for (let k = m0; k < m1; k++) { const m = list[k]; stamp[m] = run; dist[m] = FAR }
   const cap = ps.pCapital[p]
   heap.size = 0
+  // Through members, and across one ring of foreign or stateless settlements at POLITY.transit times the cost
+  // (a ring node's cost is kept in ringDist; it leads only on to members).
+  const ringRun = -run
+  const { ringDist } = ps
   if (stamp[cap] === run) { dist[cap] = 0; heap.push(0, cap) }
   while (heap.size > 0) {
     const d = heap.topKey()
     const u = heap.pop()
-    if (d > dist[u]) continue
+    const member = stamp[u] === run
+    if (d > (member ? dist[u] : ringDist[u])) continue
     const nb = gNb[u], co = gCost[u]
     if (!nb) continue
     for (let k = 0; k < nb.length; k++) {
       const v = nb[k]
-      if (stamp[v] !== run) continue
-      const nd = d + co[k]
-      if (nd < dist[v]) { dist[v] = nd; heap.push(nd, v) }
+      if (stamp[v] === run) {
+        const nd = d + co[k] * (member ? 1 : POLITY.transit)
+        if (nd < dist[v]) { dist[v] = nd; heap.push(nd, v) }
+      } else if (member && s.abandoned[v] < 0) {
+        const nd = d + co[k] * POLITY.transit
+        if (stamp[v] !== ringRun || nd < ringDist[v]) { stamp[v] = ringRun; ringDist[v] = nd; heap.push(nd, v) }
+      }
     }
   }
   const NP = s.know.P

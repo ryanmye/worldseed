@@ -444,7 +444,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cradles, knowledge: s.knowDiag ? { ...s.knowDiag } : undefined, contactVia: s.know.via.slice(),
         firstLearn: techState.firstLearn.slice(), peopleVolume: techState.pairVol.slice(), near: s.know.near.slice(),
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
-        polity: pol ? { ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice() } : undefined, // polities:
+        polity: pol ? { ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice(), foundFromZ: pol.diag.foundFromZ.slice(), foundHome: pol.diag.foundHome.slice() } : undefined, // polities:
       },
     }
   }

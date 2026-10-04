@@ -49,7 +49,7 @@ export function cohesionStep(s: HistoryState, ps: PolityState): void {
         if (s.abandoned[v] >= 0 || s.outpost[v]) continue
         const pv = polity[v]
         if (s.people[v] !== s.people[i]) { frontier = true; if (raiderType(s, ps, v)) steppe = true }
-        else if ((pi < 0) !== (pv < 0)) frontier = true
+        else if (pi < 0 && pv >= 0) frontier = true
         else if (pi >= 0 && pv >= 0 && pi !== pv && (relationOf(ps, pi, pv) >= C.frontierR || atWar(ps, pi, pv))) frontier = true
       }
     }

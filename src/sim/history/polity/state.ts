@@ -112,6 +112,14 @@ export interface PolityState {
   /** Cell danger 0..1 this step (siting, snapshots), and 1 on a border with a rival or enemy. */
   cellZ: Float32Array
   hostile: Uint8Array
+  /** Unowned cells next to owned ones (map pass): cell, and their neighbouring owners [fringeOff[k], fringeOff[k + 1]). */
+  fringeCell: number[]
+  fringeOff: number[]
+  fringeOwner: number[]
+  /** Share of its food each member sends its capital (tax.ts; set every step). */
+  taxShare: Float64Array
+  /** Events already scanned for abandonments. */
+  evSeen: number
   mapYear: number
 
   // --- Relations (pairs of adjacent polities whose peoples are in contact) ---
@@ -124,6 +132,8 @@ export interface PolityState {
   relIndex: Map<number, number>
   /** Border edges of each pair this step: flat (u, v, cost) triples, u < v. */
   relEdges: number[][]
+  /** Contested cells per pair (recounted every map pass). */
+  relContested: number[]
   /** Per-cell scratch for contested claims. */
   cellMark: Int32Array
   cellPol: Int32Array
@@ -142,6 +152,8 @@ export interface PolityState {
   wSiege: number[]
   wSiegeYears: number[]
   wSiegeFrom: number[]
+  /** Last year the attacker took ground. */
+  wLastGain: number[]
   activeWars: number[]
 
   // --- Raid summary (decade, settlement) in order of first raid, looked up by key ---
@@ -161,6 +173,8 @@ export interface PolityState {
   aHeap: Heap
   stamp: Int32Array
   run: number
+  /** Control pass: cost to ring settlements (foreign or stateless, next to members). */
+  ringDist: Float64Array
   scratchF: Float64Array
   scratchI: Int32Array
   /** Counters for the stats harness. */
@@ -181,6 +195,9 @@ export interface PolityDiag {
   foundYear: number[]
   foundCellZ: number[]
   foundT: number[]
+  /** The founders' own danger, and 1 when the new settlement is on its parent's landmass. */
+  foundFromZ: number[]
+  foundHome: number[]
 }
 
 function f64(n: number): Float64Array { return new Float64Array(n) }
@@ -213,13 +230,13 @@ export function createPolityState(s: HistoryState): PolityState {
     memOff: new Int32Array(1), memList: new Int32Array(0),
     gNb: [], gCost: [], linkA: [], linkB: [], linkCost: [],
     tOwner: new Int32Array(N).fill(-1), tDist: new Float64Array(N), borderCell: [], borderOther: [],
-    cellZ: new Float32Array(N), hostile: new Uint8Array(N), mapYear: -1,
-    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEdges: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
-    wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], activeWars: [],
+    cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), evSeen: 0, mapYear: -1,
+    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
+    wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [],
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],
     heap: new Heap(256), aDist: new Float64Array(N), aPrev: new Int32Array(N), aStamp: new Int32Array(N), aRun: 0, aHeap: new Heap(256),
-    stamp: new Int32Array(cap), run: 0, scratchF: f64(cap), scratchI: i32(cap),
-    diag: { raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [] },
+    stamp: new Int32Array(cap), run: 0, ringDist: f64(cap), scratchF: f64(cap), scratchI: i32(cap),
+    diag: { raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [] },
   }
 }
 
@@ -253,7 +270,9 @@ export function ensureSettlements(ps: PolityState, need: number): void {
   ps.rose = grow(ps.rose, size, NEVER)
   ps.foundZ = grow(ps.foundZ, size)
   ps.taxIn = grow(ps.taxIn, size)
+  ps.taxShare = grow(ps.taxShare, size)
   ps.stamp = grow(ps.stamp, size)
+  ps.ringDist = grow(ps.ringDist, size)
   ps.scratchF = grow(ps.scratchF, size)
   ps.scratchI = grow(ps.scratchI, size)
   ps.cap = size

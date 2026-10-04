@@ -86,7 +86,7 @@ function declare(s: HistoryState, ps: PolityState, r: number, p: number, q: numb
   ps.wAtt.push(p); ps.wDef.push(q)
   ps.wStart.push(s.year); ps.wEnd.push(-1); ps.wOutcome.push(WarOutcome.Ongoing)
   ps.wTaken.push(0); ps.wRetaken.push(0); ps.wDead.push(0)
-  ps.wSiege.push(-1); ps.wSiegeYears.push(0); ps.wSiegeFrom.push(-1)
+  ps.wSiege.push(-1); ps.wSiegeYears.push(0); ps.wSiegeFrom.push(-1); ps.wLastGain.push(s.year)
   ps.activeWars.push(w)
   ps.relWar[r] = w
   ps.pWars[p]++
@@ -173,27 +173,36 @@ let strikeA = 0, strikeD = 0
 function strike(s: HistoryState, ps: PolityState, p: number, q: number, u: number, v: number, d: number): number {
   strikeA = projAt(ps, p, d) / (1 + 0.5 * ps.ravage[u])
   const cap = isCapital(ps, v)
-  strikeD = projAt(ps, q, ps.dist[v]) * ps.defense[s.cell[v]] * wallFactor(ps, v, cap) + localOf(s, ps, v)
+  // (walls shelter the town's own defenders, already in Local; the realm's field army fights on the ground's terms)
+  void cap
+  strikeD = projAt(ps, q, ps.dist[v]) * ps.defense[s.cell[v]] * (WAR.fieldWall ? wallFactor(ps, v, isCapital(ps, v)) : 1) + localOf(s, ps, v)
   return strikeA / (strikeD + 1e-9)
 }
 
-/** Best front of p against q this year (current membership): sets frontU / frontV / frontD; returns A / D (0 if none). */
+/**
+ * Best front of p against q this year (current membership): the target worth most, win chance times value (a
+ * province 1, the capital 1 + capitalValue * q's members: decapitation). Sets frontU / frontV / frontD; returns
+ * that front's A / D (0 if none).
+ */
 function campaignFront(s: HistoryState, ps: PolityState, p: number, q: number, defenders: readonly number[]): number {
-  let best = 0
+  let best = 0, bestR = 0
   frontU = -1; frontV = -1
+  const capValue = 1 + WAR.capitalValue * ps.pMembers[q]
   for (const v of defenders) {
     if (ps.polity[v] !== q) continue
     const nb = ps.gNb[v], co = ps.gCost[v]
     if (!nb) continue
+    const value = ps.pCapital[q] === v ? capValue : 1
     for (let k = 0; k < nb.length; k++) {
       const u = nb[k]
       if (ps.polity[u] !== p || s.abandoned[u] >= 0) continue
       const d = ps.dist[u] + co[k]
       const r = strike(s, ps, p, q, u, v, d)
-      if (r > best) { best = r; frontU = u; frontV = v; frontD = d }
+      const sc = ((r * r) / (r * r + 1)) * value
+      if (sc > best) { best = sc; bestR = r; frontU = u; frontV = v; frontD = d }
     }
   }
-  return best
+  return bestR
 }
 
 /** v falls to p in war w (struck from u at graph cost d). Returns true if v was q's capital. */
@@ -204,6 +213,8 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
   ps.unrest[v] = 0.3
   if (attacker) ps.wTaken[w]++
   else ps.wRetaken[w]++
+  const e = ps.pExh[p] - WAR.momentum
+  ps.pExh[p] = e > 0 ? e : 0
   logEvent(s, EventType.Conquered, v, u, w)
   if (ps.wSiege[w] === v) ps.wSiege[w] = -1
   // Sack.
@@ -214,7 +225,9 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
     s.pop[v] -= lost
     ps.wDead[w] += lost
     ps.diag.sackDead += lost
-    s.wealth[v] *= 1 - WAR.sackWealth
+    const loot = WAR.sackWealth * s.wealth[v]
+    s.wealth[v] -= loot
+    s.wealth[ps.pCapital[p]] += WAR.plunder * loot
     if (ps.walls[v] > 0 && rng.next() < WAR.slight) loseWalls(s, ps, v)
     if (s.dam[v] >= 0 && rng.next() < WAR.damLost) loseStructure(s, s.dam[v])
     spike(ps, v, WAR.sackDanger)
@@ -226,6 +239,8 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
 /** q's capital fell to p in war w: members submit to the shock, the rest keep a rump or split. */
 function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q: number, fallen: number): void {
   const rest = membersOf(s, ps, q)
+  let pop0 = s.pop[fallen]
+  for (const j of rest) pop0 += s.pop[j]
   const base = ps.dist[fallen] // (now p's graph cost to the fallen capital)
   const people = ps.pPeople[p]
   const keep: number[] = []
@@ -243,7 +258,7 @@ function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q:
   for (const j of keep) ps.asab[j] = clampAsab(ps.asab[j] + COHESION.capitalLost)
   let pop = 0
   for (const j of keep) pop += s.pop[j]
-  if (keep.length > 0 && pop >= POLITY.minState) {
+  if (keep.length > 0 && pop >= POLITY.minState && pop >= WAR.rumpShare * pop0) {
     const c = chooseCapital(s, ps, keep, ps.pReach[q])
     moveCapital(s, ps, q, c)
     controlOne(s, ps, q, ps.heap)
@@ -315,6 +330,7 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[q] >= 0) { closeWar(s, ps, w, ps.pEndBy[q] === ps.pCapital[p] ? WarOutcome.Conquest : ps.wTaken[w] > ps.wRetaken[w] ? WarOutcome.AttackerGains : WarOutcome.WhitePeace); continue }
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     dead[0] = 0; dead[1] = 0
+    const takenBefore = ps.wTaken[w]
     const def = membersOf(s, ps, q)
     if (campaignFront(s, ps, p, q, def) > 0) battle(s, ps, w, p, q, frontU, frontV, frontD, true, dead)
     // Counteroffensive by a defender stronger on its own front.
@@ -326,8 +342,9 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[q] < 0) exhaust(s, ps, q, dead[1])
     if (ps.pEnded[q] >= 0) { closeWar(s, ps, w, WarOutcome.Conquest); continue }
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
+    if (ps.wTaken[w] > takenBefore) ps.wLastGain[w] = s.year
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
-    const tired = s.year - ps.wStart[w] >= WAR.peaceAfter && rng.next() < WAR.peaceChance
+    const tired = s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < WAR.peaceChance
     if (spent || tired) {
       const t = ps.wTaken[w], b = ps.wRetaken[w]
       closeWar(s, ps, w, t > b ? WarOutcome.AttackerGains : b > t ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)

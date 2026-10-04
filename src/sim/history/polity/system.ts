@@ -13,6 +13,7 @@
 // walled towns, no joining an enemy at war, war embargo on trade (trade.ts), ravaged harvests
 // (population.ts), technology shared inside empires (technology.ts).
 
+import { EventType } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
@@ -58,6 +59,8 @@ function newSettlements(s: HistoryState, ps: PolityState): void {
       ps.diag.foundYear.push(s.year)
       ps.diag.foundCellZ.push(ps.cellZ[s.cell[id]])
       ps.diag.foundT.push(ps.defense[s.cell[id]])
+      ps.diag.foundFromZ.push(par >= 0 && par < ps.seen ? ps.danger[par] : 0)
+      ps.diag.foundHome.push(par >= 0 && s.terrain.landmass[s.cell[par]] === s.terrain.landmass[s.cell[id]] ? 1 : 0)
     }
     // Membership: overseas colonies of a kingdom's port town join it; others join the polity whose
     // land they settle, or their mother town's polity if they are within its reach.
@@ -98,13 +101,18 @@ function hostileCells(s: HistoryState, ps: PolityState): void {
 /** System (yearly, after abandonment): see the file comment for the order. */
 export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): void {
   newSettlements(s, ps)
-  // Settlements abandoned this year leave their polity; walls fall with them.
+  // Settlements abandoned this year (Abandoned events since the last look) leave their polity; walls fall with them.
   const gone: number[] = []
-  for (let id = 0; id < ps.seen; id++) {
-    if (s.abandoned[id] !== s.year) continue
+  const ev = s.events
+  for (let k = ps.evSeen; k < ev.length; k++) {
+    const e = ev[k]
+    if (e.type !== EventType.Abandoned) continue
+    const id = e.settlement
+    if (id >= ps.seen) continue
     if (ps.walls[id] > 0) loseWalls(s, ps, id)
     if (ps.polity[id] >= 0) gone.push(id)
   }
+  ps.evSeen = ev.length
   if (gone.length > 0) lostCapitals(s, ps, gone)
   if (s.year % POLITY.mapStep === 0) {
     if (!mapHeap) mapHeap = createMapHeap()
@@ -128,6 +136,19 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   wallStep(s, ps)
   hostileCells(s, ps)
   cellDanger(s, ps, ps.hostile)
+  taxShares(s, ps)
+}
+
+/** Share of its food each member sends its capital until the next step: tax * gamma * g / T. */
+function taxShares(s: HistoryState, ps: PolityState): void {
+  const living = s.living
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    const p = ps.polity[id]
+    let x = 0
+    if (p >= 0 && ps.pCapital[p] !== id && ps.dist[id] < FAR) x = (POLITY.tax * grainShare(s, id) * grip(ps.dist[id], ps.pReach[p])) / ps.defense[s.cell[id]]
+    ps.taxShare[id] = x
+  }
 }
 
 /**
@@ -145,16 +166,15 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     if (id >= ps.seen) break
+    const share = ps.taxShare[id]
+    if (!(share > 0)) continue
     const p = ps.polity[id]
     if (p < 0) continue
     const cap = ps.pCapital[p]
     if (cap === id || s.abandoned[cap] >= 0) continue
-    const d = ps.dist[id]
-    if (!(d < FAR)) continue
-    const g = grip(d, ps.pReach[p])
-    const share = (P.tax * grainShare(s, id) * g) / ps.defense[s.cell[id]]
     const tax = share * s.supply[id]
     if (!(tax > 0)) continue
+    const g = grip(ps.dist[id], ps.pReach[p])
     s.supply[id] -= tax
     const pid = s.pop[id]
     s.food[id] = s.supply[id] >= pid ? 1 : s.supply[id] / pid
@@ -187,9 +207,17 @@ export function fleeChance(ps: PolityState, id: number): number {
   return DANGER.flee * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, ps.danger[id])
 }
 
-/** Site score factor of a new settlement on cell c: danger, eased by defensibility (migration, voyages). */
-export function siteFactor(ps: PolityState, c: number): number {
-  return 1 - DANGER.site * ps.cellZ[c] * (1 - ps.defenseD[c])
+/**
+ * Site score factor of a new settlement on cell c founded from settlement `from` (migration, voyages):
+ * (1 - site * z * (1 - D)) * (1 + refuge * z * D): danger repels, eased by defensibility D, and makes defensible
+ * sites sought after; z is the cell's danger or, for a group fleeing danger, part of its own (fear sends people
+ * to hilltops and islands even where it is quiet for now).
+ */
+export function siteFactor(ps: PolityState, c: number, from: number): number {
+  let z = ps.cellZ[c]
+  if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > z) z = zf }
+  const D = ps.defenseD[c]
+  return (1 - DANGER.site * z * (1 - D)) * (1 + DANGER.refuge * z * D)
 }
 
 /** Join score factor of a group from `from` joining `occ`: the threatened crowd into walled towns; dangerous towns repel. */

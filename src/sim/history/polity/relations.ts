@@ -44,6 +44,7 @@ export function ensureRelation(ps: PolityState, p: number, q: number): number {
   ps.relWar.push(-1)
   ps.relLastWar.push(NEVER)
   ps.relEdges.push([])
+  ps.relContested.push(0)
   return i
 }
 
@@ -75,25 +76,11 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     }
   }
   const R = ps.relA.length
-  // Contested farmland: cells in the base catchments of members of two polities.
-  const contested = new Float64Array(R)
-  const T = s.terrain
-  const { cellMark, cellPol } = ps
-  const run = ++ps.cellRun
-  for (let t = 0; t < living.length; t++) {
-    const m = living[t]
-    const p = polity[m]
-    if (p < 0) continue
-    const c = s.cell[m]
-    for (let k = T.catchOff[c], e = T.catchBase[c]; k < e; k++) {
-      const j = T.catchCell[k]
-      if (cellMark[j] !== run) { cellMark[j] = run; cellPol[j] = p; continue }
-      const o = cellPol[j]
-      if (o < 0 || o === p) continue
-      const r = ps.relIndex.get(key(o, p))
-      if (r !== undefined) contested[r]++
-      cellPol[j] = -1
-    }
+  // Contested farmland: cells in the base catchments of members of two polities (recounted at map passes).
+  const contested = ps.relContested
+  if (ps.mapYear === s.year) {
+    for (let r = 0; r < R; r++) contested[r] = 0
+    contestedClaims(s, ps)
   }
   // Trade between members of the two.
   const vol = new Float64Array(R)
@@ -117,5 +104,29 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     }
     x += step * d
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x
+  }
+}
+
+function contestedClaims(s: HistoryState, ps: PolityState): void {
+  const contested = ps.relContested
+  const living = s.living
+  const polity = ps.polity
+  const T = s.terrain
+  const { cellMark, cellPol } = ps
+  const run = ++ps.cellRun
+  for (let t = 0; t < living.length; t++) {
+    const m = living[t]
+    const p = polity[m]
+    if (p < 0) continue
+    const c = s.cell[m]
+    for (let k = T.catchOff[c], e = T.catchBase[c]; k < e; k++) {
+      const j = T.catchCell[k]
+      if (cellMark[j] !== run) { cellMark[j] = run; cellPol[j] = p; continue }
+      const o = cellPol[j]
+      if (o < 0 || o === p) continue
+      const r = ps.relIndex.get(key(o, p))
+      if (r !== undefined) contested[r]++
+      cellPol[j] = -1
+    }
   }
 }

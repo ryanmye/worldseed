@@ -17,17 +17,19 @@ export const POLITY = {
   mapR1: 3.5,
   mapPopLow: 300,
   mapPopHigh: 10000,
+  /** The capital's grip passes foreign or stateless settlements (one at a time) at this multiple of the cost. */
+  transit: 2,
   /** Armies cost more than freight on sea legs: sea edge cost = trade route cost * seaArmy. */
   seaArmy: 1.5,
   /** Formation: a stateless settlement of formPop people, grain share >= formGrain, formRatio times its largest stateless neighbour, with formDependents neighbours that would submit. */
-  formPop: 800,
+  formPop: 1500,
   formGrain: 0.4,
   formRatio: 2,
   formDependents: 2,
   /** Grain share gamma = 1 - fishFrac - liveWeight * liveFrac (the tax base; species storableShare later). */
   liveWeight: 0.6,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
-  submit: 1.5,
+  submit: 1.8,
   subBase: 0.3,
   foreign: 0.5,
   /** Accretion: at most this many settlements join a polity per step, the most dominated first. */
@@ -35,9 +37,9 @@ export const POLITY = {
   /** A chiefdom (fewer than absorbMembers members) whose capital would submit (at submit) to a larger neighbour joins it whole. */
   absorbMembers: 6,
   /** Reach: lambda = lambda0 * (1 + reachCrafts * (Crafts - 1)) / sqrt(1 + members / overload). */
-  lambda0: 4,
+  lambda0: 5,
   reachCrafts: 0.5,
-  overload: 60,
+  overload: 100,
   /** Power b = pop * q * (1 + prosperityPower * prosperity); q = 1 + qMetal (Metalworking - 1) + qCrafts (Crafts - 1). */
   prosperityPower: 0.5,
   qMetal: 0.3,
@@ -95,9 +97,9 @@ export const RELATION = {
   hunger: 0.02,
   recentWar: 0.03,
   recentYears: 50,
-  trade: 0.02,
+  trade: 0.01,
   tradeHalf: 200,
-  decay: 0.01,
+  decay: 0.02,
   /** A successor state starts with this rivalry towards its parent, and a truce of truceSecede years. */
   secedeR: 0.7,
   truceSecede: 15,
@@ -129,10 +131,16 @@ export const WAR = {
   slight: 0.5,
   damLost: 0.3,
   sackDanger: 0.9,
+  /** Walls also multiply the realm's field army defending the town (design 6.3); off: walls shelter only the town's own defenders. */
+  fieldWall: false,
   /** A failed year of siege makes the next year's odds this much better for the besiegers. */
   siegeAttrition: 1.15,
-  /** After its capital falls, the defender's members submit to the conqueror at this alpha (shock). */
+  /** After its capital falls, the defender's members submit to the conqueror at this alpha (shock); a rump survives only with rumpShare of the realm's people (and POLITY.minState). */
   shock: 1.0,
+  rumpShare: 0.4,
+  /** Momentum: each settlement taken lowers the taker's exhaustion by this; a sack carries plunder (this share of the wealth lost) to the taker's capital. */
+  momentum: 0.1,
+  plunder: 0.5,
   /** The defender counterattacks in a war-year when its odds on its best front reach counter. */
   counter: 0.5,
   /** Exhaustion: + perYear per war-year + deaths * (war deaths / pop) + poor (capital wealth below poorShare * mass); decays at peace. */
@@ -140,11 +148,14 @@ export const WAR = {
   deaths: 3,
   poor: 0.1,
   poorShare: 0.02,
-  exhaustDecay: 0.05,
-  /** Peace: exhaustion >= 1 on either side, or the defender ended, or a yearly chance after peaceAfter years. */
+  exhaustDecay: 0.1,
+  /** Target choice: a front is worth win * value, value 1 for a province, 1 + capitalValue * members for the capital (decapitation). */
+  capitalValue: 0.25,
+  /** Peace: exhaustion >= 1 on either side, or the defender ended, or a yearly chance after peaceAfter years (not while the attacker took ground in the last `winning` years). */
+  winning: 2,
   peaceChance: 0.08,
   peaceAfter: 5,
-  truce: 40,
+  truce: 30,
   peaceR: 0.5,
   /** Army size: share of the attacker's mass in men, clamped. Cell path search budget: pathBudget times the edge cost. */
   army: 0.05,
@@ -188,7 +199,11 @@ export const DANGER = {
   fleeLow: 0.3,
   fleeHigh: 0.8,
   /** Site and join scores: * (1 - site * zCell * (1 - D)), D = defensibility 0..1; walled towns pull the threatened: * (1 + z_from * wall). */
-  site: 0.7,
+  site: 1.0,
+  /** Refuge: in danger, defensible sites are sought after: * (1 + refuge * z * D). */
+  refuge: 2,
+  /** A group's own danger counts this much toward the danger of the sites it weighs. */
+  fear: 1.0,
 }
 
 export const WALLS = {
@@ -215,7 +230,7 @@ export const UNREST = {
   famine: 0.3,
   famineYears: 10,
   crowding: 0.2,
-  exhaustion: 0.3,
+  exhaustion: 0.2,
   crisis: 0.2,
   colony: 0.2,
   badTax: 0.1,
@@ -225,10 +240,10 @@ export const UNREST = {
   /** u += rate * (h - u) a year. */
   rate: 0.1,
   /** Revolt: members with u >= revolt rise with chance chance per step; the cluster spreads to members with u >= spread (at most cluster). */
-  revolt: 0.5,
-  chance: 0.3,
-  spread: 0.35,
-  cluster: 40,
+  revolt: 0.55,
+  chance: 0.07,
+  spread: 0.4,
+  cluster: 15,
   /** Crushed: rebels lose pop and wealth, unrest falls to after, the centre's exhaustion rises. */
   crushPop: 0.03,
   crushWealth: 0.3,
