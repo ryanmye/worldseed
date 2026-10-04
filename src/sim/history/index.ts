@@ -3,8 +3,8 @@
 // the whole run with periodic snapshots.
 //
 // Each year runs a fixed sequence of small systems over shared state:
-//   weather -> food -> trade -> population -> migration
-//   -> voyages -> abandonment (-> routes of the abandoned close) -> structures
+//   weather -> food -> trade -> [polities: grain tax] -> population -> migration
+//   -> voyages -> abandonment (-> routes of the abandoned close) -> [polities] -> structures
 //   -> [land use -> degradation] -> [roads] -> milestones -> exploration
 //   -> technology -> knowledge -> knowledge spread -> species -> snapshots
 // (land use and degradation advance every LAND.step years, roads every
@@ -15,13 +15,14 @@
 // system, so imports feed people the year they arrive. Land snapshots (Uint8
 // use, degradation and road per cell) are taken every landInterval years,
 // trade-volume snapshots every tradeInterval years.
-// Later systems (polities, war) slot into this sequence.
+// Polities (polity/system.ts; HistoryOptions.polities, on by default) form states, borders, war,
+// raids, danger and revolts; switched off, the history is exactly the one without them.
 //
 // Peoples (peoples.ts): the founding tribes live in a few separate cradles
 // over the world's continents; each founds a people, and every settlement
 // belongs to its founder's people. What each people knows of the world and
 // whom it has met (knowledge.ts) limits where its groups migrate, sail and
-// trade; peoples in contact share what they know. Each people has its own
+// trade; peoples in contact learn what the other knows, gradually (knowledgeSpread.ts). Each people has its own
 // technology in four fields (technology.ts), grown from its own activity and
 // learned from the peoples it has met; every effect of technology reads the
 // settlement's people's level. Prosperous settlements send expeditions to the
@@ -41,7 +42,8 @@
 // and whether a group stops at a town it passes; frontier.ts),
 // 'history-species-origins' (where species are
 // native, the cradles' founding sets) and 'history-species-spread' (taming,
-// adoption, techniques, what seaborne colonies carry; species.ts);
+// adoption, techniques, what seaborne colonies carry; species.ts),
+// 'history-polities' and 'history-war' (states, raids, revolts, successions; battles, sacks; polity/);
 // 'history-ore' seeds the ore-richness noise; people names come from
 // 'names-people-<founder>' (peoples.ts), species names from
 // 'names-species-<id>'. Knowledge, contact and technology draw nothing.
