@@ -6,17 +6,22 @@
 // resolution, about a millisecond) so the worker keeps the original to
 // simulate on; the history's large typed arrays are transferred, not copied.
 //
-// Extending: an `extend` request re-runs the simulation of the kept world for a longer
-// run. SimulateHistory is deterministic and a shorter run reproduces the start of a
-// longer one bit for bit, so the longer History simply replaces the shorter one on the
-// main thread. Requests are handled one at a time (one simulation at once); the main
-// thread sends at most one extension at a time and drops responses whose requestId is
-// stale (a new seed).
+// Extending: an `extend` request continues the simulation of the kept world for a longer
+// run. The worker keeps one resumable run (createHistoryRun) per generated world and calls
+// advanceTo for the initial history and for every extension, so an extension costs only
+// the added years; each History it returns owns its arrays (safe to transfer). Without
+// createHistoryRun it re-runs simulateHistory from scratch. Either way a shorter run
+// reproduces the start of a longer one bit for bit, so the longer History simply replaces
+// the shorter one on the main thread. Requests are handled one at a time (one simulation
+// at once); the main thread sends at most one extension at a time and drops responses
+// whose requestId is stale (a new seed).
 
-import type { History, HistoryOptions, World, WorldOptions } from './contract.ts'
-import { generateWorld } from './sim/index.ts'
-// HISTORY SOURCE: dev stand-in. Swap to `from './sim/index.ts'` once the real simulation lands.
-import { simulateHistory } from './sim/index.ts'
+import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, World, WorldOptions } from './contract.ts'
+import * as sim from './sim/index.ts'
+
+const { generateWorld, simulateHistory } = sim
+/** The resumable run's constructor, when the simulation exports one (else every run starts from scratch). */
+const createHistoryRun = (sim as { createHistoryRun?: CreateHistoryRun }).createHistoryRun
 
 export type WorkerRequest =
   | {
@@ -44,12 +49,25 @@ export type WorkerResponse =
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer)
 const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
 
-/** The world of the latest generate request, kept to simulate longer runs on. */
-let kept: { requestId: number; world: World; historyOptions?: HistoryOptions } | null = null
+/** The world of the latest generate request, kept to simulate longer runs on, with its resumable run (null before the first run, without createHistoryRun, or after a failure). */
+interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null }
+let kept: Kept | null = null
 
-function simulateAndPost(requestId: number, world: World, historyOptions: HistoryOptions | undefined, extend: boolean) {
+/** History `years` long (undefined: the requested default length) of the kept world: from its resumable run when there is one. */
+function simulate(k: Kept, years: number | undefined): History {
+  if (createHistoryRun && !k.run) k.run = createHistoryRun(k.world, k.historyOptions)
+  if (!k.run) return simulateHistory(k.world, years === undefined ? k.historyOptions : { ...k.historyOptions, years })
+  try {
+    return k.run.advanceTo(years ?? k.historyOptions?.years ?? 2000)
+  } catch (err) {
+    k.run = null // its state is suspect: a later request starts from scratch
+    throw err
+  }
+}
+
+function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean) {
   const t0 = performance.now()
-  const history = simulateHistory(world, historyOptions)
+  const history = simulate(k, years)
   const ms = performance.now() - t0
   // A Set: the sim may pack several arrays into one buffer, and listing a buffer twice throws.
   const transfer = new Set<Transferable>([history.population.buffer, history.food.buffer, history.capacity.buffer] as ArrayBuffer[])
@@ -62,9 +80,9 @@ function simulateAndPost(requestId: number, world: World, historyOptions: Histor
   const T = partial.trade
   const extra: (ArrayBufferView | undefined)[] = [partial.landUse, partial.degradation, partial.road, partial.wealth, partial.tradeVolume]
   if (T) extra.push(T.a, T.b, T.openedYear, T.goodAB, T.goodBA, T.pathOffsets, T.path)
-  // knowledge and contact tables (newer sims)
+  // knowledge, contact and technology tables (newer sims)
   const p = partial as Record<string, unknown>
-  for (const k of ['knownYear', 'contactYear']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
+  for (const k of ['knownYear', 'contactYear', 'technology']) if (ArrayBuffer.isView(p[k])) extra.push(p[k] as ArrayBufferView)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend }, [...transfer])
 }
@@ -76,7 +94,7 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     if (!kept || kept.requestId !== requestId) return // superseded by a newer world
     try {
       if (req.fail) throw new Error('simulated extension failure (debug)')
-      simulateAndPost(requestId, kept.world, { ...kept.historyOptions, years }, true)
+      simulateAndPost(requestId, kept, years, true)
     } catch (err) {
       post({ type: 'error', requestId, stage: 'extend', message: errorMessage(err) })
     }
@@ -92,9 +110,9 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     post({ type: 'error', requestId, stage: 'world', message: errorMessage(err) })
     return
   }
-  kept = { requestId, world, historyOptions }
+  kept = { requestId, world, historyOptions, run: null }
   try {
-    simulateAndPost(requestId, world, historyOptions, false)
+    simulateAndPost(requestId, kept, undefined, false)
   } catch (err) {
     post({ type: 'error', requestId, stage: 'history', message: errorMessage(err) })
   }

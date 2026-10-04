@@ -205,6 +205,37 @@ vec2 ws_cells(vec3 x, out vec3 cellRand) {
   return sqrt(vec2(d1, d2));
 }
 
+// ws_cells that also returns the nearest feature point (in the same scaled space as x).
+vec2 ws_cellsc(vec3 x, out vec3 cellRand, out vec3 center) {
+#ifdef WS_COUNT_NOISE
+  ws_cellCount++;
+#endif
+  vec3 i = floor(x);
+  vec3 f = fract(x);
+  float d1 = 9.0;
+  float d2 = 9.0;
+  vec3 best = vec3(0.0);
+  vec3 bestR = vec3(0.0);
+  for (int z = -1; z <= 1; z++)
+  for (int y = -1; y <= 1; y++)
+  for (int k = -1; k <= 1; k++) {
+    vec3 g = vec3(float(k), float(y), float(z));
+    vec3 r = g + 0.5 + 0.42 * ws_hash33(i + g) - f;
+    float d = dot(r, r);
+    if (d < d1) {
+      d2 = d1;
+      d1 = d;
+      best = g;
+      bestR = r;
+    } else if (d < d2) {
+      d2 = d;
+    }
+  }
+  cellRand = ws_hash33(i + best + 71.3) * 0.5 + 0.5;
+  center = x + bestR;
+  return sqrt(vec2(d1, d2));
+}
+
 vec3 ws_srgbToLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }

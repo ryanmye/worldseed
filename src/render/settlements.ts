@@ -52,6 +52,16 @@ export interface SettlementLayer {
    * and fade (selection and hover rings stay); far <= 0 turns it off.
    */
   setYield(near: number, far: number): void
+  /** Colour per settlement (sRGB 0..1, 3 per settlement: its people's), uploaded once; null clears. Shown while setTint(true). */
+  setPeopleColors(rgb: Float32Array | null): void
+  /** Fill markers with their people's colour instead of the gold/white of the view. */
+  setTint(on: boolean): void
+  /**
+   * Known-world mask (uploaded once per selection): per settlement, the year from which it is
+   * shown (`known`, before that it is hidden and not pickable) and the year from which it gets
+   * a faint contact ring (`contact`); 1e9 for never. Null turns the mask off.
+   */
+  setPeopleMask(known: Float32Array | null, contact: Float32Array | null): void
   dispose(): void
 }
 
@@ -93,6 +103,14 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   quad.setAttribute('aPopA', popAAttr)
   quad.setAttribute('aPopB', popBAttr)
   quad.setAttribute('aFood', foodAttr)
+  // peoples: colour per settlement, and the known-world mask (shown from, contact ring from)
+  const peopleCol = new Float32Array(N * 3)
+  const mask = new Float32Array(N * 2)
+  const peopleColAttr = new THREE.InstancedBufferAttribute(peopleCol, 3)
+  const maskAttr = new THREE.InstancedBufferAttribute(mask, 2)
+  quad.setAttribute('aPeople', peopleColAttr)
+  quad.setAttribute('aMask', maskAttr)
+  let maskOn = false
   quad.instanceCount = N
 
   const uniforms = {
@@ -110,6 +128,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     uDaylight: sunUniforms.uDaylight,
     uStyle: { value: 0 },
     uYield: { value: new THREE.Vector2(0, 0) },
+    uTint: { value: 0 },
+    uMaskOn: { value: 0 },
   }
 
   const material = new THREE.ShaderMaterial({
@@ -121,6 +141,11 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       attribute float aPopA;
       attribute float aPopB;
       attribute float aFood;
+      attribute vec3 aPeople;
+      attribute vec2 aMask; // known-world mask: shown from year x, contact ring from year y
+      uniform float uMaskOn;
+      varying vec3 vPeople;
+      varying float vContact;
       uniform float uYear;
       uniform float uFrac;
       uniform float uPulseYears;
@@ -146,6 +171,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       varying float vTier;
       void main() {
         bool alive = uYear >= aLife.x && uYear < aLife.y;
+        if (uMaskOn > 0.5 && uYear < aMask.x) alive = false; // unknown to the people whose world is shown
+        vPeople = aPeople;
+        vContact = uMaskOn > 0.5 && uYear >= aMask.y ? 1.0 : 0.0;
         vec3 up = normalize(aCenter);
         float facing = dot(up, normalize(uCamObj - aCenter));
         if (!alive || facing <= 0.0) {
@@ -170,6 +198,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         vPulse = age < uPulseYears ? age / uPulseYears : -1.0;
         float ext = r + 2.0;
         if (vSel > 0.5 || vHov > 0.5) ext = r + 8.0;
+        else if (vContact > 0.5) ext = r + 4.5;
         if (vPulse >= 0.0) ext = max(ext, r + 20.0);
         if (vTier > 1.5) ext = max(ext, r + 7.0); // glow
         vec4 clip = projectionMatrix * modelViewMatrix * vec4(aCenter, 1.0);
@@ -184,6 +213,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     `,
     fragmentShader: /* glsl */ `
       uniform int uStyle;
+      uniform float uTint;
+      varying vec3 vPeople;
+      varying float vContact;
       varying vec2 vPx;
       varying float vR;
       varying float vSel;
@@ -198,6 +230,11 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         float d = length(vPx);
         vec3 fed = uStyle == 0 ? vec3(1.0, 0.74, 0.30) : vec3(0.97, 0.98, 1.0);
         vec3 hungry = uStyle == 0 ? vec3(0.96, 0.38, 0.20) : vec3(0.62, 0.86, 1.0);
+        if (uTint > 0.5) {
+          // by people: its colour, darker when hungry
+          fed = vPeople;
+          hungry = vPeople * 0.55;
+        }
         vec3 fill = mix(hungry, fed, smoothstep(0.45, 0.9, vFood));
         vec3 rim = vHov > 0.5 ? vec3(1.0) : (uStyle == 0 ? vec3(0.22, 0.09, 0.02) : vec3(0.04, 0.04, 0.07));
         // body shape by tier: distance to its outline (negative inside)
@@ -220,6 +257,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         vec3 bodyC = mix(rim, fill * (1.1 - 0.25 * d / max(vR, 1.0)), inner);
 
         float ringA = max(vSel, vHov * 0.45) * (1.0 - smoothstep(0.55, 1.45, abs(d - (vR + 4.5))));
+        // a faint thin ring in its people's colour: a people in contact with the one whose world is shown
+        float contactA = vContact * (1.0 - max(vSel, vHov)) * 0.42 * (1.0 - smoothstep(0.3, 1.0, abs(d - (vR + 2.6)))) * (1.0 - 0.85 * vYield) * mix(1.0, 0.35, night);
         float pulseA = 0.0;
         if (vPulse >= 0.0) {
           float pr = vR + 1.5 + 16.0 * vPulse;
@@ -233,6 +272,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         a = pulseA + a * (1.0 - pulseA);
         c = vec3(1.0) * ringA + c * (1.0 - ringA);
         a = ringA + a * (1.0 - ringA);
+        c = vPeople * contactA + c * (1.0 - contactA);
+        a = contactA + a * (1.0 - contactA);
         c = bodyC * bodyA + c * (1.0 - bodyA);
         a = bodyA + a * (1.0 - bodyA);
         c *= vAlpha;
@@ -275,6 +316,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     return r0 * uniforms.uSizeScale.value * grow
   }
   const aliveAt = (id: number) => year >= life[id * 2] && year < life[id * 2 + 1]
+  /** Alive and not hidden by the known-world mask (what is drawn and pickable). */
+  const shownAt = (id: number) => aliveAt(id) && !(maskOn && year < mask[id * 2])
 
   return {
     mesh,
@@ -328,7 +371,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       let best = -1
       let bestScore = Infinity
       for (let id = 0; id < N; id++) {
-        if (!aliveAt(id)) continue
+        if (!shownAt(id)) continue
         const cx = center[id * 3], cy = center[id * 3 + 1], cz = center[id * 3 + 2]
         // visible hemisphere: (camera - c) . c > 0
         if ((camLocal.x - cx) * cx + (camLocal.y - cy) * cy + (camLocal.z - cz) * cz <= 0) continue
@@ -357,6 +400,24 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     },
     setYield(near: number, far: number) {
       uniforms.uYield.value.set(near, far)
+    },
+    setPeopleColors(rgb: Float32Array | null) {
+      if (rgb && rgb.length >= N * 3) peopleCol.set(rgb.subarray(0, N * 3))
+      else peopleCol.fill(0)
+      peopleColAttr.needsUpdate = true
+    },
+    setTint(on: boolean) {
+      uniforms.uTint.value = on ? 1 : 0
+    },
+    setPeopleMask(known: Float32Array | null, contact: Float32Array | null) {
+      maskOn = known !== null
+      uniforms.uMaskOn.value = maskOn ? 1 : 0
+      if (!known) return
+      for (let i = 0; i < N; i++) {
+        mask[i * 2] = known[i] ?? NEVER
+        mask[i * 2 + 1] = contact ? contact[i] ?? NEVER : NEVER
+      }
+      maskAttr.needsUpdate = true
     },
     dispose() {
       quad.dispose()

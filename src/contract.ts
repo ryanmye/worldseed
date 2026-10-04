@@ -88,6 +88,8 @@ export interface Settlement {
   name: string
   /** The people this settlement descends from: index into History.peoples. */
   people: number
+  /** True for an expedition base: a small supplied outpost in land that cannot feed it, kept up by its parent. */
+  outpost: boolean
 }
 
 export const EventType = {
@@ -101,8 +103,12 @@ export const EventType = {
   StructureLost: 7, // a structure fell out of use; `other` is the structure id; `value` is the StructureType
   TradeOpened: 8, // a trade route opened; `settlement` and `other` are its two ends; `value` is the route id
   TradeClosed: 9, // a trade route closed; `settlement` and `other` are its two ends; `value` is the route id
-  VoyageLost: 10, // a colonising expedition from `settlement` was lost at sea; `other` is -1; `value` is the people lost
+  VoyageLost: 10, // a colonising voyage or a sea expedition from `settlement` was lost at sea; `other` is -1; `value` is the people lost
   Landfall: 11, // first settlement on a previously empty landmass; `settlement` is the new colony, `other` its sender; `value` is the landmass size in cells
+  ExpeditionSent: 13, // an expedition set out from `settlement` to explore (logged in the year it ends; its journey's departYear is earlier); `other` is -1; `value` is its headcount
+  ExpeditionReturned: 14, // an expedition came home to `settlement` with news; `other` is the outpost it founded or -1; `value` is the number of cells newly known
+  Discovery: 15, // an expedition from `settlement` reached a notable place for the first time by anyone; `other` is -1; `value` is the id of the History.features entry, or -1 for a pole
+  TechAdvance: 16, // the people of `settlement` reached a new whole level in a field of technology there; `other` is -1; `value` is the TechField
   FirstContact: 12, // two peoples met for the first time; `settlement` and `other` are the settlements through which they met; `value` is the other people's id (that of `other`)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
@@ -166,6 +172,12 @@ export interface History {
    * contactYear[a * peoples.length + b]. The diagonal is 0.
    */
   contactYear: Int16Array
+  /**
+   * Technology level per snapshot per people per field (see `TechField`), row-major:
+   * technology[(s * peoples.length + people) * TECH_FIELD_COUNT + field]. Levels start near 1 and grow;
+   * peoples in contact learn from each other. 0 once a people has died out.
+   */
+  technology: Float32Array
   /** Years between trade snapshots; trade snapshot s is year s * tradeInterval. */
   tradeInterval: number
   tradeSnapshotCount: number
@@ -236,8 +248,20 @@ export interface HistoryOptions {
   snapshotInterval?: number
 }
 
-/** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. */
+/** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
 export type SimulateHistory = (world: World, options?: HistoryOptions) => History
+
+/**
+ * A resumable run, exported by src/sim/index.ts as `createHistoryRun`. `advanceTo(years)` returns a History
+ * identical to `simulateHistory(world, { ...options, years })`, costing only the years added since the last call.
+ * Each returned History owns its arrays.
+ */
+export interface HistoryRun {
+  /** Years simulated so far. */
+  readonly year: number
+  advanceTo(years: number): History
+}
+export type CreateHistoryRun = (world: World, options?: HistoryOptions) => HistoryRun
 
 // ---------------------------------------------------------------------------
 // Journeys: groups of people travelling between settlements, for display.
@@ -246,6 +270,7 @@ export type SimulateHistory = (world: World, options?: HistoryOptions) => Histor
 export const JourneyKind = {
   Settlers: 0, // founded settlement `to`
   Migrants: 1, // joined existing settlement `to`
+  Expedition: 2, // explorers; `to` is the outpost founded, or `from` again if they came home, or -1 if lost
 } as const
 export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
 
@@ -302,10 +327,21 @@ export interface GeoFeature {
   spine: number[]
 }
 
+export const TechField = {
+  Farming: 0, // food yield
+  Seafaring: 1, // ship range and safety, fishing
+  Metalworking: 2, // ore use, tools
+  Crafts: 3, // trade value, building
+} as const
+export type TechField = (typeof TechField)[keyof typeof TechField]
+export const TECH_FIELD_COUNT = 4
+
 /** A founding people: the descendants of one original tribe. */
 export interface People {
   /** Index into History.peoples. */
   id: number
+  /** Which cradle of civilisation the people began in; peoples sharing a cradle are neighbours. */
+  cradle: number
   /** The original tribe's settlement. */
   founder: number
   name: string

@@ -9,17 +9,21 @@
 // Settlement plans are expensive (hundreds of ground probes for a city), so they advance
 // under a time budget: settlement() returns what is ready and says whether it is done.
 
-import { CITY_POPULATION, EventType, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION, type History, type World } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION, type History, type World } from '../../contract.ts'
 import { isWaterCell, lakeArray } from '../globe.ts'
-import { floraModel, HOUSE_WIDTH, KK, Model, MODEL_SPECS, styleModel, type ModelLibrary } from './models.ts'
-import { Kind, Style, type Style as StyleT } from './shapes.ts'
-import { createSurface, hash4, rand4, type Probe } from './surface.ts'
-import { floraOf, GROUND, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
-import { createTownPlan, Role, townRadius, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { riverHalfWidthNear } from '../rivers.ts'
+import { floraModel, HOUSE_WIDTH, KK, Model, MODEL_SPECS, styleKindOf, styleModel, type ModelLibrary } from './models.ts'
+import { Flora, houseFacade, isHouseKind, Kind, Style, type Style as StyleT } from './shapes.ts'
+import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
+import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
+import { createTownPlan, GroundKind, Role, townRadius, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
 
 export const NEVER = 1e9
 /** Model id of the packed-earth ground decal under built-up patches (drawn by the ground batch). */
 export const GROUND_MODEL = 255
+const NO_INFO: readonly number[] = [0, 0, 0, 0]
+/** Facade flags (SlotSet.info.w, integer part). */
+export const FACADE_TIMBER = 1
 
 /** A list of slots (struct of arrays), in fill order. */
 export interface SlotSet {
@@ -39,6 +43,11 @@ export interface SlotSet {
   roof: Float32Array
   /** Wall colour (linear rgb), per slot. */
   wall: Float32Array
+  /**
+   * Facade of a generated building, per slot (material.ts): style + 1 (0: none), floor of
+   * the lowest storey and eave height (model units), flags (1: timber framing) + a 0..1 seed.
+   */
+  info: Float32Array
   /** Radius of the whole cluster around its centre (world units). */
   radius: number
   /** Unit direction of the cluster centre. */
@@ -57,6 +66,7 @@ const EMPTY: SlotSet = {
   palette: new Uint8Array(0),
   roof: new Float32Array(0),
   wall: new Float32Array(0),
+  info: new Float32Array(0),
   radius: 0,
   cx: 0,
   cy: 1,
@@ -72,6 +82,7 @@ class SlotWriter {
   palette: number[] = []
   roof: number[] = []
   wall: number[] = []
+  info: number[] = []
   radius = 0
   cx = 0
   cy = 1
@@ -88,11 +99,44 @@ class SlotWriter {
       palette: Uint8Array.from(this.palette),
       roof: Float32Array.from(this.roof),
       wall: Float32Array.from(this.wall),
+      info: Float32Array.from(this.info),
       radius: this.radius,
       cx: this.cx,
       cy: this.cy,
       cz: this.cz,
     }
+  }
+}
+
+/**
+ * The ground of a settlement (streets, squares, yards, gardens) as a triangle list on the
+ * rendered surface, in fill order. Per vertex: object-space position (just above the
+ * ground), ground normal, linear colour, pattern coordinates (KayKit units; gardens: along
+ * and across their rows), ground kind (town.ts GroundKind) and the population threshold.
+ */
+export interface GroundSet {
+  n: number
+  pos: Float32Array
+  nrm: Float32Array
+  col: Float32Array
+  uv: Float32Array
+  kind: Float32Array
+  threshold: Float32Array
+}
+
+const EMPTY_GROUND: GroundSet = { n: 0, pos: new Float32Array(0), nrm: new Float32Array(0), col: new Float32Array(0), uv: new Float32Array(0), kind: new Float32Array(0), threshold: new Float32Array(0) }
+
+class GroundWriter {
+  pos: number[] = []
+  nrm: number[] = []
+  col: number[] = []
+  uv: number[] = []
+  kind: number[] = []
+  threshold: number[] = []
+  finish(): GroundSet {
+    const n = this.kind.length
+    if (n === 0) return EMPTY_GROUND
+    return { n, pos: Float32Array.from(this.pos), nrm: Float32Array.from(this.nrm), col: Float32Array.from(this.col), uv: Float32Array.from(this.uv), kind: Float32Array.from(this.kind), threshold: Float32Array.from(this.threshold) }
   }
 }
 
@@ -106,18 +150,23 @@ export interface Layouts {
    * Slots of settlement `id`, laid out at least as far as population `need` requires if
    * the time budget (performance.now() deadline) allows; `done` says whether it did.
    */
-  settlement(id: number, need: number, deadline: number): { set: SlotSet; done: boolean } | null
+  settlement(id: number, need: number, deadline: number): { set: SlotSet; ground: GroundSet; done: boolean } | null
   /** Whether settlement `id` is laid out as far as `need` (no work). */
   settlementReady(id: number, need: number): boolean
   /** Countryside slots of `cell` (cached; empty for water); null if not computed and past the deadline. */
   farm(cell: number, deadline: number): SlotSet | null
+  /** Forest stands of `cell` (cached; groves with negative thresholds, cleared as the land is farmed); null if not computed and past the deadline. */
+  forest(cell: number, deadline: number): SlotSet | null
   /** Pieces of port `structureId` built by settlement `owner`, at `pos` on the shore facing seaward `dir` (cached). */
   port(structureId: number, owner: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
   /** Dam at `pos` across a river flowing along `dir` (cached by structure id). */
   dam(structureId: number, cell: number, pos: ArrayLike<number>, posOffset: number, dir: ArrayLike<number>, dirOffset: number): SlotSet
 }
 
-export function createLayouts(world: World, h: History, lib: ModelLibrary, reservoir: Float32Array | null = null): Layouts {
+/** Where a settlement's port stands: shore position (object space) and seaward direction, or null. */
+export type PortSite = (id: number) => readonly [number, number, number, number, number, number] | null
+
+export function createLayouts(world: World, h: History, lib: ModelLibrary, reservoir: Float32Array | null = null, portSite: PortSite | null = null): Layouts {
   let settlements = h.settlements
   const { positions: GP, neighborOffsets: off, neighbors: nb, cellCount } = world.grid
   const seed = world.seed | 0
@@ -125,7 +174,8 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   const lake = lakeArray(world)
   const water = (i: number) => isWaterCell(world, lake, i)
   const isRiver = (i: number) => world.flow[i] >= RIVER_FLOW_THRESHOLD && world.riverTo[i] >= 0 && !water(i)
-  const riverHalfWidth = (f: number) => Math.min(0.0032, 0.0006 + 0.00075 * Math.log(Math.max(f, RIVER_FLOW_THRESHOLD) / RIVER_FLOW_THRESHOLD))
+  // the river as rivers.ts draws it up close (bridges span it, houses stand on its banks)
+  const riverHalfWidth = riverHalfWidthNear
   const spacing = Math.sqrt((4 * Math.PI) / cellCount)
   let N = settlements.length
 
@@ -328,7 +378,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
    * yaw (radians from east toward north), sunk by `sink`, scaled (sx, sy, sz) on the
    * model's base scale.
    */
-  const writeSlot = (w: SlotWriter, model: number, threshold: number, yaw: number, sink: number, sx: number, sy: number, sz: number, roof: readonly number[], wall: readonly number[], palette = 0, blobScale = 1.2) => {
+  const writeSlot = (w: SlotWriter, model: number, threshold: number, yaw: number, sink: number, sx: number, sy: number, sz: number, roof: readonly number[], wall: readonly number[], palette = 0, blobScale = 1.2, info: readonly number[] = NO_INFO) => {
     const s = model === GROUND_MODEL ? KK : MODEL_SPECS[model].scale
     const cx = Math.cos(yaw), cy = Math.sin(yaw)
     const Xx = fr.ex * cx + fr.nx * cy, Xy = fr.ey * cx + fr.ny * cy, Xz = fr.ez * cx + fr.nz * cy
@@ -360,6 +410,25 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     w.palette.push(palette)
     w.roof.push(roof[0], roof[1], roof[2], roof[3])
     w.wall.push(wall[0], wall[1], wall[2])
+    w.info.push(info[0], info[1], info[2], info[3])
+  }
+
+  /** Facade info (SlotSet.info) of a model: generated buildings get their style's wall textures, houses windows by storey. */
+  const infoTmp = [0, 0, 0, 0]
+  const infoFor = (model: number, seed01: number, timber: boolean, style: StyleT = Style.Temperate): readonly number[] => {
+    const sk = styleKindOf(model)
+    const sd = Math.min(0.999, Math.max(0, seed01))
+    if (sk) {
+      const [st, kind] = sk
+      const f = isHouseKind(kind) ? houseFacade(st, kind) : [0, 0]
+      infoTmp[0] = st + 1; infoTmp[1] = f[0]; infoTmp[2] = f[1]; infoTmp[3] = (timber && isHouseKind(kind) ? FACADE_TIMBER : 0) + sd
+      return infoTmp
+    }
+    if (model === Model.WallSeg || model === Model.WallTower) {
+      infoTmp[0] = style + 1; infoTmp[1] = 0; infoTmp[2] = 0; infoTmp[3] = sd
+      return infoTmp
+    }
+    return NO_INFO
   }
 
   // ---------- settlements ----------
@@ -375,6 +444,9 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     snow: number
     favRoof: number
     whitewash: number
+    gw: GroundWriter
+    groundWritten: number
+    gset: GroundSet | null
   }
   const states = new Map<number, SettlementState>()
   const COAST_SHIFT = 0.12
@@ -438,6 +510,40 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const px = c0x + ex * bx + nx * by, py = c0y + ey * bx + ny * by, pz = c0z + ez * bx + nz * by
       const l = Math.hypot(px, py, pz)
       ox = px / l; oy = py / l; oz = pz / l
+    }
+    // a port town comes down to its harbour: its centre sits inland of the port by about
+    // half the town's radius, so the waterfront wards (and the quay) meet the water
+    const ps = portOf[id] >= 0 && portSite ? portSite(id) : null
+    if (ps) {
+      const pl = Math.hypot(ps[0], ps[1], ps[2])
+      const px0 = ps[0] / pl, py0 = ps[1] / pl, pz0 = ps[2] / pl
+      frameAt(px0, py0, pz0)
+      const ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
+      let dx = ps[3] * ex + ps[4] * ey + ps[5] * ez, dy = ps[3] * nx + ps[4] * ny + ps[5] * nz
+      const dl = Math.hypot(dx, dy) || 1
+      dx /= dl; dy /= dl
+      const R = Math.min(spacing * 0.5, Math.max(HOUSE_WIDTH * 2.5, townRadius(peak[id]) * KK * 0.5))
+      const ring = HOUSE_WIDTH * 2
+      for (let i = 0; i < 8; i++) {
+        const t = R + i * HOUSE_WIDTH
+        const x = -dx * t, y = -dy * t
+        probeAt(px0, py0, pz0, ex, ey, ez, nx, ny, nz, x, y, c)
+        if (surface.wet(probe, 0.12)) continue
+        let dry = 0
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2
+          probeAt(px0, py0, pz0, ex, ey, ez, nx, ny, nz, x + Math.cos(a) * ring, y + Math.sin(a) * ring, c)
+          if (!surface.wet(probe, 0.1)) dry++
+        }
+        if (dry < 4) continue
+        const qx = px0 + ex * x + nx * y, qy = py0 + ey * x + ny * y, qz = pz0 + ez * x + nz * y
+        const ql = Math.hypot(qx, qy, qz)
+        // (still the settlement's own place: within a cell of its centre)
+        if (Math.hypot(qx / ql - GP[c * 3], qy / ql - GP[c * 3 + 1], qz / ql - GP[c * 3 + 2]) > spacing * 0.9) break
+        ox = qx / ql; oy = qy / ql; oz = qz / ql
+        coastal = true
+        break
+      }
     }
     o = Float64Array.of(ox, oy, oz, coastal ? 1 : 0)
     origins.set(id, o)
@@ -539,6 +645,9 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       snow: roofSnow(world, c),
       favRoof: hash4(seed, root[id], 0x51, 0) % 5,
       whitewash: coastalWarm,
+      gw: new GroundWriter(),
+      groundWritten: 0,
+      gset: null,
     }
     states.set(id, st)
     return st
@@ -583,6 +692,11 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       case Role.Lumbermill: return (kk || s === Style.Cold) && has(Model.Lumbermill) ? Model.Lumbermill : styleModel(s, Kind.Long)
       case Role.Bridge: return Model.TownBridge
       case Role.Ground: return GROUND_MODEL
+      case Role.Grove: {
+        // a garden tree of the climate
+        const f = s === Style.Desert ? Flora.Palm : s === Style.Rainforest ? Flora.Jungle : s === Style.Savanna ? Flora.Acacia : s === Style.Cold || s === Style.Mountain ? Flora.Conifer : Flora.Broadleaf
+        return has(floraModel(f)) ? floraModel(f) : -1
+      }
       default: return -1
     }
   }
@@ -612,23 +726,114 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       let sx = it.sx, sz = it.sz, sy = it.sy
       if (it.role === Role.Barracks && model !== Model.Barracks) { sx *= 1.3; sz *= 1.3; sy *= 1.2 }
       const r = footprint(model) * Math.max(sx, sz)
+      // half-timbering on many temperate houses (more in the old core than out of town)
+      const timber = style === Style.Temperate && rand4(seed, id, st.written, 0x74) < (it.ward === 12 || it.ward >= 13 ? 0.3 : 0.6)
+      const info = infoFor(model, it.jitter, timber, style)
       // the plan's yaw is the model's x axis; KayKit models face +z: put their long side along the street too
-      writeSlot(w, model, it.threshold, it.yaw, it.role === Role.Bridge ? 0 : sinkFor(r), sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : 1.2)
+      writeSlot(w, model, it.threshold, it.yaw, it.role === Role.Bridge ? 0 : sinkFor(r), sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : 1.2, info)
       w.radius = Math.max(w.radius, Math.hypot(it.x, it.y) * KK + footprint(model) * Math.max(sx, sz))
     }
   }
 
-  function getSettlement(id: number, need: number, deadline: number): { set: SlotSet; done: boolean } | null {
+  // ---------- the town's ground: streets, squares, yards and gardens ----------
+  const GROUND_LIFT = 0.000025
+  const gx: number[] = [], gy: number[] = [], gz: number[] = [], gnx: number[] = [], gny: number[] = [], gnz: number[] = []
+  const gColTmp = [0, 0, 0]
+  /** Linear colour of a ground kind in a style (with a per-piece shade jitter). */
+  const groundColour = (kind: number, style: StyleT, jit: number) => {
+    const c = GROUND_KINDS[kind]?.[style] ?? GROUND[style]
+    const k = 0.92 + 0.16 * jit
+    gColTmp[0] = srgbToLinear(c[0]) * k; gColTmp[1] = srgbToLinear(c[1]) * k; gColTmp[2] = srgbToLinear(c[2]) * k
+    return gColTmp
+  }
+  /** One plan-space point onto the ground: fills gx.. at index i. */
+  const groundPoint = (st: SettlementState, c: number, x: number, y: number, i: number) => {
+    const { ox, oy, oz, ex, ey, ez, nx, ny, nz } = st
+    const px = ox + ex * x * KK + nx * y * KK, py = oy + ey * x * KK + ny * y * KK, pz = oz + ez * x * KK + nz * y * KK
+    const l = Math.hypot(px, py, pz)
+    surface.probe(px / l, py / l, pz / l, c, probe)
+    const r = probe.radius + GROUND_LIFT
+    gx[i] = (px / l) * r; gy[i] = (py / l) * r; gz[i] = (pz / l) * r
+    gnx[i] = probe.nx; gny[i] = probe.ny; gnz[i] = probe.nz
+  }
+  /** Tessellates a convex plan polygon onto the ground (fans from its centre, subdivided), dropping bits over the sea or lakes. */
+  function writePiece(st: SettlementState, c: number, piece: GroundPiece, style: StyleT, jit: number) {
+    const p = piece.poly
+    const n = p.length / 2
+    if (n < 3) return
+    let cx = 0, cy = 0
+    for (let i = 0; i < n; i++) { cx += p[i * 2]; cy += p[i * 2 + 1] }
+    cx /= n; cy /= n
+    const gw = st.gw
+    const col = groundColour(piece.kind, style, jit)
+    const cr = col[0], cg = col[1], cb = col[2]
+    const garden = piece.kind === GroundKind.Garden
+    const { ox, oy, oz, ex, ey, ez, nx, ny, nz } = st
+    const push = (i: number, x: number, y: number) => {
+      gw.pos.push(gx[i], gy[i], gz[i])
+      gw.nrm.push(gnx[i], gny[i], gnz[i])
+      gw.col.push(cr, cg, cb)
+      if (garden) gw.uv.push(x * piece.ux + y * piece.uy, -x * piece.uy + y * piece.ux)
+      else gw.uv.push(x, y)
+      gw.kind.push(piece.kind)
+      gw.threshold.push(piece.threshold)
+    }
+    const qx: number[] = [], qy: number[] = []
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n
+      const ax = p[i * 2] - cx, ay = p[i * 2 + 1] - cy, bx = p[j * 2] - cx, by = p[j * 2 + 1] - cy
+      const L = Math.max(Math.hypot(ax, ay), Math.hypot(bx, by), Math.hypot(bx - ax, by - ay))
+      if (L < 1e-4) continue
+      const k = Math.min(5, Math.max(1, Math.ceil(L / 0.55)))
+      // grid points c + a/k (A - c) + b/k (B - c), a + b <= k
+      const idx = (a: number, b: number) => (a * (2 * k + 3 - a)) / 2 + b
+      qx.length = 0; qy.length = 0
+      for (let a = 0; a <= k; a++) for (let b = 0; a + b <= k; b++) {
+        const x = cx + (ax * a + bx * b) / k, y = cy + (ay * a + by * b) / k
+        const q = idx(a, b)
+        qx[q] = x; qy[q] = y
+        groundPoint(st, c, x, y, q)
+      }
+      const tri = (i0: number, i1: number, i2: number) => {
+        // over the sea or a lake as drawn: leave it out
+        const mx = (qx[i0] + qx[i1] + qx[i2]) / 3, my = (qy[i0] + qy[i1] + qy[i2]) / 3
+        probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, mx * KK, my * KK, c)
+        if (surface.wet(probe, 0.04)) return
+        push(i0, qx[i0], qy[i0]); push(i1, qx[i1], qy[i1]); push(i2, qx[i2], qy[i2])
+      }
+      for (let a = 0; a < k; a++) for (let b = 0; a + b < k; b++) {
+        tri(idx(a, b), idx(a + 1, b), idx(a, b + 1))
+        if (a + b + 1 < k) tri(idx(a + 1, b), idx(a + 1, b + 1), idx(a, b + 1))
+      }
+    }
+  }
+  /** Lays the plan's new ground pieces until the deadline; whether all are laid. */
+  function writeGround(id: number, st: SettlementState, deadline: number): boolean {
+    const pieces = st.plan.ground
+    if (st.groundWritten >= pieces.length) return true
+    const c = settlements[id].cell
+    for (; st.groundWritten < pieces.length; st.groundWritten++) {
+      if (performance.now() > deadline) break
+      const pc = pieces[st.groundWritten]
+      writePiece(st, c, pc, styleOf(id), rand4(seed, id, st.groundWritten, 0x75))
+    }
+    st.gset = null
+    return st.groundWritten >= pieces.length
+  }
+
+  function getSettlement(id: number, need: number, deadline: number): { set: SlotSet; ground: GroundSet; done: boolean } | null {
     // a new plan is the costly part: none past the deadline
     if (!states.has(id) && performance.now() > deadline) return null
     const st = stateOf(id)
-    const done = st.plan.advance(need, deadline)
+    let done = st.plan.advance(need, deadline)
     if (st.written < st.plan.items.length) {
       writeItems(id, st)
       st.set = null
     }
+    if (!writeGround(id, st, deadline)) done = false
     if (!st.set) st.set = st.writer.finish()
-    return { set: st.set, done }
+    if (!st.gset) st.gset = st.gw.finish()
+    return { set: st.set, ground: st.gset, done }
   }
 
   // ---------- countryside ----------
@@ -730,6 +935,108 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     return w.finish()
   }
 
+  // ---------- forest stands ----------
+  // Dense groves on a jittered hex lattice over the cell's own Voronoi region (so
+  // neighbouring cells tile without overlap), clear of towns, farmsteads, rivers and water.
+  // Each grove stands while the cell's land use is below the level at which the planet
+  // shader switches on the field under it (farmland(): field cell random rnd.x against the
+  // cover from land use and its clump noise), so the forest is cleared field by field
+  // exactly where the fields appear.
+  const forestCache = new Map<number, SlotSet>()
+  const FIELD_FREQ = 7 / spacing
+  const invSmooth = (y: number) => 0.5 - Math.sin(Math.asin(Math.max(-1, Math.min(1, 1 - 2 * y))) / 3)
+  /** Land use (0..255) at which the field at (x, y, z) (object space) is cultivated, or 256 if never. */
+  const clearedAt = (x: number, y: number, z: number) => {
+    const rx = cellRandX(x, y, z, FIELD_FREQ)
+    const m1 = fbm(x, y, z, 9, 4), m2 = fbm(x + 31.7, y + 31.7, z + 31.7, 40, 3)
+    const clump = m2 - 0.4 * m1
+    const target = (rx - 0.06) / Math.max(0.05, 1 + 0.9 * clump)
+    if (target >= 1) return 256
+    if (target <= 0) return 0
+    return Math.min(255, invSmooth(target) * 0.8 * 255)
+  }
+  const FOREST: Partial<Record<number, { d: number; kinds: Flora[] }>> = {
+    [Biome.TemperateForest]: { d: 0.8, kinds: [Flora.Broadleaf, Flora.Broadleaf, Flora.Broadleaf, Flora.Conifer] },
+    [Biome.Taiga]: { d: 0.82, kinds: [Flora.Conifer] },
+    [Biome.Rainforest]: { d: 0.95, kinds: [Flora.Jungle, Flora.Jungle, Flora.Palm] },
+    [Biome.Savanna]: { d: 0.1, kinds: [Flora.Acacia] },
+    [Biome.Grassland]: { d: 0.08, kinds: [Flora.Broadleaf] },
+    [Biome.Mountain]: { d: 0.3, kinds: [Flora.Conifer] },
+  }
+  function layoutForest(cell: number): SlotSet {
+    if (water(cell)) return EMPTY
+    const fo = FOREST[world.biome[cell]]
+    if (!fo) return EMPTY
+    // no trees above the snow line
+    const snow = roofSnow(world, cell)
+    if (snow > 0.85) return EMPTY
+    // the cell's farmsteads keep their ground (laid out first, whatever the frame timing)
+    let farm = farmCache.get(cell)
+    if (!farm) {
+      farm = layoutFarm(cell)
+      farmCache.set(cell, farm)
+    }
+    const ox = GP[cell * 3], oy = GP[cell * 3 + 1], oz = GP[cell * 3 + 2]
+    frameAt(ox, oy, oz)
+    const ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
+    collectRivers(cell, ox, oy, oz, ex, ey, ez, nx, ny, nz)
+    const segs = riverSegs.slice()
+    const avoid: number[] = []
+    const addAvoid = (j: number) => {
+      const sid = settlementCell[j]
+      if (sid < 0) return
+      const o = originOf(sid)
+      const tx = (o[0] - ox) * ex + (o[1] - oy) * ey + (o[2] - oz) * ez
+      const ty = (o[0] - ox) * nx + (o[1] - oy) * ny + (o[2] - oz) * nz
+      avoid.push(tx, ty, townRadius(peak[sid]) * KK * 1.05 + HOUSE_WIDTH)
+    }
+    addAvoid(cell)
+    for (let k = off[cell]; k < off[cell + 1]; k++) addAvoid(nb[k])
+    const G = 1.7 * KK
+    const R = spacing * 0.75
+    const n = Math.ceil(R / G)
+    const w = new SlotWriter()
+    const roofZ = [0, 0, 0, snow * 0.8]
+    for (let j = -n; j <= n; j++) {
+      for (let i = -n; i <= n; i++) {
+        const h = hash4(seed, cell, (i + 512) * 1024 + j + 512, 0x92)
+        if (h / 4294967296 >= fo.d) continue
+        const jx = rand4(seed, cell, i * 7919 + j, 0x93) - 0.5, jy = rand4(seed, cell, i * 7919 + j, 0x94) - 0.5
+        const x = (i + (j & 1) * 0.5 + jx * 0.7) * G, y = (j * 0.866 + jy * 0.6) * G
+        if (x * x + y * y > R * R) continue
+        // only this cell's own ground
+        const px = ox + ex * x + nx * y, py = oy + ey * x + ny * y, pz = oz + ez * x + nz * y
+        const l = Math.hypot(px, py, pz)
+        if (surface.nearestCell(px / l, py / l, pz / l, cell) !== cell) continue
+        let ok = true
+        for (let q = 0; q < avoid.length && ok; q += 3) if (Math.hypot(x - avoid[q], y - avoid[q + 1]) < avoid[q + 2]) ok = false
+        if (!ok || !riverClear(segs, x, y, 0.75 * KK)) continue
+        {
+          for (let q = 0; q < farm.n && ok; q++) {
+            if (farm.threshold[q] < 0) continue
+            const o = q * 16
+            const fx = farm.mat[o + 12], fy = farm.mat[o + 13], fz = farm.mat[o + 14]
+            const fl = Math.hypot(fx, fy, fz) || 1
+            const dx = fx / fl - px / l, dy = fy / fl - py / l, dz = fz / fl - pz / l
+            if (dx * dx + dy * dy + dz * dz < (1.3 * KK) ** 2) ok = false
+          }
+          if (!ok) continue
+        }
+        probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, cell)
+        if (surface.wet(probe, 0.08)) continue
+        const r = probe.radius
+        const t = clearedAt((px / l) * r, (py / l) * r, (pz / l) * r)
+        if (t <= 2) continue
+        const kind = fo.kinds[h % fo.kinds.length]
+        const m = floraModel(kind)
+        if (!has(m)) continue
+        const sc = 0.85 + 0.4 * rand4(seed, cell, i * 7919 + j, 0x95)
+        writeSlot(w, m, t >= 256 ? -256 : -t, rand4(seed, cell, i * 7919 + j, 0x96) * 6.283, sinkFor(footprint(m) * sc * 0.5), sc, sc * (0.9 + 0.2 * rand4(seed, cell, i, j)), sc, roofZ, NO_INFO)
+      }
+    }
+    return w.finish()
+  }
+
   // ---------- ports and dams ----------
   const structCache = new Map<number, SlotSet>()
 
@@ -774,35 +1081,99 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
     const seaYaw = Math.atan2(fy, fx)
     const zero4 = [0, 0, 0, 0], zero3 = [0, 0, 0]
     const ownerPeak = owner >= 0 ? peak[owner] : 0
-    const platforms = ownerPeak >= CITY_POPULATION ? 4 : ownerPeak >= TOWN_POPULATION ? 3 : 2
-    // the dock's long axis is its z: yaw puts model x along the shore
-    for (let i = 0; i < platforms; i++) {
-      const along = shore + dockLen * (0.4 + i * 0.92)
-      probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, fx * along, fy * along, start)
-      writeSlot(w, Model.Dock, 0, seaYaw - Math.PI / 2, heightOf(Model.Dock) * 0.45, 1, 1, 1, zero4, zero3)
+    const big = ownerPeak >= TOWN_POPULATION, city = ownerPeak >= CITY_POPULATION
+    /** Seaward distance of the drawn shoreline on the line through along-shore offset t (null: none near). */
+    const shoreAt = (t: number): number | null => {
+      const bx = gx * t, by = gy * t
+      const h = stepS * 0.5
+      if (wetAt(bx + fx * shore, by + fy * shore)) {
+        for (let i = 1; i <= 40; i++) if (!wetAt(bx + fx * (shore - i * h), by + fy * (shore - i * h))) return shore - (i - 0.5) * h
+      } else {
+        for (let i = 1; i <= 40; i++) if (wetAt(bx + fx * (shore + i * h), by + fy * (shore + i * h))) return shore + (i - 0.5) * h
+      }
+      return null
     }
-    // boats moored alongside, more as the owner grows
-    const boats: [number, number, number, number][] = [
-      [0.9, 1, Model.Ship, 0],
-      [1.6, -1, Model.Ship, 1500],
-      [2.4, 1, Model.ShipMedium, TOWN_POPULATION],
-      [0.8, -1, Model.Ship, 6000],
-      [3.1, -1, Model.ShipMedium, 12000],
-    ]
+    // a quay along the shore (towns and cities): dock pieces with their long side on the water's edge
+    const quayN = city ? 5 : big ? 3 : 0
+    const quay: number[] = []
+    for (let q = 0; q < quayN; q++) {
+      const k = q % 2 ? -Math.ceil(q / 2) : Math.ceil(q / 2)
+      const t = k * dockLen * 0.92
+      const a = shoreAt(t)
+      if (a === null || Math.abs(a - shore) > dockLen * 1.2) continue
+      probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, gx * t + fx * (a + dockLen * 0.08), gy * t + fy * (a + dockLen * 0.08), start)
+      writeSlot(w, Model.Dock, q < 3 ? TOWN_POPULATION * 0.8 : CITY_POPULATION * 0.8, seaYaw, heightOf(Model.Dock) * 0.45, 1, 1, 1, zero4, zero3)
+      quay.push(t, a)
+    }
+    // short piers reaching out: one for a village, more as the port grows
+    const piers: [number, number, number][] = [[0, big ? 2 : 1, 0], [-1.7, 2, 1500], [1.7, city ? 3 : 2, 6000], [3.4, 1, 12000]]
+    const pierBase: number[] = []
+    for (const [tk, len, threshold] of piers) {
+      if (threshold > 0 && threshold > ownerPeak) continue
+      const t = tk * dockLen
+      const a = tk === 0 ? shore : shoreAt(t)
+      if (a === null) continue
+      for (let i = 0; i < len; i++) {
+        const along = a + dockLen * (0.4 + i * 0.92)
+        probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, gx * t + fx * along, gy * t + fy * along, start)
+        if (i > 0 && !surface.wet(probe, 0.2)) break
+        // the dock's long axis is its z: yaw puts model x along the shore
+        writeSlot(w, Model.Dock, threshold, seaYaw - Math.PI / 2, heightOf(Model.Dock) * 0.45, 1, 1, 1, zero4, zero3)
+      }
+      pierBase.push(t, a, len)
+    }
+    // ships moored alongside the piers, more as the owner grows
     const pal = 1 + (hash4(seed, owner, 0x51, 0) % 7)
-    for (const [along0, side, model, threshold] of boats) {
-      if (!has(model)) continue
+    const ships: [number, number, number, number, number][] = [
+      [0, 0.9, 1, Model.Ship, 0],
+      [0, 1.6, -1, Model.ShipMedium, 1500],
+      [1, 1.2, 1, Model.Ship, TOWN_POPULATION],
+      [2, 1.4, -1, Model.Ship, 6000],
+      [2, 2.2, 1, Model.ShipMedium, 12000],
+    ]
+    for (const [pi, along0, side, model, threshold] of ships) {
+      if (!has(model) || pi * 3 >= pierBase.length) continue
       if (threshold > ownerPeak && threshold > 0) continue
+      const t = pierBase[pi * 3], a = pierBase[pi * 3 + 1]
       const beam = footprint(model) * 0.35 + dockLen * 0.6
       for (let push = 0; push < 4; push++) {
-        const a = shore + dockLen * (along0 + push * 0.5)
-        const x = fx * a + gx * beam * side, y = fy * a + gy * beam * side
+        const al = a + dockLen * (along0 + push * 0.5)
+        const x = gx * t + fx * al + gx * beam * side, y = gy * t + fy * al + gy * beam * side
         probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, x, y, start)
         if (!surface.wet(probe, 0.3) && push < 3) continue
         // boats lie along the pier, bow out to sea; hulls sink to their waterline
         writeSlot(w, model, threshold, seaYaw - Math.PI / 2, heightOf(model) * 0.08, 1, 1, 1, zero4, zero3, style === Style.Temperate ? pal : 0, 0.9)
         break
       }
+    }
+    // small boats: rowing boats tied up along the quay and the piers, fishing boats out on the water
+    const nRow = city ? 6 : big ? 4 : 2
+    for (let k = 0; k < nRow; k++) {
+      const u = rand4(seed, owner, k, 0x9a)
+      let x: number, y: number
+      if (quay.length && k % 2 === 0) {
+        const q = Math.floor(u * (quay.length / 2)) * 2
+        const t = quay[q] + (rand4(seed, owner, k, 0x9b) - 0.5) * dockLen * 0.8, a = quay[q + 1] + dockLen * 0.42
+        x = gx * t + fx * a; y = gy * t + fy * a
+      } else if (pierBase.length) {
+        const q = Math.floor(u * (pierBase.length / 3)) * 3
+        const side = k & 2 ? 1 : -1
+        const al = pierBase[q + 1] + dockLen * (0.3 + 0.9 * rand4(seed, owner, k, 0x9b) * pierBase[q + 2])
+        x = gx * pierBase[q] + fx * al + gx * dockLen * 0.42 * side; y = gy * pierBase[q] + fy * al + gy * dockLen * 0.42 * side
+      } else continue
+      probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, x, y, start)
+      if (!surface.wet(probe, 0.15)) continue
+      // moored side-on to the quay or the pier
+      const yaw = seaYaw + (quay.length && k % 2 === 0 ? 0 : Math.PI / 2) + (rand4(seed, owner, k, 0x9c) - 0.5) * 0.4
+      writeSlot(w, Model.Boat, k < 2 ? 0 : 300 * k, yaw, KK * 0.02, 1, 1, 1, zero4, zero3, 0, 0.8)
+    }
+    const nFish = city ? 6 : big ? 4 : 2
+    for (let k = 0; k < nFish; k++) {
+      const t = (rand4(seed, owner, k, 0x9d) - 0.5) * dockLen * 7
+      const a = shore + dockLen * (1.6 + 3.2 * rand4(seed, owner, k, 0x9e))
+      probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, gx * t + fx * a, gy * t + fy * a, start)
+      if (!surface.wet(probe, 0.6)) continue
+      writeSlot(w, Model.FishingBoat, k === 0 ? 0 : 200 + 400 * k, seaYaw + Math.PI / 2 + (rand4(seed, owner, k, 0x9f) - 0.5) * 2.4, KK * 0.02, 1, 1, 1, zero4, zero3, 0, 0.8)
     }
     return w.finish()
   }
@@ -837,7 +1208,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const st = states.get(id)
       if (!st) return false
       // advance() with a past deadline only reports coverage
-      return st.plan.advance(need, -1) && st.written >= st.plan.items.length
+      return st.plan.advance(need, -1) && st.written >= st.plan.items.length && st.groundWritten >= st.plan.ground.length
     },
     farm(cell: number, deadline: number) {
       let s = farmCache.get(cell)
@@ -845,6 +1216,15 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
         if (performance.now() > deadline) return null
         s = layoutFarm(cell)
         farmCache.set(cell, s)
+      }
+      return s
+    },
+    forest(cell: number, deadline: number) {
+      let s = forestCache.get(cell)
+      if (!s) {
+        if (performance.now() > deadline) return null
+        s = layoutForest(cell)
+        forestCache.set(cell, s)
       }
       return s
     },

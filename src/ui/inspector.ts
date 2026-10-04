@@ -26,6 +26,8 @@ export interface Inspector {
   update(year: number, s0: number, population: number): void
   /** The named features the settlement lies on or beside ("Kephia river, Hingara continent"), or '' for none. */
   setPlaces(text: string): void
+  /** Empty element under the origin line for the settlement's people (filled by peoplesPanel.ts; hidden while empty). */
+  readonly peopleSlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -56,6 +58,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-body">
     <div class="insp-origin"></div>
     <div class="insp-places hidden"></div>
+    <div class="insp-people hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
     <div class="readout-row">Food <span class="insp-food-val"></span></div>
@@ -270,7 +273,10 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     return li
   }
 
+  const peopleSlot = q<HTMLDivElement>('.insp-people')
+
   return {
+    peopleSlot,
     get selected() {
       return selected
     },

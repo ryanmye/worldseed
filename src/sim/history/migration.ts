@@ -19,13 +19,13 @@
 // there. Its route and the cells beside it become known (and a route passing
 // strangers' land makes first contact).
 
-import { EventType, JourneyKind } from '../../contract.ts'
+import { EventType, JourneyKind, TechField } from '../../contract.ts'
 import { clamp, smoothstep } from '../util.ts'
 import { MIGRATION, PORT, VOYAGE, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
 import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
-import { found, logEvent, logJourney, productivityOf } from './state.ts'
+import { found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { learnPath } from './knowledge.ts'
 
 /**
@@ -215,7 +215,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   let bestJoin = -1
   const minFood = M.foundMinRatio * g
   // Hoisted for the hot loop.
-  const { occupant, food: foodRatio, people: peopleOf, nearCount, claim, effCap, portReach } = s
+  const { occupant, food: foodRatio, people: peopleOf, nearCount, claim, effCap, portReach, outpost } = s
   const moveCost = s.moveCost
   const { habitable, potential, deep, sea, catchOff, catchBase, catchCell, catchW } = T
   const seaCost = T.moveCost
@@ -241,8 +241,8 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
     if (c !== origin) {
       const occ = occupant[c]
       if (occ >= 0) {
-        // A hungry place takes nobody in (checked first: the rest is dearer); strangers neither.
-        if (foodRatio[occ] >= M.joinFood && (!restrict || peopleOf[occ] === people || contact[cBase + peopleOf[occ]] >= 0)) {
+        // A hungry place takes nobody in (checked first: the rest is dearer); strangers neither, nor an expedition base.
+        if (foodRatio[occ] >= M.joinFood && outpost[occ] === 0 && (!restrict || peopleOf[occ] === people || contact[cBase + peopleOf[occ]] >= 0)) {
           const pop = s.pop[occ]
           const wf = prosperity(s, occ)
           const rich = wf >= WEALTH.joinMin
@@ -303,11 +303,12 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const M = MIGRATION
   const T = s.terrain
   const rng = s.rngMigration
+  // Technology: Farming for what a site would yield, Crafts for how far the group can travel overland, Seafaring at sea.
   const prod = productivityOf(s, from)
   const hasPort = s.port[from] >= 0
   const voyage = rng.next() < (hasPort ? PORT.voyageChance : M.voyageChance)
-  let budget = M.budget * (1 + M.budgetTech * (prod - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
-  let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(prod)
+  let budget = M.budget * (1 + M.budgetTech * (techOf(s, from, TechField.Crafts) - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
+  let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(techOf(s, from, TechField.Seafaring))
   if (voyage) { budget *= M.voyageBudget; ocean *= M.voyageOcean }
   // Boats: from a port the sea is cheap; without one every sea cell costs more.
   ocean *= hasPort ? PORT.oceanMul : M.seaNoPort

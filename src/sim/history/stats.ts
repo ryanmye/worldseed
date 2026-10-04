@@ -3,7 +3,8 @@
 //   node src/sim/history/stats.ts --map 42           (also print ASCII maps for the seeds, and a road / route map at the end)
 // Reports population, towns and cities, land use and degradation (overall and of farmed cells), trade
 // (open routes, volume, sea share, route length, share of each good), roads (cells, connected corridors),
-// famine rates with and without trade, how city size correlates with trade, and where the largest cities sit.
+// famine rates with and without trade, how city size correlates with trade, and where the largest cities sit;
+// peoples and contact; technology per people and expeditions (techStats.ts).
 
 import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, Good, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
@@ -12,6 +13,11 @@ import { LANDMASS_MIN_FRACTION } from '../stats.ts'
 import { runHistory } from './index.ts'
 import type { HistoryDiagnostics, KnowledgeDiag } from './index.ts'
 import { productivityAt } from './state.ts'
+import { asciiExploreMap, exploreStats, formatExploreStats, formatTechStats, techStats, techTable } from './techStats.ts'
+import type { ExploreStats, TechStats } from './techStats.ts'
+
+/** One past the largest event type id. */
+const EVENT_TYPES = Math.max(...Object.values(EventType)) + 1
 import type { Terrain } from './terrain.ts'
 
 export const STAT_YEARS = [0, 100, 250, 500, 750, 1000, 1500, 2000]
@@ -156,6 +162,10 @@ export interface HistoryStats {
   sea: OverseasStats
   /** Peoples, cradles, contact and knowledge (see peopleStats). */
   peoples: PeopleStats
+  /** Technology per people (see techStats). */
+  tech: TechStats
+  /** Expeditions, bases, discoveries (see exploreStats). */
+  explore: ExploreStats
 }
 
 /** Years at which the contact and knowledge figures are taken. */
@@ -192,7 +202,7 @@ export interface PeopleStats {
   landfalls: number
   /** Shadow-decision counters (diag.knowledge), or undefined. */
   diag?: KnowledgeDiag
-  /** How pairs first met (sight, journey, voyage, trade; diag.contactVia), within a cradle and between cradles. */
+  /** How pairs first met (sight, journey, voyage, trade, expedition; diag.contactVia), within a cradle and between cradles. */
   viaInner: number[]
   viaCross: number[]
   /** Knowledge chains: a people knowing a settled cell of a people it had not met, learned through a third it had met. Count of such (knower, owner) pairs, and examples. */
@@ -565,7 +575,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     }
     for (let id = 0; id < S; id++) {
       const p = h.population[snap * S + id]
-      if (p <= 0) continue
+      if (p <= 0 || h.settlements[id].outpost) continue // (expedition bases are counted apart: exploreStats)
       pops.push(p)
       if (p >= TOWN_POPULATION) towns++
       if (p >= CITY_POPULATION) cities++
@@ -629,7 +639,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
       farmDeg30: fdeg.length > 0 ? f30 / fdeg.length : 0,
     })
   }
-  const events = new Array<number>(13).fill(0)
+  const events = new Array<number>(EVENT_TYPES).fill(0)
   for (const e of h.events) events[e.type]++
 
   const lmEver = new Uint8Array(terrain.landmassSize.length)
@@ -957,6 +967,8 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     abandonedLife: abandonedCount > 0 ? life / abandonedCount : 0,
     sea: overseasStats(world, h, terrain, diag),
     peoples: peopleStats(world, h, terrain, diag),
+    tech: techStats(h),
+    explore: exploreStats(world, h, terrain, diag),
   }
 }
 
@@ -1018,7 +1030,7 @@ export function peopleStats(world: World, h: History, terrain: Terrain, diag?: H
   // First contacts within and between cradles.
   const inner: number[] = []
   let innerNever = 0, innerPairs = 0
-  const viaInner = [0, 0, 0, 0], viaCross = [0, 0, 0, 0]
+  const viaInner = [0, 0, 0, 0, 0], viaCross = [0, 0, 0, 0, 0]
   const via = diag?.contactVia
   const cc = new Array<number>(K * K).fill(-1)
   for (let a = 0; a < P; a++) {
@@ -1117,7 +1129,7 @@ export function formatPeopleStats(rows: HistoryStats[]): string {
       `  seed ${pad(r.seed, 6)}: ${o.peoples} peoples, ${o.cradles} cradles (${o.cradleLandmasses} landmasses) [${o.tribesPerCradle.join(',')}]; networks ${o.networks.join('/')}; in-cradle ${o.innerMedian}/${o.innerMax} (${o.innerNever} of ${o.innerPairs} never); ` +
         `cradles ${o.cradleContacts.join(' ')}; events FirstContact ${o.firstContacts} VoyageLost ${o.voyagesLost} Landfall ${o.landfalls}${o.cradlesExtinct > 0 ? `; cradles extinct ${o.cradlesExtinct} (first ${o.firstExtinct})` : ''}`,
     )
-    L.push(`      known land % per network ${o.knownByNet.join(' | ')}; unknown land ${o.unknownLand.map(pc).join('/')}% sea ${o.unknownSea.map(pc).join('/')}%; met by sight/journey/voyage/trade within cradles ${o.viaInner.join('/')}, between ${o.viaCross.join('/')}`)
+    L.push(`      known land % per network ${o.knownByNet.join(' | ')}; unknown land ${o.unknownLand.map(pc).join('/')}% sea ${o.unknownSea.map(pc).join('/')}%; met by sight/journey/voyage/trade/expedition within cradles ${o.viaInner.join('/')}, between ${o.viaCross.join('/')}`)
     const d = o.diag
     if (d) {
       L.push(
@@ -1134,8 +1146,8 @@ export function formatPeopleStats(rows: HistoryStats[]): string {
   const allPairs = rows.flatMap((r) => r.peoples.cradleContacts.map((x) => x.split(':')[1]))
   const met = allPairs.filter((x) => x !== 'never').map(Number).sort((a, b) => a - b)
   L.push(`  cradle-pair first contacts: ${met.length} of ${allPairs.length} pairs met; years median ${med(met)}, quartiles ${met[Math.floor(met.length / 4)] ?? '-'}..${met[Math.floor((3 * met.length) / 4)] ?? '-'}; pairs met before 600 ${met.filter((y) => y < 600).length}, 600-1600 ${met.filter((y) => y >= 600 && y <= 1600).length}, after 1600 ${met.filter((y) => y > 1600).length}, never ${allPairs.length - met.length}; seeds where every cradle met every other: ${rows.filter((r) => r.peoples.allMetYear >= 0).length}/${rows.length}`)
-  const sumV = (f: (o: PeopleStats) => number[]) => [0, 1, 2, 3].map((i) => rows.reduce((a, r) => a + f(r.peoples)[i], 0)).join('/')
-  L.push(`  pairs met by sight/journey/voyage/trade (all seeds): within cradles ${sumV((o) => o.viaInner)}, between cradles ${sumV((o) => o.viaCross)}`)
+  const sumV = (f: (o: PeopleStats) => number[]) => [0, 1, 2, 3, 4].map((i) => rows.reduce((a, r) => a + f(r.peoples)[i], 0)).join('/')
+  L.push(`  pairs met by sight/journey/voyage/trade/expedition (all seeds): within cradles ${sumV((o) => o.viaInner)}, between cradles ${sumV((o) => o.viaCross)}`)
   L.push(`  in-cradle first contact median per seed ${rows.map((r) => r.peoples.innerMedian).join(' ')}; max ${rows.map((r) => r.peoples.innerMax).join(' ')}; in-cradle pairs never met ${rows.reduce((a, r) => a + r.peoples.innerNever, 0)} of ${rows.reduce((a, r) => a + r.peoples.innerPairs, 0)}`)
   L.push(`  land known to nobody at ${ny.join('/')} (median %): ${ny.map((_, i) => pc(med(rows.map((r) => r.peoples.unknownLand[i])))).join('/')}; sea ${ny.map((_, i) => pc(med(rows.map((r) => r.peoples.unknownSea[i])))).join('/')}; cradles extinct ${rows.reduce((a, r) => a + r.peoples.cradlesExtinct, 0)} in ${rows.filter((r) => r.peoples.cradlesExtinct > 0).length} seeds`)
   const ds = rows.map((r) => r.peoples.diag).filter((d) => d !== undefined) as KnowledgeDiag[]
@@ -1318,14 +1330,16 @@ export function formatHistoryStats(rows: HistoryStats[]): string {
   L.push(`end population on river / coastal / other cells (mean %): ${site.map((x) => x.toFixed(0)).join(' / ')}  vs share of habitable cells ${area.map((x) => x.toFixed(0)).join(' / ')}`)
   const ov = rows.map((r) => r.firstOverseas)
   L.push(`first settlement on another continent-sized landmass, per seed: ${ov.map((y) => (y < 0 ? '-' : String(y))).join(' ')}`)
-  const names8 = Object.keys(EventType)
-  const ev = new Array<number>(names8.length).fill(0)
-  for (const r of rows) for (let t = 0; t < names8.length; t++) ev[t] += r.events[t] ?? 0
-  L.push(`events per seed (mean): ${names8.map((n, t) => `${n} ${(ev[t] / rows.length).toFixed(1)}`).join(', ')}`)
+  const evNames = Object.keys(EventType) as (keyof typeof EventType)[]
+  L.push(`events per seed (mean): ${evNames.map((n) => `${n} ${(rows.reduce((a, r) => a + (r.events[EventType[n]] ?? 0), 0) / rows.length).toFixed(1)}`).join(', ')}`)
   L.push('')
   L.push(formatOverseasStats(rows))
   L.push('')
   L.push(formatPeopleStats(rows))
+  L.push('')
+  L.push(formatTechStats(rows))
+  L.push('')
+  L.push(formatExploreStats(rows))
   return L.join('\n')
 }
 
@@ -1444,6 +1458,8 @@ export function runHistoryStats(seeds: number[] = HISTORY_STATS_SEEDS, maps = fa
       for (const y of [500, 1000, 1500, 2000]) if (y <= history.years) extra.push(asciiMap(w, history, y))
       for (const y of [500, 1000, 1500, 2000]) if (y <= history.years) extra.push(asciiKnowledgeMap(w, history, y))
       if (history.road) extra.push(asciiTradeMap(w, history, history.years))
+      extra.push(techTable(history))
+      extra.push(asciiExploreMap(w, history, history.years, run.diag))
     }
   }
   return { rows, text: formatHistoryStats(rows) + '\n\n' + extra.join('\n') }

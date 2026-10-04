@@ -47,14 +47,14 @@
 //
 // Decisions draw from the 'history-voyages' stream only.
 
-import { Biome, EventType, JourneyKind } from '../../contract.ts'
+import { Biome, EventType, JourneyKind, TechField } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import { clamp, smoothstep } from '../util.ts'
 import { MIGRATION, VOYAGE } from './params.ts'
 import { claimStrength } from './population.ts'
 import { foodBase, prosperity } from './migration.ts'
 import type { HistoryState } from './state.ts'
-import { canSettle, found, logEvent, logJourney, productivityOf } from './state.ts'
+import { canSettle, found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { ContactVia, learn, learnPath, meet } from './knowledge.ts'
 import type { VoyageLog } from './index.ts'
 
@@ -205,7 +205,7 @@ export function voyageSystem(s: HistoryState, vs: VoyageState): void {
     const p = s.pop[id]
     if (!T.seaCoast[c] || p < V.minPop || s.founded[id] >= s.year || s.year < s.nextVoyage[id]) continue
     const hasPort = s.port[id] >= 0
-    const base = hasPort ? V.portChance : V.coastChance / (1 + V.coastFade * (productivityOf(s, id) - 1))
+    const base = hasPort ? V.portChance : V.coastChance / (1 + V.coastFade * (techOf(s, id, TechField.Seafaring) - 1))
     const roll = rng.next()
     if (roll >= base * maxMul) continue // (no chance this year whatever the drive)
     const pressure = smoothstep(MIGRATION.pressureLow, MIGRATION.pressureHigh, p / foodBase(s, id))
@@ -234,7 +234,8 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   const V = VOYAGE
   const T = s.terrain
   const rng = vs.rng
-  const prod = productivityOf(s, from)
+  const prod = productivityOf(s, from) // (what the land would yield the settlers)
+  const sea = techOf(s, from, TechField.Seafaring) // (how far and how safely they sail)
   const p = s.pop[from]
   const origin = s.cell[from]
   const originLm = T.landmass[origin]
@@ -245,7 +246,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   if (g < V.groupLow) g = V.groupLow
   if (g > V.groupHigh) g = V.groupHigh
   if (g > p - 2 * MIGRATION.minGroup) g = Math.floor(p - 2 * MIGRATION.minGroup)
-  let range = (hasPort ? V.portRange : V.coastRange) * (1 + (hasPort ? V.rangeTech : V.coastTech) * (prod - 1)) * (1 + V.wealthRange * f) *
+  let range = (hasPort ? V.portRange : V.coastRange) * (1 + (hasPort ? V.rangeTech : V.coastTech) * (sea - 1)) * (1 + V.wealthRange * f) *
     (1 + V.sizeRange * smoothstep(V.sizeLow, V.sizeHigh, p)) * rng.range(V.jitterMin, V.jitterMax)
   if (rng.next() < V.boldChance) range *= V.boldRange // now and then a bold captain sails much further
   if (known >= 0) {
@@ -379,11 +380,12 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   let knownRoute = false
   const net = s.know.net
   for (let q = 0; q < s.know.P; q++) if (net[q] === net[people] && vs.landed[q * vs.M + toLm] >= 0) { knownRoute = true; break }
-  let hazard = ((V.lossShallow * shallowCells + V.lossDeep * deepCells) * T.cellScale) / (1 + V.lossTech * (prod - 1))
+  let hazard = ((V.lossShallow * shallowCells + V.lossDeep * deepCells) * T.cellScale) / (1 + V.lossTech * (sea - 1))
   if (knownRoute) hazard *= V.knownSafe
   const lost = rng.next() < 1 - 1 / (1 + hazard)
   const attrition = rng.range(0, V.attrition) * (bestDist / range)
   s.pop[from] -= g
+  s.voyageAcc[people] += 1 // (Seafaring learns from voyages made, technology.ts)
   log.cost.push(bestDist / T.cellScale)
   log.seaCells.push(path.length - 2)
   log.toLandmass.push(toLm)

@@ -6,8 +6,10 @@
 // settlements compete for shared fields and larger ones take the larger share;
 // a claimant gets capacity * w of its share (distant fields are worked less
 // efficiently), so a settlement alone on its land expects sum(w * capacity)
-// over its catchment, times productivity and its trade factor (wealth and
-// being a hub let a settlement get more from its land; see trade.ts). Capacity here
+// over its catchment, times its people's technology and its trade factor (wealth and
+// being a hub let a settlement get more from its land; see trade.ts). Farming
+// technology multiplies the land's yield and Seafaring the fishing part of it
+// (technology.ts). Capacity here
 // is the effective one (degradation, irrigation, reservoirs; see land.ts);
 // a port adds fishing on coastal cells and a dam damps the owner's bad harvests.
 // In land years the same pass records which fields feed each settlement
@@ -15,17 +17,12 @@
 // how crowded the people working them are (for degradation), and what the
 // food is made of (grain, fish, livestock; for trade).
 
-import { CITY_POPULATION, EventType, TOWN_POPULATION } from '../../contract.ts'
+import { CITY_POPULATION, EventType, TECH_FIELD_COUNT, TOWN_POPULATION, TechField } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
 import { CATCHMENT, DAM, PORT, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
-import { abandon, logEvent, productivityAt } from './state.ts'
+import { abandon, logEvent } from './state.ts'
 import { foodBase } from './migration.ts'
-
-/** System: productivity for this year. */
-export function productivitySystem(s: HistoryState): void {
-  s.productivity = productivityAt(s.year)
-}
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -96,7 +93,7 @@ export function foodSystem(s: HistoryState): void {
   // settlement's share of the cell, until the food covers the population.
   // The land-use system (land.ts) moves cultivation toward these targets; it
   // runs every LAND.step years, and fields are recorded only in those years.
-  const prod = s.productivity
+  const tech = s.tech, peopleOf = s.people
   const portFish = PORT.fish
   const target = s.landTarget
   const stressAcc = s.stressAcc
@@ -109,9 +106,13 @@ export function foodSystem(s: HistoryState): void {
     const id = living[t]
     const c = s.cell[id]
     const p = s.pop[id]
-    const fish = s.port[id] >= 0 ? portFish : 0
+    // Farming tech multiplies the whole catchment; the fishing part is instead worth (1 + port bonus) * Seafaring,
+    // written as capacity * farm + capFish * fish * farm with fish = (1 + port bonus) * sea / farm - 1 (exact).
+    const to = peopleOf[id] * TECH_FIELD_COUNT
+    const farmT = tech[to + TechField.Farming]
+    const fish = ((s.port[id] >= 0 ? 1 + portFish : 1) * tech[to + TechField.Seafaring]) / farmT - 1
     const st = claimStrength(p)
-    const mul = prod * s.econ[id]
+    const mul = farmT * s.econ[id]
     const stm = st * mul
     const big = p > smallPop
     const r1 = big ? reachOf(p) + 1 : 0
@@ -123,13 +124,13 @@ export function foodSystem(s: HistoryState): void {
     const crowd = recordFields ? p / foodBase(s, id) : 0
     let perStrength = 0 // food per unit of claim strength
     let perFish = 0, perLive = 0 // the fish and livestock parts of it (land years only)
-    // A cell's food is its capacity, plus fish * its fishing part for a port's owner.
+    // A cell's food (per unit of Farming) is its capacity plus fish * its fishing part.
     if (!recordFields && !big) {
       // The common case (no fields to record, base catchment only), kept tight.
       for (let k = catchOff[c]; k < base; k++) {
         const j = catchCell[k]
         const w = catchW[k]
-        const cj = fish > 0 ? capacity[j] + fish * capFish[j] : capacity[j]
+        const cj = capacity[j] + fish * capFish[j]
         perStrength += cj * (w * w * invClaim[j])
       }
     } else for (let k = catchOff[c]; k < end; k++) {
@@ -142,7 +143,7 @@ export function foodSystem(s: HistoryState): void {
       }
       const j = catchCell[k]
       const ic = invClaim[j]
-      const cj = fish > 0 ? capacity[j] + fish * capFish[j] : capacity[j]
+      const cj = capacity[j] + fish * capFish[j]
       const ww = w * w * ic
       const term = cj * ww
       perStrength += term

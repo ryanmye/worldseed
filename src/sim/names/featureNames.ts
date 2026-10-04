@@ -7,7 +7,8 @@
 // sound shifts, with the odd word replaced, so related peoples name things alike.
 //
 // Pure in (world, settlement table): depends on ids, cells, parents, founding
-// years and names only. Each feature draws from its own stream
+// years and names only, and on nothing founded after the namer (prefix-stable:
+// a longer history names its features alike). Each feature draws from its own stream
 // ('names-feature-<key>'), each vocabulary from 'names-geo-<tribe>-<level>',
 // so a feature's name does not depend on how many other features exist, except
 // where it would collide with an earlier name and is drawn again.
@@ -18,7 +19,7 @@ import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import { detectFeatures, featuresAt } from './features.ts'
 import type { FeatureMap } from './features.ts'
-import type { SettlementLike } from './index.ts'
+import type { SettlementLike, SettlementNaming } from './index.ts'
 import { nameSettlementsDetailed } from './index.ts'
 import type { Language } from './phonology.ts'
 import { buildMorph, buildRoot, capitalizeName, fuseWords, isEuphonic, letterCount, shiftWord } from './words.ts'
@@ -187,12 +188,34 @@ export interface NamedSettlementLike extends SettlementLike {
  * Names are unique across settlements and features. Returned in order of naming
  * (namedYear, then namer, then detection order), ids matching positions.
  * `map` may be passed when the caller already detected the features.
+ *
+ * Settlements and features are taken in the order they appear (a settlement when
+ * it is founded, a feature right after its namer), and a feature's name avoids only
+ * the names that exist by then, so nothing named by year Y depends on what comes
+ * after Y. The settlement names are the table's; `nameWorld` also settles the rare
+ * settlement whose own name a feature took first.
  */
 export function nameFeatures(world: World, settlements: readonly NamedSettlementLike[], map: FeatureMap = detectFeatures(world)): GeoFeature[] {
+  return nameAll(world, settlements, map, settlements.map((s) => s.name)).features
+}
+
+/**
+ * Names every settlement and every reached feature together (see nameFeatures): a settlement keeps
+ * its own name (nameSettlements) unless an earlier feature or renamed settlement already has it, and
+ * then gets a fresh one in its language (stream 'names-rename-<id>'). Pure in (world, settlement table),
+ * and names given by year Y never depend on what comes after Y. nameFeatures on the returned names
+ * gives the same features.
+ */
+export function nameWorld(world: World, settlements: readonly SettlementLike[], map: FeatureMap = detectFeatures(world)): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
+  return nameAll(world, settlements, map, null)
+}
+
+function nameAll(world: World, settlements: readonly SettlementLike[], map: FeatureMap, given: readonly string[] | null): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
   const F = map.features.length
   const S = settlements.length
-  if (F === 0 || S === 0) return []
   const naming = nameSettlementsDetailed(world, settlements)
+  const names = given ? given.slice() : naming.names.slice()
+  if (S === 0) return { names, features: [], naming }
 
   // who reaches each feature first
   const order = settlements.map((_, i) => i)
@@ -221,7 +244,15 @@ export function nameFeatures(world: World, settlements: readonly NamedSettlement
   reached.sort((a, b) => settlements[namer[a]].foundedYear - settlements[namer[b]].foundedYear || namer[a] - namer[b] || a - b)
 
   const used = new Set<string>()
-  for (const s of settlements) used.add(s.name.toLowerCase())
+  // Settlements enter in founding order (ids ascend with founding years); one whose name is taken is renamed (nameWorld only).
+  let admitted = 0
+  const admit = (upTo: number): void => {
+    for (; admitted <= upTo && admitted < S; admitted++) {
+      const id = admitted
+      if (!given && used.has(names[id].toLowerCase())) names[id] = rename(world, naming, id, used)
+      used.add(names[id].toLowerCase())
+    }
+  }
   const lexCache = new Map<string, Lexicon>()
   const lexicon = (tribe: number, level: number): Lexicon => {
     const key = tribe + ':' + level
@@ -239,9 +270,10 @@ export function nameFeatures(world: World, settlements: readonly NamedSettlement
   for (const f of reached) {
     const det = map.features[f]
     const by = namer[f]
+    admit(by)
     const tribe = naming.tribe[by], level = naming.level[by]
-    // the root of the namer's name; recomputed names match the table unless the caller renamed settlements
-    const own = settlements[by].name
+    // the root of the namer's name; recomputed names match the table unless the settlement was renamed
+    const own = names[by]
     const root = naming.names[by] === own ? naming.roots[by] : own.toLowerCase().split(/[ '-]/)[0]
     const ctx: NameContext = { lang: naming.language(tribe, level), lex: lexicon(tribe, level), settlementRoot: root, major: major[f] === 1 }
     const rng = createRng(world.seed, `names-feature-${det.key}`)
@@ -271,5 +303,23 @@ export function nameFeatures(world: World, settlements: readonly NamedSettlement
       spine: det.spine.slice(),
     })
   }
-  return out
+  admit(S - 1)
+  return { names, features: out, naming }
+}
+
+/** A fresh name for settlement `id` in its language, not in `used` (its own was taken by an earlier name). */
+function rename(world: World, naming: SettlementNaming, id: number, used: Set<string>): string {
+  const lang = naming.language(naming.tribe[id], naming.level[id])
+  const rng = createRng(world.seed, `names-rename-${id}`)
+  let name = ''
+  for (let attempt = 0; attempt < 300 && !name; attempt++) {
+    const cand = capitalizeName(buildRoot(lang, rng))
+    const lc = letterCount(cand)
+    if (lc >= 3 && lc <= 12 && !used.has(cand.toLowerCase())) name = cand
+  }
+  for (let attempt = 0; !name; attempt++) { // practically unreachable
+    const cand = capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng))
+    if (!used.has(cand.toLowerCase()) || attempt > 1000) name = cand
+  }
+  return name
 }

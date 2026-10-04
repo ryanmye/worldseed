@@ -237,6 +237,18 @@ describe('nameFeatures', () => {
     }
   }, 120_000)
 
+  it('names given by year 2000 do not depend on what happens later (2000- vs 2500-year runs)', () => {
+    for (const seed of [12345, 42]) {
+      const short = runHistory(world(seed)).history
+      const long = runHistory(world(seed), { years: 2500 }).history
+      for (let id = 0; id < short.settlements.length; id++) expect(long.settlements[id].name).toBe(short.settlements[id].name)
+      const fl = long.features.filter((f) => f.namedYear <= 2000)
+      expect(fl.length).toBe(short.features.length)
+      for (let i = 0; i < fl.length; i++) expect([fl[i].name, fl[i].namedBy]).toEqual([short.features[i].name, short.features[i].namedBy])
+      expect(long.peoples).toEqual(short.peoples)
+    }
+  }, 120_000)
+
   it('is fast', () => {
     const w = world(42)
     const t = table(42)

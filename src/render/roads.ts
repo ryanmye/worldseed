@@ -29,6 +29,7 @@ import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.
 import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { sunUniforms } from './sun.ts'
 import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
+import { TOWN_MASK_GLSL, townMaskUniforms } from './dioramas/townMask.ts'
 import { createSurface, type Probe } from './dioramas/surface.ts'
 
 /** Height of road ribbons above the ground at globe zoom (rivers 0.0012); it shrinks toward the ground up close. */
@@ -319,6 +320,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     uFar: { value: 1 },
     uBridgeZoom: { value: 0 },
     uYield: { value: new THREE.Vector2(0, 0) },
+    // the 3D towns up close: the ribbon gives way to their streets (dioramas/townMask.ts)
+    ...townMaskUniforms,
   }
 
   const roadLevelGlsl = /* glsl */ `
@@ -382,6 +385,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     `,
     fragmentShader: /* glsl */ `
       ${litGlsl}
+      ${TOWN_MASK_GLSL}
       uniform float uZoom;
       uniform float uFar;
       varying float vAcross;
@@ -400,7 +404,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
         albedo = mix(albedo * vec3(0.78, 0.74, 0.68), albedo, uFar);
         albedo *= mix(1.0, 0.72, smoothstep(0.55, 1.0, x));
         vec3 col = lit(albedo, up);
-        float a = vAlpha * edge * limb * uZoom;
+        float a = vAlpha * edge * limb * uZoom * mix(townMask(vObjPos), 1.0, uFar);
         if (a < 0.003) discard;
         gl_FragColor = vec4(col, a);
         #include <tonemapping_fragment>

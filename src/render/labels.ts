@@ -148,6 +148,8 @@ export interface LabelLayer {
   setYear(year: number, playing?: boolean): void
   setSelected(id: number): void
   setHovered(id: number): void
+  /** Known-world mask: per cell, the year from which labels anchored there show (1e9 never); null shows all. */
+  setKnownMask(cellYear: Float32Array | null): void
   /** Redraw if anything changed. cssWidth/cssHeight: viewport in CSS pixels. */
   update(camera: THREE.PerspectiveCamera, planet: THREE.Object3D, cssWidth: number, cssHeight: number): void
   dispose(): void
@@ -325,6 +327,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
   let year = 0
   let selected = -1
   let hovered = -1
+  let knownMask: Float32Array | null = null
   let dirty = true
   let lastTime = -1
   let dpr = 1
@@ -517,7 +520,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     // features named by now
     for (const l of featureLabels) {
       const f = l.f
-      if (year < f.namedYear) {
+      if (year < f.namedYear || (knownMask !== null && year < knownMask[f.anchorCell])) {
         l.alpha = 0
         l.shown = false
         continue
@@ -574,7 +577,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     for (let id = 0; id < history.settlements.length; id++) {
       const existing = settlementLabels[id]
       const pop = source.population(id)
-      if (pop <= 0) {
+      if (pop <= 0 || (knownMask !== null && year < knownMask[history.settlements[id].cell])) {
         if (existing) { existing.alpha = 0; existing.shown = false }
         continue
       }
@@ -727,6 +730,11 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
     },
     setHovered(id: number) {
       if (id !== hovered) { hovered = id; dirty = true }
+    },
+    setKnownMask(cellYear: Float32Array | null) {
+      knownMask = cellYear && cellYear.length >= N ? cellYear : null
+      dirty = true
+      requestRender()
     },
     update(camera: THREE.PerspectiveCamera, planet: THREE.Object3D, cssWidth: number, cssHeight: number) {
       if (!visible) return

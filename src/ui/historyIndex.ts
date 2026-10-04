@@ -3,6 +3,8 @@
 // state accumulated during playback. That is what makes scrubbing backwards exact.
 
 import { CITY_POPULATION, EventType, FeatureKind, JourneyKind, TOWN_POPULATION, type GeoFeature, type History, type Journeys, type Settlement, type Structure, type TradeRoutes } from '../contract.ts'
+import { PeoplesEvent } from './format.ts'
+import type { PeoplesData } from './peoplesData.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -20,7 +22,12 @@ export const EntryKind = {
   TradeClosings: 5,
   /** Major features named by one settlement in one year; members are -(feature id + 1). */
   Named: 6,
+  /** Events of one exploration or technology type (BURST_TYPES) in one decade; the representative is the largest. */
+  Burst: 7,
 } as const
+
+/** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
+const BURST_TYPES: readonly number[] = [PeoplesEvent.VoyageLost, PeoplesEvent.ExpeditionSent, PeoplesEvent.ExpeditionReturned, PeoplesEvent.TechAdvance]
 export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind]
 
 export interface HistoryIndex {
@@ -82,6 +89,8 @@ export interface HistoryIndex {
   wealth: Float32Array | null
   /** Largest wealth of any settlement per snapshot (0 without wealth). */
   wealthMax: Float32Array
+  /** Peoples, knowledge and contact (peoplesData.ts; set by the history view), or null when the history has none. */
+  peoples: PeoplesData | null
 }
 
 export interface TradeData {
@@ -316,12 +325,13 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
-  return type >= EventType.Founded && type <= EventType.TradeClosed
+  return type >= EventType.Founded && type <= PeoplesEvent.TechAdvance
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
 function otherIsSettlement(type: number): boolean {
-  return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed
+  return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
+    type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned
 }
 
 /** Whether naming a feature is worth a chronicle line: continents and oceans, the larger seas, rivers, ranges and so on. */
@@ -425,6 +435,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const openingsPerBucket = perBucket(EventType.TradeOpened, () => true)
   const closingsPerBucket = perBucket(EventType.TradeClosed, () => true)
   const migrationsPerBucket = perBucket(EventType.Migration, (v) => v >= migrationThreshold)
+  const burstPerBucket = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, perBucket(t, () => true)]))
+  const burstEntry = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, new Map<number, number>()]))
   const entries: { kind: EntryKind; members: number[] }[] = []
   const famineEntry = new Map<number, number>()
   const foundingEntry = new Map<number, number>()
@@ -451,6 +463,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (e.type === EventType.Migration && (migrationsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(migrationEntry, bucketOf(e.year), EntryKind.Migrations, i)
     else if (e.type === EventType.TradeOpened && (openingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(openingEntry, bucketOf(e.year), EntryKind.TradeOpenings, i)
     else if (e.type === EventType.TradeClosed && (closingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(closingEntry, bucketOf(e.year), EntryKind.TradeClosings, i)
+    else if ((burstPerBucket.get(e.type)?.get(bucketOf(e.year)) ?? 0) >= 2) join(burstEntry.get(e.type)!, bucketOf(e.year), EntryKind.Burst, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
@@ -560,6 +573,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     roads: roadDataOf(h),
     wealth,
     wealthMax,
+    peoples: null,
   }
 }
 

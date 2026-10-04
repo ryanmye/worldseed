@@ -31,7 +31,7 @@
 //
 // Market. Each year, after the harvest, goods flow along the candidate pairs
 // (cheapest first, TRADE.passes sweeps): wherever the price gap for a good
-// beats its transport cost (falling with technology), a damped step moves
+// beats its transport cost (falling with the Crafts of the two ends' peoples), a damped step moves
 // goods from cheap to dear. A pair that is not yet trading needs a larger gap
 // (TRADE.openHurdle) to start. Food that arrives feeds people this year;
 // food that leaves does not. The first flow on a pair opens its route
@@ -51,13 +51,13 @@
 // Everything is deterministic: fixed iteration orders, Maps used only for
 // lookup, no randomness.
 
-import { EventType, GOOD_COUNT } from '../../contract.ts'
+import { EventType, GOOD_COUNT, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import { Heap } from './heap.ts'
 import { GOODS, MIGRATION, ROAD, TRADE, WEALTH } from './params.ts'
 import { prosperity } from './migration.ts'
 import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
-import { logEvent, productivityOf } from './state.ts'
+import { logEvent, techOf } from './state.ts'
 import { ContactVia, learnPath, meet } from './knowledge.ts'
 
 const G = GOOD_COUNT
@@ -259,9 +259,9 @@ function ensureRoutes(ts: TradeState, count: number): void {
   ts.rGood = growF(ts.rGood, size * G * 2)
 }
 
-/** Deep-ocean cost of one cell for trade this year, with or without a port. */
-function oceanCost(s: HistoryState, port: boolean): number {
-  return ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(s.productivity)) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+/** Deep-ocean cost of one cell for trade by settlement `id` this year (its people's Seafaring), with or without a port. */
+function oceanCost(s: HistoryState, id: number, port: boolean): number {
+  return ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(techOf(s, id, TechField.Seafaring))) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
 }
 
 /**
@@ -287,7 +287,11 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
     prev[c] = -1
     heap.push(0, c)
   }
-  const oceanP = oceanCost(s, true), oceanN = oceanCost(s, false)
+  // Deep-ocean cost per people (its Seafaring), without the port factor.
+  const P = s.know.P
+  const oceanOf = new Float64Array(P)
+  for (let q = 0; q < P; q++) oceanOf[q] = (MIGRATION.oceanCost * T.cellScale) / Math.sqrt(s.tech[q * TECH_FIELD_COUNT + TechField.Seafaring])
+  const peopleOf = s.people
   const radius = TRADE.radius
   const radiusSea = TRADE.radius * TRADE.portSeaRadius
   let nv = 0
@@ -299,7 +303,7 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
     const a = label[c]
     const port = s.port[a] >= 0
     const seaMul = port ? TRADE.seaPort : TRADE.seaNoPort
-    const ocean = port ? oceanP : oceanN
+    const ocean = oceanOf[peopleOf[a]] * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
       const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j])
@@ -404,7 +408,7 @@ function routeCost(s: HistoryState, ts: TradeState, r: number): number {
   const path = ts.rPath[r]
   const pa = s.port[ts.rA[r]] >= 0, pb = s.port[ts.rB[r]] >= 0
   const seaMul = 0.5 * ((pa ? TRADE.seaPort : TRADE.seaNoPort) + (pb ? TRADE.seaPort : TRADE.seaNoPort))
-  const ocean = 0.5 * (oceanCost(s, pa) + oceanCost(s, pb))
+  const ocean = 0.5 * (oceanCost(s, ts.rA[r], pa) + oceanCost(s, ts.rB[r], pb))
   let cost = 0
   for (let k = 1; k < path.length; k++) {
     const j = path[k]
@@ -449,8 +453,6 @@ function rebuildResources(s: HistoryState, ts: TradeState): void {
  * stay candidates while both ends live; pairs with a route trade along its path.
  */
 function rebuildPairs(s: HistoryState, ts: TradeState): void {
-  const prod = s.productivity
-  const reach = TRADE.reach * (1 + GOODS.transportTech * (prod - 1))
   const living = s.living
   const pairA: number[] = [], pairB: number[] = [], pairCost: number[] = [], pairRoute: number[] = []
   const pairChain: number[][] = []
@@ -473,6 +475,7 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
   for (let t = 0; t < living.length; t++) {
     const src = living[t]
     if (!ts.trader[src] || src >= ts.adjCount) continue
+    const reach = TRADE.reach * (1 + GOODS.transportTech * (techOf(s, src, TechField.Crafts) - 1)) // (its people's Crafts)
     const reachSrc = s.port[src] >= 0 ? reach * TRADE.portReach : reach // shipping lines from ports
     if (kd) {
       // Shadow: the partners full knowledge would give.
@@ -664,11 +667,10 @@ function closeRoute(s: HistoryState, ts: TradeState, r: number): void {
 export function tradeSystem(s: HistoryState, ts: TradeState): void {
   ensureSettlements(ts, s.count)
   const living = s.living
-  const prod = s.productivity
   const { stock, demand, income, throughYear, food0, trader, res } = ts
   const need = GOODS.need
-  const demTech = 1 + GOODS.demandTech * (prod - 1)
   const workHalf = GOODS.workHalf
+  const tech = s.tech
   let traders = 0
   trader.fill(0, 0, s.count) // (abandoned settlements never trade)
   for (let t = 0; t < living.length; t++) {
@@ -700,10 +702,14 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     stock[o] = F * (1 - ff - lf)
     stock[o + 1] = F * ff
     stock[o + 2] = F * lf
-    const lab = (productivityOf(s, id) * p) / (p + workHalf)
-    stock[o + 3] = res[id * 3] * lab
-    stock[o + 4] = res[id * 3 + 1] * lab
-    stock[o + 5] = res[id * 3 + 2] * lab
+    // Non-food output: labour times Crafts (felling, boiling salt) or Metalworking (ore); needs for it grow with Crafts.
+    const to = s.people[id] * TECH_FIELD_COUNT
+    const crafts = tech[to + TechField.Crafts]
+    const lab = p / (p + workHalf)
+    stock[o + 3] = res[id * 3] * lab * crafts
+    stock[o + 4] = res[id * 3 + 1] * lab * tech[to + TechField.Metalworking]
+    stock[o + 5] = res[id * 3 + 2] * lab * crafts
+    const demTech = 1 + GOODS.demandTech * (crafts - 1)
     for (let g = 0; g < G; g++) demand[o + g] = need[g] * p * (g < FOOD ? 1 : demTech)
     food0[id] = F
     ts.bid[id] = 1 + WEALTH.bid * prosperity(s, id)
@@ -714,10 +720,11 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   // Market sweeps.
   const { pairA, pairB, pairCost, pairRoute, pairFlow, price, deriv, rOpen } = ts
   const V = GOODS.value
-  const techT = 1 / (1 + GOODS.transportTech * (prod - 1))
   const tUnit = new Float64Array(G)
   const minGap = new Float64Array(G)
-  for (let g = 0; g < G; g++) { tUnit[g] = GOODS.transport[g] * techT; minGap[g] = TRADE.minGap * V[g] }
+  for (let g = 0; g < G; g++) { tUnit[g] = GOODS.transport[g]; minGap[g] = TRADE.minGap * V[g] }
+  const tt = GOODS.transportTech
+  const peopleOf = s.people
   const P = ts.pairCount
   pairFlow.fill(0)
   const damping = TRADE.damping, maxShare = TRADE.maxShare, margin = TRADE.margin
@@ -728,7 +735,9 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       if (!trader[a] || !trader[b]) continue
       const r = pairRoute[p]
       if (r < 0 && probeOff) continue
-      const c = pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle)
+      // Transport gets cheaper with the Crafts of the two ends' peoples (their mean).
+      const cr = 0.5 * (tech[peopleOf[a] * TECH_FIELD_COUNT + TechField.Crafts] + tech[peopleOf[b] * TECH_FIELD_COUNT + TechField.Crafts])
+      const c = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle)) / (1 + tt * (cr - 1))
       const oa = a * G, ob = b * G
       for (let g = 0; g < G; g++) {
         const tr = tUnit[g] * c

@@ -14,7 +14,7 @@
 // town layouts are kept), and the surface bake does not depend on the history at all.
 
 import * as THREE from 'three'
-import { CITY_POPULATION, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
+import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type History, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, type GlobeMesh } from '../render/globe.ts'
 import { ViewMode } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
@@ -34,6 +34,8 @@ import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
 import { describePlaces } from './format.ts'
+import { ANYONE, buildPeoplesData } from './peoplesData.ts'
+import { createPeoplesView } from './peoplesPanel.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -58,6 +60,9 @@ export interface InitialHistoryState {
   year: number | null
   play: boolean
   select: number | null
+  /** Known world to show: a people id (people=<id>), or what nobody knows (known=all). */
+  people?: number | null
+  knownAll?: boolean
 }
 
 /** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
@@ -112,6 +117,10 @@ export interface HistoryView {
   readonly years: number
   /** Timing of the last swap (null before the first). */
   readonly lastSwap: SwapStats | null
+  /** Settlement markers coloured by people. */
+  setPeopleTint(on: boolean): void
+  /** Whether a cell is unknown in the known world shown (so the readout should not describe it). */
+  isCellHidden(cell: number): boolean
 }
 
 const FLY_DIST = 2.3
@@ -242,6 +251,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   })
   const chronicle = createChronicle(deps.right, {
     onSelect: (id) => api.select(id, true),
+    landName: (id, y) => {
+      // the landmass (continent or island) a landfall colony stands on, if named by then
+      if (!index || id < 0 || id >= index.count) return null
+      for (const f of featuresNear(index.history.settlements[id].cell, false)) {
+        if (f.namedYear > y) continue
+        if (f.kind === FeatureKind.Continent) return `continent of ${f.name}`
+        if (f.kind === FeatureKind.Island) return `island of ${f.name}`
+      }
+      return null
+    },
+    southern: (id) => (world && index && id >= 0 && id < index.count ? world.grid.positions[index.history.settlements[id].cell * 3 + 1] < 0 : false),
   })
   addShortcut({
     keys: ['Escape'],
@@ -253,6 +273,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       api.select(-1, false)
     },
   })
+  // peoples panel, known-world view, inspector people section (after the deselect above: Esc leaves the known world last)
+  const peoples = createPeoplesView({ right: deps.right, bottom: deps.bottom, inspectorSlot: inspector.peopleSlot, planetGroup: deps.planetGroup, setUrlParam: deps.setUrlParam })
 
   /** The per-history objects, built step by step (see buildSteps). */
   interface Built {
@@ -306,7 +328,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         name: 'index',
         run() {
           const lake = lakeArray(w)
-          b.index = buildHistoryIndex(h, (c) => isWaterCell(w, lake, c))
+          const water = (c: number) => isWaterCell(w, lake, c)
+          const pd = buildPeoplesData(w, h, water) // first: the dev stand-in may add events
+          b.index = buildHistoryIndex(h, water)
+          b.index.peoples = pd
         },
       },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
@@ -412,6 +437,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     // the feature regions are geography (kept); which History feature each is may have grown
     if (geo) geo = { map: geo.map, feature: featureOfRegions(geo.map, index.history) }
     shownS0 = shownS1 = -1
+    // peoples: colours, masks and the known world for the new history (the selected people is kept)
+    peoples.setIndex(index, w, { settlements: layer, labels, dioramas }, extend)
     if (extend) {
       // the same settlement (ids are stable), shown from the longer history
       layer.setHovered(hovered)
@@ -432,6 +459,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     selPlaces = featuresNear(index.history.settlements[id].cell, true).sort((a, b) => a.namedYear - b.namedYear)
     selPlacesShown = -1
     inspector.show(index, world, id)
+    peoples.showSettlement(id)
   }
 
   /** Build the longer history `h` step by step, one step per task, then commit it. */
@@ -583,6 +611,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       selected = -1
       hovered = -1
       inspector.hide()
+      peoples.setWorld(w)
       chronicle.setIndex(null)
       timeline.setRange(null, 1, 'simulating history…')
       lights = new Float32Array(w.grid.cellCount)
@@ -613,6 +642,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         timeline.play()
       } else timeline.setSoftStop(null)
       if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
+      if (init?.knownAll) peoples.select(ANYONE)
+      else if (init && typeof init.people === 'number') peoples.select(init.people)
     },
     setHistoryError(message: string) {
       timeline.setRange(null, 1, 'history unavailable')
@@ -647,7 +678,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const rect = deps.canvas.getBoundingClientRect()
       const id = layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
       // up close a settlement's whole cluster of buildings is clickable too
-      return id >= 0 || !dioramas ? id : dioramas.pick(deps.camera, x, y, rect.width, rect.height)
+      const hit = id >= 0 || !dioramas ? id : dioramas.pick(deps.camera, x, y, rect.width, rect.height)
+      // nothing in the unknown is clickable while a known world is shown
+      return hit >= 0 && index && peoples.hidesCell(index.history.settlements[hit].cell) ? -1 : hit
     },
     select(id: number, fly: boolean) {
       if (!index || !world) return
@@ -660,6 +693,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labels?.setSelected(selected)
       selPlaces = selected >= 0 ? featuresNear(index.history.settlements[selected].cell, true).sort((a, b) => a.namedYear - b.namedYear) : []
       selPlacesShown = -1
+      peoples.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -692,6 +726,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       markersVisible = show
       requestRender()
       applyMarkerStyle()
+      peoples.setMarkersVisible(show)
       if (!show) api.setHover(-1)
     },
     setJourneysVisible(show: boolean) {
@@ -725,7 +760,14 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       labels?.setVisible(show)
     },
     placesAt(cell: number) {
+      if (peoples.hidesCell(cell)) return ''
       return describePlaces(featuresNear(cell, false).filter((f) => f.namedYear <= year))
+    },
+    setPeopleTint(on: boolean) {
+      peoples.setTint(on)
+    },
+    isCellHidden(cell: number) {
+      return peoples.hidesCell(cell)
     },
     tick(dt: number, drawSize: THREE.Vector2, pixelRatio: number) {
       year = timeline.tick(dt)
@@ -793,6 +835,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         roads?.setYield(near, far)
       }
       chronicle.update(year)
+      peoples.tick(year, pos.s0, pulseYears, deps.camera, drawSize, pixelRatio)
       if (labels && labelsVisible) {
         labels.setYear(year, timeline.playing)
         labels.update(deps.camera, deps.planetGroup, drawSize.x / pixelRatio, drawSize.y / pixelRatio)

@@ -10,7 +10,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import {
-  buildBlob, buildDam, buildHaystacks, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
+  buildBlob, buildBoat, buildDam, buildHaystacks, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
   KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
 } from './shapes.ts'
 
@@ -46,9 +46,11 @@ export const Model = {
   Stalls: 19,
   SmallWell: 20,
   TownBridge: 21,
+  Boat: 22,
+  FishingBoat: 23,
 } as const
 export type Model = (typeof Model)[keyof typeof Model]
-const FLORA_BASE = 22
+const FLORA_BASE = 24
 const STYLE_BASE = FLORA_BASE + FLORA_COUNT
 export const MODEL_COUNT = STYLE_BASE + STYLE_COUNT * KIND_COUNT
 
@@ -57,6 +59,8 @@ export const floraModel = (f: Flora) => FLORA_BASE + f
 /** Model of a generated building of a style. */
 export const styleModel = (s: Style, k: Kind) => STYLE_BASE + s * KIND_COUNT + k
 export const isStyleModel = (m: number) => m >= STYLE_BASE
+/** Style and kind of a generated building model (or null). */
+export const styleKindOf = (m: number): [Style, Kind] | null => (m >= STYLE_BASE && m < MODEL_COUNT ? [Math.floor((m - STYLE_BASE) / KIND_COUNT) as Style, ((m - STYLE_BASE) % KIND_COUNT) as Kind] : null)
 
 interface ModelSpec {
   /** Mesh name in the .glb, or null for generated geometry. */
@@ -97,6 +101,8 @@ export const MODEL_SPECS: readonly ModelSpec[] = (() => {
     S(null, KK * 1.1), // market stalls
     S(null, KK), // small well
     S(null, KK), // town bridge (x scaled per instance)
+    S(null, KK), // rowing boat
+    S(null, KK), // fishing boat
   ]
   for (let f = 0; f < FLORA_COUNT; f++) specs.push(S(null, KK))
   for (let s = 0; s < STYLE_COUNT; s++) for (let k = 0; k < KIND_COUNT; k++) specs.push(S(null, KK, true))
@@ -141,6 +147,8 @@ function generated(id: number): THREE.BufferGeometry | null {
     case Model.Stalls: return buildStalls()
     case Model.SmallWell: return buildWell()
     case Model.TownBridge: return buildTownBridge()
+    case Model.Boat: return buildBoat(false)
+    case Model.FishingBoat: return buildBoat(true)
   }
   if (id >= STYLE_BASE) {
     const k = id - STYLE_BASE

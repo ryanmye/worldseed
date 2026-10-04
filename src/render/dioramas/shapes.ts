@@ -31,21 +31,49 @@ type V3 = readonly [number, number, number]
 export class Builder {
   pos: number[] = []
   col: number[] = []
+  /**
+   * Per vertex: position along its wall face from one end and the face's length (model
+   * units), for the facade shader's windows and doors; (0, 0) for no facade, (0, -1) for a
+   * round wall. Wall faces of boxes are axis aligned, so the shader scales them by the
+   * instance's x or z scale.
+   */
+  face: number[] = []
+  /** Face coordinates of the next tri() / quad() call's vertices (consumed). */
+  private pendingFace: number[] | null = null
   tri(a: V3, b: V3, c: V3, rgb: RGB, mask = M_FIXED) {
     this.pos.push(a[0], a[1], a[2], b[0], b[1], b[2], c[0], c[1], c[2])
     for (let i = 0; i < 3; i++) this.col.push(rgb[0], rgb[1], rgb[2], mask)
+    const f = this.pendingFace
+    if (f) for (let i = 0; i < 6; i++) this.face.push(f[i])
+    else this.face.push(0, 0, 0, 0, 0, 0)
   }
   quad(a: V3, b: V3, c: V3, d: V3, rgb: RGB, mask = M_FIXED) {
+    const f = this.pendingFace
+    if (f) {
+      this.pendingFace = [f[0], f[1], f[2], f[3], f[4], f[5]]
+      this.tri(a, b, c, rgb, mask)
+      this.pendingFace = [f[0], f[1], f[4], f[5], f[6], f[7]]
+      this.tri(a, c, d, rgb, mask)
+      this.pendingFace = null
+      return
+    }
     this.tri(a, b, c, rgb, mask)
     this.tri(a, c, d, rgb, mask)
   }
+  /** A wall quad a-b-c-d (a, d at one end, b, c at the other) of length L: carries face coordinates. */
+  private wallQuad(a: V3, b: V3, c: V3, d: V3, L: number, rgb: RGB, mask: number) {
+    this.pendingFace = mask === M_WALL ? [0, L, L, L, L, L, 0, L] : null
+    this.quad(a, b, c, d, rgb, mask)
+    this.pendingFace = null
+  }
   /** Axis-aligned box without a bottom face. */
   box(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, rgb: RGB, mask = M_FIXED, top: RGB = rgb, topMask = mask) {
+    const lx = x1 - x0, lz = z1 - z0
     this.quad([x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0], top, topMask)
-    this.quad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], rgb, mask)
-    this.quad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], rgb, mask)
-    this.quad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], rgb, mask)
-    this.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], rgb, mask)
+    this.wallQuad([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], lx, rgb, mask)
+    this.wallQuad([x1, y0, z0], [x0, y0, z0], [x0, y1, z0], [x1, y1, z0], lx, rgb, mask)
+    this.wallQuad([x1, y0, z1], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], lz, rgb, mask)
+    this.wallQuad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], lz, rgb, mask)
   }
   /**
    * Gable roof over [x0, x1] x [z0, z1] from eave height ye to ridge height yr, ridge along
@@ -87,8 +115,10 @@ export class Builder {
     for (let i = 0; i < seg; i++) {
       const a0 = ((i + phase) / seg) * Math.PI * 2, a1 = ((i + 1 + phase) / seg) * Math.PI * 2
       const p = (r: number, a: number, y: number): V3 => [cx + r * Math.cos(a), y, cz + r * Math.sin(a)]
+      if (r1 > 0 && mask === M_WALL) this.pendingFace = [0, -1, 0, -1, 0, -1, 0, -1]
       if (r1 > 0) this.quad(p(r0, a1, y0), p(r1, a1, y1), p(r1, a0, y1), p(r0, a0, y0), side, mask)
       else this.tri(p(r0, a1, y0), [cx, y1, cz], p(r0, a0, y0), side, mask)
+      this.pendingFace = null
       if (r1 > 0 && cap) this.tri([cx, y1, cz], p(r1, a0, y1), p(r1, a1, y1), cap, capMask)
     }
   }
@@ -121,6 +151,7 @@ export class Builder {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3))
     g.setAttribute('aColor', new THREE.BufferAttribute(new Uint8Array(this.col), 4, true))
+    g.setAttribute('aFace', new THREE.Float32BufferAttribute(this.face, 2))
     g.computeVertexNormals() // non-indexed: flat facets, the low-poly look of the packs
     return g
   }
@@ -155,27 +186,36 @@ export const Kind = {
   Tower: 5,
   /** Fort: kasbah, stockade, citadel. */
   Fort: 6,
+  /** Ell: L-shaped house (a wing behind the street range); round a courtyard in the dry south. */
+  Ell: 7,
 } as const
 export type Kind = (typeof Kind)[keyof typeof Kind]
-export const KIND_COUNT = 7
+export const KIND_COUNT = 8
+/** Whether a kind is a bulk house (not a landmark). */
+export const isHouseKind = (k: number) => k <= Kind.Tall || k === Kind.Ell
 
 const DARK_WOOD: RGB = [92, 70, 52]
 const STONE: RGB = [168, 160, 146]
 const STONE_DARK: RGB = [128, 122, 112]
-const CHIMNEY: RGB = [110, 96, 86]
+const CHIMNEY: RGB = [118, 88, 74]
+const CHIMNEY_TOP: RGB = [52, 44, 40]
 
-function pitched(b: Builder, hw: number, hd: number, ye: number, yr: number, o: number, alongX = true, chimney = false) {
-  b.box(-hw, -0.15, -hd, hw, ye, hd, W, M_WALL)
-  b.gable(-hw, hw, -hd, hd, ye, yr, o, alongX)
-  if (chimney) b.box(hw * 0.45, ye, -hd * 0.3, hw * 0.45 + 0.08, yr + 0.06, -hd * 0.3 + 0.08, CHIMNEY)
+function pitched(b: Builder, hw: number, hd: number, ye: number, yr: number, o: number, alongX = true, chimney = false, cx = 0, cz = 0) {
+  b.box(cx - hw, -0.15, cz - hd, cx + hw, ye, cz + hd, W, M_WALL)
+  b.gable(cx - hw, cx + hw, cz - hd, cz + hd, ye, yr, o, alongX)
+  if (chimney) {
+    // on the ridge line toward one end, through the roof
+    const x = alongX ? cx + hw * 0.55 : cx + hw * 0.2, z = alongX ? cz - hd * 0.12 : cz - hd * 0.5
+    b.box(x - 0.045, ye, z - 0.045, x + 0.045, yr + 0.1, z + 0.045, CHIMNEY, M_FIXED, CHIMNEY_TOP)
+  }
 }
 
-function stilts(b: Builder, hw: number, hd: number, y: number) {
+function stilts(b: Builder, hw: number, hd: number, y: number, cx = 0, cz = 0) {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const x = sx * (hw - 0.05), z = sz * (hd - 0.05)
+    const x = cx + sx * (hw - 0.05), z = cz + sz * (hd - 0.05)
     b.box(x - 0.025, -0.15, z - 0.025, x + 0.025, y, z + 0.025, DARK_WOOD)
   }
-  b.box(-hw - 0.03, y, -hd - 0.03, hw + 0.03, y + 0.05, hd + 0.03, DARK_WOOD)
+  b.box(cx - hw - 0.03, y, cz - hd - 0.03, cx + hw + 0.03, y + 0.05, cz + hd + 0.03, DARK_WOOD)
 }
 
 function roundHut(b: Builder, cx: number, cz: number, r: number, wall: number, apex: number, seg = 7) {
@@ -183,65 +223,125 @@ function roundHut(b: Builder, cx: number, cz: number, r: number, wall: number, a
   b.frustum(cx, cz, wall - 0.04, apex, r * 1.25, 0, seg, R, M_ROOF, null, M_ROOF, 0.5)
 }
 
+/** A flat-roofed block (roof mask on top) with a low parapet lip. */
+function flatBlock(b: Builder, x0: number, z0: number, x1: number, z1: number, y: number, shade: RGB = W) {
+  b.box(x0, -0.15, z0, x1, y, z1, shade, M_WALL, R, M_ROOF)
+  const t = 0.025
+  b.box(x0, y, z0, x1, y + 0.04, z0 + t, W_DARK, M_WALL)
+  b.box(x0, y, z1 - t, x1, y + 0.04, z1, W_DARK, M_WALL)
+}
+
+/**
+ * Wall height of the bulk house kinds (model units, before the instance's height scale):
+ * the facade shader puts windows below it, one row per storey. [floor of the lowest
+ * storey, eave].
+ */
+export function houseFacade(style: Style, kind: Kind): [number, number] {
+  const t: Record<number, readonly (readonly [number, number])[]> = {
+    [Style.Temperate]: [[0, 0.3], [0, 0.4], [0, 0.36], [0, 0.72], [0, 0], [0, 0], [0, 0], [0, 0.42]],
+    [Style.Cold]: [[0, 0.24], [0, 0.3], [0, 0.28], [0, 0.56], [0, 0], [0, 0], [0, 0], [0, 0.32]],
+    [Style.Mountain]: [[0, 0.3], [0, 0.38], [0, 0.32], [0, 0.86], [0, 0], [0, 0], [0, 0], [0, 0.4]],
+    [Style.Desert]: [[0, 0.36], [0, 0.38], [0, 0.34], [0, 0.78], [0, 0], [0, 0], [0, 0], [0, 0.4]],
+    [Style.Savanna]: [[0, 0.24], [0, 0.28], [0, 0.22], [0, 0.32], [0, 0], [0, 0], [0, 0], [0, 0.28]],
+    [Style.Rainforest]: [[0.25, 0.42], [0.27, 0.46], [0.27, 0.46], [0, 0.1], [0, 0], [0, 0], [0, 0], [0.27, 0.46]],
+  }
+  const v = t[style][kind]
+  return [v[0], v[1]]
+}
+
 function houseGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
   const b = new Builder()
   switch (style) {
     case Style.Temperate:
-      if (kind === Kind.Small) pitched(b, 0.3, 0.22, 0.3, 0.56, 0.05)
-      else if (kind === Kind.House) pitched(b, 0.4, 0.27, 0.4, 0.72, 0.05, true, true)
-      else if (kind === Kind.Long) pitched(b, 0.6, 0.27, 0.36, 0.66, 0.05)
-      else pitched(b, 0.27, 0.33, 0.72, 1.0, 0.04, false, true)
+      if (kind === Kind.Small) pitched(b, 0.3, 0.22, 0.3, 0.58, 0.06, true, true)
+      else if (kind === Kind.House) pitched(b, 0.4, 0.27, 0.4, 0.74, 0.07, true, true)
+      else if (kind === Kind.Long) pitched(b, 0.6, 0.27, 0.36, 0.68, 0.06)
+      else if (kind === Kind.Tall) pitched(b, 0.27, 0.33, 0.72, 1.02, 0.05, false, true)
+      else {
+        // street range along x at the front (+z), a wing behind
+        pitched(b, 0.42, 0.18, 0.42, 0.72, 0.07, true, true, 0, 0.18)
+        pitched(b, 0.16, 0.2, 0.36, 0.62, 0.06, false, false, -0.26, -0.18)
+      }
       break
     case Style.Cold:
-      if (kind === Kind.Small) pitched(b, 0.3, 0.22, 0.24, 0.62, 0.06)
-      else if (kind === Kind.House) pitched(b, 0.42, 0.26, 0.3, 0.78, 0.06, true, true)
-      else if (kind === Kind.Long) pitched(b, 0.7, 0.28, 0.28, 0.76, 0.07)
-      else pitched(b, 0.3, 0.3, 0.56, 1.02, 0.05, false, true)
+      if (kind === Kind.Small) pitched(b, 0.3, 0.22, 0.24, 0.62, 0.07, true, true)
+      else if (kind === Kind.House) pitched(b, 0.42, 0.26, 0.3, 0.8, 0.08, true, true)
+      else if (kind === Kind.Long) pitched(b, 0.7, 0.28, 0.28, 0.78, 0.08, true, true)
+      else if (kind === Kind.Tall) pitched(b, 0.3, 0.3, 0.56, 1.04, 0.06, false, true)
+      else {
+        pitched(b, 0.42, 0.18, 0.32, 0.74, 0.08, true, true, 0, 0.18)
+        pitched(b, 0.17, 0.2, 0.28, 0.66, 0.07, false, false, 0.25, -0.18)
+      }
       break
     case Style.Mountain:
       // stone walls, low heavy roofs
-      if (kind === Kind.Small) pitched(b, 0.3, 0.24, 0.3, 0.44, 0.07)
-      else if (kind === Kind.House) pitched(b, 0.42, 0.28, 0.38, 0.54, 0.07, true, true)
-      else if (kind === Kind.Long) pitched(b, 0.6, 0.28, 0.32, 0.48, 0.07)
-      else {
+      if (kind === Kind.Small) pitched(b, 0.3, 0.24, 0.3, 0.46, 0.08, true, true)
+      else if (kind === Kind.House) pitched(b, 0.42, 0.28, 0.38, 0.56, 0.08, true, true)
+      else if (kind === Kind.Long) pitched(b, 0.6, 0.28, 0.32, 0.5, 0.08)
+      else if (kind === Kind.Tall) {
         b.box(-0.28, -0.15, -0.28, 0.28, 0.86, 0.28, W, M_WALL)
-        b.hip(-0.28, 0.28, -0.28, 0.28, 0.86, 1.06, 0.05)
+        b.hip(-0.28, 0.28, -0.28, 0.28, 0.86, 1.06, 0.06)
+        b.box(0.1, 0.86, -0.12, 0.19, 1.12, -0.03, CHIMNEY, M_FIXED, CHIMNEY_TOP)
+      } else {
+        pitched(b, 0.42, 0.18, 0.4, 0.58, 0.08, true, true, 0, 0.18)
+        pitched(b, 0.17, 0.2, 0.34, 0.52, 0.07, false, false, -0.25, -0.18)
       }
       break
     case Style.Desert:
       // flat-roofed adobe blocks; the roof mask is the terrace
-      if (kind === Kind.Small) b.box(-0.27, -0.15, -0.27, 0.27, 0.36, 0.27, W, M_WALL, R, M_ROOF)
+      if (kind === Kind.Small) flatBlock(b, -0.27, -0.27, 0.27, 0.27, 0.36)
       else if (kind === Kind.House) {
-        b.box(-0.4, -0.15, -0.3, 0.4, 0.38, 0.3, W, M_WALL, R, M_ROOF)
-        b.box(-0.4, 0.38, -0.3, 0.02, 0.66, 0.06, W, M_WALL, R, M_ROOF)
+        flatBlock(b, -0.4, -0.3, 0.4, 0.3, 0.38)
+        flatBlock(b, -0.4, -0.3, 0.02, 0.06, 0.66)
       } else if (kind === Kind.Long) {
-        b.box(-0.6, -0.15, -0.3, 0.6, 0.34, 0.3, W, M_WALL, R, M_ROOF)
-        b.box(0.22, 0.34, -0.3, 0.6, 0.56, 0.0, W_DARK, M_WALL, R, M_ROOF)
-      } else {
-        b.box(-0.3, -0.15, -0.3, 0.3, 0.78, 0.3, W, M_WALL, R, M_ROOF)
+        flatBlock(b, -0.6, -0.3, 0.6, 0.3, 0.34)
+        flatBlock(b, 0.22, -0.3, 0.6, 0.0, 0.56, W_DARK)
+      } else if (kind === Kind.Tall) {
+        flatBlock(b, -0.3, -0.3, 0.3, 0.3, 0.78)
         b.box(-0.3, 0.78, -0.3, 0.3, 0.84, -0.22, W_DARK, M_WALL) // parapet
+      } else {
+        // courtyard house: four ranges round an open court, a tower room at the back
+        const e = 0.42, d = 0.36, t = 0.15, y = 0.4
+        flatBlock(b, -e, d - t, e, d, y)
+        flatBlock(b, -e, -d, e, -d + t, y)
+        flatBlock(b, -e, -d + t, -e + t, d - t, y)
+        flatBlock(b, e - t, -d + t, e, d - t, y)
+        flatBlock(b, e - 0.3, -d, e, -d + 0.3, 0.64, W_DARK)
       }
       break
     case Style.Savanna:
       if (kind === Kind.Small) roundHut(b, 0, 0, 0.25, 0.24, 0.6)
       else if (kind === Kind.House) {
         b.box(-0.36, -0.15, -0.24, 0.36, 0.28, 0.24, W, M_WALL)
-        b.hip(-0.36, 0.36, -0.24, 0.24, 0.28, 0.56, 0.07)
+        b.hip(-0.36, 0.36, -0.24, 0.24, 0.28, 0.58, 0.08)
       } else if (kind === Kind.Long) {
         roundHut(b, -0.3, 0, 0.21, 0.22, 0.52)
         roundHut(b, 0.3, 0.04, 0.24, 0.24, 0.58)
         b.frustum(0, 0, -0.15, 0.1, 0.66, 0.66, 10, W_DARK, M_WALL, null) // low compound wall
-      } else roundHut(b, 0, 0, 0.34, 0.32, 0.82, 8)
+      } else if (kind === Kind.Tall) roundHut(b, 0, 0, 0.34, 0.32, 0.82, 8)
+      else {
+        // a family compound: a house and two huts inside a low wall
+        b.box(-0.36, -0.15, 0.04, 0.2, 0.28, 0.34, W, M_WALL)
+        b.hip(-0.36, 0.2, 0.04, 0.34, 0.28, 0.52, 0.07)
+        roundHut(b, 0.24, -0.16, 0.16, 0.2, 0.46)
+        roundHut(b, -0.22, -0.2, 0.14, 0.18, 0.42)
+        b.frustum(0, 0, -0.15, 0.08, 0.5, 0.5, 10, W_DARK, M_WALL, null)
+      }
       break
     case Style.Rainforest:
       if (kind === Kind.Small) {
         stilts(b, 0.3, 0.22, 0.2)
         b.box(-0.3, 0.25, -0.22, 0.3, 0.42, 0.22, W, M_WALL)
-        b.gable(-0.3, 0.3, -0.22, 0.22, 0.42, 0.8, 0.09, true)
-      } else if (kind === Kind.House) {
+        b.gable(-0.3, 0.3, -0.22, 0.22, 0.42, 0.8, 0.1, true)
+      } else if (kind === Kind.House || kind === Kind.Ell) {
         stilts(b, 0.4, 0.26, 0.22)
         b.box(-0.4, 0.27, -0.26, 0.4, 0.46, 0.26, W, M_WALL)
-        b.gable(-0.4, 0.4, -0.26, 0.26, 0.46, 0.9, 0.1, true)
+        b.gable(-0.4, 0.4, -0.26, 0.26, 0.46, 0.9, 0.11, true)
+        if (kind === Kind.Ell) {
+          stilts(b, 0.16, 0.2, 0.22, 0.24, -0.4)
+          b.box(0.08, 0.27, -0.6, 0.4, 0.42, -0.26, W, M_WALL)
+          b.gable(0.08, 0.4, -0.6, -0.26, 0.42, 0.74, 0.08, false)
+        }
       } else if (kind === Kind.Long) {
         stilts(b, 0.62, 0.26, 0.22)
         b.box(-0.62, 0.27, -0.26, 0.62, 0.46, 0.26, W, M_WALL)
@@ -357,7 +457,7 @@ function landmarkGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
 
 /** Geometry of (style, kind). */
 export function styleGeometry(style: Style, kind: Kind): THREE.BufferGeometry {
-  return kind <= Kind.Tall ? houseGeometry(style, kind) : landmarkGeometry(style, kind)
+  return isHouseKind(kind) ? houseGeometry(style, kind) : landmarkGeometry(style, kind)
 }
 
 // ---------- shared pieces ----------
@@ -452,6 +552,38 @@ export function buildTownBridge(): THREE.BufferGeometry {
   return b.build()
 }
 
+/**
+ * A small boat, bow toward +z, ~0.62 long: a rowing boat, or (fishing) with a mast and a
+ * furled sail. Its waterline is y = 0 (the hull sits a little below).
+ */
+export function buildBoat(fishing: boolean): THREE.BufferGeometry {
+  const b = new Builder()
+  const hull: RGB = fishing ? [96, 70, 48] : [128, 92, 60], inside: RGB = [150, 118, 84], rim: RGB = [70, 52, 38]
+  const L = 0.31, B = 0.1, H = 0.07, D = -0.04
+  // gunwale outline: stern (flat) to a pointed bow
+  const top: V3[] = [[-B, H, -L], [B, H, -L], [B * 1.05, H, 0.05], [0, H, L]]
+  const keel: V3[] = [[-B * 0.6, D, -L * 0.9], [B * 0.6, D, -L * 0.9], [B * 0.55, D, 0.05], [0, D * 0.4, L * 0.92]]
+  const mirror = (v: V3): V3 => [-v[0], v[1], v[2]]
+  // sides (starboard, then the mirrored port side)
+  b.quad(keel[1], keel[2], top[2], top[1], hull)
+  b.quad(keel[2], keel[3], top[3], top[2], hull)
+  b.quad(mirror(keel[2]), mirror(keel[1]), mirror(top[1]), mirror(top[2]), hull)
+  b.quad(mirror(keel[3]), mirror(keel[2]), mirror(top[2]), mirror(top[3]), hull)
+  // transom and bottom
+  b.quad(keel[0], keel[1], top[1], top[0], rim)
+  b.quad(keel[1], keel[0], mirror(keel[2]), keel[2], hull)
+  b.tri(keel[2], mirror(keel[2]), keel[3], hull)
+  // the inside, seen from above
+  b.quad([-B * 0.9, H * 0.6, -L * 0.92], [-B * 0.95, H * 0.6, 0.04], [B * 0.95, H * 0.6, 0.04], [B * 0.9, H * 0.6, -L * 0.92], inside)
+  b.tri([-B * 0.95, H * 0.6, 0.04], [0, H * 0.6, L * 0.85], [B * 0.95, H * 0.6, 0.04], inside)
+  b.box(-B * 0.9, H * 0.6, -0.05, B * 0.9, H * 0.85, 0.0, rim)
+  if (fishing) {
+    b.box(-0.012, H, 0.05, 0.012, 0.46, 0.074, DARK_WOOD)
+    b.quad([0, 0.42, 0.075], [0, 0.42, -0.2], [0, 0.14, -0.22], [0, 0.14, 0.075], [222, 214, 196])
+  }
+  return b.build()
+}
+
 // ---------- vegetation ----------
 
 export const Flora = {
@@ -468,27 +600,30 @@ export const FLORA_COUNT = 7
 
 const TRUNK: RGB = [104, 80, 58]
 
-/** A small grove of a kind of tree (or a scatter of rocks), ~1.2 units across. */
+/**
+ * A grove of a kind of tree (or a scatter of rocks), ~1.9 units across: seven trees of
+ * mixed size, a few dozen triangles each (forest stands are made of many of these).
+ */
 export function floraGeometry(kind: Flora): THREE.BufferGeometry {
   const b = new Builder()
-  const spots: [number, number, number][] = [[0, 0, 1], [0.42, 0.2, 0.85], [-0.36, 0.3, 0.9], [0.12, -0.42, 0.75], [-0.3, -0.3, 0.8]]
+  const spots: [number, number, number][] = [[0, 0, 1], [0.62, 0.18, 0.88], [-0.52, 0.42, 0.95], [0.16, -0.62, 0.82], [-0.56, -0.38, 0.9], [0.42, 0.7, 0.78], [0.76, -0.46, 0.86]]
   switch (kind) {
     case Flora.Broadleaf: {
-      const greens: RGB[] = [[86, 116, 58], [100, 128, 64], [74, 104, 52]]
+      const greens: RGB[] = [[78, 110, 52], [94, 124, 60], [68, 98, 48], [104, 120, 58]]
       spots.forEach(([x, z, s], i) => {
-        if (i > 3) return
-        b.box(x - 0.03 * s, -0.1, z - 0.03 * s, x + 0.03 * s, 0.22 * s, z + 0.03 * s, TRUNK)
-        b.frustum(x, z, 0.16 * s, 0.38 * s, 0.14 * s, 0.24 * s, 6, greens[i % 3], M_FIXED, null, M_FIXED, i * 0.3)
-        b.frustum(x, z, 0.38 * s, 0.58 * s, 0.24 * s, 0, 6, greens[i % 3], M_FIXED, null, M_FIXED, i * 0.3)
+        const g = greens[i % 4]
+        b.frustum(x, z, -0.1, 0.3 * s, 0.035 * s, 0.03 * s, 3, TRUNK, M_FIXED, null)
+        b.frustum(x, z, 0.22 * s, 0.52 * s, 0.17 * s, 0.31 * s, 5, g, M_FIXED, null, M_FIXED, i * 0.37)
+        b.frustum(x, z, 0.52 * s, 0.86 * s, 0.31 * s, 0, 5, [g[0] + 10, g[1] + 12, g[2] + 6], M_FIXED, null, M_FIXED, i * 0.37)
       })
       break
     }
     case Flora.Conifer: {
-      const g: RGB[] = [[54, 84, 60], [62, 92, 64], [48, 76, 56]]
+      const g: RGB[] = [[50, 80, 58], [60, 90, 62], [44, 72, 54]]
       spots.forEach(([x, z, s], i) => {
-        b.box(x - 0.025, -0.1, z - 0.025, x + 0.025, 0.12 * s, z + 0.025, TRUNK)
-        b.frustum(x, z, 0.08 * s, 0.5 * s, 0.17 * s, 0, 6, g[i % 3])
-        b.frustum(x, z, 0.36 * s, 0.76 * s, 0.12 * s, 0, 6, g[(i + 1) % 3])
+        b.frustum(x, z, -0.1, 0.14 * s, 0.03, 0.025, 3, TRUNK, M_FIXED, null)
+        b.frustum(x, z, 0.1 * s, 0.62 * s, 0.24 * s, 0, 6, g[i % 3], M_FIXED, null, M_FIXED, i * 0.3)
+        b.frustum(x, z, 0.44 * s, 1.0 * s, 0.17 * s, 0, 6, g[(i + 1) % 3], M_FIXED, null, M_FIXED, i * 0.3 + 0.5)
       })
       break
     }
@@ -496,28 +631,35 @@ export function floraGeometry(kind: Flora): THREE.BufferGeometry {
     case Flora.Jungle: {
       const frond: RGB = kind === Flora.Palm ? [92, 132, 62] : [62, 104, 50]
       spots.forEach(([x, z, s], i) => {
-        if (kind === Flora.Palm && i > 2) return
+        if (kind === Flora.Jungle && i % 2 === 1) {
+          // broad canopy trees between the palms
+          b.frustum(x, z, -0.1, 0.4 * s, 0.04, 0.035, 3, TRUNK, M_FIXED, null)
+          b.frustum(x, z, 0.34 * s, 0.6 * s, 0.22 * s, 0.36 * s, 6, [52, 92, 44], M_FIXED, null, M_FIXED, i)
+          b.frustum(x, z, 0.6 * s, 0.82 * s, 0.36 * s, 0, 6, [64, 106, 50], M_FIXED, null, M_FIXED, i)
+          return
+        }
+        if (kind === Flora.Palm && i > 3) return
         const lean = 0.08 * s * (i % 2 ? 1 : -1)
-        const h = 0.62 * s
+        const h = 0.66 * s
         const tx = x + lean, tz = z + lean * 0.5
         b.quad([x - 0.025, -0.1, z], [x + 0.025, -0.1, z], [tx + 0.02, h, tz], [tx - 0.02, h, tz], TRUNK)
         b.quad([x, -0.1, z - 0.025], [x, -0.1, z + 0.025], [tx, h, tz + 0.02], [tx, h, tz - 0.02], TRUNK)
         for (let k = 0; k < 6; k++) {
           const a = (k / 6) * Math.PI * 2 + i
           const ca = Math.cos(a), sa = Math.sin(a)
-          const L = 0.3 * s
+          const L = 0.32 * s
           b.tri([tx, h + 0.03, tz], [tx + ca * L - sa * 0.07, h - 0.12 * s, tz + sa * L + ca * 0.07], [tx + ca * L + sa * 0.07, h - 0.12 * s, tz + sa * L - ca * 0.07], frond)
         }
-        if (kind === Flora.Jungle) b.frustum(x + 0.15, z - 0.12, -0.1, 0.22 * s, 0.2 * s, 0, 5, [52, 90, 46])
+        if (kind === Flora.Jungle) b.frustum(x + 0.15, z - 0.12, -0.1, 0.24 * s, 0.22 * s, 0, 5, [52, 90, 46])
       })
       break
     }
     case Flora.Acacia: {
       const g: RGB = [116, 128, 62]
-      for (const [x, z, s] of [spots[0], spots[2]]) {
-        b.quad([x - 0.025, -0.1, z], [x + 0.025, -0.1, z], [x + 0.06, 0.34 * s, z], [x + 0.02, 0.34 * s, z], TRUNK)
-        b.quad([x, -0.1, z - 0.025], [x, -0.1, z + 0.025], [x + 0.04, 0.34 * s, z + 0.02], [x + 0.04, 0.34 * s, z - 0.02], TRUNK)
-        b.frustum(x + 0.04, z, 0.32 * s, 0.42 * s, 0.3 * s, 0.22 * s, 7, g, M_FIXED, g)
+      for (const [x, z, s] of [spots[0], spots[2], spots[6]]) {
+        b.quad([x - 0.025, -0.1, z], [x + 0.025, -0.1, z], [x + 0.06, 0.38 * s, z], [x + 0.02, 0.38 * s, z], TRUNK)
+        b.quad([x, -0.1, z - 0.025], [x, -0.1, z + 0.025], [x + 0.04, 0.38 * s, z + 0.02], [x + 0.04, 0.38 * s, z - 0.02], TRUNK)
+        b.frustum(x + 0.04, z, 0.36 * s, 0.47 * s, 0.34 * s, 0.24 * s, 7, g, M_FIXED, g)
       }
       break
     }
@@ -536,7 +678,7 @@ export function floraGeometry(kind: Flora): THREE.BufferGeometry {
     }
     case Flora.Rocks: {
       const c: RGB[] = [[132, 126, 118], [116, 112, 106], [148, 140, 128]]
-      spots.forEach(([x, z, s], i) => b.rock(x * 0.8, z * 0.8, 0.16 * s, 0.16 * s, c[i % 3], i * 1.7))
+      spots.forEach(([x, z, s], i) => { if (i < 5) b.rock(x * 0.6, z * 0.6, 0.16 * s, 0.16 * s, c[i % 3], i * 1.7) })
       break
     }
   }

@@ -19,6 +19,7 @@ import { ViewMode, blendStyleFor, colorForMode, seaIceFactor, snowFactor, type M
 import { BAKE_TARGETS, bakeFrag, bakedFrag, bakeTargetSize, LIGHT_TEX_WIDTH, NEVER, PLANET_FRAG, PLANET_VERT } from './planetShaders.ts'
 import { createCubeBake, type CubeBake } from './surfaceBake.ts'
 import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
+import { closeDetailUniforms } from './dioramas/townMask.ts'
 
 export const PLANET_RADIUS = 1
 /** Geometric displacement of land (fraction of radius). Kept subtle: no lumpy limb. */
@@ -323,6 +324,8 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     uResOn: { value: 0 },
     uYear: { value: 0 },
     uDaylight: sunUniforms.uDaylight,
+    // close-zoom field detail, on while the 3D layer shows (dioramas/townMask.ts)
+    uFieldDetail: closeDetailUniforms.uFieldDetail,
   }
   // procedural: data views, and the Terrain view until its bake is ready
   const material = new THREE.ShaderMaterial({ uniforms, vertexShader: PLANET_VERT, fragmentShader: PLANET_FRAG })

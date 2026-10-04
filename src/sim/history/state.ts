@@ -3,7 +3,7 @@
 // this state, run in a fixed order each year (see index.ts).
 
 import type { EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
-import { EventType as Ev, StructureType } from '../../contract.ts'
+import { EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import type { Terrain } from './terrain.ts'
 import { PRODUCTIVITY } from './params.ts'
@@ -27,8 +27,13 @@ export interface HistoryState {
   world: World
   terrain: Terrain
   year: number
-  /** Productivity multiplier on all capacities this year. */
-  productivity: number
+  /**
+   * Technology level of each people in each field (technology.ts): tech[people * TECH_FIELD_COUNT + field],
+   * 1 at the start. Every effect of technology on a settlement reads its people's levels (techOf, productivityOf).
+   */
+  tech: Float64Array
+  /** Voyages of settlement each people sent lately (decaying; voyages.ts adds, technology.ts decays): Seafaring activity. */
+  voyageAcc: Float64Array
 
   // Settlements, struct-of-arrays indexed by id; `count` ids exist.
   count: number
@@ -68,8 +73,12 @@ export interface HistoryState {
   liveFrac: Float64Array
   /** Smoothed loads a year on the settlement's routes plus those passing through it. */
   through: Float64Array
-  /** Ids of living settlements, ascending. */
+  /** Ids of living settlements, ascending (expedition bases are not among them: see `outposts`). */
   living: number[]
+  /** 1 for an expedition base (exploration.ts), per settlement. */
+  outpost: Uint8Array
+  /** Ids of living expedition bases, ascending. They do not farm, trade, grow or migrate; their parent supplies them. */
+  outposts: number[]
   /** Founder settlement of each people (the original tribes, in founding order). */
   founders: number[]
   /** What each people knows and whom it has met (knowledge.ts); sized for the tribes before they are founded (setPeoples). */
@@ -135,6 +144,10 @@ export interface HistoryState {
   rngStructures: Rng
 }
 
+/**
+ * The old global productivity curve (one level for everyone), kept as the calibration reference: a typical
+ * well-connected people's technology follows it roughly (technology.ts), and the stats harness compares with it.
+ */
 export function productivityAt(year: number): number {
   const P = PRODUCTIVITY
   if (year <= P.easeYear) return 1 + P.linear * year + P.quad * year * year
@@ -145,20 +158,23 @@ export function productivityAt(year: number): number {
   return p0 + (slope * d) / (1 + d / P.easeSpan)
 }
 
-/**
- * Productivity (technology) available to settlement `id` this year. Global for now (the same
- * curve for everyone); every per-settlement decision goes through here so that technology can
- * later differ by people or contact network.
- */
-export function productivityOf(s: HistoryState, _id: number): number {
-  return s.productivity
+/** Technology level of settlement `id`'s people in `field` (see TechField). */
+export function techOf(s: HistoryState, id: number, field: TechField): number {
+  return s.tech[s.people[id] * TECH_FIELD_COUNT + field]
+}
+
+/** Farming productivity of settlement `id` (its people's Farming level): the multiplier on what its land yields. */
+export function productivityOf(s: HistoryState, id: number): number {
+  return s.tech[s.people[id] * TECH_FIELD_COUNT + TechField.Farming]
 }
 
 export function createState(world: World, terrain: Terrain, weatherRegion: Uint16Array, regionCount: number, rngMigration: Rng, rngStructures: Rng): HistoryState {
   const N = terrain.cellCount
   const cap = 256
   return {
-    world, terrain, year: 0, productivity: productivityAt(0),
+    world, terrain, year: 0,
+    tech: new Float64Array(0), // sized by setPeoples
+    voyageAcc: new Float64Array(0),
     count: 0,
     cell: new Int32Array(cap),
     pop: new Float64Array(cap),
@@ -183,6 +199,8 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     liveFrac: new Float64Array(cap),
     through: new Float64Array(cap),
     living: [],
+    outpost: new Uint8Array(cap),
+    outposts: [],
     founders: [],
     know: null as unknown as Knowledge, // set by setPeoples before the tribes are founded
     lmEver: new Uint8Array(terrain.landmassSize.length),
@@ -220,7 +238,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
   }
 }
 
-function grow<T extends Int32Array | Float64Array>(a: T, size: number): T {
+function grow<T extends Int32Array | Float64Array | Uint8Array>(a: T, size: number): T {
   const b = new (a.constructor as { new (n: number): T })(size)
   b.set(a)
   return b
@@ -252,6 +270,7 @@ function ensureCapacity(s: HistoryState, need: number): void {
   s.fishFrac = grow(s.fishFrac, size)
   s.liveFrac = grow(s.liveFrac, size)
   s.through = grow(s.through, size)
+  s.outpost = grow(s.outpost, size)
 }
 
 export function logEvent(s: HistoryState, type: EventType, settlement: number, other: number, value: number): void {
@@ -272,17 +291,20 @@ export function canSettle(s: HistoryState, cell: number): boolean {
   return s.terrain.habitable[cell] === 1 && s.nearCount[cell] === 0 && s.occupant[cell] < 0
 }
 
-/** Sets the number of peoples (the tribes about to be founded) and creates their knowledge. */
+/** Sets the number of peoples (the tribes about to be founded) and creates their knowledge; every level of technology starts at 1. */
 export function setPeoples(s: HistoryState, count: number): void {
   s.know = createKnowledge(s, count)
+  s.tech = new Float64Array(count * TECH_FIELD_COUNT).fill(1)
+  s.voyageAcc = new Float64Array(count)
 }
 
 /**
  * Founds a settlement this year and logs it (and Landfall on a landmass nobody settled before,
  * unless it is an original tribe). Its people is its parent's, or a new one for an original tribe.
  * It looks around (knowledge.ts), which may make first contact. Returns its id. Ids ascend, so `living` stays sorted.
+ * An expedition base (`outpost`) joins `outposts` instead of `living` and does not count toward its landmass's living settlements.
  */
-export function found(s: HistoryState, cell: number, pop: number, parent: number): number {
+export function found(s: HistoryState, cell: number, pop: number, parent: number, outpost = false): number {
   const id = s.count
   ensureCapacity(s, id + 1)
   s.count = id + 1
@@ -307,11 +329,12 @@ export function found(s: HistoryState, cell: number, pop: number, parent: number
   s.fishFrac[id] = 0
   s.liveFrac[id] = 0
   s.through[id] = 0
+  s.outpost[id] = outpost ? 1 : 0
   if (parent >= 0) s.people[id] = s.people[parent]
   else { s.people[id] = s.founders.length; s.founders.push(id) }
-  s.living.push(id)
   const lm = s.terrain.landmass[cell]
-  s.lmLiving[lm]++
+  if (outpost) s.outposts.push(id)
+  else { s.living.push(id); s.lmLiving[lm]++ }
   s.occupant[cell] = id
   markNear(s, cell, 1)
   logEvent(s, Ev.Founded, id, parent, pop)
@@ -342,7 +365,7 @@ export function loseStructure(s: HistoryState, id: number): void {
   logEvent(s, Ev.StructureLost, st.settlement, id, st.type)
 }
 
-/** Abandons a settlement this year (the caller removes it from `living`); its structures fall out of use. */
+/** Abandons a settlement this year (the caller removes it from `living`, or from `outposts`); its structures fall out of use. */
 export function abandon(s: HistoryState, id: number): void {
   logEvent(s, Ev.Abandoned, id, -1, s.pop[id])
   s.abandoned[id] = s.year
@@ -352,7 +375,7 @@ export function abandon(s: HistoryState, id: number): void {
   s.through[id] = 0
   s.foodImport[id] = 0
   s.occupant[s.cell[id]] = -1
-  s.lmLiving[s.terrain.landmass[s.cell[id]]]--
+  if (!s.outpost[id]) s.lmLiving[s.terrain.landmass[s.cell[id]]]--
   markNear(s, s.cell[id], -1)
   if (s.port[id] >= 0) loseStructure(s, s.port[id])
   if (s.dam[id] >= 0) loseStructure(s, s.dam[id])

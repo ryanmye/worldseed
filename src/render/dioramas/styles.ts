@@ -53,6 +53,16 @@ export const ROOFS: readonly (readonly RGB[])[] = [
 export const WHITEWASH: RGB = [238, 236, 228]
 /** Packed earth under built-up patches, per style (sRGB). */
 export const GROUND: readonly RGB[] = [[150, 136, 108], [120, 110, 98], [138, 132, 122], [190, 164, 124], [164, 122, 86], [138, 112, 78]]
+/**
+ * Town ground per kind (town.ts GroundKind: street, square, yard, garden soil) and style
+ * (sRGB): packed earth and cobbles, pale dust in the desert, dark mud in the north.
+ */
+export const GROUND_KINDS: readonly (readonly RGB[])[] = [
+  [[108, 96, 80], [94, 84, 72], [104, 98, 90], [186, 164, 126], [150, 106, 70], [106, 80, 54]],
+  [[124, 116, 104], [96, 90, 82], [118, 112, 104], [196, 178, 144], [150, 120, 92], [124, 100, 74]],
+  [[92, 98, 62], [88, 92, 68], [92, 92, 74], [168, 148, 110], [140, 116, 74], [74, 90, 48]],
+  [[88, 70, 50], [68, 56, 46], [86, 74, 60], [150, 118, 82], [124, 86, 56], [86, 64, 44]],
+]
 /** Town walls per style (sRGB): stone, timber, stone, adobe, timber, timber. */
 export const WALL_STONE: readonly RGB[] = [[170, 162, 146], [112, 86, 62], [150, 146, 138], [206, 174, 126], [128, 94, 64], [112, 84, 58]]
 

@@ -1,0 +1,314 @@
+/* Peoples panel, known-world banner, inspector people section (peoplesPanel.ts) */
+
+.peoples {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  /* the chronicle under it gives way first (this shrinks with a tiny weight, down to a few rows); scrolls itself */
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(330px, 36vh));
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+}
+.pp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.pp-title {
+  font-weight: 700;
+  font-size: 13px;
+}
+.pp-count {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.peoples.collapsed .pp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.peoples.collapsed .pp-body {
+  display: none;
+}
+.pp-body {
+  margin-top: 4px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.pp-cols,
+.pp-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 34px 38px 26px 36px;
+  align-items: center;
+  column-gap: 5px;
+}
+.pp-cols {
+  padding: 0 4px 2px 2px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.pp-cols span:nth-child(n + 3) {
+  text-align: right;
+}
+.pp-row {
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 2px 4px 2px 2px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.pp-row.selected {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+.pp-row.cradle-start {
+  margin-top: 3px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  padding-top: 4px;
+}
+.pp-row.extinct {
+  color: var(--text-faint);
+}
+.pp-row.extinct .pp-swatch {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+.pp-row.extinct .pp-name {
+  text-decoration: line-through;
+  text-decoration-color: rgba(167, 178, 197, 0.5);
+}
+.pp-namecell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pp-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pp-swatch {
+  display: inline-block;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  vertical-align: -1px;
+}
+.pp-swatch.anyone {
+  background: repeating-linear-gradient(45deg, #6a7488 0 2px, #2a3040 2px 4px);
+}
+/* four tiny technology bars: farming, seafaring, metalworking, crafts */
+.pp-tech {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 12px;
+  margin-left: auto;
+  flex: none;
+}
+.pp-bar {
+  width: 3px;
+  min-height: 2px;
+  border-radius: 1px 1px 0 0;
+  background: #8fa0bd;
+}
+.pp-bar.f0 { background: #b7c86a; }
+.pp-bar.f1 { background: #7fb6e0; }
+.pp-bar.f2 { background: #c9a27a; }
+.pp-bar.f3 { background: #d6a8d8; }
+.pp-anyone {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 6px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-anyone:hover {
+  background: var(--ctl-bg-hover);
+}
+.pp-anyone.selected {
+  border-color: rgba(255, 255, 255, 0.4);
+  color: var(--text);
+}
+.pp-anyone-text {
+  font-weight: 600;
+}
+.pp-anyone-stat {
+  flex: 1;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.pp-note {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+/* short windows: the panel and the chronicle share what is left under the map panel (down to their headers) */
+@media (max-height: 760px) {
+  .peoples {
+    flex-shrink: 1 !important;
+    min-height: 34px;
+  }
+  .side-column.right > .chronicle:not(.collapsed) {
+    min-height: 60px;
+  }
+}
+@media (max-height: 640px) {
+  .pp-note {
+    display: none;
+  }
+  .pp-row {
+    padding-top: 1px;
+    padding-bottom: 1px;
+  }
+}
+
+/* banner over the timeline while a known world is shown */
+.known-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 5px 6px 5px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.kb-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.kb-close {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--ctl-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.kb-close:hover {
+  background: var(--ctl-bg-hover);
+  color: var(--text);
+}
+
+/* inspector: the settlement's people */
+.insp-people {
+  margin: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.ip-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  color: var(--text-2);
+}
+.ip-line .ip-show {
+  margin-left: auto;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+.ip-people-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: #9fd6ea;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(159, 214, 234, 0.35);
+  text-underline-offset: 2px;
+}
+.ip-people-link:hover {
+  color: #d4f0fa;
+}
+
+/* chronicle and inspector event dots for peoples and exploration */
+.ev-contact .ev-text::before {
+  background: conic-gradient(#ee8866 0 50%, #77aadd 50% 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+.ev-landfall .ev-text::before {
+  border-radius: 1px;
+  background: #44bb99;
+}
+.ev-voyage .ev-text::before {
+  background: #4d6f8c;
+  box-shadow: inset 0 0 0 1px #9fc0dc;
+}
+.ev-expedition .ev-text::before {
+  background: #99ddff;
+}
+.ev-discovery .ev-text::before {
+  border-radius: 1px;
+  transform: rotate(45deg) scale(0.85);
+  background: #eedd88;
+}
+.ev-tech .ev-text::before {
+  border-radius: 1px;
+  background: #c3a6e8;
+}
+.chr-list li.ev-contact .ev-text,
+.chr-list li.ev-landfall .ev-text {
+  color: #f4ead6;
+}

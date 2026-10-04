@@ -5,7 +5,7 @@
 // (binary searches into the index), so scrubbing backwards is exact.
 
 import { EventType } from '../contract.ts'
-import { describeEvent, describeFamineBurst, describeFoundings, describeMigrations, describeNaming, describeTradeBurst, eventKind } from './format.ts'
+import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -14,6 +14,10 @@ const ROWS = 40
 
 export interface ChronicleCallbacks {
   onSelect(id: number): void
+  /** Name and kind of the landmass settlement `id` stands on, if named by `year` ("continent of Roneka"), else null (for landfalls). */
+  landName?(id: number, year: number): string | null
+  /** Whether settlement `id` lies south of the equator (for expeditions reaching a pole). */
+  southern?(id: number): boolean
 }
 
 export interface Chronicle {
@@ -171,6 +175,25 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeTradeBurst(h, h.events[ev], m, h.events[ev].type === EventType.TradeOpened)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ev].settlement
+    } else if (kind === EntryKind.Burst && m > 1) {
+      // voyages lost, expeditions, technology advances in one decade: name the largest
+      let people = 0
+      for (let q = lo; q < lo + m; q++) {
+        const e = h.events[ix.notableMembers[q]]
+        people += Math.max(0, e.value)
+        if (e.value > h.events[ev].value) ev = ix.notableMembers[q]
+      }
+      if ((h.events[ev].type as number) === PeoplesEvent.TechAdvance) ev = ix.notableMembers[lo + m - 1] // the latest, not the highest field number
+      text = describePeoplesBurst(h, h.events[ev], m, people)
+      yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ev].settlement
+    } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost) {
+      const e = h.events[ev]
+      text = (e.type as number) === PeoplesEvent.Landfall
+        ? describeLandfall(h, e, callbacks.landName?.(e.settlement, e.year) ?? null)
+        : describePeoplesEvent(h, e, callbacks.southern?.(e.settlement) ?? false) ?? describeEvent(h, e)
+      yearText = String(e.year)
+      r.target = e.settlement
     } else {
       text = describeEvent(h, h.events[ev])
       yearText = String(h.events[ev].year)
@@ -178,7 +201,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     }
     r.li.hidden = false
     const ek = eventKind(h.events[ev])
-    r.li.className = ek === 'town' || ek === 'city' ? `ev-${ek} notable` : `ev-${ek}`
+    r.li.className = ek === 'town' || ek === 'city' || ek === 'contact' || ek === 'landfall' || ek === 'discovery' ? `ev-${ek} notable` : `ev-${ek}`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`

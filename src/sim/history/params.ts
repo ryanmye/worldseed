@@ -51,7 +51,8 @@ export const CATCHMENT = {
 
 
 /**
- * Productivity (technology stand-in): 1 + linear * y + quad * y^2 up to year easeYear (4 at year 2000);
+ * Reference productivity curve (the old global technology level, now only the calibration target that a
+ * typical well-connected people's technology follows; see TECH): 1 + linear * y + quad * y^2 up to year easeYear (4 at year 2000);
  * after it, growth eases off: p(easeYear) + slope * d / (1 + d / easeSpan), d = y - easeYear, slope the
  * curve's slope at easeYear (so the curve is smooth there). It approaches p(easeYear) + slope * easeSpan
  * (7.6 with these values): about 5.4 at year 3000, 6.4 at 5000, instead of exploding quadratically.
@@ -61,6 +62,195 @@ export const PRODUCTIVITY = {
   quad: 0.00000045,
   easeYear: 2000,
   easeSpan: 1500,
+}
+
+/**
+ * Technology per people (technology.ts) in four fields (TechField order: Farming, Seafaring, Metalworking,
+ * Crafts). Each year a people's level L in field f grows by
+ *   rate[f] * sqrt(A + base[f]) * (1 + wealth * w / (w + wealthHalf)) / ((1 + slow * (L - 1)) * (1 + ((L - 1) / soft)^4))
+ * where w is its wealth per head and A its activity in the field (people engaged, see below) plus
+ * pool * (link / its maximum) of the activity of each people it is linked with (link: the diffusion rate below):
+ * large, rich, connected peoples advance faster, small isolated ones slowly, and progress slows at high levels
+ * (`base` stands for what any people works out for itself, so the first tribes advance too).
+ * Activity:
+ *   Farming: everyone (share[0] of the population);
+ *   Seafaring: share[1] of everyone + coastal * people in coastal settlements + port * people in port towns
+ *     + seaTrade * loads a year on its sea routes + voyage * its recent voyages of settlement (decaying by voyageDecay a year);
+ *   Metalworking: share[2] of everyone + ore * ore its settlements could mine (catchment ore * pop / (pop + GOODS.workHalf));
+ *   Crafts: share[3] of everyone + town * people in towns (smoothstep(townLow, townHigh, pop) of each settlement)
+ *     + tradeLoad * loads a year on its routes.
+ * Diffusion: each year a people closes, in each field, the largest of link * (L_other - L) over the peoples it has
+ * met that are ahead, link = contact + near (if settlements of the two have seen each other) + tradeLearn * v / (v + tradeHalf),
+ * v their smoothed trade volume (loads a year, smoothing tradeSmoothing a year). Nothing without contact.
+ * Calibrated so a typical well-connected people roughly follows the reference curve (PRODUCTIVITY).
+ */
+export const TECH = {
+  /** Technology advances every `step` years (rates below are per year). */
+  step: 5,
+  rate: [0.0000158, 0.0000208, 0.0000198, 0.0000188],
+  base: [1500, 1000, 1000, 1000],
+  wealth: 2,
+  wealthHalf: 8,
+  slow: 1,
+  soft: 3,
+  pool: 0.2,
+  share: [1, 0.04, 0.1, 0.15],
+  coastal: 1,
+  port: 1,
+  seaTrade: 1,
+  voyage: 300,
+  voyageDecay: 0.03,
+  ore: 10,
+  town: 1,
+  townLow: 1000,
+  townHigh: 10000,
+  tradeLoad: 1.5,
+  contact: 0.003,
+  near: 0.012,
+  tradeLearn: 0.03,
+  tradeHalf: 200,
+  tradeSmoothing: 0.1,
+  /** Ports and dams: yearly building chance times c / (1 + build * (c - 1)), c the builder's Crafts. */
+  build: 0.5,
+}
+
+/**
+ * Exploration (exploration.ts): prosperous settlements send expeditions to the edge of their people's known
+ * world, which come home with news, are lost, or found expedition bases. Costs are in n = 48 cell units of
+ * expedition travel (EXPEDITION_COST below); wealth in the trade system's units.
+ */
+export const EXPLORE = {
+  /** The urge is reckoned and expeditions set out every `step` years (rates below are per year). */
+  step: 5,
+  /** Senders: at least minPop people, fed (food >= minFood this year, no logged famine for fedYears), founded at least minAge years ago. */
+  minPop: 300,
+  minFood: 0.95,
+  fedYears: 30,
+  minAge: 20,
+  /**
+   * Needs met: sat = max(smoothstep(townLow, townHigh, pop), prosperity, port ? portSat * prosperity : 0); below satMin the
+   * urge fades (urge * (1 - fade) a year). Above it the urge grows by urge * sat * (1 + urgeTech * (T - 1)) a year, T the people's
+   * Seafaring (coastal senders) or Crafts, whichever is higher; at 1 an expedition sets out (if a frontier is in reach).
+   */
+  townLow: 1000,
+  townHigh: 12000,
+  portSat: 1.5,
+  satMin: 0.25,
+  urge: 0.015,
+  urgeTech: 0.8,
+  fade: 0.05,
+  /** A hungry, struggling or small settlement keeps only 1 - hungerFade of its urge a year (and sends nobody). */
+  hungerFade: 0.15,
+  /** After a search that found no frontier worth the trip (fewer than minUnknown unknown cells deep), wait retry years times the number of such searches in a row (at most retryMax). */
+  minUnknown: 6,
+  retry: 60,
+  retryMax: 5,
+  /** A fruitless search spreads through its weather region: for newsYears nobody of that people there searches again unless its range is newsMargin times larger. */
+  newsYears: 60,
+  newsMargin: 1.3,
+  /** The urge grows only while the sender's people has at least minUnknown unknown cells in the sender's weather region or one touching it (counted every countStep years). */
+  countStep: 20,
+  /** Mode: coastal senders go by sea with this chance (with / without a port), the rest overland. */
+  seaPort: 0.75,
+  seaCoast: 0.4,
+  /** Range (cost units): base (land / sea) * (1 + rangeTech * (T - 1)) * (1 + wealthRange * prosperity) * U(jitterMin, jitterMax), T Crafts / Seafaring. */
+  landRange: 12,
+  seaRange: 16,
+  rangeTech: 0.6,
+  wealthRange: 0.8,
+  jitterMin: 0.7,
+  jitterMax: 1.3,
+  /** The sender's own living bases are waypoints: the search also starts there, at this share of the range already spent. */
+  waypoint: 0.15,
+  /** The search stops after this many cells. */
+  maxVisits: 2500,
+  /** Target: the reached cell unknown to the sender's people with the best (unknown cells on the way there) * weight * U(0.7, 1.3); weight = 1 + these bonuses. */
+  polarBonus: 1,
+  polarY: 0.9,
+  iceBonus: 0.5,
+  desertBonus: 0.5,
+  mountainBonus: 0.5,
+  coastBonus: 0.3,
+  oceanBonus: 0.2,
+  /** Group: groupShare of the sender's people, clamped to [groupLow, groupHigh]; it costs the sender cost * group * (1 + path cells / costCells) wealth. */
+  groupShare: 0.01,
+  groupLow: 25,
+  groupHigh: 80,
+  cost: 15,
+  costCells: 20,
+  /** Hazard per cell (plain land 0): loss chance 1 - 1 / (1 + h), h = sum over the way out * (1 + back) / (1 + hazardTech * (T - 1)). */
+  hazardIce: 0.03,
+  hazardDesert: 0.015,
+  hazardMountain: 0.01,
+  hazardCold: 0.006,
+  hazardShallow: 0.004,
+  hazardDeep: 0.012,
+  hazardLand: 0.001,
+  back: 0.6,
+  hazardTech: 0.5,
+  /** Survivors who come home: group * (1 - U(0, attrition) * h / (1 + h)). */
+  attrition: 0.5,
+  /** What they saw: the path and the cells within margin plain hops (n = 48) of it. */
+  margin: 2,
+  /** Success: prestige * cells newly known in wealth, and the sender's urge starts at successUrge. */
+  prestige: 4,
+  successUrge: 0.3,
+  /** Travel time in years: travelBase + travelPerCell * path cells, at most travelMax. */
+  travelBase: 0.5,
+  travelPerCell: 0.04,
+  travelMax: 4,
+}
+
+/**
+ * Expedition bases (exploration.ts): small outposts an expedition founds in land nobody could farm, supplied by
+ * their parent along the expedition's route.
+ */
+export const OUTPOST = {
+  /** Chance an expedition that survives founds a base, if a site beyond share `from` of its way scores at least minValue. */
+  chance: 0.6,
+  minValue: 0.9,
+  from: 0.35,
+  /** Site value: polar (|y| >= polarY or Ice / Tundra) + desert + mountain + island (a landmass with no living settlement) + coastal + resources (ore or salt nearby, or furs in the far north) + far (share of the way out). */
+  polar: 1,
+  polarY: 0.8,
+  desert: 0.8,
+  mountain: 0.6,
+  island: 0.8,
+  coastal: 0.4,
+  resource: 0.5,
+  far: 0.5,
+  /** People at a base, at most this share of the expedition. */
+  pop: 40,
+  popShare: 0.7,
+  /** At most this many bases alive in the world (scaled by the grid's cell count / 23042), and per parent. */
+  maxAlive: 30,
+  perParent: 2,
+  /** Upkeep a year: supply * people * route cost / (1 + supplyTech * (Crafts - 1)) of the parent's wealth; yield back: ore * ore + salt * salt nearby, furs in the far north. */
+  supply: 0.15,
+  supplyTech: 0.5,
+  ore: 0.5,
+  salt: 0.5,
+  furs: 25,
+  /** Abandoned after strikes years in a row the parent was hungry (food < parentFood), poor (prosperity < parentProsperity) or could not pay, or when the route cost exceeds reach * the parent's expedition range (checked every checkStep years). */
+  parentFood: 0.85,
+  parentProsperity: 0.1,
+  strikes: 8,
+  reach: 1.6,
+  checkStep: 25,
+}
+
+/** Expedition travel cost of entering a cell by biome id (land; sea ice walked); open sea: shallow / deep, deep from a port. */
+export const EXPEDITION_COST = {
+  biome: [0, 0, 2.2, 1.3, 1.5, 1.3, 1, 1.8, 1.1, 2.2, 2.6],
+  /** + highland * smoothstep(0.3, 0.7, elevation). */
+  highland: 1,
+  lake: 1,
+  shallow: 0.8,
+  deep: 1.2,
+  /** Sea expeditions from a port reach this much further. */
+  portRange: 1.2,
+  /** A sea expedition's landing parties: land costs this much more. */
+  landing: 2,
 }
 
 export const POPULATION = {

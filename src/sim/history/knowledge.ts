@@ -7,8 +7,8 @@
 //
 // Sight: a settlement sees the cells within a radius of a few hops over land,
 // further along coasts and rivers and out to sea (much further over water from a
-// port), the radius growing with its size and with technology (the productivity
-// curve; see sightRadius). It looks when founded and again whenever its radius
+// port), the radius growing with its size and with its people's technology
+// (Crafts and Seafaring; see sightRadius). It looks when founded and again whenever its radius
 // has grown by KNOW.regrow hops or it built a port (checked every KNOW.sightStep
 // years), so the cost is a bounded search per settlement now and then, not a
 // recomputation of everything every year.
@@ -34,11 +34,11 @@
 //
 // Everything is deterministic (fixed orders, no randomness).
 
-import { EventType } from '../../contract.ts'
+import { EventType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
 import { KNOW } from './params.ts'
 import type { HistoryState } from './state.ts'
-import { logEvent, productivityOf } from './state.ts'
+import { logEvent } from './state.ts'
 
 /** How a pair of peoples first met (Knowledge.via; for the stats harness). */
 export const ContactVia = {
@@ -46,6 +46,7 @@ export const ContactVia = {
   Path: 1, // a journey passed their land
   Voyage: 2, // a colonising expedition sighted their settlements on its way and landed
   Trade: 3, // a trade partner search linked them
+  Expedition: 4, // an exploring expedition (exploration.ts) passed their land, or an expedition base saw them
 } as const
 export type ContactVia = (typeof ContactVia)[keyof typeof ContactVia]
 
@@ -59,6 +60,8 @@ export interface Knowledge {
   contact: Int16Array
   /** How each pair first met (ContactVia), -1 if not yet: via[a * P + b], symmetric. */
   via: Int8Array
+  /** 1 once a settlement of one people has seen a settlement of the other with its own eyes (neighbours), symmetric (technology.ts learns faster from neighbours). */
+  near: Uint8Array
   /** Contact network per people: the smallest people id of its connected component. */
   net: Int32Array
   /** Cells each people learned for itself since the last share (shared with its network every KNOW.shareStep years). */
@@ -105,6 +108,7 @@ export function createKnowledge(s: HistoryState, P: number): Knowledge {
     known: new Int16Array(P * N).fill(-1),
     contact, net, fresh,
     via: new Int8Array(P * P).fill(-1),
+    near: new Uint8Array(P * P),
     seenFrom: new Int32Array(N).fill(-1),
     sightR: new Float64Array(256),
     sightPort: new Uint8Array(256),
@@ -183,10 +187,23 @@ export function meet(s: HistoryState, a: number, b: number, how: ContactVia): vo
   }
 }
 
-/** Sight radius of settlement `id` in n = 48 hop units: grows with its size and with technology (a look reaches whole tenths of it). */
+/** Settlements a and b of different peoples see each other: their peoples are neighbours. */
+function neighbours(s: HistoryState, a: number, b: number): void {
+  const k = s.know
+  const pa = s.people[a], pb = s.people[b]
+  k.near[pa * k.P + pb] = 1
+  k.near[pb * k.P + pa] = 1
+}
+
+/**
+ * Sight radius of settlement `id` in n = 48 hop units: grows with its size and with its people's technology
+ * (the mean of Crafts and Seafaring: roads, towers, boats), a look reaching whole tenths of it.
+ */
 export function sightRadius(s: HistoryState, id: number): number {
   const K = KNOW
-  return (K.sight + K.sightSize * smoothstep(K.sizeLow, K.sizeHigh, s.pop[id])) * (1 + K.sightTech * (productivityOf(s, id) - 1))
+  const o = s.people[id] * TECH_FIELD_COUNT
+  const tech = 0.5 * (s.tech[o + TechField.Crafts] + s.tech[o + TechField.Seafaring])
+  return (K.sight + K.sightSize * smoothstep(K.sizeLow, K.sizeHigh, s.pop[id])) * (1 + K.sightTech * (tech - 1))
 }
 
 /**
@@ -211,6 +228,7 @@ function look(s: HistoryState, id: number, radius: number): void {
   const base = p * k.N
   const year = s.year
   const fresh = k.fresh[p]
+  const how = s.outpost[id] ? ContactVia.Expedition : ContactVia.Sight // (an expedition base's lookouts)
   const run = ++k.run
   const origin = s.cell[id]
   const maxD = Math.floor(10 * radius + 1e-9)
@@ -231,7 +249,7 @@ function look(s: HistoryState, id: number, radius: number): void {
       if (known[base + c] < 0) { known[base + c] = year; fresh.push(c) }
       seenFrom[c] = id
       const o = occupant[c]
-      if (o >= 0 && o !== id && peopleOf[o] !== p) meet(s, id, o, ContactVia.Sight)
+      if (o >= 0 && o !== id && peopleOf[o] !== p) { meet(s, id, o, how); neighbours(s, id, o) }
       const seaC = sea[c]
       for (let e = off[c]; e < off[c + 1]; e++) {
         const j = nb[e]
@@ -266,7 +284,7 @@ export function onFounded(s: HistoryState, id: number): void {
   ensureSettlements(k, s.count)
   const c = s.cell[id]
   const w = k.seenFrom[c]
-  if (w >= 0 && s.abandoned[w] < 0 && s.people[w] !== s.people[id]) meet(s, w, id, ContactVia.Sight)
+  if (w >= 0 && s.abandoned[w] < 0 && s.people[w] !== s.people[id]) { meet(s, w, id, s.outpost[w] || s.outpost[id] ? ContactVia.Expedition : ContactVia.Sight); neighbours(s, w, id) }
   const r = sightRadius(s, id)
   k.sightR[id] = r
   k.sightPort[id] = s.port[id] >= 0 ? 1 : 0
@@ -275,11 +293,14 @@ export function onFounded(s: HistoryState, id: number): void {
 
 /**
  * People of settlement `via` learns a path (journey, voyage, trade route) and the cells within the
- * margin of it; with `meetAll`, it meets the settlements of other peoples on or beside the path.
+ * margin of it (KNOW.margin hops, or `hops` plain hops at this grid's resolution); with `meetAll`, it meets
+ * the settlements of other peoples on or beside the path (first contact made `how`). Returns how many cells
+ * it learned.
  */
-export function learnPath(s: HistoryState, via: number, path: readonly number[], meetAll: boolean): void {
+export function learnPath(s: HistoryState, via: number, path: readonly number[], meetAll: boolean, hops = s.know.marginHops, how: ContactVia = ContactVia.Path): number {
   const k = s.know
   const p = s.people[via]
+  const fresh0 = k.fresh[p].length
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
   const { queue, depth, stamp } = k
   const run = ++k.run
@@ -291,13 +312,12 @@ export function learnPath(s: HistoryState, via: number, path: readonly number[],
     depth[c] = 0
     queue[tail++] = c
   }
-  const hops = k.marginHops
   while (head < tail) {
     const c = queue[head++]
     learn(s, p, c)
     if (meetAll) {
       const o = s.occupant[c]
-      if (o >= 0 && s.people[o] !== p) meet(s, via, o, ContactVia.Path)
+      if (o >= 0 && s.people[o] !== p) meet(s, via, o, how)
     }
     if (depth[c] >= hops) continue
     for (let e = off[c]; e < off[c + 1]; e++) {
@@ -308,6 +328,7 @@ export function learnPath(s: HistoryState, via: number, path: readonly number[],
       queue[tail++] = j
     }
   }
+  return k.fresh[p].length - fresh0
 }
 
 /** Peoples in one network share what each learned since the last share. */
@@ -331,22 +352,27 @@ function share(s: HistoryState): void {
   for (let p = 0; p < P; p++) fresh[p].length = 0
 }
 
-/** System (end of year): settlements look again as their sight grows; networks share what they learned. */
+/** Settlement `id` looks again if its sight grew by KNOW.regrow hops or it built a port since its last look. */
+function relook(s: HistoryState, id: number): void {
+  const k = s.know
+  const r = sightRadius(s, id)
+  const port = s.port[id] >= 0 ? 1 : 0
+  if (r < k.sightR[id] + KNOW.regrow && (port === 0 || k.sightPort[id] === 1)) return
+  k.sightR[id] = r
+  k.sightPort[id] = port
+  look(s, id, r)
+}
+
+/** System (end of year): settlements and expedition bases look again as their sight grows; networks share what they learned. */
 export function knowledgeSystem(s: HistoryState): void {
   const K = KNOW
   const k = s.know
   if (s.year % K.sightStep === 0) {
     ensureSettlements(k, s.count)
     const living = s.living
-    for (let t = 0; t < living.length; t++) {
-      const id = living[t]
-      const r = sightRadius(s, id)
-      const port = s.port[id] >= 0 ? 1 : 0
-      if (r < k.sightR[id] + K.regrow && (port === 0 || k.sightPort[id] === 1)) continue
-      k.sightR[id] = r
-      k.sightPort[id] = port
-      look(s, id, r)
-    }
+    for (let t = 0; t < living.length; t++) relook(s, living[t])
+    const outposts = s.outposts
+    for (let t = 0; t < outposts.length; t++) relook(s, outposts[t])
   }
   if (s.year % K.shareStep === 0) share(s)
 }

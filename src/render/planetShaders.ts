@@ -136,6 +136,7 @@ uniform float uFarm;
 uniform float uLandView;
 uniform float uResOn;
 uniform float uDaylight;
+uniform float uFieldDetail;
 
 flat varying vec3 vLand;
 flat varying vec3 vDeg;
@@ -202,14 +203,47 @@ vec3 farmland(vec3 alb, vec3 p, float lu, float dg, float clump, float footprint
     float detail = ws_lod(fieldFreq, footprint);
     if (detail > 0.0) {
       vec3 rnd;
-      vec2 F = ws_cells(p * fieldFreq, rnd);
+      vec3 fc;
+      vec2 F = ws_cellsc(p * fieldFreq, rnd, fc);
       float on = smoothstep(rnd.x - 0.06, rnd.x + 0.06, cover);
       float pick = fract(rnd.y * 7.31 + rnd.z * 3.17);
       vec3 crop = rnd.y < 0.25 ? CROP_GRAIN : rnd.y < 0.5 ? CROP_GREEN : rnd.y < 0.75 ? CROP_HAY : CROP_SOIL;
       crop = mix(alb, crop, FIELD_STRENGTH * (0.55 + 0.9 * pick)) * (0.9 + 0.2 * rnd.z);
+      // Up close, a worked field: strips across it in neighbouring shades and furrows or
+      // crop rows along them, one direction per field. Pasture (the green fields) stays
+      // grass. Both are band-limited and fade with the footprint before they could alias,
+      // and both average to the field's colour, so the far look is unchanged.
+      float near = ws_lod(fieldFreq * 4.0, footprint) * uFieldDetail;
+      if (near > 0.0) {
+        vec3 upn = normalize(p);
+        vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), upn) + vec3(1e-5, 0.0, 0.0));
+        vec3 north = cross(upn, east);
+        float ang = rnd.z * 3.14159;
+        // across the rows, from the field's own centre (object space)
+        float s = dot(p - fc / fieldFreq, east * cos(ang) + north * sin(ang));
+        bool pasture = rnd.y >= 0.25 && rnd.y < 0.5;
+        if (!pasture) {
+          float strip = floor(s * fieldFreq * 3.0 + rnd.y * 17.0);
+          strip += floor(rnd.z * 512.0) * 7.0;
+          float sh = ws_hash33(vec3(strip, rnd.x * 97.0, rnd.z * 61.0)).x * 0.5 + 0.5;
+          float balk = 1.0 - smoothstep(0.0, max(0.04, footprint * fieldFreq * 9.0), abs(fract(s * fieldFreq * 3.0 + rnd.y * 17.0) - 0.5) * 2.0 - 0.92);
+          // some fields lie fallow or in stubble: no rows
+          float rowAmp = rnd.y < 0.25 || rnd.x > 0.55 ? 0.09 : 0.0;
+          float rows = sin(s * fieldFreq * (13.0 + 6.0 * rnd.x) * 6.2832) * ws_lod(fieldFreq * 19.0, footprint);
+          vec3 worked = crop * (0.88 + 0.24 * sh) * (1.0 + rowAmp * rows);
+          worked = mix(worked, alb * 0.8, (1.0 - balk) * 0.35 * ws_lod(fieldFreq * 20.0, footprint));
+          crop = mix(crop, worked, near);
+        } else {
+          float tuft = ws_fbm(p + 61.0, fieldFreq * 12.0, 2, footprint);
+          crop = mix(crop, crop * (1.0 + 0.25 * tuft), near);
+        }
+      }
       float edgeW = max(0.06, footprint * fieldFreq * 1.5);
       float hedge = 1.0 - smoothstep(0.0, edgeW, F.y - F.x);
-      crop = mix(crop, alb * 0.85, hedge * 0.4);
+      // hedgerows (dark green) where it is green, earth tracks (pale) where it is dry
+      float dry = smoothstep(0.9, 1.4, alb.r / max(alb.g, 1e-3));
+      vec3 hedgeCol = mix(alb * vec3(0.62, 0.78, 0.6), alb * vec3(1.25, 1.12, 0.95), dry);
+      crop = mix(crop, mix(alb * 0.85, hedgeCol, near), hedge * mix(0.4, 0.75, near));
       far = mix(far, mix(alb, crop, on), detail);
     }
     col = far;

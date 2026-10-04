@@ -17,7 +17,13 @@
 //     the settlement's wealth, trade and famines. Outer patches are outskirts and farms.
 //  4. Lots: each patch is inset from its streets, then recursively bisected across its
 //     longest edge into lots (minimum area and empty share by ward type, alleys in dense
-//     wards). Each lot gets one generated house fitted to it, aligned to its street front.
+//     wards). Each lot gets one generated house fitted to it at its street front (a main
+//     street's first), its door to the street: wall to wall in the dense wards and the
+//     core (row houses), set back with a front yard further out, free-standing on farms;
+//     L-shaped and courtyard houses where they fit; more storeys toward the centre and in
+//     the merchants' and patricians' wards. Built patches lay their ground: the patch as
+//     street, its block as yard (so streets show between the blocks), squares paved,
+//     kitchen gardens and fruit trees on the empty lots of the leafy and outer wards.
 //  5. Growth: lots are ranked by distance from the centre blended with their patch's, so
 //     the town fills patch by patch outward along the streets. A settlement of population
 //     p shows the first houseCount(p) valid lots; landmarks appear once their ward is
@@ -25,12 +31,13 @@
 //     when the population first passes the wall threshold (a second ring later).
 //
 // The plan is computed lazily and incrementally (lot validity needs ground probes, the
-// costly part): `advance(need, deadline)` validates lots in rank order until the plan
-// covers population `need` or the time budget runs out. Whatever has been computed is
-// final: further work only appends items.
+// costly part): `advance(need, deadline)` first runs the set-up (patches, streets, wards,
+// lots) in stages of a millisecond or two, then validates lots in rank order until the
+// plan covers population `need` or the time budget runs out. Whatever has been computed
+// is final: further work only appends items and ground.
 
 import { CITY_POPULATION, TOWN_POPULATION } from '../../contract.ts'
-import { Kind, type Style as StyleT } from './shapes.ts'
+import { Kind, Style, type Style as StyleT } from './shapes.ts'
 import { hash4, rand4 } from './surface.ts'
 
 /** Houses shown at population p (monotone, continuous; log-log between anchors). */
@@ -307,6 +314,12 @@ interface Lot {
   /** Street-facing edge direction (unit) or 0,0. */
   ux: number
   uy: number
+  /** Street-facing edge: start point and length (along ux, uy). */
+  fx: number
+  fy: number
+  fl: number
+  /** Whether the street front is a main street. */
+  main: boolean
   cx: number
   cy: number
   key: number
@@ -314,9 +327,33 @@ interface Lot {
   empty: boolean
 }
 
+/** What a piece of town ground is (layout.ts colours and the ground shader texture it). */
+export const GroundKind = {
+  /** Packed earth or cobbles: the whole of a built patch, under its block (so streets show between blocks). */
+  Street: 0,
+  /** Paved square: plaza, market, cathedral close, citadel yard. */
+  Plaza: 1,
+  /** Worn ground of a built block (yards and gardens behind the houses). */
+  Yard: 2,
+  /** Kitchen garden or small field in crop rows (along ux, uy). */
+  Garden: 3,
+} as const
+
+/** A ground polygon (convex, CCW, KayKit units in the settlement's tangent frame) that shows with its patch. */
+export interface GroundPiece {
+  kind: number
+  poly: number[]
+  threshold: number
+  /** Row direction (Garden). */
+  ux: number
+  uy: number
+}
+
 export interface TownPlan {
   /** Items in the order they were added (thresholds are not sorted). */
   items: PlanItem[]
+  /** Ground pieces in the order they were added (streets before the blocks on them). */
+  ground: GroundPiece[]
   /** Radius of everything placed so far (KayKit units). */
   radius: number
   /** Whether the plan covers population `need` (computing more within the deadline, performance.now() ms). */
@@ -335,12 +372,55 @@ const EMPTY_SHARE: Record<number, number> = {
 }
 
 /** House kinds: half width (x) and half depth (z) of the base mesh (shapes.ts, Temperate; the other styles are close). */
-const KIND_HALF: readonly [number, number][] = [[0.3, 0.22], [0.4, 0.27], [0.6, 0.27], [0.27, 0.33]]
+const KIND_HALF: readonly [number, number][] = [[0.3, 0.22], [0.4, 0.27], [0.6, 0.27], [0.27, 0.33], [0, 0], [0, 0], [0, 0], [0.42, 0.36]]
 
+/** Whether (x, y) is inside convex CCW polygon p (with margin m inside every edge). */
+function insideConvex(p: number[], x: number, y: number, m: number): boolean {
+  const n = p.length / 2
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n
+    const ex = p[j * 2] - p[i * 2], ey = p[j * 2 + 1] - p[i * 2 + 1]
+    const l = Math.hypot(ex, ey)
+    if (l < 1e-9) continue
+    // left of a CCW edge is inside
+    if ((ex * (y - p[i * 2 + 1]) - ey * (x - p[i * 2])) / l < m) return false
+  }
+  return true
+}
+
+/**
+ * The plan of a site. Setting it up (the patches, streets, wards and lots) is split into
+ * stages of a millisecond or two that run under the deadlines of the first advance()
+ * calls, so a big city never stalls a frame; the plan is the same however it is split.
+ */
 export function createTownPlan(site: Site): TownPlan {
+  const items: PlanItem[] = []
+  const ground: GroundPiece[] = []
+  const stages = planStages(site, items, ground)
+  let plan: TownPlan | null = null
+  const perf = globalThis as { __dioramaPlanMs?: number[] }
+  return {
+    items,
+    ground,
+    get radius() {
+      return plan ? plan.radius : 0
+    },
+    advance(need: number, deadline: number): boolean {
+      while (!plan) {
+        if (performance.now() > deadline) return false
+        const t0 = performance.now()
+        const r = stages.next()
+        if (perf.__dioramaPlanMs) perf.__dioramaPlanMs.push(+(performance.now() - t0).toFixed(2))
+        if (r.done) plan = r.value
+      }
+      return plan.advance(need, deadline)
+    },
+  }
+}
+
+function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[]): Generator<void, TownPlan, void> {
   const { seed, id } = site
   const rnd = (a: number, b: number) => rand4(seed, id, a, b)
-  const items: PlanItem[] = []
   const T = TOWN_POPULATION, C = CITY_POPULATION
   const peak = Math.max(1, site.peak)
   const nInner = innerPatches(peak)
@@ -392,6 +472,7 @@ export function createTownPlan(site: Site): TownPlan {
     return cells
   }
   let cells = voronoi()
+  yield
   const cc = [0, 0]
   for (let pass = 0; pass < 2; pass++) {
     for (let i = 1; i < Math.min(nSeeds, nInner + 2); i++) {
@@ -401,8 +482,12 @@ export function createTownPlan(site: Site): TownPlan {
       sy[i] = cc[1]
     }
     cells = voronoi()
+    yield
   }
-  const patches: Patch[] = cells.map((poly, i) => {
+  const patches: Patch[] = []
+  for (let i = 0; i < cells.length; i++) {
+    if (i % 16 === 15) yield
+    const poly = cells[i]
     centroid(poly.p, cc)
     let r = 0
     for (let k = 0; k < poly.p.length / 2; k++) r = Math.max(r, Math.hypot(poly.p[k * 2] - cc[0], poly.p[k * 2 + 1] - cc[1]))
@@ -412,8 +497,9 @@ export function createTownPlan(site: Site): TownPlan {
     const nv = poly.p.length / 2
     for (let k = 0; k < nv; k++) if (site.wet(cc[0] + (poly.p[k * 2] - cc[0]) * 0.7, cc[1] + (poly.p[k * 2 + 1] - cc[1]) * 0.7, 0)) wetRim++
     const water = wetC && wetRim >= nv * 0.5
-    return { poly, cx: cc[0], cy: cc[1], r, water, dry: 1 - wetRim / Math.max(1, nv), ward: Ward.Outskirts as Ward, key: Math.hypot(cc[0], cc[1]) + (i === 0 ? -1 : 0), inner: false }
-  })
+    patches.push({ poly, cx: cc[0], cy: cc[1], r, water, dry: 1 - wetRim / Math.max(1, nv), ward: Ward.Outskirts as Ward, key: Math.hypot(cc[0], cc[1]) + (i === 0 ? -1 : 0), inner: false })
+  }
+  yield
   const P = patches.length
   const neighbours = (i: number) => patches[i].poly.t.filter((t) => t >= 0)
 
@@ -487,6 +573,7 @@ export function createTownPlan(site: Site): TownPlan {
       }
     }
     for (let v = target; prev[v] >= 0; v = prev[v]) mainEdges.add(edgeKey(v, prev[v]))
+    yield
   }
 
   // ---- 3. wards ----
@@ -505,7 +592,7 @@ export function createTownPlan(site: Site): TownPlan {
   }
   if (order.length === 0) {
     // all water as drawn (a settlement on a lake shore cell, say): nothing to build on
-    return { items, radius: 0, advance: () => true }
+    return { items, ground, radius: 0, advance: () => true }
   }
   // inner patches: in rank order until their estimated room (dry share, rivers, empty lots)
   // holds the peak's houses with a margin, plus the plaza and landmark wards of a town
@@ -598,11 +685,18 @@ export function createTownPlan(site: Site): TownPlan {
 
   // ---- 4. lots ----
   const lots: Lot[] = []
-  const lotPatchFirst: number[] = []
   const dense = (w: Ward) => w === Ward.Merchant || w === Ward.Slum || w === Ward.Craftsmen
+  /** Per patch: neighbour tags across a main street; the block (lots' area) of the patch. */
+  const mainNb: Set<number>[] = patches.map(() => new Set<number>())
+  const blocks: (Poly | null)[] = patches.map(() => null)
+  for (let i = 0; i < P; i++) {
+    const ids = patchEdgeVerts[i]
+    for (let k = 0; k < ids.length; k++) if (mainEdges.has(edgeKey(ids[k], ids[(k + 1) % ids.length]))) mainNb[i].add(patches[i].poly.t[k])
+  }
+  let lotStage = 0
   for (const i of order) {
+    if (++lotStage % 12 === 0) yield
     const pa = patches[i]
-    lotPatchFirst[i] = lots.length
     const w = pa.ward
     if (w === Ward.Plaza || w === Ward.Cathedral || w === Ward.Admin || w === Ward.Market || w === Ward.Citadel) continue
     const ids = patchEdgeVerts[i]
@@ -615,6 +709,7 @@ export function createTownPlan(site: Site): TownPlan {
     }
     const block = inset(pa.poly, widths)
     if (!block) continue
+    blocks[i] = block
     const minA = MIN_AREA[w] ?? 0.6
     const emptyP = EMPTY_SHARE[w] ?? 0.2
     const stack: { poly: Poly; depth: number }[] = [{ poly: block, depth: 0 }]
@@ -625,21 +720,24 @@ export function createTownPlan(site: Site): TownPlan {
       const jitterA = 0.8 + 0.6 * rnd(i * 977 + li, 8)
       if (a < minA * 2 * jitterA || depth > 9) {
         if (a < minA * 0.45) continue
-        // street front: the longest edge that is not a lot cut
+        // street front: the longest edge that is not a lot cut (a main street's first)
         const nv = poly.p.length / 2
-        let ux = 0, uy = 0, bl = 0, ax = 0, ay = 0, al = 0
+        let ux = 0, uy = 0, bl = 0, ax = 0, ay = 0, al = 0, fk = -1, ak = 0
         for (let k = 0; k < nv; k++) {
           const j = (k + 1) % nv
           const ex = poly.p[j * 2] - poly.p[k * 2], ey = poly.p[j * 2 + 1] - poly.p[k * 2 + 1]
           const l = Math.hypot(ex, ey)
-          if (l > al) { al = l; ax = ex / l; ay = ey / l }
-          if (poly.t[k] !== -2 && l > bl) { bl = l; ux = ex / l; uy = ey / l }
+          if (l > al) { al = l; ax = ex / l; ay = ey / l; ak = k }
+          const t = poly.t[k]
+          const lw = t !== -2 && mainNb[i].has(t) ? l * 1.8 : l
+          if (t !== -2 && lw > bl) { bl = lw; ux = ex / l; uy = ey / l; fk = k }
         }
-        if (bl === 0) { ux = ax; uy = ay }
+        if (fk < 0) { ux = ax; uy = ay; fk = ak }
+        const fl = Math.hypot(poly.p[((fk + 1) % nv) * 2] - poly.p[fk * 2], poly.p[((fk + 1) % nv) * 2 + 1] - poly.p[fk * 2 + 1])
         centroid(poly.p, cc)
         const d = Math.hypot(cc[0], cc[1])
         const e = rnd(i * 977 + li, 9) < emptyP
-        lots.push({ poly: poly.p, ux, uy, cx: cc[0], cy: cc[1], key: d * 0.55 + pa.key * 0.45 + rnd(i * 977 + li, 10) * 0.25, patch: i, empty: e })
+        lots.push({ poly: poly.p, ux, uy, fx: poly.p[fk * 2], fy: poly.p[fk * 2 + 1], fl, main: poly.t[fk] !== -2 && mainNb[i].has(poly.t[fk]), cx: cc[0], cy: cc[1], key: d * 0.55 + pa.key * 0.45 + rnd(i * 977 + li, 10) * 0.25, patch: i, empty: e })
         li++
         continue
       }
@@ -669,6 +767,7 @@ export function createTownPlan(site: Site): TownPlan {
     }
   }
   lots.sort((a, b) => a.key - b.key)
+  yield
 
   // ---- 5. landmarks with their keys (ranked into the lot order later) ----
   interface Pending { item: PlanItem; key: number; minPop: number; r: number }
@@ -780,9 +879,12 @@ export function createTownPlan(site: Site): TownPlan {
     const i = outskirts[Math.floor(rnd(9, 1) * Math.min(outskirts.length, 4))]
     mk(Role.Lumbermill, patches[i].cx, patches[i].cy, longestEdgeYaw(i), patches[i].key, 4500 + 2000 * rnd(9, 2), 0.7)
   }
-  // bridges where main streets cross the river
+  // bridges where main streets cross the river: square to the stream at the crossing,
+  // spanning the channel and a little of each bank; one per crossing place (the busiest
+  // street's), so streets that meet at the river share it
   if (site.riverSegs.length) {
     const S = site.riverSegs
+    const kept: number[] = []
     for (const ek of mainEdges) {
       const a = Math.floor(ek / 100000), b = ek % 100000
       const x0 = vx[a], y0 = vy[a], x1 = vx[b], y1 = vy[b]
@@ -795,17 +897,23 @@ export function createTownPlan(site: Site): TownPlan {
         const u = ((ax - x0) * d1y - (ay - y0) * d1x) / den
         if (t < 0 || t > 1 || u < 0 || u > 1) continue
         const px = x0 + d1x * t, py = y0 + d1y * t
-        const span = (S[k + 4] * 2 + 0.5)
-        // deck along the street: x along the street
-        mk(Role.Bridge, px, py, Math.atan2(d1y, d1x), Math.hypot(px, py), 600, 0.1, 1)
+        let dup = false
+        for (let q = 0; q < kept.length && !dup; q += 2) if (Math.hypot(kept[q] - px, kept[q + 1] - py) < 2.6) dup = true
+        if (dup) continue
+        kept.push(px, py)
+        // (the bridge model is 1.2 units long overall: the channel and a short ramp each side)
+        const span = (S[k + 4] * 2.1 + 0.36) / 1.2
+        // deck along x, across the stream
+        mk(Role.Bridge, px, py, Math.atan2(d2y, d2x) + Math.PI / 2, Math.hypot(px, py), 600, 0.1, 1)
         const it = pend[pend.length - 1].item
         it.sx = span
-        it.sz = 0.36
+        it.sz = 0.42
         it.sy = 1
       }
     }
   }
 
+  yield
   // ---- 6. incremental validation and growth ----
   const HOUSE_STYLE = (k: number) => site.houseStyle(rnd(k, 0x50))
   let nextLot = 0
@@ -827,12 +935,48 @@ export function createTownPlan(site: Site): TownPlan {
   let coveredPop = 0
   let smithy = false, inn = false
 
+  // lots by patch (for the gardens and yard trees of a patch when its ground is laid)
+  const lotsOf: Lot[][] = patches.map(() => [])
+  for (const l of lots) lotsOf[l.patch].push(l)
+  const paved = (w: Ward) => w === Ward.Plaza || w === Ward.Market || w === Ward.Cathedral || w === Ward.Admin || w === Ward.Citadel
+  const leafy = (w: Ward) => w === Ward.Patrician || w === Ward.Park || w === Ward.Village || w === Ward.Outskirts || w === Ward.Farm
   const addGround = (i: number, threshold: number) => {
     if (groundDone[i]) return
     groundDone[i] = 1
     const pa = patches[i]
-    const s = pa.r * 0.8
-    items.push({ role: Role.Ground, kind: 0, style, x: pa.cx, y: pa.cy, yaw: 0, sx: s, sz: s, sy: 1, threshold, roof: 0, wall: 0, jitter: 0, ward: pa.ward })
+    const w = pa.ward
+    if (paved(w)) {
+      ground.push({ kind: GroundKind.Plaza, poly: pa.poly.p, threshold, ux: 1, uy: 0 })
+      return
+    }
+    // the whole patch is street (the half of each street on this side), its block yards
+    ground.push({ kind: GroundKind.Street, poly: pa.poly.p, threshold, ux: 1, uy: 0 })
+    // main streets are laid full width even where the far side is not built yet
+    const ids = patchEdgeVerts[i]
+    const n = ids.length
+    for (let k = 0; k < n; k++) {
+      const t = pa.poly.t[k]
+      if (!mainNb[i].has(t) || (t >= 0 && (groundDone[t] || patches[t].water))) continue
+      const a = ids[k], b = ids[(k + 1) % n]
+      const ex = vx[b] - vx[a], ey = vy[b] - vy[a]
+      const l = Math.hypot(ex, ey)
+      if (l < 1e-6) continue
+      // outward normal of a CCW edge
+      const ox = (ey / l) * 0.26, oy = (-ex / l) * 0.26
+      const sx0 = (ex / l) * 0.1, sy0 = (ey / l) * 0.1
+      ground.push({ kind: GroundKind.Street, poly: [vx[a] - sx0, vy[a] - sy0, vx[b] + sx0, vy[b] + sy0, vx[b] + sx0 + ox, vy[b] + sy0 + oy, vx[a] - sx0 + ox, vy[a] - sy0 + oy], threshold, ux: 1, uy: 0 })
+    }
+    const block = blocks[i]
+    if (!block) return
+    ground.push({ kind: GroundKind.Yard, poly: block.p, threshold, ux: 1, uy: 0 })
+    // kitchen gardens on the empty lots of the outer and leafy wards; a fruit tree or two in some
+    if (!leafy(w)) return
+    for (const l of lotsOf[i]) {
+      if (!l.empty) continue
+      const u = rand4(seed, id, Math.round(l.cx * 977 + l.cy * 131), 0x5a)
+      if (w !== Ward.Park && u < 0.62) ground.push({ kind: GroundKind.Garden, poly: l.poly, threshold, ux: l.ux, uy: l.uy })
+      else if ((u < 0.9 || w === Ward.Park) && site.clear(l.cx, l.cy, 0.22)) items.push({ role: Role.Grove, kind: 0, style, x: l.cx, y: l.cy, yaw: u * 40, sx: 0.42 + 0.2 * u, sz: 0.42 + 0.2 * u, sy: 0.42 + 0.2 * u, threshold, roof: 0, wall: 0, jitter: u, ward: w })
+    }
   }
 
   const placeWall = (threshold: number) => {
@@ -890,13 +1034,29 @@ export function createTownPlan(site: Site): TownPlan {
         items.push({ role: Role.WallSeg, kind: 0, style, x: mx, y: my, yaw: Math.atan2(uy, ux), sx: pl * 1.02, sz: 1, sy: 1, threshold, roof: 0, wall: 0, jitter: 0, ward: -1 })
       }
     }
-    for (const v of towerVerts) {
-      const gate = gateVerts.has(v)
-      if (!gate && hash4(seed, id, v, 0x61) % 3 !== 0) continue
-      if (!site.clear(vx[v], vy[v], 0.2)) continue
-      const h = gate ? 1.15 : 1
-      items.push({ role: Role.WallTower, kind: 0, style, x: vx[v], y: vy[v], yaw: 0, sx: h, sz: h, sy: h, threshold, roof: hash4(seed, id, 0x33, 0) % 5, wall: 0, jitter: 0, ward: -1 })
-      radius = Math.max(radius, Math.hypot(vx[v], vy[v]) + 0.3)
+    // towers at every corner of the circuit (regularly spaced along it), gate towers where a
+    // main street passes through; none crowding another
+    // a gatehouse is a pair of towers flanking the street at the gap in the wall
+    const spots: number[] = [] // x, y, gate
+    for (const [a, b] of segs) {
+      const l = Math.hypot(vx[b] - vx[a], vy[b] - vy[a])
+      if (l < 0.2) continue
+      const ux = (vx[b] - vx[a]) / l, uy = (vy[b] - vy[a]) / l
+      if (gateVerts.has(a)) spots.push(vx[a] + ux * 0.3, vy[a] + uy * 0.3, 1)
+      if (gateVerts.has(b)) spots.push(vx[b] - ux * 0.3, vy[b] - uy * 0.3, 1)
+    }
+    for (const v of towerVerts) if (!gateVerts.has(v)) spots.push(vx[v], vy[v], 0)
+    const placed: number[] = []
+    for (let q = 0; q < spots.length; q += 3) {
+      const x = spots[q], y = spots[q + 1], gate = spots[q + 2] > 0
+      let crowded = false
+      for (let r = 0; r < placed.length && !crowded; r += 2) if (Math.hypot(placed[r] - x, placed[r + 1] - y) < (gate ? 0.3 : 0.8)) crowded = true
+      if (crowded) continue
+      if (!site.clear(x, y, 0.2)) continue
+      placed.push(x, y)
+      const h = gate ? 1.2 : 1
+      items.push({ role: Role.WallTower, kind: 0, style, x, y, yaw: 0, sx: h, sz: h, sy: h, threshold, roof: hash4(seed, id, 0x33, 0) % 5, wall: 0, jitter: 0, ward: -1 })
+      radius = Math.max(radius, Math.hypot(x, y) + 0.3)
     }
   }
 
@@ -914,40 +1074,116 @@ export function createTownPlan(site: Site): TownPlan {
     }
   }
 
+  /**
+   * A house for lot l: kind by ward, footprint fitted to the lot and set at its street
+   * front (row houses wall to wall in the dense wards, set back with a front yard further
+   * out, standing free in the middle of a farm lot); storeys by ward and nearness to the
+   * centre. The model's +z face (its door) faces the street.
+   */
   const fitHouse = (l: Lot, k: number): PlanItem | null => {
     const ward = patches[l.patch].ward
-    const vxd = -l.uy, vyd = l.ux
-    const hu = Math.min(rayExtent(l.poly, l.cx, l.cy, l.ux, l.uy), rayExtent(l.poly, l.cx, l.cy, -l.ux, -l.uy))
-    const hv = Math.min(rayExtent(l.poly, l.cx, l.cy, vxd, vyd), rayExtent(l.poly, l.cx, l.cy, -vxd, -vyd))
-    const r = rnd(k, 0x51)
+    const hs = HOUSE_STYLE(k)
+    const r = rnd(k, 0x51), r2 = rnd(k, 0x56)
+    const dCore = Math.hypot(l.cx, l.cy) / Math.max(1, Rin)
     let kind: number
     if (ward === Ward.Harbour) kind = Kind.Long
-    else if (ward === Ward.Merchant) kind = r < 0.6 ? Kind.Tall : Kind.House
+    else if (ward === Ward.Merchant) kind = r < 0.7 ? Kind.Tall : Kind.House
     else if (ward === Ward.Slum) kind = Kind.Small
-    else if (ward === Ward.Patrician) kind = r < 0.35 ? Kind.Tall : Kind.House
-    else if (ward === Ward.Farm || ward === Ward.Outskirts) kind = r < 0.25 ? Kind.Long : Kind.Small
-    else if (ward === Ward.Craftsmen) kind = r < 0.25 ? Kind.Long : r < 0.45 ? Kind.Tall : Kind.House
-    else kind = r < 0.35 ? Kind.Small : r < 0.85 ? Kind.House : Kind.Long
-    const fill = ward === Ward.Farm || ward === Ward.Outskirts || ward === Ward.Village ? 0.7 : ward === Ward.Patrician ? 0.75 : 0.92
-    // swap to a variant that fits the lot's proportions
-    for (let tries = 0; tries < 3; tries++) {
+    else if (ward === Ward.Patrician) kind = r < 0.45 ? Kind.Ell : r < 0.65 ? Kind.Tall : Kind.House
+    else if (ward === Ward.Farm || ward === Ward.Outskirts) kind = r < 0.22 ? Kind.Long : r < 0.36 ? Kind.Ell : Kind.Small
+    else if (ward === Ward.Craftsmen) kind = r < 0.25 ? Kind.Long : r < 0.55 ? Kind.Tall : Kind.House
+    else kind = r < 0.35 ? Kind.Small : r < 0.8 ? Kind.House : r < 0.9 ? Kind.Ell : Kind.Long
+    // the dry south builds round a courtyard
+    if (hs === Style.Desert && kind !== Kind.Small && r2 < (ward === Ward.Patrician ? 0.8 : 0.4)) kind = Kind.Ell
+    // the dense core: narrow, tall, gable to the street
+    if (isTown && dCore < 0.45 && (kind === Kind.House || kind === Kind.Small) && ward !== Ward.Slum && r2 < 0.6) kind = Kind.Tall
+    // street front: start point f, direction u along the street, v into the lot
+    const ux = l.ux, uy = l.uy
+    let vxd = -uy, vyd = ux
+    if ((l.cx - l.fx) * vxd + (l.cy - l.fy) * vyd < 0) { vxd = -vxd; vyd = -vyd }
+    const rowHouses = dense(ward) || ward === Ward.Harbour || (isTown && (l.main || dCore < 0.55))
+    const farm = ward === Ward.Farm || (ward === Ward.Outskirts && r2 > 0.6)
+    const fill = rowHouses ? 0.985 : ward === Ward.Patrician ? 0.78 : 0.72
+    const setback = rowHouses ? 0.012 : ward === Ward.Patrician ? 0.16 : 0.05 + 0.18 * r2
+    const along = (l.cx - l.fx) * ux + (l.cy - l.fy) * uy
+    let fillK = fill
+    // a wide frontage in the core: a broader house, ridge along the street
+    if (kind === Kind.Tall && (l.fl * fill) / (2 * KIND_HALF[Kind.Tall][0]) > 1.75) kind = Kind.House
+    for (let tries = 0; tries < 5; tries++) {
       const [hw, hd] = KIND_HALF[kind]
-      const fx = (hu * fill) / hw, fz = (hv * fill) / hd
-      if (fx >= 0.6 && fz >= 0.6) {
-        const sxk = Math.min(fx, kind === Kind.Long ? 1.5 : 1.7)
-        const szk = Math.min(fz, 1.45)
-        const hScale = ward === Ward.Slum ? 0.85 : ward === Ward.Merchant || ward === Ward.Patrician ? 1.12 : 1
-        const sy = hScale * (0.9 + 0.2 * rnd(k, 0x52)) * Math.min(1.25, Math.max(0.85, Math.sqrt(Math.min(sxk, szk))))
-        return { role: Role.House, kind, style: HOUSE_STYLE(k), x: l.cx, y: l.cy, yaw: Math.atan2(l.uy, l.ux), sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward }
+      // lot depth behind the front, at the projection of the centroid
+      const t0 = Math.min(Math.max(along, 0.05), l.fl - 0.05)
+      const mx0 = l.fx + ux * t0 + vxd * 0.005, my0 = l.fy + uy * t0 + vyd * 0.005
+      const depth = rayExtent(l.poly, mx0, my0, vxd, vyd)
+      let sxk: number, szk: number, cx: number, cy: number
+      if (farm) {
+        // free-standing in the lot, as before
+        const hu = Math.min(rayExtent(l.poly, l.cx, l.cy, ux, uy), rayExtent(l.poly, l.cx, l.cy, -ux, -uy))
+        const hv = Math.min(rayExtent(l.poly, l.cx, l.cy, vxd, vyd), rayExtent(l.poly, l.cx, l.cy, -vxd, -vyd))
+        sxk = (hu * fillK) / hw
+        szk = (hv * fillK) / hd
+        cx = l.cx
+        cy = l.cy
+      } else {
+        const width = l.fl * fillK
+        const d = Math.min(depth - setback - 0.03, (rowHouses ? 2.6 : 1.9) * hd * Math.min(1.45, width / (2 * hw)))
+        sxk = width / (2 * hw)
+        szk = d / (2 * hd)
+        const t = Math.min(Math.max(along, width / 2), l.fl - width / 2)
+        const dd = setback + Math.min(szk, 1.45) * hd
+        cx = l.fx + ux * t + vxd * dd
+        cy = l.fy + uy * t + vyd * dd
       }
-      kind = fx < 0.6 && fz >= 0.6 ? Kind.Small : fz < 0.6 && fx >= 0.6 ? (hu > 0.5 ? Kind.Long : Kind.Small) : Kind.Small
-      if (tries === 1) kind = Kind.Small
+      const maxX = kind === Kind.Long ? 1.5 : kind === Kind.Tall ? 1.75 : 1.8
+      if (sxk >= 0.6 && szk >= 0.6) {
+        sxk = Math.min(sxk, maxX)
+        szk = Math.min(szk, 1.45)
+        // the footprint's corners must lie in the lot
+        const ex = hw * sxk, ez = hd * szk
+        let ok = true
+        for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          if (!insideConvex(l.poly, cx + ux * ex * a + vxd * ez * b, cy + uy * ex * a + vyd * ez * b, -0.03)) { ok = false; break }
+        }
+        if (ok) {
+          // storeys: tall in the core and the merchants' and patricians' wards, one floor out of town
+          let sy = (0.92 + 0.16 * rnd(k, 0x52)) * Math.min(1.2, Math.max(0.88, Math.sqrt(Math.min(sxk, szk))))
+          if (ward === Ward.Slum || farm || ward === Ward.Village || ward === Ward.Outskirts) sy *= 0.9
+          else if (isTown) {
+            const core = Math.max(0, 1 - dCore / 0.7)
+            sy *= 1 + (isCity ? 0.45 : 0.28) * core + (ward === Ward.Merchant || ward === Ward.Patrician ? 0.18 : 0)
+          }
+          if (kind === Kind.Tall) sy = Math.min(sy, 1.55)
+          // yaw: x along the street; +z (the door) toward the street (z = x turned -90 degrees)
+          let yaw = Math.atan2(uy, ux)
+          if (Math.sin(yaw) * vxd - Math.cos(yaw) * vyd > 0) yaw += Math.PI
+          return { role: Role.House, kind, style: hs, x: cx, y: cy, yaw, sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward }
+        }
+      }
+      // narrower first, then a smaller kind, then free-standing
+      fillK *= 0.84
+      if (tries === 1) kind = kind !== Kind.House && kind !== Kind.Small ? Kind.House : Kind.Small
+      if (tries === 2) kind = Kind.Small
+      if (tries >= 3 && !farm) return fitFree(l, k, hs, ward)
     }
     return null
   }
 
+  /** The original centred fit (a lot too odd for a street-front house). */
+  const fitFree = (l: Lot, k: number, hs: StyleT, ward: Ward): PlanItem | null => {
+    const vxd = -l.uy, vyd = l.ux
+    const hu = Math.min(rayExtent(l.poly, l.cx, l.cy, l.ux, l.uy), rayExtent(l.poly, l.cx, l.cy, -l.ux, -l.uy))
+    const hv = Math.min(rayExtent(l.poly, l.cx, l.cy, vxd, vyd), rayExtent(l.poly, l.cx, l.cy, -vxd, -vyd))
+    const [hw, hd] = KIND_HALF[Kind.Small]
+    const fx = (hu * 0.8) / hw, fz = (hv * 0.8) / hd
+    if (fx < 0.6 || fz < 0.6) return null
+    const sxk = Math.min(fx, 1.5), szk = Math.min(fz, 1.4)
+    const sy = 0.9 + 0.15 * rnd(k, 0x52)
+    return { role: Role.House, kind: Kind.Small, style: hs, x: l.cx, y: l.cy, yaw: Math.atan2(l.uy, l.ux), sx: sxk, sz: szk, sy, threshold: 0, roof: hash4(seed, id, k, 0x53) % 5, wall: hash4(seed, id, k, 0x54) % 4, jitter: rnd(k, 0x55), ward }
+  }
+
   return {
     items,
+    ground,
     get radius() {
       return radius
     },
@@ -962,7 +1198,7 @@ export function createTownPlan(site: Site): TownPlan {
         if (!it) continue
         const [hw, hd] = KIND_HALF[it.kind]
         const rr = Math.max(hw * it.sx, hd * it.sz) * 0.8
-        if (!site.clear(l.cx, l.cy, rr)) continue
+        if (!site.clear(it.x, it.y, rr)) continue
         const pop = houseThreshold(built)
         flushPending(l.key, pop)
         // walls enclose what stands when the population first passes their threshold
@@ -982,7 +1218,7 @@ export function createTownPlan(site: Site): TownPlan {
         built++
         builtPerPatch[l.patch]++
         if (builtPerPatch[l.patch] === 2 || (lotsPerPatch[l.patch] <= 2 && builtPerPatch[l.patch] === 1)) addGround(l.patch, pop)
-        radius = Math.max(radius, Math.hypot(l.cx, l.cy) + rr)
+        radius = Math.max(radius, Math.hypot(it.x, it.y) + rr)
       }
       // ran out of lots, or reached the target: everything up to `need` is placed
       const popNow = Math.min(need, peak)

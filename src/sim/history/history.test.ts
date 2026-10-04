@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
-import { generateWorld, simulateHistory } from '../index.ts'
+import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
 import type { HistoryRun } from './index.ts'
 import { buildTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
+import { CAPACITY, EXPLORE, OUTPOST, POPULATION } from './params.ts'
 
 const SEEDS = [1, 2, 3, 42, 1337, 2024, 31337, 77, 99999, 123456]
 
@@ -39,15 +40,16 @@ function hashHistory(hi: History): string {
   for (const a of [t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]) h = fnv(h, a)
   const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount, hi.tradeInterval, hi.tradeSnapshotCount, t.count]
   for (const s of hi.settlements) {
-    ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear, s.people)
+    ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear, s.people, s.outpost ? 1 : 0)
     for (let i = 0; i < s.name.length; i++) ints.push(s.name.charCodeAt(i))
   }
   for (const p of hi.peoples) {
-    ints.push(p.id, p.founder)
+    ints.push(p.id, p.founder, p.cradle)
     for (let i = 0; i < p.name.length; i++) ints.push(p.name.charCodeAt(i))
   }
   h = fnv(h, hi.knownYear)
   h = fnv(h, hi.contactYear)
+  h = fnv(h, hi.technology)
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
   h = fnv(h, Int32Array.from(ints))
   const ev = new Float64Array(hi.events.length * 5)
@@ -138,7 +140,14 @@ function checkInvariants(w: World, h: History): void {
     expect(seenNames.has(nameKey)).toBe(false)
     seenNames.add(nameKey)
     if (w.elevation[st.cell] < 0 || w.lake[st.cell]) throw new Error(`settlement ${id} on water cell ${st.cell}`)
-    expect(h.capacity[st.cell]).toBeGreaterThan(0)
+    if (st.outpost) {
+      // An expedition base: founded by a settlement, where nobody could farm (below the habitable capacity).
+      if (!(h.capacity[st.cell] < CAPACITY.habitableMin * (23042 / N))) throw new Error(`base ${id} on farmable cell ${st.cell} (capacity ${h.capacity[st.cell]})`)
+      expect(st.parent).toBeGreaterThanOrEqual(0)
+      expect(h.settlements[st.parent].outpost).toBe(false)
+      const par = h.settlements[st.parent]
+      if (par.abandonedYear >= 0 && !(st.abandonedYear >= 0 && st.abandonedYear <= par.abandonedYear)) throw new Error(`base ${id} outlives its parent ${st.parent}`)
+    } else expect(h.capacity[st.cell]).toBeGreaterThan(0)
     expect(st.foundedYear).toBeGreaterThanOrEqual(0)
     expect(st.foundedYear).toBeLessThanOrEqual(h.years)
     if (st.abandonedYear >= 0) expect(st.abandonedYear).toBeGreaterThan(st.foundedYear)
@@ -163,6 +172,7 @@ function checkInvariants(w: World, h: History): void {
       if (!(wealth >= 0 && Number.isFinite(wealth))) throw new Error(`wealth ${wealth} of ${id} at year ${year}`)
       if (alive) {
         if (!(pop > 0 && Number.isFinite(pop))) throw new Error(`settlement ${id} alive at ${year} with population ${pop}`)
+        if (st.outpost && !(h.population[s * S + st.parent] > 0)) throw new Error(`base ${id} alive at ${year} without a living parent`)
       } else if (pop !== 0 || food !== 0 || wealth !== 0) {
         throw new Error(`settlement ${id} not alive at ${year} but population ${pop}, food ${food}, wealth ${wealth}`)
       }
@@ -188,7 +198,7 @@ function checkInvariants(w: World, h: History): void {
   const lost = new Int32Array(T)
   const townYear = new Int32Array(S).fill(-1)
   const cityYear = new Int32Array(S).fill(-1)
-  const lostVoyages: HistoryEvent[] = [], landfalls: HistoryEvent[] = [], contacts: HistoryEvent[] = []
+  const lostVoyages: HistoryEvent[] = [], landfalls: HistoryEvent[] = [], contacts: HistoryEvent[] = [], sent: HistoryEvent[] = [], returned: HistoryEvent[] = [], advances: HistoryEvent[] = []
   for (let i = 0; i < h.events.length; i++) {
     const e = h.events[i]
     if (i > 0) expect(e.year).toBeGreaterThanOrEqual(h.events[i - 1].year)
@@ -267,6 +277,36 @@ function checkInvariants(w: World, h: History): void {
         break
       case EventType.FirstContact:
         contacts.push(e)
+        break
+      case EventType.ExpeditionSent:
+        expect(e.other).toBe(-1)
+        expect(e.value).toBeGreaterThan(0)
+        expect(st.outpost).toBe(false)
+        sent.push(e)
+        break
+      case EventType.ExpeditionReturned:
+        expect(e.value).toBeGreaterThanOrEqual(0)
+        if (e.other >= 0) {
+          // The base it founded, this year.
+          const b = h.settlements[e.other]
+          expect(b.outpost).toBe(true)
+          expect(b.parent).toBe(e.settlement)
+          expect(b.foundedYear).toBe(e.year)
+        }
+        returned.push(e)
+        break
+      case EventType.Discovery:
+        expect(e.other).toBe(-1)
+        if (e.value !== -1) {
+          expect(Number.isInteger(e.value) && e.value >= 0 && e.value < h.features.length).toBe(true)
+          expect(h.features[e.value].namedYear).toBeLessThanOrEqual(e.year)
+        }
+        break
+      case EventType.TechAdvance:
+        expect(e.other).toBe(-1)
+        expect(Number.isInteger(e.value) && e.value >= 0 && e.value < TECH_FIELD_COUNT).toBe(true)
+        expect(st.outpost).toBe(false)
+        advances.push(e)
         break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
@@ -347,10 +387,15 @@ function checkInvariants(w: World, h: History): void {
     }
   }
 
-  // Journeys: one per Founded event with a real parent, one per Migration event.
+  // Journeys: one per Founded event with a real parent (an expedition's for a base), one per Migration event, one per expedition.
   const J = h.journeys
-  const expectedJourneys = h.events.filter((e) => (e.type === EventType.Founded && e.other >= 0) || e.type === EventType.Migration).length
-  expect(J.count).toBe(expectedJourneys)
+  const expectedJourneys = h.events.filter((e) => (e.type === EventType.Founded && e.other >= 0 && !h.settlements[e.settlement].outpost) || e.type === EventType.Migration).length
+  let settlerJourneys = 0, expeditionJourneys = 0
+  for (let j = 0; j < J.count; j++) { if (J.kind[j] === JourneyKind.Expedition) expeditionJourneys++; else settlerJourneys++ }
+  expect(settlerJourneys).toBe(expectedJourneys)
+  expect(expeditionJourneys).toBe(sent.length)
+  // Every expedition is sent and comes home (or founds a base and the rest come home) in one year, or is lost.
+  expect(returned.length).toBeLessThanOrEqual(sent.length)
   for (const a of [J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind]) expect(a.length).toBe(J.count)
   expect(J.pathOffsets.length).toBe(J.count + 1)
   expect(J.pathOffsets[0]).toBe(0)
@@ -365,11 +410,23 @@ function checkInvariants(w: World, h: History): void {
     expect(J.departYear[j]).toBeLessThanOrEqual(J.arriveYear[j])
     expect(J.departYear[j]).toBeGreaterThanOrEqual(h.settlements[J.from[j]].foundedYear)
     expect(J.size[j]).toBeGreaterThan(0)
-    expect(J.kind[j] === JourneyKind.Settlers || J.kind[j] === JourneyKind.Migrants).toBe(true)
+    expect(J.kind[j] === JourneyKind.Settlers || J.kind[j] === JourneyKind.Migrants || J.kind[j] === JourneyKind.Expedition).toBe(true)
     const off0 = J.pathOffsets[j], off1 = J.pathOffsets[j + 1]
     expect(off1).toBeGreaterThan(off0)
     expect(J.path[off0]).toBe(h.settlements[J.from[j]].cell)
-    expect(J.path[off1 - 1]).toBe(h.settlements[J.to[j]].cell)
+    if (J.kind[j] === JourneyKind.Expedition) {
+      // `to`: the base founded, the sender again (came home, the path out and back), or -1 (lost).
+      const to = J.to[j]
+      expect(h.settlements[J.from[j]].outpost).toBe(false)
+      if (to >= 0) expect(J.path[off1 - 1]).toBe(h.settlements[to].cell)
+      if (to >= 0 && to !== J.from[j]) {
+        expect(h.settlements[to].outpost).toBe(true)
+        expect(h.settlements[to].parent).toBe(J.from[j])
+        expect(h.settlements[to].foundedYear).toBe(J.arriveYear[j])
+      }
+      expect(sent.some((e) => e.year === J.arriveYear[j] && e.settlement === J.from[j] && e.value === J.size[j])).toBe(true)
+      if (to >= 0) expect(returned.some((e) => e.year === J.arriveYear[j] && e.settlement === J.from[j] && e.other === (to === J.from[j] ? -1 : to))).toBe(true)
+    } else expect(J.path[off1 - 1]).toBe(h.settlements[J.to[j]].cell)
     for (let k = off0 + 1; k < off1; k++) {
       expect(isNeighbor(J.path[k - 1], J.path[k])).toBe(true)
     }
@@ -452,6 +509,50 @@ function checkInvariants(w: World, h: History): void {
     names.add(f.name.toLowerCase())
   })
   checkPeoples(w, h, { lostVoyages, landfalls, contacts })
+  checkTechnology(h, advances)
+}
+
+/** Technology: layout, bounds, 0 for peoples that died out, non-decreasing, TechAdvance once per whole level. */
+function checkTechnology(h: History, advances: HistoryEvent[]): void {
+  const P = h.peoples.length
+  const S = h.settlements.length
+  const Fc = TECH_FIELD_COUNT
+  expect(h.technology.length).toBe(h.snapshotCount * P * Fc)
+  const alive = new Uint8Array(P)
+  for (let q = 0; q < h.snapshotCount; q++) {
+    alive.fill(0)
+    for (let id = 0; id < S; id++) if (h.population[q * S + id] > 0 && !h.settlements[id].outpost) alive[h.settlements[id].people] = 1
+    for (let p = 0; p < P; p++) {
+      for (let f = 0; f < Fc; f++) {
+        const v = h.technology[(q * P + p) * Fc + f]
+        if (!Number.isFinite(v)) throw new Error(`technology not finite at snapshot ${q}, people ${p}, field ${f}`)
+        if (!alive[p]) { if (v !== 0) throw new Error(`people ${p} has no living settlement at snapshot ${q} but technology ${v}`); continue }
+        if (!(v >= 1 - 1e-6 && v < 20)) throw new Error(`technology ${v} out of bounds at snapshot ${q}, people ${p}, field ${f}`)
+        if (q > 0) {
+          const before = h.technology[((q - 1) * P + p) * Fc + f]
+          if (before > 0 && v < before - 1e-5) throw new Error(`technology fell from ${before} to ${v} (snapshot ${q}, people ${p}, field ${f})`)
+        }
+      }
+    }
+  }
+  // TechAdvance: the k-th event of a people in a field marks level k + 1, reached that year (seen at the next snapshot, not at the one before).
+  const seen = new Int32Array(P * Fc)
+  for (const e of advances) {
+    const p = h.settlements[e.settlement].people
+    const level = 2 + seen[p * Fc + e.value]++
+    const after = Math.ceil(e.year / h.snapshotInterval)
+    if (after < h.snapshotCount) expect(h.technology[(after * P + p) * Fc + e.value]).toBeGreaterThanOrEqual(level - 1e-4)
+    const prior = Math.ceil(e.year / h.snapshotInterval) - 1
+    if (prior >= 0) expect(h.technology[(prior * P + p) * Fc + e.value]).toBeLessThan(level + 1e-4)
+  }
+  // Every whole level a living people holds was announced.
+  const last = h.snapshotCount - 1
+  for (let p = 0; p < P; p++) for (let f = 0; f < Fc; f++) {
+    const v = h.technology[(last * P + p) * Fc + f]
+    if (!(v > 0)) continue
+    expect(seen[p * Fc + f]).toBeGreaterThanOrEqual(Math.floor(v - 1e-4) - 1)
+    expect(seen[p * Fc + f]).toBeLessThanOrEqual(Math.floor(v + 1e-4) - 1)
+  }
 }
 
 /** Landmass label per cell (land connected through land neighbours), -1 for sea. */
@@ -490,6 +591,8 @@ function checkPeoples(w: World, h: History, ev: { lostVoyages: HistoryEvent[]; l
   const peopleNames = new Set<string>()
   h.peoples.forEach((p, i) => {
     expect(p.id).toBe(i)
+    expect(Number.isInteger(p.cradle) && p.cradle >= 0 && p.cradle < 4).toBe(true)
+    if (i > 0) expect(p.cradle).toBeGreaterThanOrEqual(h.peoples[i - 1].cradle) // tribes are planned cradle by cradle
     expect(p.founder).toBe(tribes[i].id)
     expect(h.settlements[p.founder].people).toBe(i)
     if (!p.name || peopleNames.has(p.name.toLowerCase())) throw new Error(`people ${i} name "${p.name}" is empty or not unique`)
@@ -512,6 +615,7 @@ function checkPeoples(w: World, h: History, ev: { lostVoyages: HistoryEvent[]; l
   // Every journey's path is known to the travelling people by its arrival.
   const J = h.journeys
   for (let j = 0; j < J.count; j++) {
+    if (J.kind[j] === JourneyKind.Expedition && J.to[j] < 0) continue // a lost expedition brought nothing home
     const p = h.settlements[J.from[j]].people
     for (let k = J.pathOffsets[j]; k < J.pathOffsets[j + 1]; k++) {
       const y = h.knownYear[p * N + J.path[k]]
@@ -596,7 +700,7 @@ function expectPrefix(short: History, long: History): void {
   const later = (a: number, b: number) => a === b || (a === -1 && b > Y)
   for (let id = 0; id < S0; id++) {
     const a = short.settlements[id], b = long.settlements[id]
-    expect([b.id, b.cell, b.foundedYear, b.parent, b.name, b.people]).toEqual([a.id, a.cell, a.foundedYear, a.parent, a.name, a.people])
+    expect([b.id, b.cell, b.foundedYear, b.parent, b.name, b.people, b.outpost]).toEqual([a.id, a.cell, a.foundedYear, a.parent, a.name, a.people, a.outpost])
     if (!later(a.abandonedYear, b.abandonedYear)) throw new Error(`settlement ${id} abandoned ${a.abandonedYear} vs ${b.abandonedYear}`)
   }
   for (let id = S0; id < S1; id++) expect(long.settlements[id].foundedYear).toBeGreaterThan(Y)
@@ -644,6 +748,9 @@ function expectPrefix(short: History, long: History): void {
   expect(long.knownYear.length).toBe(short.knownYear.length)
   for (let i = 0; i < short.knownYear.length; i++) if (!later(short.knownYear[i], long.knownYear[i])) throw new Error(`knownYear[${i}] ${short.knownYear[i]} vs ${long.knownYear[i]}`)
   for (let i = 0; i < short.contactYear.length; i++) if (!later(short.contactYear[i], long.contactYear[i])) throw new Error(`contactYear[${i}] ${short.contactYear[i]} vs ${long.contactYear[i]}`)
+  // Technology snapshots up to Y.
+  expect(long.technology.length).toBeGreaterThanOrEqual(short.technology.length)
+  for (let i = 0; i < short.technology.length; i++) if (short.technology[i] !== long.technology[i]) throw new Error(`technology differs at ${i}`)
   // Named geography up to Y: same features in the same order, named by the same settlements, alike.
   const fL = long.features.filter((f) => f.namedYear <= Y)
   expect(fL.length).toBe(short.features.length)
@@ -687,7 +794,7 @@ describe('simulateHistory', () => {
     expect(h.wealth.length).toBe(401 * h.settlements.length)
     const t = h.trade
     const arrays = [h.population, h.food, h.capacity, h.landUse, h.degradation, h.road, h.wealth, h.tradeVolume, J.departYear, J.arriveYear, J.from, J.to, J.size, J.kind, J.pathOffsets, J.path,
-      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path, h.knownYear, h.contactYear]
+      t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path, h.knownYear, h.contactYear, h.technology]
     const buffers = new Set<ArrayBufferLike>()
     for (const a of arrays) {
       expect(a.byteOffset).toBe(0)
@@ -768,6 +875,28 @@ describe('simulateHistory', () => {
       expect(total).toBeGreaterThan(total2000)
       expect(total).toBeLessThan(5 * total2000)
     }
+  }, 120_000)
+
+  it('a resumable run gives the same histories as runs from scratch, each owning its arrays', () => {
+    const w = world(42)
+    const run = createHistoryRun(w)
+    const a = run.advanceTo(2000)
+    expect(run.year).toBe(2000)
+    const hashA = hashHistory(a)
+    expect(hashA).toBe(hashHistory(history(42)))
+    const b = run.advanceTo(2400)
+    expect(hashHistory(b)).toBe(hashHistory(simulateHistory(w, { years: 2400 })))
+    // The first history is untouched by the extension; going back reruns from scratch.
+    expect(hashHistory(a)).toBe(hashA)
+    expect(hashHistory(run.advanceTo(300))).toBe(hashHistory(simulateHistory(w, { years: 300 })))
+    expect(run.year).toBe(2400)
+    // No array is shared between the two histories (each may be transferred on its own).
+    const buffers = (h: History) => [h.population, h.food, h.wealth, h.capacity, h.landUse, h.degradation, h.road, h.tradeVolume, h.knownYear, h.contactYear, h.technology,
+      h.trade.a, h.trade.path, h.journeys.path, h.journeys.departYear].map((x) => x.buffer)
+    const seen = new Set(buffers(a))
+    for (const buf of buffers(b)) expect(seen.has(buf)).toBe(false)
+    expect(a.events).not.toBe(b.events)
+    expect(a.structures[0]).not.toBe(b.structures[0])
   }, 120_000)
 
   it('runs at other resolutions', () => {
@@ -1154,10 +1283,117 @@ describe('simulateHistory', () => {
     }
     expect(eligible).toBeGreaterThanOrEqual(6)
     expect(second).toBeGreaterThanOrEqual(eligible - 1)
-    expect(early).toBeGreaterThanOrEqual(eligible - 3)
+    // (eligible - 4: with Seafaring per people, a world whose peoples are poor seafarers reaches the next continent later.)
+    expect(early).toBeGreaterThanOrEqual(eligible - 4)
     expect(frontier).toBeGreaterThanOrEqual(eligible - 1)
     expect(lag).toBe(SEEDS.length)
     expect(filled).toBeGreaterThanOrEqual(SEEDS.length - 3)
     expect(islandSeeds).toBeGreaterThanOrEqual(SEEDS.length - 2)
+  }, 60_000)
+  it('technology differs by people: grows from its own activity, is learned only from peoples met, follows the old curve on average', () => {
+    const P0: number[] = [], med1000: number[] = [], med2000: number[] = [], within: number[] = []
+    let separate1000 = 0, visible1000 = 0
+    for (const seed of SEEDS) {
+      const { history: h, diag } = run(seed)
+      const P = h.peoples.length
+      const Fc = TECH_FIELD_COUNT
+      P0.push(P)
+      // Diffusion only between peoples in contact by then.
+      const learn = diag.firstLearn as Int16Array
+      expect(learn.length).toBe(P * P)
+      for (let a = 0; a < P; a++) for (let b = 0; b < P; b++) {
+        const y = learn[a * P + b]
+        if (y < 0) continue
+        const met = h.contactYear[a * P + b]
+        if (!(a !== b && met >= 0 && met <= y)) throw new Error(`seed ${seed}: people ${a} learned from ${b} in ${y}, met ${met}`)
+      }
+      // People.cradle is the founding plan's.
+      expect(h.peoples.map((x) => x.cradle)).toEqual(diag.cradles?.cradle)
+      const at = (year: number, p: number, f: number) => h.technology[((year / h.snapshotInterval) * P + p) * Fc + f]
+      const levels = (year: number, f: number) => h.peoples.map((_, p) => at(year, p, f)).filter((v) => v > 0).sort((x, y) => x - y)
+      const m = (xs: number[]) => xs[xs.length >> 1]
+      med1000.push(m(levels(1000, 0)))
+      med2000.push(m(levels(2000, 0)))
+      // Nobody stalls: every living people has advanced in every field by 2000.
+      for (let p = 0; p < P; p++) for (let f = 0; f < Fc; f++) { const v = at(2000, p, f); if (v > 0) expect(v).toBeGreaterThan(1.6) }
+      // Networks at 1000: within a network little spread; between networks visible differences in some worlds.
+      const lab = h.peoples.map((_, i) => i)
+      const find = (x: number): number => { while (lab[x] !== x) x = lab[x]; return x }
+      for (let a = 0; a < P; a++) for (let b = a + 1; b < P; b++) { const y = h.contactYear[a * P + b]; if (y >= 0 && y <= 1000) { const ra = find(a), rb = find(b); if (ra !== rb) lab[Math.max(ra, rb)] = Math.min(ra, rb) } }
+      const roots = [...new Set(h.peoples.map((_, p) => find(p)))]
+      if (roots.length >= 2) separate1000++
+      let bestGap = 1
+      for (let f = 0; f < Fc; f++) {
+        const tops = roots.map((r) => Math.max(...h.peoples.map((_, p) => (find(p) === r ? at(1000, p, f) : 0))))
+        const live = tops.filter((v) => v > 0)
+        if (live.length >= 2) bestGap = Math.max(bestGap, Math.max(...live) / Math.min(...live))
+        for (const r of roots) {
+          const xs = h.peoples.map((_, p) => (find(p) === r ? at(1000, p, f) : 0)).filter((v) => v > 0)
+          if (xs.length >= 2) within.push(Math.max(...xs) / Math.min(...xs))
+        }
+      }
+      if (bestGap > 1.1) visible1000++
+    }
+    const med = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]
+    // About the old global curve on average (2 at year 1000, 4 at 2000), with variance between worlds.
+    expect(med(med1000)).toBeGreaterThan(1.7)
+    expect(med(med1000)).toBeLessThan(2.4)
+    expect(med(med2000)).toBeGreaterThan(3.4)
+    expect(med(med2000)).toBeLessThan(4.8)
+    expect(Math.max(...med2000)).toBeLessThan(6)
+    // Separate networks differ visibly in a good share of the worlds where they exist; within a network the spread is small.
+    expect(separate1000).toBeGreaterThanOrEqual(SEEDS.length / 2)
+    expect(visible1000).toBeGreaterThanOrEqual(3)
+    expect(med(within)).toBeLessThan(1.05)
+  }, 60_000)
+
+  it('expeditions set out from prosperous settlements, reach the poles, and leave bases where nobody farms', () => {
+    let withBases = 0, withPole = 0, poleInWindow = 0, lateHeavy = 0
+    for (const seed of SEEDS) {
+      const w = world(seed)
+      const { history: h, diag } = run(seed)
+      const S = h.settlements.length
+      const N = w.grid.cellCount
+      const sent = h.events.filter((e) => e.type === EventType.ExpeditionSent)
+      // Tens to low hundreds, not thousands.
+      expect(sent.length).toBeGreaterThanOrEqual(5)
+      expect(sent.length).toBeLessThan(400)
+      // Senders were fed and of some size at the snapshot before.
+      for (const e of sent) {
+        const q = Math.floor(e.year / h.snapshotInterval)
+        expect(h.population[q * S + e.settlement]).toBeGreaterThan(0.8 * EXPLORE.minPop)
+      }
+      const L = diag.expeditions
+      expect(L?.year.length).toBe(sent.length)
+      // More of them as technology grows: the later half of the run sends most.
+      if (sent.filter((e) => e.year > 1000).length > 0.6 * sent.length) lateHeavy++
+      // Poles.
+      const kinds = diag.discoveryKind ?? []
+      const disc = h.events.filter((e) => e.type === EventType.Discovery)
+      expect(disc.length).toBe(kinds.length)
+      const poleYears = disc.filter((_, i) => kinds[i] <= 1).map((e) => e.year)
+      for (let i = 0; i < disc.length; i++) if (kinds[i] <= 1) expect(disc[i].value).toBe(-1)
+      for (const k of [0, 1, 3, 4]) expect(kinds.filter((x) => x === k).length).toBeLessThanOrEqual(1) // each pole, the summit and the desert once at most
+      if (poleYears.length > 0) { withPole++; if (Math.min(...poleYears) >= 1100 && Math.min(...poleYears) <= 1950) poleInWindow++ }
+      // Bases: small, few, on land nobody farms, supplied by a living parent (checked in the invariants).
+      const bases = h.settlements.filter((x) => x.outpost)
+      if (bases.length > 0) withBases++
+      const scale = N / 23042
+      for (let q = 0; q < h.snapshotCount; q += 20) {
+        let n = 0
+        for (const b of bases) {
+          const p = h.population[q * S + b.id]
+          if (p <= 0) continue
+          n++
+          expect(p).toBeGreaterThan(POPULATION.abandonPop)
+          expect(p).toBeLessThanOrEqual(OUTPOST.pop + 1e-3)
+        }
+        expect(n).toBeLessThanOrEqual(Math.max(4, Math.round(OUTPOST.maxAlive * scale)))
+      }
+    }
+    expect(withBases).toBeGreaterThanOrEqual(SEEDS.length - 3)
+    expect(withPole).toBeGreaterThanOrEqual(SEEDS.length - 2)
+    expect(poleInWindow).toBeGreaterThanOrEqual(SEEDS.length / 2)
+    expect(lateHeavy).toBeGreaterThanOrEqual(SEEDS.length - 2)
   }, 60_000)
 })

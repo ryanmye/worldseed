@@ -22,7 +22,126 @@ export function formatInt(n: number): string {
   return Math.round(n).toLocaleString('en-US')
 }
 
-export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd'
+export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'built' | 'town' | 'city' | 'lost' | 'trade' | 'tradeEnd' | 'contact' | 'landfall' | 'voyage' | 'expedition' | 'discovery' | 'tech'
+
+// ---- peoples, voyages, expeditions and technology (event types 10..16; all optional at runtime)
+
+/** Event types of the peoples and exploration step (numbers, so histories from before they existed still type-check). */
+export const PeoplesEvent = { VoyageLost: 10, Landfall: 11, FirstContact: 12, ExpeditionSent: 13, ExpeditionReturned: 14, Discovery: 15, TechAdvance: 16 } as const
+
+/** Field names of History.technology (TechField order). */
+export const TECH_FIELD_NAMES: readonly string[] = ['farming', 'seafaring', 'metalworking', 'crafts']
+
+/** Name of people `p`, or null when the history has no such people. */
+export function peopleName(h: History, p: number): string | null {
+  const ps = (h as Partial<History>).peoples
+  const x = Array.isArray(ps) ? ps[p] : undefined
+  return x && typeof x.name === 'string' && x.name ? x.name : null
+}
+
+/** People of settlement `id`, or -1. */
+export function peopleOf(h: History, id: number): number {
+  const v = (h.settlements[id] as { people?: number } | undefined)?.people
+  return typeof v === 'number' && v >= 0 ? v : -1
+}
+
+/** "the Kepian people" (or "another people" without names). */
+function thePeople(h: History, p: number): string {
+  const n = peopleName(h, p)
+  return n ? `the ${n} people` : 'another people'
+}
+
+/** "The Kepian and Esrian peoples meet at Hinga". */
+export function describeFirstContact(h: History, e: HistoryEvent): string {
+  const a = peopleName(h, peopleOf(h, e.settlement)), b = peopleName(h, e.value >= 0 ? e.value : peopleOf(h, e.other))
+  const at = settlementName(h, e.settlement)
+  return a && b ? `The ${a} and ${b} peoples meet at ${at}` : `Two peoples meet at ${at}`
+}
+
+/** "Settlers from Pifur make landfall on the unsettled continent of Roneka"; `land` is the landmass's name and kind word ("continent of Roneka") or null. */
+export function describeLandfall(h: History, e: HistoryEvent, land: string | null): string {
+  const from = e.other >= 0 ? settlementName(h, e.other) : settlementName(h, e.settlement)
+  // (`value` is the landmass size in cells: most unnamed landfalls are on islets)
+  return `Settlers from ${from} make landfall on ${land ? `the unsettled ${land}` : e.value > 0 && e.value <= 8 ? 'a small unnamed island' : 'an unknown land'}`
+}
+
+/** Where a Discovery event's expedition got to: "the sea Oru Tal", "the southern ice" (`southern` null: "the polar ice"). */
+function discoveryPlace(h: History, e: HistoryEvent, southern: boolean | null): string {
+  const f = e.value >= 0 ? (h as Partial<History>).features?.[e.value] : undefined
+  return f ? `the ${featureNoun(f.kind)} ${f.name}` : `the ${southern === null ? 'polar' : southern ? 'southern' : 'northern'} ice`
+}
+
+function describeDiscovery(h: History, e: HistoryEvent, southern: boolean): string {
+  return `An expedition from ${settlementName(h, e.settlement)} reaches ${discoveryPlace(h, e, southern)}`
+}
+
+/** Chronicle line for a peoples / exploration event (types 10..16), or null for other types. `southern`: the settlement lies south of the equator (for pole discoveries). */
+export function describePeoplesEvent(h: History, e: HistoryEvent, southern = false): string | null {
+  const name = settlementName(h, e.settlement)
+  switch (e.type as number) {
+    case PeoplesEvent.VoyageLost:
+      return `An expedition from ${name} is lost at sea` + (e.value > 0 ? ` (${formatInt(e.value)} people)` : '')
+    case PeoplesEvent.Landfall:
+      return describeLandfall(h, e, null)
+    case PeoplesEvent.FirstContact:
+      return describeFirstContact(h, e)
+    case PeoplesEvent.ExpeditionSent:
+      return `An expedition sets out from ${name}` + (e.value > 0 ? ` (${formatInt(e.value)} people)` : '')
+    case PeoplesEvent.ExpeditionReturned:
+      return e.value > 0 ? `An expedition returns to ${name} with news of new lands` : `An expedition returns to ${name} with nothing new`
+    case PeoplesEvent.Discovery:
+      return describeDiscovery(h, e, southern)
+    case PeoplesEvent.TechAdvance: {
+      const p = peopleOf(h, e.settlement)
+      const t = thePeople(h, p)
+      return `${t.charAt(0).toUpperCase()}${t.slice(1)} advance in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
+    }
+    default:
+      return null
+  }
+}
+
+/** Chronicle line for `count` events of one of these types in one decade, naming `example` (the largest, where size matters) and `people` in all. */
+export function describePeoplesBurst(h: History, example: HistoryEvent, count: number, people: number): string {
+  const name = settlementName(h, example.settlement)
+  switch (example.type as number) {
+    case PeoplesEvent.VoyageLost:
+      return `${count} expeditions lost at sea (${formatInt(people)} people), the largest from ${name}`
+    case PeoplesEvent.ExpeditionSent:
+      return `${count} expeditions set out, the largest from ${name}`
+    case PeoplesEvent.ExpeditionReturned:
+      return `${count} expeditions return, among them to ${name}`
+    case PeoplesEvent.TechAdvance:
+      return `${count} advances in technology, among them ${thePeople(h, peopleOf(h, example.settlement))} in ${TECH_FIELD_NAMES[example.value] ?? 'learning'}`
+    default:
+      return `${count} events, among them at ${name}`
+  }
+}
+
+/** Description of a peoples / exploration event from the point of view of settlement `id` (inspector), or null for other types. */
+function describePeoplesEventFor(h: History, e: HistoryEvent, id: number): string | null {
+  switch (e.type as number) {
+    case PeoplesEvent.VoyageLost:
+      return 'Lost an expedition at sea' + (e.value > 0 ? ` (${formatInt(e.value)} people)` : '')
+    case PeoplesEvent.Landfall:
+      return e.settlement === id ? 'The first settlement on this land' : `Its settlers made the first landfall at ${settlementName(h, e.settlement)}`
+    case PeoplesEvent.FirstContact: {
+      const partner = e.settlement === id ? e.other : e.settlement
+      const p = peopleOf(h, partner)
+      return `Met ${thePeople(h, p)} through ${settlementName(h, partner)}`
+    }
+    case PeoplesEvent.ExpeditionSent:
+      return 'Sent out an expedition' + (e.value > 0 ? ` (${formatInt(e.value)} people)` : '')
+    case PeoplesEvent.ExpeditionReturned:
+      return e.value > 0 ? `An expedition came home with news of new lands` : 'An expedition came home'
+    case PeoplesEvent.Discovery:
+      return `Its expedition reached ${discoveryPlace(h, e, null)}`
+    case PeoplesEvent.TechAdvance:
+      return `Advanced in ${TECH_FIELD_NAMES[e.value] ?? 'learning'}`
+    default:
+      return null
+  }
+}
 
 /** Good names (lower case), indexed by Good. */
 export const GOOD_NAMES: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt']
@@ -51,7 +170,7 @@ function exchange(h: History, e: HistoryEvent, from: number): string {
 }
 
 export function eventKind(e: HistoryEvent): EventKind {
-  switch (e.type) {
+  switch (e.type as number) {
     case EventType.Founded: return 'founded'
     case EventType.Abandoned: return 'abandoned'
     case EventType.Famine: return 'famine'
@@ -61,6 +180,13 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.StructureLost: return 'lost'
     case EventType.TradeOpened: return 'trade'
     case EventType.TradeClosed: return 'tradeEnd'
+    case PeoplesEvent.FirstContact: return 'contact'
+    case PeoplesEvent.Landfall: return 'landfall'
+    case PeoplesEvent.VoyageLost: return 'voyage'
+    case PeoplesEvent.ExpeditionSent:
+    case PeoplesEvent.ExpeditionReturned: return 'expedition'
+    case PeoplesEvent.Discovery: return 'discovery'
+    case PeoplesEvent.TechAdvance: return 'tech'
     default: return 'migration'
   }
 }
@@ -99,8 +225,10 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     }
     case EventType.TradeClosed:
       return `${name} and ${settlementName(h, e.other)} stop trading`
-    default:
+    case EventType.Migration:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
+    default:
+      return describePeoplesEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
 
@@ -164,9 +292,9 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.TradeClosed:
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
-      return e.settlement === id
+      return describePeoplesEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
-        : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`
+        : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)
   }
 }
 

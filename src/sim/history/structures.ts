@@ -15,13 +15,14 @@
 // or when it shrinks below `keep` of the size needed to build them (silted
 // harbour, broken canals); a settlement that grows again may rebuild.
 //
-// Decisions draw from the 'history-structures' stream.
+// Builders' skill: the yearly chances grow with the owner's people's Crafts
+// (TECH.build). Decisions draw from the 'history-structures' stream.
 
-import { Biome, RIVER_FLOW_THRESHOLD, StructureType } from '../../contract.ts'
-import { DAM, PORT } from './params.ts'
+import { Biome, RIVER_FLOW_THRESHOLD, StructureType, TechField } from '../../contract.ts'
+import { DAM, PORT, TECH } from './params.ts'
 import { refreshCapacity } from './land.ts'
 import type { HistoryState } from './state.ts'
-import { build, loseStructure } from './state.ts'
+import { build, loseStructure, techOf } from './state.ts'
 
 /** A step count given at n = 48, at this grid's resolution (at least 1). */
 function hops(s: HistoryState, at48: number): number {
@@ -76,6 +77,12 @@ function damSite(s: HistoryState, id: number): number {
   return best
 }
 
+/** Building chance multiplier from the owner's people's Crafts c: c / (1 + build * (c - 1)) (1 at c = 1, rising slowly). */
+function buildSkill(s: HistoryState, id: number): number {
+  const c = techOf(s, id, TechField.Crafts)
+  return c / (1 + TECH.build * (c - 1))
+}
+
 /** System: settlements build ports and dams; derived fields are rebuilt when structures change. */
 export function structureSystem(s: HistoryState, scratch: Float64Array, ps: PortSearch): void {
   const T = s.terrain
@@ -88,14 +95,14 @@ export function structureSystem(s: HistoryState, scratch: Float64Array, ps: Port
     if (s.port[id] >= 0 && p < PORT.keep * PORT.pop) loseStructure(s, s.port[id])
     if (s.dam[id] >= 0 && p < DAM.keep * DAM.pop) loseStructure(s, s.dam[id])
     if (s.port[id] < 0 && p >= PORT.pop && T.seaCoast[c]) {
-      if (rng.next() < PORT.chance) {
+      if (rng.next() < PORT.chance * buildSkill(s, id)) {
         build(s, id, StructureType.Port, c)
         markPortReach(s, ps, [c]) // a new port only adds reach
       }
     }
     if (s.dam[id] < 0 && p >= DAM.pop) {
       const risk = T.aridity[c] + (s.year - s.lastFamine[id] <= DAM.famineMemory ? DAM.famineRisk : 0)
-      if (risk > 0 && rng.next() < DAM.chance * risk) {
+      if (risk > 0 && rng.next() < DAM.chance * risk * buildSkill(s, id)) {
         const j = damSite(s, id)
         if (j >= 0) build(s, id, StructureType.Dam, j)
       }

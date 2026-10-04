@@ -26,7 +26,8 @@ import { createPerfMonitor } from './render/perfTools.ts'
 // land=0 (no farmland on the Terrain view), structures=0 (no ports, dams or reservoirs), models=0 (no 3D buildings up close),
 // tilt=0 (keep looking straight down when zoomed in), labels=0 (no place names),
 // sun=fixed|follow|full, sunlon/sunlat (degrees, fixed sun), quality=high|balanced|low, bake=0 (procedural
-// surface every frame, for comparison), perf=1 (frame-rate readout and window.__worldseed tools)
+// surface every frame, for comparison), perf=1 (frame-rate readout and window.__worldseed tools),
+// people=<id> (show the world as that people knew it), known=all (show what no people knew), tint=1 (markers coloured by people)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -287,6 +288,8 @@ function clearHistoryParams() {
   setUrlParam('years', null)
   setUrlParam('play', null)
   setUrlParam('select', null)
+  setUrlParam('people', null)
+  setUrlParam('known', null)
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -389,8 +392,25 @@ const historyView = createHistoryView(
     requestYears,
     wake: () => wake(),
   },
-  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select') },
+  { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all' },
 )
+// markers coloured by people (off unless tint=1 or remembered on)
+{
+  const tintOn = params.has('tint') ? params.get('tint') === '1' : (layerPrefs['peoples'] ?? false)
+  if (tintOn) setUrlParam('tint', '1')
+  historyView.setPeopleTint(tintOn)
+  overlay.addLayerToggle({
+    key: 'peoples',
+    label: 'Peoples',
+    group: 'people',
+    checked: tintOn,
+    title: 'Colour settlements by the people they belong to',
+    onChange: (on) => {
+      setUrlParam('tint', on ? '1' : null)
+      historyView.setPeopleTint(on)
+    },
+  })
+}
 historyView.setViewMode(viewMode)
 historyView.setMarkersVisible(showMarkers)
 historyView.setJourneysVisible(showJourneys)
@@ -410,7 +430,8 @@ const pointerInput = attachPointer({
   camera,
   getWorld: () => currentWorld,
   getGlobe: () => currentGlobe,
-  setReadout: (r) => overlay.setReadout(r && r.cell !== undefined ? { ...r, places: historyView.placesAt(r.cell) } : r),
+  // (nothing is described in lands the known world shown does not include)
+  setReadout: (r) => overlay.setReadout(r && r.cell !== undefined ? (historyView.isCellHidden(r.cell) ? null : { ...r, places: historyView.placesAt(r.cell) }) : r),
   pickSettlement: (x, y) => historyView.pickAt(x, y),
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),

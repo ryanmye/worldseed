@@ -204,9 +204,9 @@ export function seedPeoples(s: HistoryState, rng: Rng): CradlePlan {
  * from 'names-people-<founder>', and depends only on the tribes, so a longer run names its peoples
  * alike. (It may coincide with a later settlement's or feature's name: those are drawn independently.)
  */
-export function namePeoples(world: World, founders: readonly number[], naming: SettlementNaming): People[] {
+export function namePeoples(world: World, founders: readonly number[], cradle: readonly number[], naming: SettlementNaming, names: readonly string[]): People[] {
   const used = new Set<string>()
-  for (const f of founders) used.add(naming.names[f].toLowerCase())
+  for (const f of founders) used.add(names[f].toLowerCase())
   const out: People[] = []
   for (let p = 0; p < founders.length; p++) {
     const founder = founders[p]
@@ -224,7 +224,7 @@ export function namePeoples(world: World, founders: readonly number[], naming: S
     }
     if (!name) name = capitalizeName(naming.roots[founder] ?? 'ana') + 'i' + p // practically unreachable
     used.add(name.toLowerCase())
-    out.push({ id: p, founder, name })
+    out.push({ id: p, cradle: cradle[p], founder, name })
   }
   return out
 }

@@ -47,5 +47,5 @@ export const generateWorld: GenerateWorld = (seed: number, options?: WorldOption
   }
 }
 
-export { simulateHistory } from './history/index.ts'
+export { createHistoryRun, simulateHistory } from './history/index.ts'
 export type { World, WorldOptions } from '../contract.ts'

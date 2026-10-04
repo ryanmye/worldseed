@@ -185,8 +185,28 @@ function noise(x: number, y: number, z: number): number {
     + uz * ux * (va - vb - ve + vf) + ux * uy * uz * (-va + vb + vc - vd + ve - vf - vg + vh)
 }
 
+/**
+ * The planet shader's ws_cells (glsl.ts) at x * freq: the x component of its nearest
+ * feature point's random vec3 (0..1), which the farmland shader compares with the field
+ * cover to switch a field on.
+ */
+export function cellRandX(x: number, y: number, z: number, freq: number): number {
+  const px = x * freq, py = y * freq, pz = z * freq
+  const ix = Math.floor(px), iy = Math.floor(py), iz = Math.floor(pz)
+  const fx = px - ix, fy = py - iy, fz = pz - iz
+  let d1 = 9, bx = 0, by = 0, bz = 0
+  for (let gz = -1; gz <= 1; gz++) for (let gy = -1; gy <= 1; gy++) for (let gx = -1; gx <= 1; gx++) {
+    hash33(ix + gx, iy + gy, iz + gz)
+    const rx = gx + 0.5 + 0.42 * G[0] - fx, ry = gy + 0.5 + 0.42 * G[1] - fy, rz = gz + 0.5 + 0.42 * G[2] - fz
+    const d = rx * rx + ry * ry + rz * rz
+    if (d < d1) { d1 = d; bx = gx; by = gy; bz = gz }
+  }
+  hash33(ix + bx + 71.3, iy + by + 71.3, iz + bz + 71.3)
+  return G[0] * 0.5 + 0.5
+}
+
 /** ws_fbm at full detail (the close-up view resolves every octave). */
-function fbm(x: number, y: number, z: number, freq: number, octaves: number): number {
+export function fbm(x: number, y: number, z: number, freq: number, octaves: number): number {
   let sum = 0
   let amp = 0.5
   for (let o = 0; o < octaves; o++) {
