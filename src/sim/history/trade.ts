@@ -74,6 +74,7 @@ import { ACCOUNTS, flushAccounts } from './polity/outlaw.ts' // polities:
 import { HVR, cutOf, goodsSettle, goodsStock, hvLoads, hvMoved, hvPair, hvPrice, hvTransport, pairCuts } from './goods/market.ts'
 import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
 import { noteIncome } from './goods/state.ts'
+import { STOCK } from './goods/params.ts'
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -789,6 +790,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   }
   const perish = ts.perish, cashShare = CASHCROP.maxShare, v2 = s.sp.v2 // species-v2 (hoisted)
   const pol = s.pol // polities:
+  const hvEvery = STOCK.hvEvery // goods:
   // polities (v2): this year's duties, embargoes (war included), smuggling and the costs of pirates and bandits per pair;
   // pairs under a duty or an embargo take the restricted path below (legal flow net of duty, then contraband).
   const pc: PairPolicy | null = pol !== null ? pairPolicy(s, pol, ts) : null
@@ -918,7 +920,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       }
       // goods: high-value goods keep in store: local merchants deal in them on each pair every other year (half the pairs a
       // year; the goods list is ascending, so the high-value classes come last).
-      const hvOff = gx !== null && ((s.year + p) & 1) === 1
+      const hvOff = gx !== null && (s.year + p) % hvEvery !== 0
       for (let gi = 0; gi < nGoods; gi++) {
         const g = goods[gi]
         if (hvOff && g >= 7) break

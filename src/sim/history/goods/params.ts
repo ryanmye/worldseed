@@ -71,6 +71,8 @@ export const STOCK = {
   incomeGap: 0.25,
   /** Exporters' margin on HV goods: this share of TRADE.margin * worth (bulk goods keep the whole margin). */
   hvMargin: 0.5,
+  /** Local merchants deal in the HV classes on each pair every hvEvery years (pairs staggered by their index). */
+  hvEvery: 2,
 }
 
 /**
