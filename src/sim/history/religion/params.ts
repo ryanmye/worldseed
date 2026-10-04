@@ -39,6 +39,8 @@ export const RELIGION = {
   villageAppeal: 0.5,
   ceilingTown: 1,
   ceilingVillage: 0.45,
+  /** A village (below villagePop) with no open trade route drifts back to its people's folk faith: drift * (1 - its capital's grip) * share of each universal faith a year. */
+  drift: 0.004,
   /** A persecuting state presses conversion on its members: exposure + persecuteConvert to its faith. */
   persecuteConvert: 1.2,
   /** Pilgrims: a holy city earns pilgrim * followers * safety a year (safety 1 - danger, * hostileHoly when held by a ruler of another faith), at most pilgrimCap * its people. */
@@ -53,9 +55,9 @@ export const RELIGION = {
 }
 
 export const FOUNDING = {
-  /** A universal faith arises (every RELIGION.slowStep years) with chance found * (1 + crisis * crisis share) / (1 + crowd * universal faiths so far), at a town picked by people * (1 + crisis [woe]). */
+  /** A universal faith arises (every RELIGION.slowStep years) with chance found * (1 + crisis * crisis share) / (1 + crowd * max(0, n - 1)), n the universal faiths founded so far (not schisms), at a town picked by people * (1 + crisis [woe]). */
   found: 0.065,
-  crowd: 1,
+  crowd: 1.5,
   crisis: 1.5,
   /** Candidate towns: people >= pop (or the world's largest few, >= popMin), the people's Crafts >= crafts, at least `routes` open routes; woe: famine, sack, conquest or plague within woeYears. */
   pop: 2500,

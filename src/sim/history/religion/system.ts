@@ -380,6 +380,8 @@ function spreadStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   }
   // Conversion.
   const P = s.know.P
+  const deg = new Int32Array(s.count)
+  for (let t = 0; t < list.length; t++) { const r = list[t]; deg[ts.rA[r]]++; deg[ts.rB[r]]++ }
   for (let t = 0; t < living.length; t++) {
     const i = living[t]
     if (i >= rel.seen) continue
@@ -410,6 +412,17 @@ function spreadStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
       if (!rel.reached[f * P + people] && shareOf(rel, i, f) >= X.reach) {
         rel.reached[f * P + people] = 1
         logX(s, EventType.FaithReached, i, rel.eSrc[eo + k], f, people)
+      }
+    }
+    // An isolated village (no open trade route) beyond the grip of a capital drifts back to its people's folk practice.
+    if (village && X.drift > 0 && deg[i] === 0) {
+      const tf = s.people[i]
+      let gr = 0
+      if (ps !== null && i < ps.seen) { const p = ps.polity[i]; if (p >= 0 && ps.dist[i] < FAR) gr = grip(ps.dist[i], ps.pReach[p]) }
+      if (rel.endYear[tf] < 0 && gr < 1) {
+        let nd = 0
+        for (let k = 0; k < rel.fN[i]; k++) { const f = rel.fId[o + k]; if (pull[f] > 0) { BWF[nd] = f; BWS[nd] = rel.fSh[o + k]; nd++ } }
+        for (let j = 0; j < nd; j++) transfer(rel, i, BWF[j], tf, dt * X.drift * (1 - gr) * BWS[j])
       }
     }
     const m = rel.fId[o]
@@ -641,7 +654,7 @@ function foundStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   const F = rel.kind.length
   if (F >= X.max) return
   let n = 0
-  for (let f = 0; f < F; f++) if (rel.kind[f] === FaithKind.Universal) n++
+  for (let f = 0; f < F; f++) if (rel.kind[f] === FaithKind.Universal && rel.parent[f] < 0) n++ // (schisms do not crowd out a new founding)
   const living = s.living
   let largest = 0
   for (let t = 0; t < living.length; t++) if (s.pop[living[t]] > largest) largest = s.pop[living[t]]
@@ -667,7 +680,7 @@ function foundStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   }
   if (cand.length === 0) return
   const rng = rel.rng
-  const chance = (X.found * (1 + X.crisis * (woeSum / popSum))) / (1 + X.crowd * n)
+  const chance = (X.found * (1 + X.crisis * (woeSum / popSum))) / (1 + X.crowd * (n > 1 ? n - 1 : 0)) // (a second faith rises as readily as the first: rivals to the first are the rule)
   if (rng.next() >= chance) return
   let x = rng.next() * sum
   let at = cand[cand.length - 1]
