@@ -57,6 +57,7 @@ import type { HistoryState } from './state.ts'
 import { canSettle, found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { ContactVia, learn, learnPath, meet } from './knowledge.ts'
 import type { VoyageLog } from './index.ts'
+import { siteFactor } from './polity/system.ts' // polities:
 
 export interface VoyageState {
   rng: Rng
@@ -328,6 +329,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
           if (m !== originLm) value *= 1 + V.otherLand
           if (s.lmLiving[m] === 0) value *= 1 + V.emptyLand
           if (m === known) value *= 1 + V.knownPref
+          if (s.pol !== null) value *= siteFactor(s.pol, j) // polities: danger and defensibility
           const score = (value * rng.range(0.75, 1.25)) / (1 + (V.costPenalty * d) / range)
           if (score > bestScore) { bestScore = score; bestCell = j; bestDist = d }
           continue

@@ -27,6 +27,7 @@ import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
 import { found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { learnPath } from './knowledge.ts'
+import { fleeChance, joinBlocked, joinFactor, siteFactor } from './polity/system.ts' // polities:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -151,7 +152,7 @@ export function migrationSystem(s: HistoryState, search: Search): void {
     const id = movers[t]
     const p = s.pop[id]
     const roll = rng.next()
-    const flee = M.hungerChance * (1 - smoothstep(M.hungerLow, M.hungerHigh, s.food[id]))
+    const flee = M.hungerChance * (1 - smoothstep(M.hungerLow, M.hungerHigh, s.food[id])) + (s.pol !== null ? fleeChance(s.pol, id) : 0) // polities: flight from danger
     if (p < M.minPop) {
       // Too few to split up: when hunger drives them out, the whole hamlet
       // leaves together (and the site is abandoned).
@@ -248,9 +249,10 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           const rich = wf >= WEALTH.joinMin
           let spare = M.joinRoom * foodBase(s, occ) - pop
           if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
-          if ((mayJoin || rich) && spare >= g) {
+          if ((mayJoin || rich) && spare >= g && (s.pol === null || !joinBlocked(s.pol, from, occ))) { // polities: never into an enemy at war
             const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
-            const score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+            let score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+            if (s.pol !== null) score *= joinFactor(s, s.pol, from, occ) // polities: crowding into walled towns
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
@@ -273,6 +275,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           const free = alone > 0 ? food / alone : 0
           let score = (food * (1 + M.emptyPull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
           if (portReach[c]) score *= sitePref
+          if (s.pol !== null) score *= siteFactor(s.pol, c) // polities: danger and defensibility
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }

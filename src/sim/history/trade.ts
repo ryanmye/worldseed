@@ -59,6 +59,7 @@ import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent, techOf } from './state.ts'
 import { ContactVia, learnPath, meet } from './knowledge.ts'
+import { embargoed } from './polity/system.ts' // polities:
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -729,10 +730,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   pairFlow.fill(0)
   const damping = TRADE.damping, maxShare = TRADE.maxShare, margin = TRADE.margin
   const probeOff = s.year % TRADE.probeStep !== 0
+  const pol = s.pol // polities:
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
       if (!trader[a] || !trader[b]) continue
+      if (pol !== null && embargoed(pol, a, b)) continue // polities: war embargo
       const r = pairRoute[p]
       if (r < 0 && probeOff) continue
       // Transport gets cheaper with the Crafts of the two ends' peoples (their mean).

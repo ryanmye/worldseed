@@ -75,6 +75,11 @@ import type { ExpeditionLog } from './exploration.ts'
 import { detectFeatures } from '../names/features.ts'
 import type { FeatureMap } from '../names/features.ts'
 import type { TechState } from './technology.ts'
+// polities:
+import { POLITY } from './polity/params.ts'
+import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
+import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot } from './polity/assemble.ts'
+import type { PolityDiag } from './polity/state.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -114,6 +119,8 @@ export interface HistoryDiagnostics {
   discoveryCell?: number[]
   /** Year an expedition first revealed each cell nobody knew before, -1 otherwise. */
   revealed?: Int16Array
+  /** polities: counters of the polity system (absent when it is off). */
+  polity?: PolityDiag
 }
 
 function copyLog(l: ExpeditionLog): ExpeditionLog {
@@ -269,6 +276,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const techState = createTech(s)
   const explore = createExplore(s, createRng(seed, 'history-expeditions'))
   const P = s.know.P
+  // polities: the polity system (states, war, danger), unless switched off.
+  const pol = (options?.polities ?? POLITY.enabled) ? createPolitySystem(s, trade) : null
+  s.pol = pol
+  const polSnaps = pol ? createSnaps(pol) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -292,6 +303,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       const j = trade.roadCells[t]
       road[o + j] = (s.road[j] * 255 + 0.5) | 0
     }
+    if (pol && polSnaps) polLandSnapshot(s, pol, polSnaps) // polities:
   }
 
   // Snapshots are ragged while the run is going (settlement count grows):
@@ -325,6 +337,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let t = 0; t < s.living.length; t++) peopleAlive[s.people[s.living[t]]] = 1
     for (let i = 0; i < PF; i++) snapTech[techUsed + i] = peopleAlive[(i / TECH_FIELD_COUNT) | 0] ? s.tech[i] : 0
     techUsed += PF
+    if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -352,11 +365,13 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     weatherSystem(s, weather)
     foodSystem(s)
     tradeSystem(s, trade)
+    if (pol) taxSystem(s, pol) // polities: grain tax to capitals
     populationSystem(s)
     migrationSystem(s, search)
     voyageSystem(s, voyages)
     abandonmentSystem(s)
     tradeAbandonSystem(s, trade)
+    if (pol) politySystem(s, pol, trade) // polities: states, war, danger
     structureSystem(s, scratch, portSearch)
     if (s.landYear) {
       landUseSystem(s)
@@ -406,6 +421,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let i = 0; i < terrain.cellCount; i++) capacity[i] = terrain.capacity[i]
     const journeys = assembleJourneys(s.journeys)
     const log = voyages.log
+    // polities: states, borders, wars and danger (empty when the system is off).
+    const polHist = pol && polSnaps ? assemblePolityHistory(world, s, pol, polSnaps, years, snapshotCount, landSnapshotCount, naming, peoples.map((p) => p.name)) : emptyPolityHistory()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -418,6 +435,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         knownYear: s.know.known.slice(),
         contactYear: s.know.contact.slice(),
         technology: snapTech.slice(0, snapshotCount * PF),
+        ...polHist, // polities:
       },
       terrain,
       diag: {
@@ -426,6 +444,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cradles, knowledge: s.knowDiag ? { ...s.knowDiag } : undefined, contactVia: s.know.via.slice(),
         firstLearn: techState.firstLearn.slice(), peopleVolume: techState.pairVol.slice(), near: s.know.near.slice(),
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
+        polity: pol ? { ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice() } : undefined, // polities:
       },
     }
   }
