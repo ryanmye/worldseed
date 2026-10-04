@@ -29,7 +29,7 @@ function hv(h: number, v: unknown): number {
 export function hashPreTourism(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => !TOURISM_KEYS.has(x)).sort()) {
+  for (const k of Object.keys(r).filter((x) => !TOURISM_KEYS.has(x) && x !== 'renamings').sort()) { // (renaming: later than tourism)
     h = fnvBytes(h, enc.encode(k))
     if (k === 'settlements') h = hv(h, hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }))
     else if (k === 'events') h = hv(h, hi.events.filter((e) => e.type < 100 || e.type > 109))
@@ -183,7 +183,7 @@ describe('tourism', () => {
   it('switched off, the history is the one from before the tourism system, with the tourism fields empty', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...opts, tourism: false })
+      const h = simulateHistory(w, { years, ...opts, tourism: false, renaming: false }) // (renaming: later, off here too)
       expect(hashPreTourism(h)).toBe(hash)
       expect(h.scenery.length + h.sceneryKind.length + h.sights.length + h.visitorFlows.count + h.visitorFlows.rowCount + h.visitorFlows.path.length).toBe(0)
       expect(h.events.some((e) => e.type >= 100 && e.type <= 109)).toBe(false)

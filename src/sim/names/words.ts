@@ -29,7 +29,7 @@ function isVowelChar(ch: string): boolean {
   return VOWEL_CHARS.indexOf(ch) >= 0
 }
 
-interface Unit {
+export interface Unit {
   s: string
   vowel: boolean
   /** Weight toward a consonant run (2 for the soft digraphs). */
@@ -37,7 +37,7 @@ interface Unit {
 }
 
 /** Splits a lowercase word into phoneme units; an apostrophe becomes a break unit (s = "'"). */
-function toUnits(s: string): Unit[] {
+export function toUnits(s: string): Unit[] {
   const units: Unit[] = []
   let i = 0
   while (i < s.length) {

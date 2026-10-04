@@ -142,6 +142,11 @@ import { createTourism } from './tourism/state.ts'
 import type { TourismDiag } from './tourism/state.ts'
 import { tourismProvision, tourismRoads, tourismSnapshot, tourismYear } from './tourism/system.ts'
 import { assembleTourism, emptyTourismHistory } from './tourism/assemble.ts'
+// renaming: places renamed by history (renaming/).
+import { RENAMING_ON } from './renaming/params.ts'
+import { createRenaming, renamingYear } from './renaming/system.ts'
+import type { RenamingDiag } from './renaming/state.ts'
+import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -204,6 +209,8 @@ export interface HistoryDiagnostics {
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
   tourism?: TourismDiag
+  /** renaming: the renaming system's counters (absent when it is off). */
+  renaming?: RenamingDiag
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -388,6 +395,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // tourism: scenery and the scenic spots, unless switched off.
   const tz = (options?.tourism ?? TOURISM_ON) ? createTourism(world, terrain, P, createRng(seed, 'history-tourism-springs'), createRng(seed, 'history-tourism')) : null
   s.tz = tz
+  // renaming: places renamed by history (a pure consequence layer, read-only on the rest), unless switched off.
+  const rn = (options?.renaming ?? RENAMING_ON) ? createRenaming(s) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -516,6 +525,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (dz) diseaseSystem(s, dz, trade, techState) // disease: outbreaks spread and take their toll (visitors carry them too); endemic sickness, fever
     const fled = rel ? religionYear(s, rel, trade) : false // religion: spread, conversion, churches, schism, persecution, pilgrims, flight
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
+    if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -569,10 +579,11 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const rulHist = rul ? assembleRulers(world, rul, pol ? pol.P : 0, naming) : emptyRulerHistory()
     const relHist = rel ? assembleReligion(world, rel, naming, peoples.map((p) => p.name), snapshotCount, S, pol ? pol.P : 0) : emptyReligionHistory()
     const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
+    const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
-        events: discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), journeys,
+        events: weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), journeys, // (renaming: PlaceRenamed woven in)
         structures: s.structures.map((x) => ({ ...x })), // (later years may still mark them lost)
         landInterval, landSnapshotCount,
         landUse: landUse.slice(0, landSnapshotCount * N), degradation: degradation.slice(0, landSnapshotCount * N), road: road.slice(0, landSnapshotCount * N),
@@ -590,6 +601,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...rulHist, // rulers:
         ...relHist, // religion:
         ...tourismHist, // tourism:
+        renamings: renHist.renamings, // renaming:
       },
       terrain,
       diag: {
@@ -610,6 +622,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
+        renaming: rn ? { ...rn.diag } : undefined, // renaming:
       },
     }
   }

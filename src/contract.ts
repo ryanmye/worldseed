@@ -203,6 +203,8 @@ export const EventType = {
   ResortDeclined: 103, // `settlement`, once in fashion, lost most of its visitors; `other` -1; `value` visitors a year left; `extra` the cause: 0 fashion moved, 1 war or danger on the way, 2 an epidemic, 3 the towns it drew on declined
   ResortAbandoned: 104, // the resort town `settlement` was given up when its visitors failed for good (the Abandoned event follows); `other` -1; `value` years without visitors
   SightRecognised: 105, // a place became a sight worth the journey: `settlement` the living settlement by it (its own, the town that hosts its visitors, or the nearest); `other` the sight's own settlement (a ruin's abandoned one) or -1; `value` the sight id (History.sights, which has its cell); `extra` the SightKind
+  // renaming: places renamed by history (110-119; none when HistoryOptions.renaming is false).
+  PlaceRenamed: 110, // `settlement` took the name History.renamings.name[`value`] (`value` the renaming id); `other` the capital of the polity behind it at the time, the ruin whose name it revived (RenameCause.Revived), or -1; `extra` the RenameCause
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -464,6 +466,106 @@ export interface History {
   sights: Sight[]
   /** Leisure travel between towns and the places their people visit. */
   visitorFlows: VisitorFlows
+  // renaming: places renamed by history (empty when HistoryOptions.renaming is false).
+  /**
+   * Every renaming of a settlement, in chronological order (each also logged as EventType.PlaceRenamed). Settlement.name stays
+   * the founding name; the name in use at a year is settlementNameAt(history, id, year).
+   */
+  renamings: Renamings
+}
+
+// ---------------------------------------------------------------------------
+// renaming: places renamed as a consequence of history.
+
+/** Why a settlement was renamed (History.renamings.cause, the `extra` of EventType.PlaceRenamed). */
+export const RenameCause = {
+  Conquest: 0, // held for some years by a conqueror of another people, whose tongue adapted the name or replaced it (Smyrna to Izmir, New Amsterdam to New York)
+  Cession: 1, // passed to a state of another people at a peace treaty and renamed by its new masters (Koenigsberg to Kaliningrad, Pressburg to Bratislava)
+  Capital: 2, // made a capital or imperial seat and renamed for the ruler or the house, or given a new royal name (Byzantium to Constantinople, Edo to Tokyo, Ahmedabad)
+  Refounded: 3, // sacked, then rebuilt by its conquerors under a new name (Jerusalem to Aelia Capitolina, Carthage refounded)
+  Faith: 4, // rededicated to a faith: a new state religion renaming the royal city or the old faith's holy city, or a holy city taken by a state of another faith (Yathrib to Medina, Prayag to Allahabad)
+  Trade: 5, // the name foreign traders used for a port that hosted their factory for generations stuck (Bombay, Canton, Madras)
+  Restored: 6, // an earlier name back on liberation, secession or the fall of the conqueror: the town under a state of the people whose name it bore (Chennai, Mumbai, Gdansk; Christiania to Oslo)
+  Revived: 7, // a town grown on the site of a ruin took the old town's name (the revived ancient names of modern Greece and Israel)
+  HouseFell: 8, // the house it was named for lost the throne: the previous name back, or a neutral new one (Leningrad to St Petersburg, Stalingrad to Volgograd)
+  Distinguished: 9, // founded with a name another town already bore: known from its founding by a qualified form (Newcastle-under-Lyme); logged in its founding year
+} as const
+export type RenameCause = (typeof RenameCause)[keyof typeof RenameCause]
+
+/** What a new name is made of (History.renamings.form). */
+export const RenameForm = {
+  Adapted: 0, // the old name in the new masters' tongue: its sounds fitted to their language, perhaps clipped or with one of their endings
+  New: 1, // a fresh name in the new masters' language
+  Ruler: 2, // named for the reigning ruler (History.renamings.ruler): the ruler's name with a city ending of the language
+  House: 3, // named for the ruling house (History.renamings.dynasty)
+  Faith: 4, // named for a faith (History.renamings.faith)
+  Restored: 5, // an earlier name of the town (History.renamings.restored says which)
+  Revived: 6, // the name of the ruin it stands on (History.renamings.source)
+  Qualified: 7, // its founding name with an ending of its own language (Distinguished)
+} as const
+export type RenameForm = (typeof RenameForm)[keyof typeof RenameForm]
+
+/** `restored` of a renaming that gives a name not borne before. */
+export const NEW_NAME = -2
+
+/**
+ * Renamings, struct-of-arrays in chronological order (a year's renamings in the order they happened; a longer run repeats a
+ * shorter one's table exactly). The name in use at year y is that of the last renaming of the settlement with year <= y, else
+ * Settlement.name. No two living settlements bear the same name at any year; a name is never borne by two settlements over the
+ * run, except that a revived name passes from the abandoned ruin to the town on its site.
+ */
+export interface Renamings {
+  count: number
+  settlement: Int32Array
+  year: Int16Array
+  /** The new name. */
+  name: string[]
+  cause: Uint8Array
+  form: Uint8Array
+  /** The polity behind it (the conqueror, the realm whose capital it became, the liberator, the trading power; for a revived name the town's own), -1 (none: Distinguished, stateless). */
+  polity: Int16Array
+  /** The ruler of that polity at the year (History.rulers; the one honoured when the form is Ruler), -1 (none, or rulers off). */
+  ruler: Int32Array
+  /** That ruler's house (History.dynasties; the one honoured when the form is House), -1. */
+  dynasty: Int32Array
+  /** The faith it was named for (form Faith), or the holy city's faith a Faith renaming took from it, -1. */
+  faith: Int16Array
+  /** The people whose language the new name is in. */
+  people: Int16Array
+  /** The renaming whose name this one replaces, -1 for the founding name (Settlement.name). */
+  previous: Int32Array
+  /** Restored, Revived, HouseFell back to an old name: the renaming that first gave the name now borne again, -1 for a founding name (of `settlement`, or of `source` when revived); NEW_NAME (-2) for a new name. */
+  restored: Int32Array
+  /** Revived: the abandoned settlement whose name it took; else -1. */
+  source: Int32Array
+  /** The people who kept the previous name in use (the town's own people under a name imposed by foreigners who persecute them, or while a state of their own stands), -1. */
+  keptBy: Int16Array
+}
+
+/** Index into History.renamings of the renaming in force for settlement `id` at `year` (its last with year <= `year`), or -1 for the founding name. */
+export function renamingAt(h: Pick<History, 'renamings'>, id: number, year: number): number {
+  const R = h.renamings
+  let k = -1
+  if (!R) return k
+  for (let i = 0; i < R.count && R.year[i] <= year; i++) if (R.settlement[i] === id) k = i
+  return k
+}
+
+/** Name in use of settlement `id` at `year` (Settlement.name until its first renaming). */
+export function settlementNameAt(h: Pick<History, 'settlements' | 'renamings'>, id: number, year: number): string {
+  const k = renamingAt(h, id, year)
+  return k < 0 ? h.settlements[id].name : h.renamings.name[k]
+}
+
+/** Earlier names of settlement `id` before the one in use at `year`, most recent first, each once ("formerly ..."). */
+export function formerNamesAt(h: Pick<History, 'settlements' | 'renamings'>, id: number, year: number): string[] {
+  const R = h.renamings
+  const now = settlementNameAt(h, id, year)
+  const seq: string[] = []
+  if (R) for (let i = 0; i < R.count && R.year[i] <= year; i++) if (R.settlement[i] === id) { if (seq.length === 0 && R.cause[i] !== RenameCause.Distinguished) seq.push(h.settlements[id].name); seq.push(R.name[i]) }
+  const out: string[] = []
+  for (let i = seq.length - 2; i >= 0; i--) if (seq[i] !== now && out.indexOf(seq[i]) < 0) out.push(seq[i])
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,6 +1291,8 @@ export interface HistoryOptions {
   religion?: boolean
   /** tourism: simulate scenery, sights, leisure travel and resort towns. Default true; false gives the history without them (the tourism fields empty). */
   tourism?: boolean
+  /** renaming: places renamed by history (conquest, cession, new capitals, faith, trade, restoration, revival; History.renamings). Default true; false leaves History.renamings empty. A pure consequence layer: on or off, every other field is the same (events aside, which gain PlaceRenamed). */
+  renaming?: boolean
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
