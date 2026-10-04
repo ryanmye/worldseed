@@ -13,7 +13,7 @@
 // is hooked and the Factions panel looks as before.
 
 import { AccessionHow, ReignEnd, UnionEnd, type History } from '../contract.ts'
-import { formatInt, settlementName } from './format.ts'
+import { formatInt } from './format.ts'
 import { capitalAt, polityAtYear } from './politiesData.ts'
 import { setPolityRulersHooks } from './politiesPanel.ts'
 import {
@@ -154,8 +154,6 @@ export function createRulersView(deps: RulersViewDeps): RulersView {
       const hl = line(`${how} in ${x.acceded}`)
       if (o >= 0 && R.rulers[o].end !== ReignEnd.Natural && R.rulers[o].end !== ReignEnd.Reigning && x.how !== AccessionHow.Usurped) hl.append(span('rp-faint', ` (${R.title[o]} ${END_WORDS[R.rulers[o].end]})`))
       if (R.regency[r] > 0 && year < x.acceded + R.regency[r]) line(span('rp-tag', 'regency'), ` A regency rules until ${x.acceded + R.regency[r]}, when ${x.female ? 'she' : 'he'} comes of age`)
-      // the same person on another throne (a union)
-      for (const q of personThrones(R, r, year)) line('Also rules ', polityLink(q), ' in a personal union')
     } else {
       const last = lastReignBy(R, p, year)
       if (last >= 0) line(span('rp-faint', `No ruler since ${R.rulers[last].ended} (${R.title[last]} ${END_WORDS[R.rulers[last].end] || 'left the throne'})`))
@@ -219,7 +217,7 @@ export function createRulersView(deps: RulersViewDeps): RulersView {
   }
 
   /** The king list: every reign acceded by the year, the one now marked. */
-  function fillList(p: number, rs: Int32Array, n: number, cur: number) {
+  function fillList(rs: Int32Array, n: number, cur: number) {
     const R = rd!
     list.replaceChildren()
     listCap.textContent = `Rulers (${formatInt(n)})`
@@ -245,7 +243,6 @@ export function createRulersView(deps: RulersViewDeps): RulersView {
       row.title = `${rulerWord(R, r, x.acceded)} ${R.title[r]}${houseName(R, r) ? ` of ${houseName(R, r)}` : ''}, ${years(x.acceded, x.ended)}${end ? ` (${end})` : ''}. Click to go to ${x.acceded}.`
       list.append(row)
     }
-    void p
   }
 
   /** The house of the reign now (or the last): its reigns on every throne, with kin, regencies, cadet lines and its end. */
@@ -318,7 +315,7 @@ export function createRulersView(deps: RulersViewDeps): RulersView {
     let listChanged = false
     if (listKey !== shownListKey) {
       shownListKey = listKey
-      fillList(p, rs, n, cur)
+      fillList(rs, n, cur)
       listChanged = true
     }
     const hr = cur >= 0 ? cur : rs[n - 1]
@@ -395,20 +392,7 @@ export function createRulersView(deps: RulersViewDeps): RulersView {
       updateSeat()
     },
   }
-  void settlementName
   return api
-}
-
-/** The other thrones the person of reign r holds at `year` (personal unions). */
-function personThrones(R: RulersData, r: number, year: number): number[] {
-  const out: number[] = []
-  const person = R.rulers[r].person
-  for (let k = 0; k < R.R; k++) {
-    const y = R.rulers[k]
-    if (k === r || y.person !== person || y.acceded > year || (y.ended >= 0 && y.ended < year)) continue
-    out.push(y.polity)
-  }
-  return out
 }
 
 /** The last reign of p that had ended by `year` (-1). */

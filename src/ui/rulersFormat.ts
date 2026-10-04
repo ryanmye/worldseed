@@ -241,9 +241,25 @@ export function describeRulersEvent(h: History, e: HistoryEvent): string | null 
   return describeFor(h, e, -1)
 }
 
-/** Inspector line for a rulers or faith event from the point of view of settlement `id`, or null. */
+/** Inspector line for a rulers or faith event from the point of view of settlement `id` (in the past tense, as the inspector's other lines), or null. */
 export function describeRulersEventFor(h: History, e: HistoryEvent, id: number): string | null {
-  return describeFor(h, e, id)
+  const s = describeFor(h, e, id)
+  return s ? past(s) : null
+}
+
+const PAST: [RegExp, string][] = [
+  [/\bsucceeds\b/g, 'succeeded'], [/\balso takes\b/g, 'also took'], [/\btakes\b/g, 'took'], [/\bseizes\b/g, 'seized'], [/\binherits\b/g, 'inherited'],
+  [/\braise\b/g, 'raised'], [/\belect\b/g, 'elected'], [/\bis elected\b/g, 'was elected'], [/\brises\b/g, 'rose'], [/\brules\b/g, 'ruled'], [/\bcomes\b/g, 'came'],
+  [/\bdies\b/g, 'died'], [/\bfalls\b/g, 'fell'], [/\bis killed\b/g, 'was killed'], [/\bis overthrown\b/g, 'was overthrown'], [/\bis deposed\b/g, 'was deposed'],
+  [/\bends\b/g, 'ended'], [/\bloses\b/g, 'lost'], [/\bhas lost\b/g, 'had lost'], [/\bgoes\b/g, 'went'], [/\bmakes\b/g, 'made'], [/\bbegins\b/g, 'began'],
+  [/\bdeclares\b/g, 'declared'], [/\bsplits\b/g, 'split'], [/\breaches\b/g, 'reached'], [/\bjoins\b/g, 'joined'], [/\bbreaks apart\b/g, 'broke apart'],
+  [/\bis merged\b/g, 'was merged'], [/\bis founded\b/g, 'was founded'], [/\bSchism: /g, ''],
+]
+/** The inspector's tense: "Narun II succeeded his father here". */
+function past(s: string): string {
+  let o = s
+  for (const [re, w] of PAST) o = o.replace(re, w)
+  return o.charAt(0).toUpperCase() + o.slice(1)
 }
 
 function describeFor(h: History, e: HistoryEvent, id: number): string | null {
@@ -311,7 +327,7 @@ function describeFor(h: History, e: HistoryEvent, id: number): string | null {
     // ---- faiths ----
     case EventType.FaithFounded: {
       const woe = foundingWoe(h, e)
-      return self ? `${cap(fname(fd, e.value))} was founded here${woe ? ` ${woe}` : ''}; its holy city` : `${cap(fname(fd, e.value))} is founded at ${S}${woe ? ` ${woe}` : ''}`
+      return self ? `${cap(fname(fd, e.value))} was founded here${woe ? ` ${woe}` : ''}: the town became its holy city` : `${cap(fname(fd, e.value))} is founded at ${S}${woe ? ` ${woe}` : ''}`
     }
     case EventType.RulerConverted: {
       const q = rd ? polityOfCapital(rd, e.settlement, e.year) : -1
