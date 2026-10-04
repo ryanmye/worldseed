@@ -1,0 +1,152 @@
+/* Rulers: the Factions detail's ruler section (king list, house strip), the title's ruler, war tags, the inspector's seat line, chronicle dots (rulersPanel.ts, rulersFormat.ts) */
+
+.fp-under {
+  margin-left: 2px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-section {
+  margin: 3px 0 2px;
+}
+.rp-now .fp-d-line {
+  color: var(--text-2);
+}
+.rp-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.rp-faint {
+  color: var(--text-faint);
+}
+.rp-faith {
+  color: #e9d9a8;
+}
+.rp-tag {
+  display: inline-block;
+  margin: 0 2px 0 3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  line-height: 13px;
+  letter-spacing: 0.03em;
+  color: #e8e2d4;
+  background: rgba(255, 255, 255, 0.12);
+  vertical-align: 1px;
+}
+.rp-tag.usurp {
+  color: #ffd27a;
+  background: rgba(200, 20, 40, 0.3);
+}
+.rp-tag.union {
+  color: #d9ccff;
+  background: rgba(120, 90, 220, 0.3);
+}
+.rp-tag.cadet {
+  color: #bfe6d0;
+  background: rgba(60, 150, 110, 0.28);
+}
+/* the king list and the house strip: short scrollers */
+.rp-list,
+.rp-house {
+  max-height: 124px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  margin: 1px 0 2px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.14);
+}
+.rp-house.hidden,
+.fp-d-cap.hidden {
+  display: none;
+}
+.rp-row,
+.rp-strip {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+.rp-row:hover,
+.rp-strip:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.rp-row.now,
+.rp-strip.now {
+  background: rgba(255, 214, 120, 0.16);
+  color: var(--text);
+}
+.rp-y {
+  flex: none;
+  min-width: 62px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.rp-strip .rp-y {
+  min-width: 0;
+}
+.rp-n {
+  flex: none;
+}
+.rp-house-name {
+  flex: none;
+  font-size: 10px;
+  font-style: italic;
+  color: #d9b98a;
+}
+.rp-end {
+  margin-left: auto;
+  padding-left: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.rp-gen {
+  flex: none;
+  width: 8px;
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.rp-rel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+.rp-end-line {
+  padding: 1px 4px 2px;
+  font-size: 11px;
+  color: #e9b29a;
+  white-space: normal;
+}
+/* the inspector: seat of a ruler */
+.ir-seat {
+  color: var(--text-2);
+}
+.ir-seat.hidden {
+  display: none;
+}
+/* chronicle and inspector dots: rulers (a crown's gold on purple) */
+.ev-ruler .ev-text::before {
+  border-radius: 2px;
+  background: linear-gradient(180deg, #f2c94c 0 45%, #6a3fa0 45%);
+}

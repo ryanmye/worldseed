@@ -9,10 +9,11 @@ import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
-import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
+import { entryCategory, CHRONICLE_FILTERS, isOptionalFilter } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
 import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
 import { describeTourismGroup, FASHION_BUCKET_YEARS, isSightGroup, isTourismHeadline } from './tourismFormat.ts'
+import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, rulersGroupKey } from './rulersFormat.ts'
 import { addShortcut } from './shortcuts.ts'
 
 const ROWS = 40
@@ -263,6 +264,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeGoodsGroup(h, members)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if ((kind === EntryKind.Rulers || kind === EntryKind.Faiths) && m > 1) {
+      // rulers, religion: a succession's events, one state's successions, a conversion, a faith reaching peoples, a war with its declaration
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeRulersGroup(h, members, rulersGroupKey(h, ix.notableMembers[lo]))
+      for (let q = lo; q < lo + m; q++) if (isRulersOrFaithEvent(h.events[ix.notableMembers[q]].type as number)) { ev = ix.notableMembers[q]; break }
+      yearText = String(h.events[ix.notableMembers[lo]].year)
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if (kind === EntryKind.Disease && m > 1) {
       // disease: an epidemic's cities, a war's armies, a decade's quarantined ports or endemic sicknesses
       const members = []
@@ -299,6 +308,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     if (kind === EntryKind.Single && isPolityHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
+    // rulers, religion: contested and dynastic successions, unions, wars of succession, faiths founded, schisms, holy wars, holy cities fallen
+    else if ((kind === EntryKind.Single || kind === EntryKind.Rulers || kind === EntryKind.Faiths) && isRulersEntryHeadline(h, ix.notableMembers, lo, m)) r.li.className = `ev-${ek} notable headline`
     // disease: great epidemics beginning and passing, big cities struck (and an epidemic's cities together)
     else if ((kind === EntryKind.Single && isDiseaseHeadline(h, h.events[ev])) || (kind === EntryKind.Disease && m > 1 && isDiseaseGroupHeadline(h.events[ev]))) r.li.className = `ev-${ek} notable headline`
     // tourism: a people's first leisure travel, a resort town founded
@@ -324,6 +335,9 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
         counts[cat[k]]++
       }
       politics = counts[1]
+      // rulers, religion: their filters only with entries of their kind (a remembered one left empty falls back to All)
+      ;[...filterSelect.options].forEach((o, i) => (o.hidden = isOptionalFilter(i) && counts[i] === 0))
+      if (filterSelect.options[filter]?.hidden) filterSelect.value = String((filter = 0))
       for (let c = 0; c < CHRONICLE_FILTERS.length; c++) {
         const list = new Int32Array(c === 0 ? 0 : counts[c])
         let j = 0

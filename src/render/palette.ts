@@ -26,6 +26,8 @@ export const ViewMode = {
   Factions: 'factions',
   /** polities: danger (raids, war, lawlessness) per land cell as a heat map (render/polities.ts), over a neutral base. */
   Danger: 'danger',
+  /** religion: majority faith of the land of each settlement (ui/faithsPanel.ts colours it; hidden without faiths). */
+  Faiths: 'faiths',
   /** goods: deposits, mines and the industries of towns over a muted relief (ui/goodsPanel.ts, render/longhaul.ts; hidden without goods data). */
   Resources: 'resources',
   /** disease: place-bound fever per cell as a heat map (History.fever; optionally as one people feels it, ui/diseasePanel.ts; hidden without it). */
@@ -50,6 +52,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Cash,
   ViewMode.Factions,
   ViewMode.Danger,
+  ViewMode.Faiths,
   ViewMode.Resources,
   ViewMode.Fever,
   ViewMode.Scenery,
@@ -81,6 +84,7 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Cash:
     case ViewMode.Factions:
     case ViewMode.Danger:
+    case ViewMode.Faiths:
     case ViewMode.Resources: return BlendStyle.Categorical
     default: return BlendStyle.Smooth
   }
@@ -262,6 +266,8 @@ export interface ModeData {
   densityMax?: number
   /** Crops, Herds and Cash crops views: sRGB 0..255 per cell (3 per cell) for the land snapshot shown, or null (all land neutral). */
   speciesRgb?: Uint8Array | null
+  /** Faiths view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
+  faithRgb?: Uint8Array | null
   /** Fever view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
   feverRgb?: Uint8Array | null
   /** Scenery view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
@@ -371,6 +377,17 @@ export function colorForMode(
       const water = e < 0 || world.lake?.[i] === 1
       const c = mode === ViewMode.Scenery ? data?.sceneryRgb : data?.feverRgb
       if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (c && c.length >= (i + 1) * 3) {
+        out[o] = (c[i * 3] / 255) * scale
+        out[o + 1] = (c[i * 3 + 1] / 255) * scale
+        out[o + 2] = (c[i * 3 + 2] / 255) * scale
+      } else write(DANGER_LAND, out, o, scale)
+      return
+    }
+    case ViewMode.Faiths: {
+      const water = e < 0 || world.lake?.[i] === 1
+      const c = data?.faithRgb
+      if (water) write(FACTIONS_WATER, out, o, scale)
       else if (c && c.length >= (i + 1) * 3) {
         out[o] = (c[i * 3] / 255) * scale
         out[o + 1] = (c[i * 3 + 1] / 255) * scale

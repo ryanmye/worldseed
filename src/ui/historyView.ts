@@ -10,6 +10,8 @@
 // marks of great epidemics (diseasePanel.ts, render/disease.ts, from diseaseData.ts);
 // leisure travel: travellers, visited places, resorts and sights on the map, the Scenery view and
 // the Travel panel (tourismPanel.ts, render/tourism.ts, from tourismData.ts).
+// rulers and faiths: the Factions detail's ruler, king list and house, the Faiths view, panel and
+// holy cities (rulersPanel.ts, faithsPanel.ts, render/faiths.ts, from rulersData.ts and faithsData.ts).
 // Per frame it only derives (snapshot, fraction) from the timeline's year and pushes
 // uniforms; heavier work (copying snapshot rows, recomputing city lights, stats,
 // uploading land rows) happens only when a snapshot index changes.
@@ -56,6 +58,8 @@ import { buildPopulationDensity, type PopulationDensity } from './populationDens
 import { createPolitiesView, type PolitiesBuilt } from './politiesPanel.ts'
 import type { PolityLayer } from '../render/polities.ts'
 import { createGoodsView, type GoodsBuilt } from './goodsPanel.ts'
+import { createRulersView } from './rulersPanel.ts'
+import { createFaithsView, type FaithsBuilt } from './faithsPanel.ts'
 import { createDiseaseView, type DiseaseBuilt } from './diseasePanel.ts'
 import { createTourismView, type TourismBuilt } from './tourismPanel.ts'
 import type { LayerToggle } from './overlay.ts'
@@ -369,6 +373,27 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     addLayerToggle: deps.addLayerToggle,
     setViewModeAvailable: deps.setViewModeAvailable,
   })
+  // rulers: the Factions detail's ruler section and title, war tags, the inspector's seat line
+  const rulers = createRulersView({
+    inspectorSlot: inspector.rulersSlot,
+    setYear: (y) => {
+      timeline.setYear(y)
+      requestRender()
+      deps.wake()
+    },
+  })
+  // faiths: panel, Faiths view and legend, holy cities, inspector lines (its Esc deselects a faith first)
+  const faiths = createFaithsView({
+    right: deps.right,
+    inspectorSlot: inspector.rulersSlot,
+    planetGroup: deps.planetGroup,
+    getGlobe: deps.getGlobe,
+    setUrlParam: deps.setUrlParam,
+    onSelectSettlement: (id) => api.select(id, true),
+    onSelectPolity: (p) => polities.select(p),
+    flyToCell: (cell) => goodsFly(cell),
+    setViewModeAvailable: deps.setViewModeAvailable,
+  })
   // sickness: panel, epidemics layer, Fever view, inspector section, timeline marks (its Esc deselects an epidemic or a disease first)
   const disease = createDiseaseView({
     right: deps.right,
@@ -478,11 +503,13 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     speciesLayer?.setKnownMask(cells)
     epidemics?.setKnownMask(cells)
     polities.setKnownMask(cells)
+    faiths.setKnownMask(cells)
     goods.setKnownMask(cells)
     disease.setKnownMask(cells)
     tourism.setKnownMask(cells)
     const on = cells !== null
     goods.setMasked(on)
+    faiths.setMasked(on)
     disease.setMasked(on)
     tourism.setMasked(on)
     disease.setKnownPeople(on && peoples.selection !== null && peoples.selection >= 0 ? peoples.selection : -1)
@@ -510,6 +537,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     epidemics?: ContactPulses | null
     polities?: PolitiesBuilt | null
     goods?: GoodsBuilt | null
+    faiths?: FaithsBuilt | null
     disease?: DiseaseBuilt | null
     tourism?: TourismBuilt | null
   }
@@ -535,6 +563,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     disposeBuilt(b)
     polities.disposeBuilt(b.polities)
     goods.disposeBuilt(b.goods)
+    faiths.disposeBuilt(b.faiths)
     disease.disposeBuilt(b.disease)
     tourism.disposeBuilt(b.tourism)
   }
@@ -561,6 +590,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     }
     polities.commit(null, null, false)
     goods.commit(null, false)
+    faiths.commit(null, false)
+    rulers.commit(null)
     disease.commit(null, false)
     tourism.commit(null, false)
     timeline.setSparkline(null, 1)
@@ -621,6 +652,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       { name: 'polities', run: () => (b.polities = polities.build(w, h)) },
       // (after the factions: posts take their owners' faction colours)
       { name: 'goods', run: () => (b.goods = goods.build(w, h, b.index!.maxPopulation)) },
+      { name: 'faiths', run: () => (b.faiths = faiths.build(w, h)) },
       { name: 'disease', run: () => (b.disease = disease.build(w, h, b.index!.maxPopulation)) },
       { name: 'tourism', run: () => (b.tourism = tourism.build(w, h, b.index!.maxPopulation)) },
       { name: 'settlements', run: () => (b.layer = buildSettlementLayer(w, h, b.index!.maxPopulation)) },
@@ -755,6 +787,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     labels.setVisible(labelsVisible)
     polities.commit(b.polities ?? null, labels, extend)
     goods.commit(b.goods ?? null, extend)
+    rulers.commit(h)
+    faiths.commit(b.faiths ?? null, extend)
     disease.commit(b.disease ?? null, extend)
     tourism.commit(b.tourism ?? null, extend)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
@@ -798,6 +832,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     speciesView.showSettlement(id, index.isOutpost[id] === 1)
     polities.showSettlement(id)
     goods.showSettlement(id)
+    rulers.showSettlement(id)
+    faiths.showSettlement(id)
     disease.showSettlement(id)
     tourism.showSettlement(id)
   }
@@ -1025,6 +1061,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       peoples.setWorld(w)
       polities.setWorld(w)
       goods.setWorld(w)
+      faiths.setWorld(w)
       disease.setWorld(w)
       tourism.setWorld(w)
       speciesView.setData(null, null, null, null, false)
@@ -1118,6 +1155,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesView.showSettlement(selected, selected >= 0 && index.isOutpost[selected] === 1)
       polities.showSettlement(selected)
       goods.showSettlement(selected)
+      rulers.showSettlement(selected)
+      faiths.showSettlement(selected)
       disease.showSettlement(selected)
       tourism.showSettlement(selected)
       if (selected < 0) {
@@ -1159,6 +1198,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesView.setViewMode(mode)
       polities.setViewMode(mode)
       goods.setViewMode(mode)
+      faiths.setViewMode(mode)
       disease.setViewMode(mode)
       tourism.setViewMode(mode)
       speciesLayer?.setOriginCategory(speciesViewCategory(mode))
@@ -1228,9 +1268,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       // goods: a deposit or a trading post there
       const g = goods.describeCell(cell)
       const withGoods = g ? (withNote ? `${withNote} · ${g}` : g) : withNote
+      // faiths: the majority faith of the land on the Faiths view, a holy city there
+      const fa = faiths.describeCell(cell)
+      const withFaith = fa ? (withGoods ? `${withGoods} · ${fa}` : fa) : withGoods
       // sickness: a place sick there, a port in quarantine, fever ground on the Fever view
       const d = disease.describeCell(cell)
-      const withDisease = d ? (withGoods ? `${withGoods} · ${d}` : d) : withGoods
+      const withDisease = d ? (withFaith ? `${withFaith} · ${d}` : d) : withFaith
       // travel: a sight, a visited place or resort there; the scenery on the Scenery view
       const t = tourism.describeCell(cell)
       return t ? (withDisease ? `${withDisease} · ${t}` : t) : withDisease
@@ -1340,6 +1383,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const fx = !timeline.playing ? 1 : timeline.speed >= 16 ? 0.35 : timeline.speed >= 4 ? 0.75 : 1
       polities.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio)
       goods.tick(year, pos.s0, pos.s1, pos.frac, fx, deps.camera, drawSize, pixelRatio)
+      rulers.tick(year)
+      faiths.tick(year, timeline.playing && timeline.speed >= 4, deps.camera, drawSize, pixelRatio)
       disease.tick(year, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       tourism.tick(year, fx, deps.camera, drawSize, pixelRatio)
       {

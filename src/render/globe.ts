@@ -79,6 +79,8 @@ export interface GlobeMesh {
    * land snapshot or the selection changes, not per frame.
    */
   setSpeciesColors(rgb: Uint8Array | null): void
+  /** Per-cell colours of the Faiths view (sRGB 0..255, 3 per cell; null: all land neutral); rewrites the corner colours while it shows. */
+  setFaithColors(rgb: Uint8Array | null): void
   /** Per-cell colours of the Fever view (sRGB 0..255, 3 per cell; null: all land neutral); rewrites the corner colours while it shows. */
   setFeverColors(rgb: Uint8Array | null): void
   /** Per-cell colours of the Scenery view (sRGB 0..255, 3 per cell; null: all land neutral); rewrites the corner colours while it shows. */
@@ -610,6 +612,10 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
     setSpeciesColors(rgb: Uint8Array | null) {
       modeData.speciesRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
       if (currentMode === ViewMode.Crops || currentMode === ViewMode.Herds || currentMode === ViewMode.Cash) applyColors(currentMode)
+    },
+    setFaithColors(rgb: Uint8Array | null) {
+      modeData.faithRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
+      if (currentMode === ViewMode.Faiths) applyColors(currentMode)
     },
     setFeverColors(rgb: Uint8Array | null) {
       modeData.feverRgb = rgb && rgb.length >= cellCount * 3 ? rgb : null
