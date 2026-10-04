@@ -62,7 +62,7 @@ export const LEISURE = {
   rate: 0.03,
   wLo: 2,
   wHi: 16,
-  cLo: 3.3,
+  cLo: 3.6, // (3.3 before the merge with rulers, religion and the disease retune: their worlds reach Crafts and wealth sooner)
   cHi: 6.0,
   capitalEase: 0.5,
   capitalReach: 0.5,
