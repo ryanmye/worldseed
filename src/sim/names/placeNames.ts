@@ -67,8 +67,19 @@ function mainWord(name: string): string {
   return best
 }
 
-/** A word's sounds in the new language (nearest consonants and vowels; diphthongs it lacks lose their second vowel). */
-function soundsInto(word: string, to: Language): string[] {
+/** The second nearest sound the language has (dissimilation: a sound that would repeat or jar gives way to a neighbour). */
+function second(x: string, have: readonly string[], near: Record<string, readonly string[]>): string {
+  const first = nearest(x, have, near)
+  const n = near[x]
+  if (n) for (const y of n) if (y !== first && have.indexOf(y) >= 0) return y
+  return first
+}
+
+/**
+ * A word's sounds in the new language (nearest consonants and vowels; diphthongs it lacks lose their second vowel). With
+ * `jitter` > 0 each consonant takes its second nearest sound at that chance.
+ */
+function soundsInto(word: string, to: Language, rng: Rng, jitter: number): string[] {
   const units = toUnits(word)
   const out: string[] = []
   for (let i = 0; i < units.length; i++) {
@@ -81,7 +92,7 @@ function soundsInto(word: string, to: Language): string[] {
         if (to.diphthongs.indexOf(prev + v) < 0) continue // (a vowel pair the language lacks: the second falls)
       }
       out.push(v)
-    } else out.push(nearest(u.s, to.consonants, NEAR_C))
+    } else out.push(jitter > 0 && rng.next() < jitter ? second(u.s, to.consonants, NEAR_C) : nearest(u.s, to.consonants, NEAR_C))
   }
   return out
 }
@@ -150,8 +161,9 @@ export function adaptName(old: string, to: Language, endings: readonly string[],
   const base = mainWord(old)
   const oldLc = old.toLowerCase()
   for (let attempt = 0; attempt < 12; attempt++) {
-    let u = soundsInto(base, to)
-    if (syllables(u) >= 3 && rng.next() < 0.35) u = clip(u)
+    let u = soundsInto(base, to, rng, attempt < 3 ? 0 : 0.35)
+    // (clipped now and then, and always in the later attempts: a long foreign name wears down to two syllables)
+    if (syllables(u) >= 3 && (attempt >= 6 || rng.next() < 0.35)) u = clip(u)
     u = fitShape(u, to, rng)
     let w = repair(u, to)
     if (w === null) continue
@@ -162,15 +174,37 @@ export function adaptName(old: string, to: Language, endings: readonly string[],
       const c = composeName(to, w, opts[pickWeighted(rng, opts.map((o) => o.weight))])
       if (c !== null) w = c.toLowerCase()
     }
-    if (w === base || w === oldLc || attempt >= 4) {
-      // (the same sounds in both tongues: the new speakers' ending, or a vowel of theirs, sets it apart)
-      const f = fuseWords(to, w, endings[rng.int(0, endings.length - 1)])
-      if (f !== null && f !== base) w = f
-    }
+    if (w === base || w === oldLc || attempt >= 4) w = setApart(w, base, u, to, endings, rng)
     const name = capitalizeName(w)
     if (name.toLowerCase() !== oldLc && ok(name)) return name
   }
   return null
+}
+
+/**
+ * The same sounds in both tongues (or a word that would not do): the new speakers' ending, their ending for new places, the
+ * last syllable worn away, or a vowel of theirs sets it apart; the first of these that gives a valid new word, else `w`.
+ */
+function setApart(w: string, base: string, units: string[], to: Language, endings: readonly string[], rng: Rng): string {
+  const start = rng.int(0, 3)
+  for (let t = 0; t < 4; t++) {
+    let c: string | null = null
+    switch ((start + t) % 4) {
+      case 0: c = fuseWords(to, w, endings[rng.int(0, endings.length - 1)]); break
+      case 1: { const opts = to.affixes.new; const x = composeName(to, w, opts[pickWeighted(rng, opts.map((o) => o.weight))]); c = x === null ? null : x.toLowerCase(); break }
+      case 2: if (syllables(units) >= 2) c = repair(fitShape(clip(units), to, rng), to); break
+      case 3: {
+        // (the last vowel becomes another of the new language's)
+        const u = units.slice()
+        let i = u.length - 1
+        while (i >= 0 && !isV(u[i])) i--
+        if (i >= 0 && to.vowels.length > 1) { const others = to.vowels.filter((v) => v !== u[i]); u[i] = others[rng.int(0, others.length - 1)]; c = repair(u, to) }
+        break
+      }
+    }
+    if (c !== null && c !== base && c !== w && ok(capitalizeName(c))) return c
+  }
+  return w
 }
 
 /** Shortens a long base to its first two syllables (a dedication must stay a name). */
