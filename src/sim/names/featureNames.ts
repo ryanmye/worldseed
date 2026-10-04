@@ -22,7 +22,7 @@ import type { FeatureMap } from './features.ts'
 import type { SettlementLike, SettlementNaming } from './index.ts'
 import { nameSettlementsDetailed } from './index.ts'
 import type { Language } from './phonology.ts'
-import { buildMorph, buildRoot, capitalizeName, fuseWords, isEuphonic, letterCount, shiftWord } from './words.ts'
+import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, isEuphonic, letterCount, shiftWord } from './words.ts'
 
 type GeoClass = 'ocean' | 'sea' | 'lake' | 'river' | 'mount' | 'land' | 'island' | 'desert' | 'forest' | 'great'
 const GEO_CLASSES: readonly GeoClass[] = ['ocean', 'sea', 'lake', 'river', 'mount', 'land', 'island', 'desert', 'forest', 'great']
@@ -280,7 +280,7 @@ function nameAll(world: World, settlements: readonly SettlementLike[], map: Feat
     let name = ''
     for (let attempt = 0; attempt < 400; attempt++) {
       const cand = featureName(det.kind, ctx, rng)
-      if (cand === null || letterCount(cand) > MAX_NAME || letterCount(cand) < 3 || used.has(cand.toLowerCase())) continue
+      if (cand === null || letterCount(cand) > MAX_NAME || letterCount(cand) < 3 || used.has(cand.toLowerCase()) || (attempt < 300 && !fluentName(cand))) continue
       name = cand
       break
     }
@@ -315,7 +315,7 @@ function rename(world: World, naming: SettlementNaming, id: number, used: Set<st
   for (let attempt = 0; attempt < 300 && !name; attempt++) {
     const cand = capitalizeName(buildRoot(lang, rng))
     const lc = letterCount(cand)
-    if (lc >= 3 && lc <= 12 && !used.has(cand.toLowerCase())) name = cand
+    if (lc >= 3 && lc <= 12 && !used.has(cand.toLowerCase()) && (attempt >= 200 || fluentName(cand))) name = cand
   }
   for (let attempt = 0; !name; attempt++) { // practically unreachable
     const cand = capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng))

@@ -7,7 +7,11 @@
 // `isEuphonic` is the single gate every generated word passes: it rejects
 // awkward vowel hiatus, harsh or over-long consonant clusters (and any cluster
 // at the end of a word), doubled letters, repeated syllables ("itit", "nufnu")
-// and a consonant used three or more times ("Moththathis").
+// and a consonant used three or more times ("Moththathis"). `isFluent` is the
+// second gate every name passes: no syllable said again a syllable or two later
+// ("Musumu", "Blufosefo"), at most four syllables, at most three on one vowel
+// ("Thulnuwunu"). (It is separate so that the settlements' shared naming stream
+// draws as before: an awkward settlement name is redrawn from a stream of its own.)
 
 import type { Rng } from '../rng.ts'
 import type { AffixOption, Language } from './phonology.ts'
@@ -133,6 +137,11 @@ function medialPairOk(a: Unit, b: Unit): boolean {
 const REPEATED_CHUNK = /([a-z]{2,})\1/
 const REPEATED_CV = /([b-df-hj-np-tv-z][aeiou])[a-z]?\1/
 const DOUBLED = /([a-z])\1/
+/** A syllable said again within a syllable or two ("Musumu", "Narinat", "Blufosefo"). */
+const ECHO_CV = /([b-df-hj-np-tv-z][aeiou])[a-z]{0,3}\1/
+/** Most syllables (vowel groups) in a word, and most syllables on the same vowel ("Thulnuwunu"). */
+const MAX_SYLLABLES = 4
+const MAX_SAME_VOWEL = 3
 
 /**
  * Phonotactic gate for one lowercase word (letters and apostrophes): vowel runs of
@@ -186,6 +195,50 @@ export function isEuphonic(word: string): boolean {
     if (count >= 3) return false
   }
   return true
+}
+
+/** The second gate (see the file comment): one lowercase word without an echoed syllable, too many syllables or too many on one vowel. */
+export function isFluent(word: string): boolean {
+  if (ECHO_CV.test(word)) return false
+  const u = toUnits(word)
+  const n = u.length
+  // Not too many syllables, nor too many on one vowel.
+  let groups = 0, ga = 0, ge = 0, gi = 0, go = 0, gu = 0
+  for (let k = 0; k < n; k++) {
+    if (!u[k].vowel || (k > 0 && u[k - 1].vowel)) continue
+    groups++
+    if (k + 1 < n && u[k + 1].vowel) continue // (a diphthong counts as its own colour)
+    const c = u[k].s
+    if (c === 'a') ga++
+    else if (c === 'e') ge++
+    else if (c === 'i') gi++
+    else if (c === 'o') go++
+    else if (c === 'u') gu++
+  }
+  return !(groups > MAX_SYLLABLES || ga > MAX_SAME_VOWEL || ge > MAX_SAME_VOWEL || gi > MAX_SAME_VOWEL || go > MAX_SAME_VOWEL || gu > MAX_SAME_VOWEL)
+}
+
+/** Every word of a name (capitalised or not, words split at spaces and hyphens) passes isFluent. */
+export function fluentName(name: string): boolean {
+  for (const w of name.toLowerCase().split(/[ -]/)) if (w && !isFluent(w)) return false
+  return true
+}
+
+/** Whether `a` and `b` (lower case) are one letter apart: one letter changed, added or dropped (a near-duplicate). */
+export function oneApart(a: string, b: string): boolean {
+  const m = a.length, n = b.length
+  if (a === b || m - n > 1 || n - m > 1) return false
+  let i = 0
+  while (i < m && i < n && a[i] === b[i]) i++
+  if (m === n) return a.slice(i + 1) === b.slice(i + 1)
+  return m > n ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1)
+}
+
+/** Whether `name` is a near-duplicate of any of `names` (lower case, in order). */
+export function nearAny(names: readonly string[], name: string): boolean {
+  const x = name.toLowerCase()
+  for (let i = 0; i < names.length; i++) if (oneApart(names[i], x)) return true
+  return false
 }
 
 export function capFirst(w: string): string {

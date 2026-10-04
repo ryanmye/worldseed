@@ -19,7 +19,7 @@ import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import type { Language } from './phonology.ts'
 import type { SettlementNaming } from './index.ts'
-import { buildMorph, buildRoot, capitalizeName, fuseWords, letterCount } from './words.ts'
+import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, letterCount, nearAny } from './words.ts'
 
 export interface HouseLike {
   /** First capital (its language names the house and its people). */
@@ -58,7 +58,7 @@ function word(lang: Language, rng: Rng, min: number, max: number): string {
   for (let k = 0; k < 40; k++) {
     const w = capitalizeName(buildRoot(lang, rng))
     const n = letterCount(w)
-    if (n >= min && n <= max) return w
+    if (n >= min && n <= max && (k >= 30 || fluentName(w))) return w
   }
   return capitalizeName(buildRoot(lang, rng))
 }
@@ -80,6 +80,7 @@ export function nameRulers(world: World, naming: SettlementNaming, houses: reado
   const cache = new Map<string, string[]>()
   const used = new Set<string>()
   const houseNames: string[] = []
+  const houseLc: string[] = [] // (for near-duplicates)
   const male: string[][] = [], female: string[][] = []
   const langs: Language[] = []
   for (let d = 0; d < houses.length; d++) {
@@ -101,10 +102,11 @@ export function nameRulers(world: World, naming: SettlementNaming, houses: reado
       if (w === null || attempt > 120) w = buildRoot(lang, rng)
       const cand = capitalizeName(w)
       const n = letterCount(cand)
-      if (n >= 3 && n <= (attempt < 100 ? 9 : 12) && !used.has(cand.toLowerCase())) name = cand
+      if (n >= 3 && n <= (attempt < 100 ? 9 : 12) && !used.has(cand.toLowerCase()) && (attempt >= 100 || (fluentName(cand) && !nearAny(houseLc, cand)))) name = cand
     }
     if (!name) name = capitalizeName(buildRoot(lang, rng)) + 'a' + d // practically unreachable
     used.add(name.toLowerCase())
+    houseLc.push(name.toLowerCase())
     houseNames.push(name)
     const m: string[] = [], f: string[] = []
     for (let k = 0; k < 6; k++) {
@@ -117,7 +119,7 @@ export function nameRulers(world: World, naming: SettlementNaming, houses: reado
       for (let t = 0; t < 12 && (!w || f.indexOf(w) >= 0 || m.indexOf(w) >= 0); t++) {
         const root = buildRoot(lang, rng)
         const fu = rng.next() < 0.7 ? fuseWords(lang, root, fem[Math.floor(rng.next() * fem.length)]) : null
-        w = capitalizeName(fu !== null && letterCount(fu) <= 10 ? fu : root)
+        w = capitalizeName(fu !== null && letterCount(fu) <= 9 && fluentName(fu) ? fu : root)
       }
       f.push(w)
     }
@@ -176,6 +178,7 @@ export function nameFaiths(world: World, naming: SettlementNaming, faiths: reado
   const used = new Set<string>()
   for (const p of peopleNames) used.add(p.toLowerCase())
   const out: string[] = []
+  const outLc: string[] = [] // (for near-duplicates)
   for (let f = 0; f < faiths.length; f++) {
     const x = faiths[f]
     const at = x.foundedAt
@@ -192,10 +195,11 @@ export function nameFaiths(world: World, naming: SettlementNaming, faiths: reado
       if (w === null || attempt > 120) w = buildRoot(lang, rng)
       const cand = capitalizeName(w)
       const n = letterCount(cand)
-      if (n >= 3 && n <= (attempt < 100 ? 9 : 12) && !used.has(cand.toLowerCase())) name = cand
+      if (n >= 3 && n <= (attempt < 100 ? 9 : 12) && !used.has(cand.toLowerCase()) && (attempt >= 100 || (fluentName(cand) && !nearAny(outLc, cand)))) name = cand
     }
     if (!name) name = capitalizeName(buildRoot(lang, rng)) + 'i' + f // practically unreachable
     used.add(name.toLowerCase())
+    outLc.push(name.toLowerCase())
     out.push(name)
   }
   return out

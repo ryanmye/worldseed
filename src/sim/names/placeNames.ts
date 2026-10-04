@@ -17,10 +17,10 @@ import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import type { SettlementNaming } from './index.ts'
 import type { Language } from './phonology.ts'
-import { buildMorph, buildRoot, capitalizeName, composeName, fuseWords, isEuphonic, letterCount, pickWeighted, toUnits } from './words.ts'
+import { buildMorph, buildRoot, capitalizeName, composeName, fluentName, fuseWords, isEuphonic, letterCount, pickWeighted, toUnits } from './words.ts'
 
-/** Longest renamed name, in letters (dedications run long: "Constantinople"). */
-export const MAX_PLACE = 13
+/** Longest renamed name, in letters (dedications run long, but "Constantinople" reads as a mouthful in an invented tongue). */
+export const MAX_PLACE = 11
 
 /** Nearest consonants in order of preference, for a sound the new language lacks. */
 const NEAR_C: Record<string, readonly string[]> = {
@@ -55,7 +55,7 @@ export function cityEndings(world: World, naming: SettlementNaming, cache: Map<s
 /** True when every word of a capitalised name is euphonic and the name is 3..max letters. */
 function ok(name: string, max = MAX_PLACE): boolean {
   const n = letterCount(name)
-  if (n < 3 || n > max) return false
+  if (n < 3 || n > max || !fluentName(name)) return false
   for (const w of name.toLowerCase().split(/[ -]/)) if (!isEuphonic(w)) return false
   return true
 }
@@ -223,7 +223,8 @@ function clipBase(base: string): string {
 export function dedicate(honoree: string, lang: Language, endings: readonly string[], rng: Rng): string | null {
   const full = mainWord(honoree)
   for (let attempt = 0; attempt < 10; attempt++) {
-    const base = attempt < 3 && rng.next() < 0.6 ? full : clipBase(full)
+    // (a long name is clipped to its first two syllables: "Constantine" -> "Kostan")
+    const base = attempt < 3 && rng.next() < 0.6 && letterCount(full) <= 6 ? full : clipBase(full)
     const e = endings[rng.int(0, endings.length - 1)]
     const x = rng.next()
     let name: string | null = null
@@ -244,7 +245,7 @@ export function freshPlace(lang: Language, endings: readonly string[], rng: Rng)
     if (x < 0.4) { const f = fuseWords(lang, root, endings[rng.int(0, endings.length - 1)]); name = f === null ? null : capitalizeName(f) }
     else if (x < 0.55) { const opts = lang.affixes.new; name = composeName(lang, root, opts[pickWeighted(rng, opts.map((o) => o.weight))]) }
     else name = capitalizeName(root)
-    if (name !== null && ok(name, 12)) return name
+    if (name !== null && ok(name, MAX_PLACE)) return name
   }
   return capitalizeName(buildRoot(lang, rng))
 }
