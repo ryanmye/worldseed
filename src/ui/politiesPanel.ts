@@ -98,6 +98,11 @@ let polityGoodsNote: ((p: number, year: number) => (string | Node)[][]) | null =
 export function setPolityGoodsNote(fn: ((p: number, year: number) => (string | Node)[][]) | null): void {
   polityGoodsNote = fn
 }
+/** Sickness lines of a faction's detail (armies broken by sickness: ui/diseasePanel.ts), or null without disease data. */
+let polityDiseaseNote: ((p: number, year: number) => (string | Node)[][]) | null = null
+export function setPolityDiseaseNote(fn: ((p: number, year: number) => (string | Node)[][]) | null): void {
+  polityDiseaseNote = fn
+}
 
 const ORIGIN_WORDS: Record<number, string> = {
   [PolityOrigin.Formed]: 'as {cap} gathered its neighbours',
@@ -623,6 +628,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       for (const em of embargoesOn(pd, selected, year)) line('Under embargo with ', polityLink(em.other, pd.names[em.other]), ` since ${em.since}`).classList.add('fp-embargo')
       // goods: secrets held, lanes and trading posts (goodsPanel.ts)
       for (const parts of polityGoodsNote?.(selected, year) ?? []) line(...parts).classList.add('fp-goods')
+      // sickness: armies broken by it (diseasePanel.ts)
+      for (const parts of polityDiseaseNote?.(selected, year) ?? []) line(...parts).classList.add('fp-goods')
     }
     // capitals
     const caps: [number, number][] = []

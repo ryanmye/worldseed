@@ -1,0 +1,185 @@
+/* Sickness panel, inspector disease section, Fever legend, sickness chronicle dots, timeline marks of great epidemics (diseasePanel.ts, diseaseFormat.ts, timeline.ts) */
+
+.disease {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 0.03 auto !important;
+  max-height: max(110px, min(380px, 40vh));
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+}
+.disease.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.disease.collapsed .gp-body {
+  display: none;
+}
+.disease .gp-count.dp-hot {
+  color: #e2d8ff;
+}
+.dp-hot {
+  color: #e9dcff;
+}
+.disease .gp-row.dp-now .gp-name {
+  color: #f1e8ff;
+}
+/* rows: the name in full, the gloss or the extent gives way */
+.disease .gp-row {
+  grid-template-columns: 10px auto minmax(0, 1fr) auto;
+}
+.disease .gp-row .gp-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* the chart of deaths by epidemic over the run */
+.dp-chart {
+  position: relative;
+  margin: 2px 0 6px;
+  height: 46px;
+  cursor: pointer;
+}
+.dp-chart canvas {
+  display: block;
+  width: 100%;
+  height: 46px;
+}
+.dp-chart-cursor {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: rgba(255, 214, 138, 0.8);
+  pointer-events: none;
+}
+/* the selected epidemic: play it, the ramp of when, the places it struck */
+.dp-play-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 3px;
+}
+.dp-play {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+.dp-ramp-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dp-ramp {
+  display: inline-block;
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+}
+.dp-places {
+  max-height: 128px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.dp-place {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dp-place.ahead {
+  opacity: 0.45;
+}
+.dp-y {
+  display: inline-block;
+  width: 34px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.dp-city {
+  margin: 0 3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #1a1024;
+  background: #cdb5ff;
+}
+/* the Fever view's legend: who feels it */
+.dp-fever-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.dp-fever-row select {
+  flex: 1;
+  min-width: 0;
+}
+.dp-fever-note {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+/* inspector */
+.insp-disease {
+  margin: 4px 0 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.insp-disease .dp-hot {
+  color: #e2d0ff;
+}
+/* the Peoples panel: a selected people's sickness */
+.pp-disease {
+  margin: 3px 2px 2px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+/* chronicle dots */
+.ev-sickness .ev-text::before {
+  background: #b968ff;
+  box-shadow: 0 0 0 1px rgba(207, 226, 76, 0.75);
+}
+.ev-quarantine .ev-text::before {
+  border-radius: 1px;
+  background: #ffd21f;
+  box-shadow: 0 0 0 1px #4a3a06;
+}
+/* timeline: great epidemics under the slider, and the world's people behind it */
+.tl-ticks .tl-epi {
+  position: absolute;
+  top: -8px;
+  height: 7px;
+  min-width: 3px;
+  padding: 2px 0;
+  box-sizing: border-box;
+  background-clip: content-box;
+  border-radius: 1px;
+  opacity: 0.85;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.tl-ticks .tl-epi:hover {
+  opacity: 1;
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+}
+.tl-ticks .tl-spark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -25px;
+  height: 12px;
+  width: 100%;
+  pointer-events: none;
+  opacity: 0.55;
+}

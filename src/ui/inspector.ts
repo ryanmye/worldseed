@@ -37,6 +37,8 @@ export interface Inspector {
   readonly politySlot: HTMLElement
   /** Empty element under the faction for its industries, crafts, mart, posts, prices and deposits (filled by goodsPanel.ts; hidden while empty). */
   readonly goodsSlot: HTMLElement
+  /** Empty element under the goods for its sickness: sick now, outbreaks suffered, quarantine, its people's childhood sicknesses and fever (filled by diseasePanel.ts; hidden while empty). */
+  readonly diseaseSlot: HTMLElement
 }
 
 /** Event lines shown, and how many of them may be gathered trade or migration lines. */
@@ -71,6 +73,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
     <div class="insp-people hidden"></div>
     <div class="insp-faction hidden"></div>
     <div class="insp-goods hidden"></div>
+    <div class="insp-disease hidden"></div>
     <div class="insp-species hidden"></div>
     <div class="insp-status"></div>
     <div class="readout-row">Population <span class="insp-pop"></span></div>
@@ -296,12 +299,14 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const speciesSlot = q<HTMLDivElement>('.insp-species')
   const politySlot = q<HTMLDivElement>('.insp-faction')
   const goodsSlot = q<HTMLDivElement>('.insp-goods')
+  const diseaseSlot = q<HTMLDivElement>('.insp-disease')
 
   return {
     peopleSlot,
     speciesSlot,
     politySlot,
     goodsSlot,
+    diseaseSlot,
     get selected() {
       return selected
     },

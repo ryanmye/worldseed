@@ -33,6 +33,15 @@ export const More = {
 } as const
 export type More = (typeof More)[keyof typeof More]
 
+/** A span marked under the slider (a great epidemic): clicking it jumps to `from`. */
+export interface TimelineMark {
+  from: number
+  to: number
+  /** CSS colour. */
+  color: string
+  title: string
+}
+
 export interface TimelineCallbacks {
   /** Playback state changed (play/pause/scrub end/step); not called every frame. */
   onSettled(year: number, playing: boolean): void
@@ -78,6 +87,10 @@ export interface Timeline {
   /** `states` and `wars`: factions alive and wars in progress (polities; shown when given and there are any). */
   /** `largest`: the largest bloc of states (polities v2: a sphere of an overlord and its vassals, or a single state) and its share of the people, "Rilkochal 31%". */
   setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string): void
+  /** Thin marks under the slider (great epidemics), or null for none; kept across extendRange. */
+  setMarks(marks: readonly TimelineMark[] | null): void
+  /** A faint sparkline behind the slider: one value per snapshot from year 0 (the world's people), or null for none. */
+  setSparkline(values: ArrayLike<number> | null, interval: number): void
 }
 
 const PLAY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>'
@@ -196,6 +209,10 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   let shownPop = ''
   let shownTiers = ''
   let shownBloc = ''
+  let marks: readonly TimelineMark[] = []
+  let spark: { values: ArrayLike<number>; interval: number } | null = null
+  const sparkCanvas = document.createElement('canvas')
+  sparkCanvas.className = 'tl-spark'
 
   function syncSpeed() {
     speedButtons.forEach((b, i) => {
@@ -274,6 +291,22 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       s.style.left = `${(100 * t) / years}%`
       ticks.appendChild(s)
     }
+    // marks of great epidemics (click: jump there), and the world's people behind the slider
+    marks.forEach((mk, k) => {
+      if (mk.from > years) return
+      const b = document.createElement('i')
+      b.className = 'tl-epi'
+      b.dataset.mark = String(k)
+      b.title = mk.title
+      b.style.left = `${(100 * Math.max(0, mk.from)) / years}%`
+      b.style.width = `${(100 * Math.max(0, Math.min(years, mk.to) - mk.from)) / years}%`
+      b.style.backgroundColor = mk.color
+      ticks.appendChild(b)
+    })
+    if (spark) {
+      ticks.appendChild(sparkCanvas)
+      drawSpark()
+    }
     if (years > BASE_YEARS) {
       const m = document.createElement('i')
       m.className = 'tl-mark'
@@ -281,6 +314,41 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       m.style.left = `${(100 * BASE_YEARS) / years}%`
       ticks.appendChild(m)
     }
+  }
+
+  /** The sparkline over the range shown (drawn when the range or the values change). */
+  function drawSpark() {
+    if (!spark) return
+    const w = Math.max(100, Math.round(ticks.clientWidth || 600))
+    const hgt = 12
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    sparkCanvas.width = w * dpr
+    sparkCanvas.height = hgt * dpr
+    const ctx = sparkCanvas.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, hgt)
+    const v = spark.values
+    const n = Math.min(v.length, Math.floor(years / spark.interval) + 1)
+    let max = 0
+    for (let k = 0; k < n; k++) max = Math.max(max, v[k])
+    if (n < 2 || max <= 0) return
+    ctx.beginPath()
+    ctx.moveTo(0, hgt)
+    for (let k = 0; k < n; k++) ctx.lineTo(((k * spark.interval) / years) * w, hgt - (v[k] / max) * (hgt - 1))
+    ctx.lineTo(((n - 1) * spark.interval / years) * w, hgt)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(255, 214, 160, 0.16)'
+    ctx.fill()
+    ctx.beginPath()
+    for (let k = 0; k < n; k++) {
+      const x = ((k * spark.interval) / years) * w, y = hgt - (v[k] / max) * (hgt - 1)
+      if (k === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.strokeStyle = 'rgba(255, 220, 170, 0.5)'
+    ctx.lineWidth = 1
+    ctx.stroke()
   }
 
   /** Start (or continue) playing; at the end with more possible, hold and ask for more. */
@@ -485,6 +553,14 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       }
       return year
     },
+    setMarks(m: readonly TimelineMark[] | null) {
+      marks = m ? m.slice() : []
+      buildTicks()
+    },
+    setSparkline(values: ArrayLike<number> | null, iv: number) {
+      spark = values && values.length > 1 ? { values, interval: Math.max(1, iv) } : null
+      buildTicks()
+    },
     setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string) {
       if (alive !== shownAlive) {
         shownAlive = alive
@@ -516,6 +592,17 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     },
   }
 
+  ticks.addEventListener('click', (e) => {
+    const m = (e.target as HTMLElement).closest('[data-mark]') as HTMLElement | null
+    const mk = m ? marks[Number(m.dataset.mark)] : undefined
+    if (!mk || !enabled) return
+    softStop = null
+    stopPoint = -1
+    hint.classList.add('hidden')
+    setYear(mk.from)
+    syncPlay()
+    settle()
+  })
   playBtn.addEventListener('click', () => api.toggle())
   hint.addEventListener('click', () => api.play())
   slider.addEventListener('pointerdown', () => {

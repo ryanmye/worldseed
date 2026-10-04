@@ -11,6 +11,7 @@ import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './pan
 import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
 import { entryCategory, CHRONICLE_FILTERS } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
+import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
 import { addShortcut } from './shortcuts.ts'
 
 const ROWS = 40
@@ -261,6 +262,15 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeGoodsGroup(h, members)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if (kind === EntryKind.Disease && m > 1) {
+      // disease: an epidemic's cities, a war's armies, a decade's quarantined ports or endemic sicknesses
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeDiseaseGroup(h, members)
+      const t = h.events[ev].type as number
+      // (an epidemic's cities and a war's armies are dated by their first; the others by decade)
+      yearText = t === EventType.CityStricken || t === EventType.ArmyStricken ? String(h.events[ev].year) : `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if ((h.events[ev].type as number) >= PeoplesEvent.VoyageLost && (h.events[ev].type as number) < 20) {
       const e = h.events[ev]
       text = (e.type as number) === PeoplesEvent.Landfall
@@ -280,6 +290,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     if (kind === EntryKind.Single && isPolityHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
+    // disease: great epidemics beginning and passing, big cities struck (and an epidemic's cities together)
+    else if ((kind === EntryKind.Single && isDiseaseHeadline(h, h.events[ev])) || (kind === EntryKind.Disease && m > 1 && isDiseaseGroupHeadline(h.events[ev]))) r.li.className = `ev-${ek} notable headline`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`

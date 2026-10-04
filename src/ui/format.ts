@@ -4,6 +4,7 @@ import { EventType, FeatureKind, StructureType, type GeoFeature, type History, t
 import { describePolityEvent, describePolityEventFor, isWallEvent, polityEventKind } from './polityFormat.ts'
 import { describeSpeciesV2Event, tameVerb } from './speciesFormat.ts'
 import { describeGoodsEvent, describeGoodsEventFor, describeMineBuilt, goodsEventKind } from './goodsFormat.ts'
+import { describeDiseaseEvent, describeDiseaseEventFor, diseaseEventKind } from './diseaseFormat.ts'
 
 /** Display name of a settlement (its procedural name; a numbered fallback for histories without names). */
 export function settlementName(history: History, id: number): string {
@@ -34,6 +35,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
   // goods (goodsFormat.ts): deposits and mines, craft traditions, secrets, lanes, trading posts
   | 'deposit' | 'craft' | 'secret' | 'lane' | 'post' | 'mine'
+  // disease (diseaseFormat.ts): epidemics, a sickness become endemic, armies struck; ports in quarantine
+  | 'sickness' | 'quarantine'
 
 // ---- peoples, voyages, expeditions, technology and species (event types 10..19; all optional at runtime)
 
@@ -162,6 +165,11 @@ export function fractionWords(f: number): string {
 function describeSpeciesEvent(h: History, e: HistoryEvent, forId: number): string | null {
   const t = e.type as number
   if (t !== PeoplesEvent.Domesticated && t !== PeoplesEvent.SpeciesAdopted && t !== PeoplesEvent.Epidemic) return describeSpeciesV2Event(h, e, forId)
+  // (with the disease system on, a contact epidemic names its sickness: diseaseFormat.ts)
+  if (t === PeoplesEvent.Epidemic && typeof e.extra === 'number') {
+    const d = forId < 0 ? describeDiseaseEvent(h, e) : describeDiseaseEventFor(h, e, forId)
+    if (d) return d
+  }
   const p = peopleOf(h, e.settlement)
   const pn = peopleName(h, p) ?? 'people'
   const q = e.other >= 0 && e.other < h.settlements.length ? peopleOf(h, e.other) : -1
@@ -305,7 +313,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.HabitSpreads:
     case EventType.Drain: return 'habit'
     case EventType.Panzootic: return 'plague'
-    default: return (goodsEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
+    default: return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
 
@@ -355,7 +363,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     case EventType.Migration:
       return `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
     default:
-      return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
+      return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
 
@@ -425,7 +433,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     case EventType.TradeClosed:
       return `Stopped trading with ${settlementName(h, e.settlement === id ? e.other : e.settlement)}`
     default:
-      return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
+      return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)
   }

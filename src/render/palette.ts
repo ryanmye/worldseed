@@ -28,6 +28,8 @@ export const ViewMode = {
   Danger: 'danger',
   /** goods: deposits, mines and the industries of towns over a muted relief (ui/goodsPanel.ts, render/longhaul.ts; hidden without goods data). */
   Resources: 'resources',
+  /** disease: place-bound fever per cell as a heat map (History.fever; optionally as one people feels it, ui/diseasePanel.ts; hidden without it). */
+  Fever: 'fever',
 } as const
 export type ViewMode = (typeof ViewMode)[keyof typeof ViewMode]
 
@@ -47,6 +49,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Factions,
   ViewMode.Danger,
   ViewMode.Resources,
+  ViewMode.Fever,
 ]
 
 export function isViewMode(s: string | null): s is ViewMode {
@@ -256,6 +259,8 @@ export interface ModeData {
   densityMax?: number
   /** Crops, Herds and Cash crops views: sRGB 0..255 per cell (3 per cell) for the land snapshot shown, or null (all land neutral). */
   speciesRgb?: Uint8Array | null
+  /** Fever view: sRGB 0..255 per cell (3 per cell), or null (all land neutral). */
+  feverRgb?: Uint8Array | null
 }
 
 /** Capacity and Population views: heat ramp over a 0..1 normalised value. */
@@ -354,6 +359,17 @@ export function colorForMode(
         out[o + 1] = (c[i * 3 + 1] / 255) * scale
         out[o + 2] = (c[i * 3 + 2] / 255) * scale
       } else write(LANDUSE_WILD, out, o, scale)
+      return
+    }
+    case ViewMode.Fever: {
+      const water = e < 0 || world.lake?.[i] === 1
+      const c = data?.feverRgb
+      if (water) write(CAPACITY_WATER, out, o, scale)
+      else if (c && c.length >= (i + 1) * 3) {
+        out[o] = (c[i * 3] / 255) * scale
+        out[o + 1] = (c[i * 3 + 1] / 255) * scale
+        out[o + 2] = (c[i * 3 + 2] / 255) * scale
+      } else write(DANGER_LAND, out, o, scale)
       return
     }
     case ViewMode.Factions:

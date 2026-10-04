@@ -72,6 +72,12 @@ export interface PeoplesView {
   tick(year: number, s0: number, pulseYears: number, camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
 }
 
+/** Sickness lines of the selected people (childhood sicknesses, fever, great epidemics suffered: ui/diseasePanel.ts), or null without disease data. */
+let peopleDiseaseNote: ((p: number, year: number, s0: number) => string[]) | null = null
+export function setPeopleDiseaseNote(fn: ((p: number, year: number, s0: number) => string[]) | null): void {
+  peopleDiseaseNote = fn
+}
+
 const pct = (x: number) => (x > 0 && x < 0.005 ? '<1%' : `${Math.round(x * 100)}%`)
 
 /** Technology levels when the history has them: technology[(s * P + p) * TECH_FIELD_COUNT + f]. */
@@ -152,7 +158,11 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
   const note = document.createElement('div')
   note.className = 'pp-note'
   note.textContent = 'Click a people to see the world as it knew it.'
-  body.append(cols, list, anyoneBtn, note)
+  // the selected people's sickness (diseasePanel.ts), over the list
+  const diseaseNote = document.createElement('div')
+  diseaseNote.className = 'pp-disease hidden'
+  let shownDiseaseNote = ''
+  body.append(diseaseNote, cols, list, anyoneBtn, note)
   root.append(head, body)
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
 
@@ -399,6 +409,19 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     if (a !== shownAnyone) {
       shownAnyone = a
       anyoneStat.textContent = `${pctText(a)} of the land unknown`
+    }
+    {
+      const lines = selection !== null && selection >= 0 ? (peopleDiseaseNote?.(selection, year, s) ?? []) : []
+      const text = lines.length && selection !== null ? [`The ${data.names[selection]}:`, ...lines].join('\n') : ''
+      if (text !== shownDiseaseNote) {
+        shownDiseaseNote = text
+        diseaseNote.replaceChildren(...text.split('\n').filter((t) => t).map((t) => {
+          const d = document.createElement('div')
+          d.textContent = t
+          return d
+        }))
+        diseaseNote.classList.toggle('hidden', text === '')
+      }
     }
     anyoneBtn.classList.toggle('selected', selection === ANYONE)
     anyoneBtn.setAttribute('aria-pressed', String(selection === ANYONE))
