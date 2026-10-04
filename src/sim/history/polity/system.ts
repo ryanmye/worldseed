@@ -61,6 +61,7 @@ function newSettlements(s: HistoryState, ps: PolityState): void {
       ps.diag.foundT.push(ps.defense[s.cell[id]])
       ps.diag.foundFromZ.push(par >= 0 && par < ps.seen ? ps.danger[par] : 0)
       ps.diag.foundHome.push(par >= 0 && s.terrain.landmass[s.cell[par]] === s.terrain.landmass[s.cell[id]] ? 1 : 0)
+      ps.diag.foundCell.push(s.cell[id])
     }
     // Membership: overseas colonies of a kingdom's port town join it; others join the polity whose
     // land they settle, or their mother town's polity if they are within its reach.
