@@ -3,10 +3,10 @@
 // the whole run with periodic snapshots.
 //
 // Each year runs a fixed sequence of small systems over shared state:
-//   weather -> food -> trade -> population -> migration
-//   -> voyages -> abandonment (-> routes of the abandoned close) -> structures
+//   weather -> food -> trade -> [polities: grain tax] -> population -> migration
+//   -> voyages -> abandonment (-> routes of the abandoned close) -> [polities] -> structures
 //   -> [land use -> degradation] -> [roads] -> milestones -> exploration
-//   -> technology -> knowledge -> species -> snapshots
+//   -> technology -> knowledge -> knowledge spread -> species -> snapshots
 // (land use and degradation advance every LAND.step years, roads every
 // ROAD.step years; in land
 // years the food system also records which fields feed each settlement). The
@@ -15,13 +15,14 @@
 // system, so imports feed people the year they arrive. Land snapshots (Uint8
 // use, degradation and road per cell) are taken every landInterval years,
 // trade-volume snapshots every tradeInterval years.
-// Later systems (polities, war) slot into this sequence.
+// Polities (polity/system.ts; HistoryOptions.polities, on by default) form states, borders, war,
+// raids, danger and revolts; switched off, the history is exactly the one without them.
 //
 // Peoples (peoples.ts): the founding tribes live in a few separate cradles
 // over the world's continents; each founds a people, and every settlement
 // belongs to its founder's people. What each people knows of the world and
 // whom it has met (knowledge.ts) limits where its groups migrate, sail and
-// trade; peoples in contact share what they know. Each people has its own
+// trade; peoples in contact learn what the other knows, gradually (knowledgeSpread.ts). Each people has its own
 // technology in four fields (technology.ts), grown from its own activity and
 // learned from the peoples it has met; every effect of technology reads the
 // settlement's people's level. Prosperous settlements send expeditions to the
@@ -37,9 +38,12 @@
 // go), 'history-voyages' (voyages of settlement by sea: who sails, where to,
 // who is lost; voyages.ts), 'history-structures' (when ports and dams get
 // built) and 'history-expeditions' (who explores, where, who is lost, where
-// bases go; exploration.ts), 'history-species-origins' (where species are
+// bases go; exploration.ts), 'history-frontier' (which land groups go far,
+// and whether a group stops at a town it passes; frontier.ts),
+// 'history-species-origins' (where species are
 // native, the cradles' founding sets) and 'history-species-spread' (taming,
-// adoption, techniques, what seaborne colonies carry; species.ts);
+// adoption, techniques, what seaborne colonies carry; species.ts),
+// 'history-polities' and 'history-war' (states, raids, revolts, successions; battles, sacks; polity/);
 // 'history-ore' seeds the ore-richness noise; people names come from
 // 'names-people-<founder>' (peoples.ts), species names from
 // 'names-species-<id>'. Knowledge, contact and technology draw nothing.
@@ -70,6 +74,7 @@ import { createPortSearch, structureSystem } from './structures.ts'
 import type { HistoryState } from './state.ts'
 import { createState } from './state.ts'
 import { knowledgeSystem } from './knowledge.ts'
+import { knowledgeSpreadSystem } from './knowledgeSpread.ts' // gradual-knowledge:
 import type { CradlePlan } from './peoples.ts'
 import { namePeoples, seedPeoples } from './peoples.ts'
 import { buildTerrain } from './terrain.ts'
@@ -88,6 +93,11 @@ import type { ExpeditionLog } from './exploration.ts'
 import { detectFeatures } from '../names/features.ts'
 import type { FeatureMap } from '../names/features.ts'
 import type { TechState } from './technology.ts'
+// polities:
+import { POLITY } from './polity/params.ts'
+import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
+import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot } from './polity/assemble.ts'
+import type { PolityDiag } from './polity/state.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -137,6 +147,8 @@ export interface HistoryDiagnostics {
   disease?: Float64Array
   /** species-v2: blights, plagues, drains, pellagra, drain balances, loanword names (speciesV2.ts). */
   speciesV2?: SpeciesV2Diag
+  /** polities: counters of the polity system (absent when it is off). */
+  polity?: PolityDiag
 }
 
 function copyLog(l: ExpeditionLog): ExpeditionLog {
@@ -295,6 +307,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const techState = createTech(s)
   const explore = createExplore(s, createRng(seed, 'history-expeditions'))
   const P = s.know.P
+  // polities: the polity system (states, war, danger), unless switched off.
+  const pol = (options?.polities ?? POLITY.enabled) ? createPolitySystem(s, trade) : null
+  s.pol = pol
+  const polSnaps = pol ? createSnaps(pol) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -325,6 +341,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       const j = trade.roadCells[t]
       road[o + j] = (s.road[j] * 255 + 0.5) | 0
     }
+    if (pol && polSnaps) polLandSnapshot(s, pol, polSnaps) // polities:
   }
 
   // Snapshots are ragged while the run is going (settlement count grows):
@@ -359,6 +376,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let i = 0; i < PF; i++) snapTech[techUsed + i] = peopleAlive[(i / TECH_FIELD_COUNT) | 0] ? s.tech[i] : 0
     techUsed += PF
     speciesV2Snapshot(s) // species-v2: habit, storable
+    if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
   }
   // Trade snapshots, ragged the same way over route ids.
   const tradeInterval = HISTORY_DEFAULTS.tradeInterval
@@ -386,11 +404,13 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     weatherSystem(s, weather)
     foodSystem(s)
     tradeSystem(s, trade)
+    if (pol) taxSystem(s, pol) // polities: grain tax to capitals
     populationSystem(s)
     migrationSystem(s, search)
     voyageSystem(s, voyages)
     abandonmentSystem(s)
     tradeAbandonSystem(s, trade)
+    if (pol) politySystem(s, pol, trade) // polities: states, war, danger
     structureSystem(s, scratch, portSearch)
     if (s.landYear) {
       landUseSystem(s)
@@ -401,6 +421,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     explorationSystem(s, explore)
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
+    knowledgeSpreadSystem(s, techState) // gradual-knowledge: fronts of knowledge between peoples in contact
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (year % interval === 0) snapshot()
@@ -446,6 +467,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     for (let i = 0; i < terrain.cellCount; i++) capacity[i] = terrain.capacity[i]
     const journeys = assembleJourneys(s.journeys)
     const log = voyages.log
+    // polities: states, borders, wars and danger (empty when the system is off).
+    const polHist = pol && polSnaps ? assemblePolityHistory(world, s, pol, polSnaps, years, snapshotCount, landSnapshotCount, naming, peoples.map((p) => p.name)) : emptyPolityHistory()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -461,10 +484,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         species, speciesYear: spT.year, speciesSource: spT.source,
         crop: crop.slice(0, landSnapshotCount * N), herd: herd.slice(0, landSnapshotCount * N),
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
-        // polities-merge: placeholders, replaced when the polity branch is merged
-        polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), danger: new Uint8Array(0),
-        wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0) },
-        raids: { count: 0, decade: new Int16Array(0), settlement: new Int32Array(0), raids: new Uint16Array(0), wealth: new Float32Array(0) },
+        ...polHist, // polities:
       },
       terrain,
       diag: {
@@ -475,6 +495,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
         cradleSets: s.sp.cradleSet.map((x) => x.slice()), techYear: spT.techYear, techLog: s.sp.techLog.slice(), epiLog: s.sp.epiLog.slice(), disease: s.sp.disease.slice(),
         speciesV2: v2Diag(s, species.map((x) => x.name), v2.techniques.map((x) => x.name), naming), // species-v2
+        polity: pol ? { ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice(), foundFromZ: pol.diag.foundFromZ.slice(), foundHome: pol.diag.foundHome.slice(), foundCell: pol.diag.foundCell.slice() } : undefined, // polities:
       },
     }
   }

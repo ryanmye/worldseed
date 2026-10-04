@@ -572,7 +572,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
     for (const st of h.structures) {
       if (st.builtYear > year || (st.lostYear >= 0 && st.lostYear <= year)) continue
       if (st.type === StructureType.Port) ports++
-      else dams++
+      else if (st.type === StructureType.Dam) dams++ // (polities: walls are not dams)
     }
     for (let id = 0; id < S; id++) {
       const p = h.population[snap * S + id]
@@ -687,7 +687,7 @@ export function historyStats(world: World, h: History, terrain: Terrain, ms: num
   let portsBuilt = 0, portsLost = 0, damsBuilt = 0, damsLost = 0
   for (const st of h.structures) {
     if (st.type === StructureType.Port) { portsBuilt++; if (st.lostYear >= 0) portsLost++ }
-    else { damsBuilt++; if (st.lostYear >= 0) damsLost++ }
+    else if (st.type === StructureType.Dam) { damsBuilt++; if (st.lostYear >= 0) damsLost++ }
   }
   // Abandonment and resettlement.
   let abandonedCount = 0, life = 0, resettled = 0

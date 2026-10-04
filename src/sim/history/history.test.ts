@@ -219,7 +219,7 @@ function checkInvariants(w: World, h: History): void {
     expect(e.settlement).toBeLessThan(S)
     expect(e.other).toBeGreaterThanOrEqual(-1)
     const structureEvent = e.type === EventType.Built || e.type === EventType.StructureLost
-    expect(e.other).toBeLessThan(structureEvent ? T : S)
+    expect(e.other).toBeLessThan(structureEvent ? T : e.type === EventType.Discovery ? N : S) // (a Discovery's `other` is a cell)
     const st = h.settlements[e.settlement]
     expect(e.year).toBeGreaterThanOrEqual(st.foundedYear)
     if (st.abandonedYear >= 0) expect(e.year).toBeLessThanOrEqual(st.abandonedYear)
@@ -307,7 +307,7 @@ function checkInvariants(w: World, h: History): void {
         returned.push(e)
         break
       case EventType.Discovery:
-        expect(e.other).toBe(-1)
+        expect(e.other).toBeGreaterThanOrEqual(0) // the cell reached
         if (e.value !== -1) {
           expect(Number.isInteger(e.value) && e.value >= 0 && e.value < h.features.length).toBe(true)
           expect(h.features[e.value].namedYear).toBeLessThanOrEqual(e.year)
@@ -332,6 +332,11 @@ function checkInvariants(w: World, h: History): void {
       case EventType.Drain:
       case EventType.Panzootic:
         // species-v2: checked in species2.test.ts.
+      // polities: states, war and danger (checked against History.polities and History.wars in polity.test.ts).
+      case EventType.PolityFounded: case EventType.PolityEnded: case EventType.CapitalMoved: case EventType.Joined:
+      case EventType.WarDeclared: case EventType.PeaceMade: case EventType.Conquered: case EventType.Sacked: case EventType.SiegeLifted:
+      case EventType.Raid: case EventType.Revolt: case EventType.RevoltCrushed: case EventType.Seceded: case EventType.Defected:
+      case EventType.SuccessionCrisis:
         break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
@@ -396,6 +401,8 @@ function checkInvariants(w: World, h: History): void {
       if (!(w.flow[x.cell] >= RIVER_FLOW_THRESHOLD) || w.elevation[x.cell] < 0 || w.lake[x.cell]) throw new Error(`dam ${k} not on a river cell (${x.cell}, flow ${w.flow[x.cell]})`)
       const to = w.riverTo[x.cell]
       if (to < 0 || w.elevation[to] < 0) throw new Error(`dam ${k} at a river mouth`)
+    } else if (x.type === StructureType.Walls) {
+      expect(x.cell).toBe(owner.cell) // polities: walls on their town's cell
     } else {
       throw new Error(`unknown structure type ${x.type}`)
     }
@@ -406,7 +413,7 @@ function checkInvariants(w: World, h: History): void {
     for (let b = a + 1; b < portInUse.length; b++) {
       const [ta, sa, ca, ba, la] = portInUse[a]
       const [tb, sb, cb, bb, lb] = portInUse[b]
-      if (ta !== tb || !(ba < lb && bb < la)) continue
+      if (ta !== tb || ta === StructureType.Walls || !(ba < lb && bb < la)) continue // (polities: a town may have several rings of walls)
       if (sa === sb) throw new Error(`settlement ${sa} has two structures of type ${ta} in use at once`)
       if (ta === StructureType.Dam && ca === cb) throw new Error(`two dams in use on cell ${ca}`)
     }
@@ -416,7 +423,7 @@ function checkInvariants(w: World, h: History): void {
   const J = h.journeys
   const expectedJourneys = h.events.filter((e) => (e.type === EventType.Founded && e.other >= 0 && !h.settlements[e.settlement].outpost) || e.type === EventType.Migration).length
   let settlerJourneys = 0, expeditionJourneys = 0
-  for (let j = 0; j < J.count; j++) { if (J.kind[j] === JourneyKind.Expedition) expeditionJourneys++; else settlerJourneys++ }
+  for (let j = 0; j < J.count; j++) { if (J.kind[j] === JourneyKind.Expedition) expeditionJourneys++; else if (J.kind[j] !== JourneyKind.Army) settlerJourneys++ } // (polities: armies are not settlers)
   expect(settlerJourneys).toBe(expectedJourneys)
   expect(expeditionJourneys).toBe(sent.length)
   // Every expedition is sent and comes home (or founds a base and the rest come home) in one year, or is lost.
@@ -435,7 +442,7 @@ function checkInvariants(w: World, h: History): void {
     expect(J.departYear[j]).toBeLessThanOrEqual(J.arriveYear[j])
     expect(J.departYear[j]).toBeGreaterThanOrEqual(h.settlements[J.from[j]].foundedYear)
     expect(J.size[j]).toBeGreaterThan(0)
-    expect(J.kind[j] === JourneyKind.Settlers || J.kind[j] === JourneyKind.Migrants || J.kind[j] === JourneyKind.Expedition).toBe(true)
+    expect(J.kind[j] === JourneyKind.Settlers || J.kind[j] === JourneyKind.Migrants || J.kind[j] === JourneyKind.Expedition || J.kind[j] === JourneyKind.Army).toBe(true) // (polities: Army)
     const off0 = J.pathOffsets[j], off1 = J.pathOffsets[j + 1]
     expect(off1).toBeGreaterThan(off0)
     expect(J.path[off0]).toBe(h.settlements[J.from[j]].cell)
@@ -1346,7 +1353,7 @@ describe('simulateHistory', () => {
       const ports = h.structures.filter((x) => x.type === StructureType.Port).length
       const nd = h.structures.filter((x) => x.type === StructureType.Dam).length
       expect(ports).toBeGreaterThan(5)
-      expect(nd).toBeLessThanOrEqual(40)
+      expect(nd).toBeLessThanOrEqual(40) // (frontier alone needed 45 and polities alone 50 on their old base; merged with species v1 the most is 31, seed 1337)
       dams += nd
       if (h.events.some((e) => e.type === EventType.BecameCity)) withCity++
       for (let id = 0; id < S; id++) biggest = Math.max(biggest, h.population[last * S + id])
