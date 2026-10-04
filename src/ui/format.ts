@@ -40,6 +40,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
   // polities, second version: civil wars, bonds, the outlaw economy, forts
   | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
+  // claims: border disputes
+  | 'dispute'
   // goods (goodsFormat.ts): deposits and mines, craft traditions, secrets, lanes, trading posts
   | 'deposit' | 'craft' | 'secret' | 'lane' | 'post' | 'mine'
   // rulers and religion (rulersFormat.ts): successions, houses, unions, marriages; faiths

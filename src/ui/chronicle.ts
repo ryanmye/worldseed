@@ -8,7 +8,7 @@ import { EventType } from '../contract.ts'
 import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeLandfallBurst, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
-import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
+import { describeAlliances, describeBlockades, describeBonds, describeDisputes, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isDisputeHeadline, isPolityHeadline } from './polityFormat.ts'
 import { entryCategory, CHRONICLE_FILTERS, CHRONICLE_FILTER_ORDER, isOptionalFilter } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
 import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
@@ -262,6 +262,13 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
         : kind === EntryKind.Walls ? describeWalls(h, members) : describeBlockades(h, members)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
+    } else if (kind === EntryKind.BorderDisputes && m > 1) {
+      // claims: one pair's border disputes within half a century of the first (dated by the first, the later ones named)
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeDisputes(h, members)
+      yearText = String(h.events[ix.notableMembers[lo]].year)
+      r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if (kind === EntryKind.Goods && m > 1) {
       // goods: deposit finds in a decade, towns bypassed or fleets lost on one lane, one owner's posts
       const members = []
@@ -311,6 +318,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     r.li.className = ek === 'town' || ek === 'city' || ek === 'contact' || ek === 'landfall' || ek === 'discovery' ? `ev-${ek} notable` : `ev-${ek}`
     // polities: states founded and fallen, wars and peace, capitals taken, cities sacked, secessions
     if (kind === EntryKind.Single && isPolityHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
+    // claims: a pair's border disputes, when war between the two follows one of them
+    else if (kind === EntryKind.BorderDisputes && [...ix.notableMembers.subarray(lo, lo + m)].some((i) => isDisputeHeadline(h, h.events[i]))) r.li.className = `ev-${ek} notable headline`
     // renaming: a capital or a city renamed
     else if (kind === EntryKind.Single && isRenamingHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)

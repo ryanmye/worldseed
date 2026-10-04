@@ -1,8 +1,9 @@
 // Text for the political events (EventType 20-34) and walls, for the chronicle and the
 // inspector; all optional at runtime (null for other events, or for a history without
-// polity data, so the caller falls back to its own wording).
+// polity data, so the caller falls back to its own wording). Claims: BorderDispute (130),
+// two states' claims meeting over unsettled land.
 
-import { BondKind, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
+import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
 import { renamedName } from './renamingData.ts'
 import { capitalAt, isPolityEventType, polityAt, polityAtYear, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, TRIBUTE_BASE, wallSlighted, type PolitiesData } from './politiesData.ts'
@@ -212,9 +213,96 @@ function describeV2For(h: History, pd: PolitiesData, e: HistoryEvent, id: number
   return null
 }
 
+// ---- claims: border disputes (EventType.BorderDispute) ----
+
+/** Whether events of type t are border disputes (claims). */
+export const isDisputeEvent = (t: number) => t === EventType.BorderDispute
+
+/** Years from a pair's first border dispute over which the chronicle gathers the next ones (they lapse and flare again). */
+const DISPUTE_BUCKET_YEARS = 50
+/** A dispute followed by a war between the two within this many years is a headline. */
+const DISPUTE_WAR_YEARS = 20
+
+/** The two polities of a BorderDispute: that ruled from `settlement`, and `value` (the other's; -1 unknown). */
+function disputePair(pd: PolitiesData, e: HistoryEvent): [number, number] {
+  return [polOf(pd, e.settlement, e.year), e.value >= 0 && e.value < pd.count ? e.value : polOf(pd, e.other, e.year)]
+}
+
+/** The names of a dispute's two sides ("Rilkochal", "Lekowi"), their capitals' names without polity data. */
+function disputeNames(h: History, e: HistoryEvent): [string, string] {
+  const pd = politiesOf(h)
+  if (!pd) return [settlementName(h, e.settlement), settlementName(h, e.other)]
+  const [a, b] = disputePair(pd, e)
+  return [polityName(pd, a, settlementName(h, e.settlement)), polityName(pd, b, settlementName(h, e.other))]
+}
+
+/** Chronicle line for a border dispute ("Rilkochal and Lekowi dispute the marches between them"). */
+function describeDispute(h: History, e: HistoryEvent): string {
+  const [a, b] = disputeNames(h, e)
+  return `${a} and ${b} dispute the marches between them`
+}
+
+/** Inspector line for a border dispute from the point of view of `id` (either capital). */
+function describeDisputeFor(h: History, e: HistoryEvent, id: number): string {
+  const [a, b] = disputeNames(h, e)
+  return `Disputed the marches with ${e.settlement === id ? b : a}`
+}
+
+/**
+ * Chronicle group keys of the border disputes (event index to key): one pair's disputes (either order) from the first
+ * of a run until DISPUTE_BUCKET_YEARS after it, so a quarrel that lapses and flares again is one line; empty without
+ * polity data.
+ */
+export function disputeGroupKeys(h: History): Map<number, number> {
+  const out = new Map<number, number>()
+  const pd = politiesOf(h)
+  if (!pd) return out
+  const idx: number[] = []
+  h.events.forEach((e, i) => {
+    if (isDisputeEvent(e.type as number)) idx.push(i)
+  })
+  idx.sort((x, y) => h.events[x].year - h.events[y].year || x - y)
+  const run = new Map<number, { start: number; key: number }>()
+  let next = 0
+  for (const i of idx) {
+    const e = h.events[i]
+    const [a, b] = disputePair(pd, e)
+    if (a < 0 || b < 0) continue
+    const pair = Math.min(a, b) * 32768 + Math.max(a, b)
+    let r = run.get(pair)
+    if (!r || e.year - r.start >= DISPUTE_BUCKET_YEARS) run.set(pair, (r = { start: e.year, key: next++ }))
+    out.set(i, r.key)
+  }
+  return out
+}
+
+/** Chronicle line for one pair's disputes within half a century ("Rilkochal and Lekowi dispute the marches between them (again in 1380)"). */
+export function describeDisputes(h: History, members: readonly HistoryEvent[]): string {
+  if (members.length === 0) return ''
+  const line = describeDispute(h, members[0])
+  const again = members.slice(1).map((e) => e.year).filter((y, i, a) => a.indexOf(y) === i && y !== members[0].year)
+  return again.length ? `${line} (again in ${listWords(again.map(String))})` : line
+}
+
+/** Whether a border dispute is followed by a war between the two within DISPUTE_WAR_YEARS (a headline: the quarrel that led to war). */
+export function isDisputeHeadline(h: History, e: HistoryEvent): boolean {
+  const pd = politiesOf(h)
+  const W = pd?.wars
+  if (!pd || !W) return false
+  const [a, b] = disputePair(pd, e)
+  if (a < 0 || b < 0 || a === b) return false
+  for (const w of pd.warsOf[a]) {
+    const s = W.startYear[w]
+    if (s < e.year || s > e.year + DISPUTE_WAR_YEARS) continue
+    if ((W.attacker[w] === a && W.defender[w] === b) || (W.attacker[w] === b && W.defender[w] === a)) return true
+  }
+  return false
+}
+
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
   const t = e.type as number
+  if (isDisputeEvent(t)) return describeDispute(h, e)
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   const name = settlementName(h, e.settlement)
@@ -335,6 +423,7 @@ function lossWords(f: number): string {
 /** Inspector line for a political event or walls, from the point of view of settlement `id`, or null. */
 export function describePolityEventFor(h: History, e: HistoryEvent, id: number): string | null {
   const t = e.type as number
+  if (isDisputeEvent(t)) return describeDisputeFor(h, e, id)
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   if (isWallEvent(h, e)) {
@@ -437,6 +526,8 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
       return 'pirate'
     case PolityEvent.Blockade:
       return 'blockade'
+    case EventType.BorderDispute:
+      return 'dispute'
   }
   return null
 }
@@ -570,6 +661,8 @@ export function describeBlockades(h: History, members: readonly HistoryEvent[]):
  */
 export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   const t = e.type as number
+  // claims: a border dispute only when war between the two follows it
+  if (isDisputeEvent(t)) return isDisputeHeadline(h, e)
   // (a realm ended by reunification: its Reunified line is the headline)
   if (t === PolityEvent.Ended && politiesOf(h)?.list[e.value]?.endCause === PolityEnd.Reunified) return false
   if (t === PolityEvent.Founded || t === PolityEvent.Ended || t === PolityEvent.WarDeclared || t === PolityEvent.PeaceMade || t === PolityEvent.Seceded) return true

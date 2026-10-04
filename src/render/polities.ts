@@ -10,6 +10,12 @@
 //    belong to different polities (lighter against stateless land), and a ribbon along the
 //    inside of each border. A cell that changes hands switches at a noise threshold over
 //    the five years between snapshots, so a conquest reads as a border sweeping across.
+//    Claims (History.claimed: land a state claims that no settlement holds) are the claimant's
+//    land like any other (borders go around held and claimed land together) but drawn paler
+//    with a fine hatch of the full colour, so a country reads as one piece with a solid settled
+//    core and a paler hinterland; the flag rides in the polity channels of the cell texture
+//    (id + CLAIM_OFF), decoded per corner in the vertex shader, and the claimed / held edge
+//    inside a country follows the same noisy cell boundaries as everything else.
 //    On the Terrain view the tint stops at the coast as the planet draws it (the elevation
 //    contour and lake shores), and is lit by the sun (dim on the night side). On the
 //    Factions view it is a flat political map (solid colours, strong dark borders, lit like
@@ -65,6 +71,8 @@ const GHOSTS = 3
 const DANGER_YEARS = 30
 const NEVER = 1e9
 const LIFT = 0.0045
+/** Added to a cell's polity id in the cell texture where the cell is claimed but not held (ids are Int16: below it). */
+const CLAIM_OFF = 32768
 
 /** What the territory overlay shows: off, a tint on the Terrain view, the flat Factions map, the Danger heat map. */
 export const PolityView = { Off: 0, Tint: 1, Political: 2, Danger: 3 } as const
@@ -110,6 +118,8 @@ uniform sampler2D uCells;
 uniform int uMode;
 flat varying vec3 vP0;
 flat varying vec3 vP1;
+// claimed (not held) per corner: 1 at the first snapshot, + 2 at the second
+flat varying vec3 vK;
 flat varying vec3 vD0;
 flat varying vec3 vD1;
 flat varying vec3 vSeed;
@@ -128,8 +138,12 @@ vec4 pl_cell(float c) {
 }
 void main() {
   vec4 a = pl_cell(aCorners.x), b = pl_cell(aCorners.y), c = pl_cell(aCorners.z);
-  vP0 = vec3(a.x, b.x, c.x);
-  vP1 = vec3(a.y, b.y, c.y);
+  // claimed land: its claimant's id + CLAIM_OFF
+  vec3 x0 = vec3(a.x, b.x, c.x), x1 = vec3(a.y, b.y, c.y);
+  vec3 k0 = step(vec3(${CLAIM_OFF - 0.5}), x0), k1 = step(vec3(${CLAIM_OFF - 0.5}), x1);
+  vP0 = x0 - k0 * ${CLAIM_OFF.toFixed(1)};
+  vP1 = x1 - k1 * ${CLAIM_OFF.toFixed(1)};
+  vK = k0 + 2.0 * k1;
   vD0 = vec3(a.z, b.z, c.z);
   vD1 = vec3(a.w, b.w, c.w);
   float owned = max(max(max(vP0.x, vP0.y), vP0.z), max(max(vP1.x, vP1.y), vP1.z));
@@ -182,8 +196,10 @@ uniform float uShade;
 uniform vec3 uSunObj;
 uniform vec3 uCamObj;
 uniform float uDaylight;
+uniform float uPxW;
 flat varying vec3 vP0;
 flat varying vec3 vP1;
+flat varying vec3 vK;
 flat varying vec3 vD0;
 flat varying vec3 vD1;
 flat varying vec3 vSeed;
@@ -244,13 +260,17 @@ float pl_dash(vec2 g, float period, float shift) {
   float k = floor(a / 0.7853982 + 0.5) * 0.7853982;
   return fract(dot(gl_FragCoord.xy, vec2(cos(k), sin(k))) / period + shift);
 }
+// 1 on a stripe across direction n (unit) of the surface (period, width and antialiasing edge in world units)
+float pl_stripeAlong(vec3 p, vec3 n, float aa, float period, float width) {
+  float u = dot(p, n);
+  float d = abs(mod(u, period) - 0.5 * period);
+  return 1.0 - smoothstep(0.5 * width - aa, 0.5 * width + aa, d);
+}
 // 1 on a diagonal stripe of the surface (period, width and antialiasing edge in world units):
 // phased by p (the pre-warp object-space position, vObj — the same point on the globe and on
 // the flat map, so the stripes hold still under the land instead of swimming with the screen)
 float pl_stripe(vec3 p, float aa, float period, float width) {
-  float u = (p.x + p.y + p.z) * 0.5773503;
-  float d = abs(mod(u, period) - 0.5 * period);
-  return 1.0 - smoothstep(0.5 * width - aa, 0.5 * width + aa, d);
+  return pl_stripeAlong(p, vec3(0.5773503), aa, period, width);
 }
 vec3 pl_heat(float x) {
   vec3 c0 = vec3(0.20, 0.10, 0.30), c1 = vec3(0.55, 0.12, 0.30), c2 = vec3(0.86, 0.30, 0.12), c3 = vec3(1.0, 0.78, 0.30);
@@ -268,11 +288,17 @@ void main() {
   bool danger = uMode == 3;
 
   // owners at this pixel: a cell changing hands switches at a noise threshold during the five years
+  // (and claimed: claimed but not held, per corner; a claim made or settled switches the same way)
   vec3 ids = vP0;
-  if (any(notEqual(vP0, vP1))) {
+  vec3 k1 = floor(vK * 0.5 + 0.01);
+  vec3 k0 = vK - 2.0 * k1;
+  vec3 kc = k0;
+  if (any(notEqual(vP0, vP1)) || any(notEqual(k0, k1))) {
     vec3 q = p * uCellFreq * 0.55 + 11.0;
     float thr = clamp(0.5 + 1.1 * (pl_vnoise(q) + 0.5 * pl_vnoise(q * 2.03 + 5.0)), 0.03, 0.97);
-    ids = uFrac >= thr ? vP1 : vP0;
+    bool late = uFrac >= thr;
+    ids = late ? vP1 : vP0;
+    kc = late ? k1 : k0;
   }
   // the data views colour lakes as water; the Terrain view draws their shores itself (below)
   if (!tint) ids = mix(ids, vec3(-2.0), step(0.5, vLake));
@@ -287,7 +313,9 @@ void main() {
   }
   // up close the tint has stepped back for the towns: only borders are drawn
   if (flat3 && tint && uTint < 0.004) discard;
-  if (!flat3 || danger) {
+  // one owner but held and claimed corners: the weights too, so the settled core's edge follows the cell boundaries
+  bool kmix = !danger && (kc.x != kc.y || kc.y != kc.z);
+  if (!flat3 || danger || kmix) {
     vec3 q = p * uCellFreq * 1.1;
     float fp = footprint * uCellFreq * 1.1;
     // (the Terrain view shows no cell categories of its own: two octaves are enough for the borders there;
@@ -314,6 +342,11 @@ void main() {
   if (ids.x != dom && gx > sw) { sec = ids.x; sw = gx; }
   if (ids.y != dom && gy > sw) { sec = ids.y; sw = gy; }
   if (ids.z != dom && gz > sw) { sec = ids.z; sw = gz; }
+  // claimed (not held) here: that of the strongest corner of the owner
+  float kw = -1.0, claimed = 0.0;
+  if (ids.x == dom && wv.x > kw) { kw = wv.x; claimed = kc.x; }
+  if (ids.y == dom && wv.y > kw) { kw = wv.y; claimed = kc.y; }
+  if (ids.z == dom && wv.z > kw) { kw = wv.z; claimed = kc.z; }
   // distance to the boundary in pixels: the log ratio of the two strongest owners' weights is smooth
   // (the weights themselves switch within a pixel), so its screen derivative gives a steady line width
   // (capped: near a triangle edge where the second owner's corner weight vanishes the log ratio and its
@@ -394,6 +427,14 @@ void main() {
       vec3 ground = ws_srgbToLinear(vT0 * b.x + vT1 * b.y + vT2 * b.z);
       float near = 1.0 - smoothstep(0.03, 0.16, length(c - ground));
       a *= 1.0 + 0.7 * near;
+    }
+    // claimed, no settlement: paler, with a fine hatch of the full colour (steady on screen, as the stripes)
+    if (claimed > 0.5) {
+      // (period from the frame's world size of a pixel, not the per-triangle footprint: a period that varies from one
+      // triangle to the next would shift the phase and break the lines into dashes)
+      float hatch = pl_stripeAlong(p, vec3(0.7071068, -0.7071068, 0.0), footprint * 0.6, 5.0 * uPxW, 1.3 * max(uPxW, footprint * 0.8));
+      if (political) c = mix(mix(c, vec3(0.8, 0.79, 0.76), 0.4), c, 0.85 * hatch);
+      else a *= mix(0.42, 1.0, 0.8 * hatch);
     }
     // a ribbon of stronger colour along the inside of a border with another polity (or stateless land)
     if (tint && sec > -1.5) a += (sec >= 0.0 ? (abs(overD - sec) < 0.5 && relD.y < 1.5 ? 0.08 : 0.3) : 0.16) * (1.0 - smoothstep(0.0, uBorderPx * 4.0, px));
@@ -766,6 +807,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uSunObj: { value: SUN_DIRECTION.clone() },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uDaylight: sunUniforms.uDaylight,
+    /** World units per CSS pixel at the centre of the view (the claims' hatch). */
+    uPxW: { value: 0.001 },
   }
   const overlayMat = new THREE.ShaderMaterial({
     uniforms: ou,
@@ -892,8 +935,23 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     for (let c = 0; c < cellCount; c++) cellData[c * 4] = a[c]
     const b = cellPolities(pd, s1, q1) ?? a
     for (let c = 0; c < cellCount; c++) cellData[c * 4 + 1] = b[c]
+    markClaims(q0, 0)
+    markClaims(q1, 1)
     // (the cache keeps the most recent few: a is still in it)
     cells = cellPolities(pd, s0, q0)
+  }
+
+  /** Claimed land at land snapshot q (History.claimed): its polity id in channel ch + CLAIM_OFF (the shader decodes it). */
+  function markClaims(q: number, ch: number) {
+    const L = pd.land
+    const C = L?.claimed
+    if (!L || !C) return
+    const row = q * L.L
+    for (let k = 0; k < L.L; k++) {
+      if (C[row + k] === 0) continue
+      const c = L.cells[k]
+      if (c < cellCount && cellData[c * 4 + ch] >= 0) cellData[c * 4 + ch] += CLAIM_OFF
+    }
   }
 
   function fillDanger(l0: number, l1: number) {
@@ -1196,6 +1254,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       // borders a little bolder as the camera comes down; the tint steps back for the 3D towns up close
       ou.uBorderPx.value = (alt > 1.2 ? 1.5 : alt > 0.3 ? 1.8 : 2.2) * pixelRatio
       ou.uPxR.value = pixelRatio
+      const fov = (camera as THREE.PerspectiveCamera).isPerspectiveCamera ? (camera as THREE.PerspectiveCamera).fov : 42
+      ou.uPxW.value = (2 * Math.max(1e-4, alt) * Math.tan((fov * Math.PI) / 360)) / Math.max(1, drawSize.y / pixelRatio)
       ou.uCoastOct.value = alt < 0.12 ? 3 : 5
       // (gone at the closest zoom, where the 3D towns and fields take over: the borders stay)
       if (view === PolityView.Tint) ou.uTint.value = 0.4 * Math.min(1, Math.max(0, (alt - 0.025) / 0.06))

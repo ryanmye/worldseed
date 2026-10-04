@@ -497,9 +497,11 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
     }
     if (hasT) {
       const o = q * L
+      // claims (History.claimed): land a state claims that no settlement holds has no people, so no faith: left unpainted
+      const C = h.claimed && h.claimed.length >= L * LQ ? h.claimed : null
       for (let k = 0; k < L; k++) {
         const owner = T![o + k] - 1
-        if (owner >= 0 && owner < N) paint(h.landCells[k], owner)
+        if (owner >= 0 && owner < N && !(C && C[o + k])) paint(h.landCells[k], owner)
       }
     } else {
       // no territory layer: each settlement's cell and its neighbours
@@ -728,7 +730,8 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
             if (h.landCells[m] < cell) lo = m + 1
             else hi = m
           }
-          if (lo < L && h.landCells[lo] === cell) owner = h.territory[q * L + lo] - 1
+          // (claimed land no settlement holds has no faith of its own)
+          if (lo < L && h.landCells[lo] === cell && !h.claimed?.[q * L + lo]) owner = h.territory[q * L + lo] - 1
         }
         for (const id of atCell.get(cell) ?? []) if (h.population[s * dd.N + id] > 0) owner = id
         const f = owner >= 0 ? faithAt(dd, owner, s) : -1

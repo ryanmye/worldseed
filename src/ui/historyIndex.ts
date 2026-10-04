@@ -12,7 +12,7 @@ import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './dis
 import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
 import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
-import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, gainKey, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
+import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, disputeGroupKeys, gainKey, isDisputeEvent, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -58,6 +58,8 @@ export const EntryKind = {
   Disease: 19,
   /** tourism: places coming into and falling out of fashion per century, sights recognised per decade (tourismFormat.ts tourismGroupKey). */
   Tourism: 20,
+  /** claims: one pair of states' border disputes within half a century of the first (polityFormat.ts disputeGroupKeys). */
+  BorderDisputes: 21,
   /** rulers: one state's successions per quarter-century, a contested succession's events, a war of succession (rulersFormat.ts rulersGroupKey; numbered apart from the others). */
   Rulers: 40,
   /** religion: one state's conversion and state religion, a faith reaching peoples per half-century, a holy war (rulersFormat.ts). */
@@ -373,7 +375,7 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
-  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) // 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
+  return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
 /** Whether `other` of an event of this type is a settlement id. */
@@ -395,7 +397,9 @@ function otherIsSettlement(type: number): boolean {
     // tourism: the place visited, the town a resort drew on, a sight's own settlement
     tourismOtherIsSettlement(type) ||
     // renaming: the capital of the realm behind it, the ruin whose name it took
-    isRenamingEvent(type)
+    isRenamingEvent(type) ||
+    // claims: the other side's capital in a border dispute
+    isDisputeEvent(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -647,6 +651,11 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     tourismPerKey.set(k, (tourismPerKey.get(k) ?? 0) + 1)
   })
   const tourismEntry = new Map<number, number>()
+  // claims: one pair's border disputes within half a century of the first (disputeGroupKeys), gathered when two or more
+  const disputeKeyOfEvent = disputeGroupKeys(h)
+  const disputesPerKey = new Map<number, number>()
+  for (const k of disputeKeyOfEvent.values()) disputesPerKey.set(k, (disputesPerKey.get(k) ?? 0) + 1)
+  const disputeEntry = new Map<number, number>()
   // rulers, religion: a succession's events, one state's routine successions, a war with its declaration, ... (rulersGroupKey), gathered when two or more
   const rulersKeyOfEvent = new Map<number, number>()
   const rulersPerKey = new Map<number, number>()
@@ -689,6 +698,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (goodsKeyOfEvent.has(i) && (goodsPerKey.get(goodsKeyOfEvent.get(i)!) ?? 0) >= 2) join(goodsEntry, goodsKeyOfEvent.get(i)!, EntryKind.Goods, i)
     else if (diseaseKeyOfEvent.has(i) && (diseasePerKey.get(diseaseKeyOfEvent.get(i)!) ?? 0) >= 2) join(diseaseEntry, diseaseKeyOfEvent.get(i)!, EntryKind.Disease, i)
     else if (tourismKeyOfEvent.has(i) && (tourismPerKey.get(tourismKeyOfEvent.get(i)!) ?? 0) >= 2) join(tourismEntry, tourismKeyOfEvent.get(i)!, EntryKind.Tourism, i)
+    else if (disputeKeyOfEvent.has(i) && (disputesPerKey.get(disputeKeyOfEvent.get(i)!) ?? 0) >= 2) join(disputeEntry, disputeKeyOfEvent.get(i)!, EntryKind.BorderDisputes, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
   while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })

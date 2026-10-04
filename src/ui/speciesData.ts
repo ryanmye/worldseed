@@ -275,7 +275,8 @@ function largestOf(h: History, pd: PeoplesData, p: number, year: number): number
 
 /**
  * The people whose land each cell is at land snapshot `l` (-1 nobody's), into `out`
- * (length cellCount): from History.territory where the history has it, else the people of
+ * (length cellCount): from History.territory where the history has it (claimed land no settlement holds is
+ * nobody's), else the people of
  * the nearest living settlement within a few steps over land. `queue` and `depth` are
  * scratch (length cellCount).
  */
@@ -287,9 +288,11 @@ export function cellPeopleAt(world: World, h: History, people: ArrayLike<number>
   if (LC instanceof Uint32Array && T instanceof Uint16Array && LC.length > 0 && T.length >= L * LC.length && l >= 0 && l < L) {
     const o = l * LC.length
     const NS = h.settlements.length
+    // claims (History.claimed): land a state claims that no settlement holds is no people's land (it names the claiming member)
+    const C = p.claimed instanceof Uint8Array && p.claimed.length >= L * LC.length ? p.claimed : null
     for (let k = 0; k < LC.length; k++) {
       const v = T[o + k] - 1
-      if (v >= 0 && v < NS) out[LC[k]] = people[v]
+      if (v >= 0 && v < NS && !(C && C[o + k])) out[LC[k]] = people[v]
     }
     return out
   }

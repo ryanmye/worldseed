@@ -39,7 +39,7 @@ import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
-import { assignPolityColors, blockadesAt, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
+import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -153,9 +153,22 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
   list.className = 'fp-list'
   const empty = document.createElement('div')
   empty.className = 'fp-note'
+  // the map's key for claims (with a history that has them, on the Factions view or tint): settled land and claimed hinterland
+  const claimKey = document.createElement('div')
+  claimKey.className = 'fp-key hidden'
+  const keyItem = (cls: string, text: string, title: string) => {
+    const d = document.createElement('span')
+    d.className = 'fp-key-item'
+    d.title = title
+    const sw = document.createElement('span')
+    sw.className = `fp-key-sw ${cls}`
+    d.append(sw, text)
+    return d
+  }
+  claimKey.append(keyItem('held', 'settled', "Land held by the state's settlements"), keyItem('claimed', 'claimed, no settlement', 'Land the state claims that no settlement holds: enclosed pockets, the gaps between its towns and the hinterland out to a natural limit'))
   const detail = document.createElement('div')
   detail.className = 'fp-detail hidden'
-  body.append(cols, list, empty, detail)
+  body.append(claimKey, cols, list, empty, detail)
   root.append(head, body)
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
 
@@ -287,6 +300,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
   }
   function applyView() {
     layer?.setView(currentView())
+    claimKey.classList.toggle('hidden', !data || !hasClaims(data) || (currentView() !== PolityView.Political && currentView() !== PolityView.Tint))
     syncOutlaws()
     shownRegionsKey = -1
     if (labels && currentView() !== PolityView.Tint && currentView() !== PolityView.Political) labels.setRegions?.(null)
@@ -631,6 +645,15 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const now = line()
       if (capNow >= 0) now.append('Capital ', settLink(capNow), ' · ')
       now.append(`${formatInt(pd.aliveMembers[k])} settlements, ${formatPopulation(pd.alivePop[k])} people`)
+      // claims: its land, settled and claimed but unsettled, as the map shows them (at the land snapshot the map shows)
+      if (hasClaims(pd)) {
+        const land = landCellsOf(pd, selected, s0, landSnapNear(pd, s0 * pd.interval))
+        const all = land.held + land.claimed
+        if (land.claimed > 0 && all > 0) {
+          const cp = Math.max(1, Math.min(99, Math.round((100 * land.claimed) / all)))
+          line(`Land: ${100 - cp}% settled, ${cp}% claimed (no settlement)`).title = `${formatInt(land.held)} cells held by its settlements, ${formatInt(land.claimed)} claimed beyond them`
+        }
+      }
       if (people) line(`Ruled by the ${people} people`)
       // trade policy: the tariff on imports and the duties (and seized contraband) reaching the capital
       if (pd.tariff) {
@@ -1218,8 +1241,10 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const p = cells && cell >= 0 && cell < cells.length ? cells[cell] : -1
       if (p === WATER || p < 0) return ''
       const ob = overlordBond(data, p, year)
-      if (ob >= 0) return `${polityTitle(data, p, s0)} (${data.bonds!.kind[ob] === BondKind.Vassal ? 'vassal' : 'tributary'} of ${data.names[data.bonds!.b[ob]]})`
-      return polityTitle(data, p, s0)
+      const bond = ob >= 0 ? `${data.bonds!.kind[ob] === BondKind.Vassal ? 'vassal' : 'tributary'} of ${data.names[data.bonds!.b[ob]]}` : ''
+      // claims: land the state calls its own that no settlement holds (at the land snapshot the map shows)
+      if (claimedAt(data, cell, landSnapNear(data, s0 * data.interval))) return `Claimed by the ${polityTitle(data, p, s0)}${bond ? `, ${bond}` : ''} (no settlement)`
+      return bond ? `${polityTitle(data, p, s0)} (${bond})` : polityTitle(data, p, s0)
     },
   }
   return api

@@ -10,7 +10,8 @@
 //    political events per polity, walls and sacks per settlement, army journeys.
 //  - The polity of every cell at (snapshot s, land snapshot q): owner settlement
 //    territory[q * L + k] - 1 of land cell landCells[k], and its polity polity[s * S + owner];
-//    cached for the last few (s, q) pairs (cellPolities).
+//    cached for the last few (s, q) pairs (cellPolities). Claimed land (History.claimed: a state's
+//    land no settlement holds) is its claimant's there; claimedAt / landCellsOf tell it apart.
 //  - A stable colour per polity from its hue, nudged in lightness and saturation away from
 //    the earlier polities near it whose hues are close (successors stay near their parent's
 //    hue, as the simulation intends).
@@ -136,7 +137,7 @@ export interface PolitiesData {
   /** Political events (types 20-34, plus walls built / lost) per polity, chronological event indices. */
   eventsOf: number[][]
   /** Land layers, or null when absent or inconsistent. */
-  land: { cells: Uint32Array; L: number; count: number; interval: number; territory: Uint16Array; danger: Uint8Array | null } | null
+  land: { cells: Uint32Array; L: number; count: number; interval: number; territory: Uint16Array; danger: Uint8Array | null; claimed: Uint8Array | null } | null
   /** Land index of each cell (-1 water), for cell lookups; null without land layers. */
   landIndexOf: Int32Array | null
   armies: ArmyData | null
@@ -149,6 +150,8 @@ export interface PolitiesData {
   conquestsOf: Map<number, number[]>
   /** Years a settlement changed hands (taken, joined, went over, broke away, founded a state), chronological. */
   changesOf: Map<number, number[]>
+  /** Whether any land is claimed (hasClaims; undefined until asked). */
+  anyClaims?: boolean
   /** Cell-polity cache (see cellPolities). */
   cache: { key: number; cells: Int16Array }[]
   cellCount: number
@@ -311,7 +314,9 @@ function buildPolitiesData(h: History): PolitiesData | null {
   if (cells instanceof Uint32Array && cells.length > 0 && p.territory instanceof Uint16Array && Q > 0 && LI > 0 && p.territory.length >= Q * cells.length) {
     const L = cells.length
     const danger = p.danger instanceof Uint8Array && p.danger.length >= Q * L ? p.danger : null
-    land = { cells, L, count: Q, interval: LI, territory: p.territory, danger }
+    // claims: land a state claims that no settlement holds (territory names the claiming member there); empty without them
+    const claimed = p.claimed instanceof Uint8Array && p.claimed.length >= Q * L ? p.claimed : null
+    land = { cells, L, count: Q, interval: LI, territory: p.territory, danger, claimed }
     landIndexOf = new Int32Array(cellCount).fill(-1)
     for (let k = 0; k < L; k++) if (cells[k] < cellCount) landIndexOf[cells[k]] = k
   }
@@ -807,6 +812,7 @@ export function landSnapNear(pd: PolitiesData, year: number): number {
 /**
  * Polity of every cell at snapshot s and land snapshot q (WATER for water, -1 for land
  * nobody's or held by a stateless settlement). Cached for the last few (s, q) pairs.
+ * Claimed land (History.claimed, see claimedAt) counts as its claimant's: the territory row names the claiming member.
  */
 export function cellPolities(pd: PolitiesData, s: number, q: number): Int16Array | null {
   const L = pd.land
@@ -837,6 +843,38 @@ export function cellPolities(pd: PolitiesData, s: number, q: number): Int16Array
   }
   pd.cache.unshift({ key, cells: out })
   return out
+}
+
+/** Whether cell `cell` is claimed but not held at land snapshot q (History.claimed: a state's land no settlement holds); false without claims. */
+export function claimedAt(pd: PolitiesData, cell: number, q: number): boolean {
+  const L = pd.land
+  if (!L || !L.claimed || !pd.landIndexOf) return false
+  const k = pd.landIndexOf[cell] ?? -1
+  if (k < 0) return false
+  return L.claimed[Math.max(0, Math.min(L.count - 1, q)) * L.L + k] !== 0
+}
+
+/** Land cells of polity p at snapshot s and land snapshot q: held (its settlements' land) and claimed (History.claimed: no settlement's). */
+export function landCellsOf(pd: PolitiesData, p: number, s: number, q: number): { held: number; claimed: number } {
+  const out = { held: 0, claimed: 0 }
+  const L = pd.land
+  const cells = cellPolities(pd, s, q)
+  if (!L || !cells || p < 0) return out
+  const row = Math.max(0, Math.min(L.count - 1, q)) * L.L
+  for (let k = 0; k < L.L; k++) {
+    if (cells[L.cells[k]] !== p) continue
+    if (L.claimed && L.claimed[row + k] !== 0) out.claimed++
+    else out.held++
+  }
+  return out
+}
+
+/** Whether the history has any claimed land (History.claimed), worked out once. */
+export function hasClaims(pd: PolitiesData): boolean {
+  const C = pd.land?.claimed
+  if (!C) return false
+  if (pd.anyClaims === undefined) pd.anyClaims = C.some((v) => v !== 0)
+  return pd.anyClaims
 }
 
 /** Danger 0..255 of cell `cell` at land snapshot q (0 without data). */
