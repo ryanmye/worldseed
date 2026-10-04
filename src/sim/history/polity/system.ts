@@ -251,8 +251,9 @@ export function fleeChance(ps: PolityState, id: number): number {
  * and danger makes defensible sites sought after; zr is the cell's danger or, for a group fleeing danger, part of its
  * own (fear sends people to hilltops and islands even where it is quiet for now), while the repulsion still tells
  * quiet land from raided borderlands and pirate coasts.
- * Claims (claims.ts): a state's settlers favour land their state claims, * (1 + CLAIM.settle); anyone else is
- * deterred from it (a stateless people's or another state's settlers), * (1 - CLAIM.deter).
+ * Claims (claims.ts): settlers keep off land another state claims (a stateless people's or another state's settlers),
+ * * (1 - CLAIM.deter); the claiming state's own are neither deterred nor drawn in (a pull drew them into the fever
+ * country that had stayed empty for a reason).
  */
 export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: number): number {
   const z = zCell(s, ps, c)
@@ -264,7 +265,7 @@ export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: nu
   const q = ps.cPol[c]
   if (q < 0 || ps.pEnded[q] >= 0) return f
   const home = from < ps.seen && s.outpost[from] && s.parent[from] >= 0 ? s.parent[from] : from // (an expedition base: its parent's state)
-  return f * ((home < ps.seen ? ps.polity[home] : -1) === q ? 1 + CLAIM.settle : 1 - CLAIM.deter)
+  return (home < ps.seen ? ps.polity[home] : -1) === q ? f : f * (1 - CLAIM.deter)
 }
 
 /** The sites a group weighs (migration's search), for PolityDiag.site*: the best of them by its score without danger. */
