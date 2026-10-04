@@ -233,10 +233,10 @@ describe('renaming', () => {
       checkRenamings(h)
       total += h.renamings.count
       for (let i = 0; i < h.renamings.count; i++) causes.add(h.renamings.cause[i])
-      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (ideas: up to 50 since, more wars in some
-      // worlds; at least 2, not 3, since the merge of the ideas: seed 12345 has 2, as it has with the ideas off and the species fix)
+      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (At least 2, not 3, since the merge of
+      // the ideas: seed 12345 has 2, as it has with the ideas off and the species fix.)
       expect(h.renamings.count).toBeGreaterThanOrEqual(2)
-      expect(h.renamings.count).toBeLessThanOrEqual(50)
+      expect(h.renamings.count).toBeLessThanOrEqual(40)
     }
     expect(total).toBeGreaterThanOrEqual(30)
     for (const c of [RenameCause.Conquest, RenameCause.Cession, RenameCause.Capital, RenameCause.Refounded, RenameCause.Restored]) expect(causes.has(c)).toBe(true)
