@@ -284,6 +284,18 @@ export function newHouseAccede(s: HistoryState, ps: PolityState, R: RulerState, 
   return r
 }
 
+/** A kinsman of house `dyn` from a cadet line (no parent on the throne) takes p's throne, with siblings and children of his own. */
+function cadetAccede(s: HistoryState, ps: PolityState, R: RulerState, p: number, dyn: number): number {
+  const rng = R.rng
+  R.hN[p] = 0
+  R.diag.cadet++
+  const born = s.year - rng.int(RULERS.founderAge0 - 8, RULERS.founderAge1 - 8)
+  founderSiblings(R, p, born, s.year)
+  const r = accede(s, ps, R, p, born, 0, dyn, AccessionHow.Inherited, -1, -1, 0)
+  backfill(R, p, r, s.year)
+  return r
+}
+
 /** A league's elected head takes office (no house; a term). */
 function electHead(s: HistoryState, ps: PolityState, R: RulerState, p: number): number {
   const rng = R.rng
@@ -473,7 +485,9 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
       R.diag.extinct++
       clean = false
       if (!extinctClaim(s, ps, R, p, dyn)) {
-        newHouseAccede(s, ps, R, p, ps.pWars[p] > 0 ? AccessionHow.Usurped : AccessionHow.Elected)
+        // A distant kinsman of a cadet line (no heir of the pool) may still carry the house on; else a new house.
+        if (dyn >= 0 && rng.next() < SUCCESSION.cadet) cadetAccede(s, ps, R, p, dyn)
+        else newHouseAccede(s, ps, R, p, ps.pWars[p] > 0 ? AccessionHow.Usurped : AccessionHow.Elected)
         if (rng.next() < SUCCESSION.extinctContested) contested(s, ps, R, ts, p, -1, dead)
       }
     } else {

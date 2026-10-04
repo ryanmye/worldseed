@@ -67,7 +67,7 @@ const med = (a: number[]): number => { if (a.length === 0) return NaN; const s =
 const pct = (a: number[], q: number): number => { if (a.length === 0) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(q * s.length))] }
 
 /** Tier of each polity at snapshot q (from the snapshot's membership and people). */
-function tiersAt(h: History, q: number): Int8Array {
+export function tiersAt(h: History, q: number): Int8Array {
   const S = h.settlements.length, P = h.polities.length
   const pop = new Float64Array(P), mem = new Int32Array(P)
   let W = 0

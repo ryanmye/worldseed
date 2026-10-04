@@ -56,14 +56,14 @@ export const RULERS = {
    * Overthrow (a yearly chance): overthrow * max(0, overthrowAbility - ability) * (1 + exhaustion + crisis + lost * [lost a war lately]),
    * by a general (at war or lately) or a magnate; the old ruler is killed with chance overthrowKill, else deposed.
    */
-  overthrow: 0.02,
+  overthrow: 0.012,
   overthrowAbility: 1.05,
   overthrowLost: 2,
   overthrowKill: 0.55,
   /** Chiefdoms: at a chief's death the next chief comes from another family with chance chiefHouse. */
   chiefHouse: 0.3,
   /** Elective thrones: the electors pass over the house with chance electOther. */
-  electOther: 0.2,
+  electOther: 0.1,
   /** Women may inherit (after sons) among a share `cognatic` of peoples; daughters are passed over among the rest. */
   cognatic: 0.45,
   /** Laws of succession: a people's first law is drawn with these weights (Primogeniture, Partible, Elective, Seniority). */
@@ -92,11 +92,13 @@ export const SUCCESSION = {
   civil: 0.32,
   partition: 0.12,
   /** The capital's claimant wins the crisis with chance heirWins; else another claimant: a brother or cousin (if any), or a new house (usurper). */
-  heirWins: 0.65,
+  heirWins: 0.72,
   /** Partible law: a Kingdom or larger with adult sons beyond the heir is divided among them with chance partible. */
   partible: 0.25,
   /** No heir at all: the throne passes to a new house; contested with chance extinctContested. */
   extinctContested: 0.4,
+  /** No heir in the pool and no marriage claim: a kinsman of a cadet line carries the house on with chance cadet. */
+  cadet: 0.7,
 }
 
 export const MARRIAGE = {
@@ -112,5 +114,5 @@ export const MARRIAGE = {
   union: 0.75,
   war: 0.7,
   /** A union merges into one realm after mergeYears (same or long-met peoples), and splits at the senior's contested succession or when the junior throws off the bond. */
-  mergeYears: 60,
+  mergeYears: 40,
 }

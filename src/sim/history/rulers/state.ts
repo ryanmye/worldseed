@@ -116,6 +116,8 @@ export interface RulerDiag {
   passedOver: number
   wars: number
   marriages: number
+  /** Houses carried on by a cadet line (no heir in the pool). */
+  cadet: number
 }
 
 export const MAX_AGE = 110
@@ -155,7 +157,7 @@ export function createRulers(s: HistoryState): RulerState {
     uSenior: [], uJunior: [], uRuler: [], uStart: [], uEnd: [], uCause: [], uBond: [], uActive: [], sWars: [],
     ctx: Ctx.None, ctxSrc: -1, ctxDyn: -1, ctxBorn: 0, ctxFemale: 0, ctxDead: -1, evSeen: 0,
     surv: survival(),
-    diag: { successions: 0, clean: 0, regencies: 0, contested: 0, extinct: 0, usurped: 0, partible: 0, civil: 0, partitions: 0, unions: 0, passedOver: 0, wars: 0, marriages: 0 },
+    diag: { successions: 0, clean: 0, regencies: 0, contested: 0, extinct: 0, usurped: 0, partible: 0, civil: 0, partitions: 0, unions: 0, passedOver: 0, wars: 0, marriages: 0, cadet: 0 },
   }
   // (one literal: under 128 properties it stays in fast mode; two joined with Object.assign would not, at this size)
   return a as RulerState
