@@ -140,7 +140,7 @@ export function dynastyStats(seed: number, run: HistoryRun, ms: number): Dynasty
   // Religion.
   const uniF = h.faiths.filter((f) => f.kind === FaithKind.Universal)
   const founded = uniF.filter((f) => f.parent < 0)
-  const isUni = (f: number): boolean => f !== 255 && h.faiths[f].kind === FaithKind.Universal
+  const isUni = (f: number): boolean => f !== 255 && f < h.faiths.length && h.faiths[f].kind === FaithKind.Universal
   const shareAt = (y: number): number => {
     const q = Math.min(h.snapshotCount - 1, Math.floor(y / h.snapshotInterval))
     let n = 0, u = 0

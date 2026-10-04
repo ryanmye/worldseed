@@ -9,6 +9,7 @@ import { CITY_POPULATION, DiseaseKind, EventType, StructureType, TOWN_POPULATION
 import type { History, World } from '../../../contract.ts'
 import { generateWorld } from '../../index.ts'
 import { runHistory } from '../index.ts'
+import type { HistoryRun } from '../index.ts'
 import { HISTORY_STATS_SEEDS } from '../stats.ts'
 import { FEVER } from './params.ts'
 
@@ -117,11 +118,11 @@ function feverGround(w: World, h: History, fever: Uint8Array | null, y: number):
   return { living, pop }
 }
 
-export function diseaseSeedStats(seed: number, withOff: boolean, years = 2000): DiseaseRow {
-  const w = generateWorld(seed)
+export function diseaseSeedStats(seed: number, withOff: boolean, years = 2000, pre?: { w: World; run: HistoryRun; ms: number }): DiseaseRow {
+  const w = pre ? pre.w : generateWorld(seed)
   let t = performance.now()
-  const run = runHistory(w, { years })
-  const ms = performance.now() - t
+  const run = pre ? pre.run : runHistory(w, { years })
+  const ms = pre ? pre.ms : performance.now() - t
   const h = run.history
   let off: History | null = null, msOff = NaN
   if (withOff) { t = performance.now(); off = runHistory(w, { years, disease: false }).history; msOff = performance.now() - t }
