@@ -1507,7 +1507,12 @@ function benefitOf(s: HistoryState, id: number, x: number): number {
   const m0 = sp.m0[id], m1 = sp.m1[id]
   const n0 = b < 32 ? (m0 | (1 << b)) >>> 0 : m0
   const n1 = b < 32 ? m1 : (m1 | (1 << (b - 32))) >>> 0
-  let gain = (cropOf(s, id, n0, n1, false) - now) / now
+  const nv = cropOf(s, id, n0, n1, false)
+  // A technique of no use to what the settlement grows and herds (early rice without paddy, the heavy plough without cattle) is of
+  // no benefit: the gain below is reckoned against the stored crop multiplier, which is refreshed only now and then, so a stale
+  // one made such a technique look worth having.
+  if (x >= S_COUNT && nv === cropOf(s, id, m0, m1, false)) { sp.ben[key] = 0; return 0 }
+  let gain = (nv - now) / now
   if (x < S_COUNT && SPECIES_TABLE[x].category === SpeciesCategory.Livestock) {
     const c = s.cell[id]
     if (x === SP.horse) gain += 0.06
