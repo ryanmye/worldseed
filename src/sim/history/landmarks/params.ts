@@ -1,0 +1,144 @@
+// landmarks: constants of the landmarks system (see system.ts for the rules they enter).
+
+/** Default of HistoryOptions.landmarks. */
+export const LANDMARKS_ON = true
+
+export const LANDMARK = {
+  /** Years between the scans of the towns (new works, neglect, restoration, conversion); a multiple of the snapshot interval's default. */
+  step: 5,
+  /** Below this many people a settlement is not looked at for a great work (lesser: their own thresholds). */
+  minPop: 400,
+  /** "Rich": wealth per head at least richMul times the mean of the world's towns (pop >= 1000) at the scan. */
+  richMul: 1.2,
+
+  // --- Castle: the seat of a realm, or a frontier fortress ---
+  /** A capital of Kingdom tier or more, held as capital castleYears, with castlePop people: castle per scan. */
+  castleYears: 10,
+  castlePop: 2500,
+  castle: 0.22,
+  /** The guarantee: a capital of any tier held forceYears with forcePop people begins one at once (if it has no castle or palace). */
+  forceYears: 25,
+  forcePop: 8000,
+  /** Frontier fortress: a town of fortPop people taken in war or besieged in the last fortWindow years, held by a realm of Kingdom tier or more. */
+  fortPop: 3000,
+  fortWindow: 40,
+  fort: 0.05,
+
+  // --- Palace: the long-held capital of a kingdom or empire, and rich ---
+  palaceYears: 40,
+  palaceEmpireYears: 20,
+  palacePop: 5000,
+  palace: 0.12,
+
+  // --- Great temple: a holy city, the seat of a state faith, a rich and pious city ---
+  /** A universal faith's holy city (its founding seat or a schism's) with holyPop people. */
+  holyPop: 1200,
+  holy: 0.2,
+  /** The capital of a realm (Kingdom tier or more) with a state faith that its majority follows, with seatTemplePop people. */
+  seatTemplePop: 5000,
+  seatTemple: 0.05,
+  /** A rich city of piousPop people whose majority faith holds piousShare of it, under a ruler of piety piousRuler. */
+  piousPop: 8000,
+  piousShare: 0.7,
+  piousRuler: 0.6,
+  pious: 0.06,
+
+  // --- Monastery: a faith of organisation, a pious ruler (one per reign at most), in a town of the realm ---
+  monkOrg: 0.45,
+  monkPiety: 0.75,
+  monkPop: 600,
+  monastery: 0.06,
+
+  // --- Market hall: a mart of the long-haul trade, or a rich trade hub ---
+  martPop: 3000,
+  mart: 0.04,
+  hubPop: 8000,
+  hubRich: 2.5,
+  hub: 0.03,
+
+  // --- Guildhall: the seat of a renowned craft tradition (TraditionRenowned) ---
+  guildPop: 1200,
+  guild: 0.6,
+  /** Years after the renown within which the hall is begun (if at all): judged at the scans until then. */
+  guildWindow: 30,
+
+  // --- Lighthouse: a port on an ocean lane (a long-haul lane with oceanCells deep-sea cells) ---
+  lightPop: 2500,
+  oceanCells: 3,
+  light: 0.06,
+
+  // --- Library: a large rich city of a people that holds writing (more likely with paper, printing) ---
+  libraryPop: 6000,
+  library: 0.015,
+  libPaper: 2,
+  libPrinting: 4,
+  /** Without the ideas system: Crafts technology level standing for writing. */
+  libTech: 2.5,
+
+  // --- Monument: a victorious warlike ruler (a war won), at the capital ---
+  monumentWar: 0.55,
+  monumentPop: 2500,
+  monument: 0.35,
+
+  // --- Mausoleum: the founder of a house, or a long great reign, at the capital, at the ruler's death ---
+  tombPop: 2500,
+  tombReign: 30,
+  tombAbility: 1.15,
+  tombFounder: 0.35,
+  tombGreat: 0.5,
+
+  // --- Baths: a resort at hot springs, or a town of note by springs ---
+  bathsPop: 300,
+  baths: 0.08,
+  springTownPop: 4000,
+  springTown: 0.02,
+
+  // --- Council house: the seat of a league or of an elective state ---
+  councilYears: 10,
+  councilPop: 2000,
+  council: 0.1,
+
+  // --- Lesser: temples and shrines ---
+  /** A town of templePop people for templeYears gets a temple of its majority faith; one more per templeStep people, at most templeMax. */
+  templePop: 1500,
+  templeYears: 10,
+  templeStep: 6000,
+  templeMax: 5,
+  temple: 0.12,
+  /** A settlement of shrinePop people for shrineYears whose majority holds a traditional faith gets a folk shrine (one). */
+  shrinePop: 700,
+  shrineYears: 20,
+  shrine: 0.025,
+
+  // --- Build times (years, drawn uniformly at the start), by LandmarkKind ---
+  buildMin: [10, 15, 20, 10, 5, 5, 10, 10, 3, 10, 5, 5, 5, 2],
+  buildMax: [30, 40, 80, 30, 15, 15, 25, 30, 10, 25, 15, 15, 15, 6],
+
+  // --- States ---
+  /** Neglect: the town under neglectShare of its peak since completion for neglectYears; a seat no longer a capital for seatYears. */
+  neglectShare: 0.38,
+  neglectYears: 25,
+  seatYears: 40,
+  /** A neglected landmark falls into ruin ruinMin..ruinMax years on (drawn at the neglect). */
+  ruinMin: 150,
+  ruinMax: 400,
+  /** Sacked: a standing great landmark is ruined at sackGreat (castles sackCastle), a lesser at sackLesser. */
+  sackGreat: 0.25,
+  sackCastle: 0.4,
+  sackLesser: 0.15,
+  /** Restored per scan: the town back over restoreShare of the peak and rich, a seat a capital again, a house of worship under a pious ruler. */
+  restoreShare: 0.75,
+  restore: 0.15,
+  /** A ruin is restored at this share of the chance. */
+  ruinRestore: 0.4,
+  /** Pious restoration: a ruler of piety restorePiety, the town at restorePious of its peak. */
+  restorePiety: 0.7,
+  restorePious: 0.5,
+  /** Conversion when the town's majority faith (holding convertShare) is another: per scan, lesser and great; on a change of state faith, great. */
+  convertShare: 0.5,
+  convertLesser: 0.25,
+  convertGreat: 0.06,
+  convertState: 0.4,
+  /** Years after a change before another (sack and abandonment excepted). */
+  minGap: 10,
+}
