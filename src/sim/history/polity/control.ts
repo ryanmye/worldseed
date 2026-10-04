@@ -68,10 +68,11 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   const NP = s.know.P
   if (peoplePop.length < NP) peoplePop = new Float64Array(NP)
   peoplePop.fill(0)
-  let pop = 0, aSum = 0, bSum = 0
+  let pop = 0, aSum = 0, bSum = 0, ports = 0
   for (let k = m0; k < m1; k++) {
     const m = list[k]
     const x = s.pop[m]
+    if (s.port[m] >= 0) ports++
     pop += x
     aSum += x * ps.asab[m]
     const dm = dist[m]
@@ -79,6 +80,7 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
     peoplePop[s.people[m]] += x
   }
   ps.pPop[p] = pop
+  ps.pPorts[p] = ports
   const A = pop > 0 ? aSum / pop : 0
   ps.pAsab[p] = A
   ps.pMass[p] = A * bSum * (inCrisis(s, ps, p) ? POLITY.crisisMass : 1)

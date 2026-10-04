@@ -25,7 +25,9 @@ import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { controlOne, distTo } from './control.ts'
 import { spike } from './danger.ts'
-import { COHESION, DANGER, POLITY, UNREST } from './params.ts'
+import { COHESION, DANGER, POLITY, SMUGGLE, UNREST } from './params.ts'
+import type { TradeState } from '../trade.ts'
+import { crisisOpened, lowCohesion } from './civil.ts'
 import { chooseCapital, membersOf, successors } from './realm.ts'
 import { FAR, clampAsab, endPolity, grip, inCrisis, moveCapital, projAt, setPolity, submits } from './state.ts'
 import type { PolityState } from './state.ts'
@@ -55,7 +57,8 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const since = s.year - ps.conqueredAt[i]
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
   const peasant = (s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0) + U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)) + (ps.badTax[i] ? U.badTax : 0)
-  const provincial = U.distance * (1 - g) + U.exhaustion * e + (inCrisis(s, ps, p) ? U.crisis : 0)
+  // (v2: corruption where contraband pays)
+  const provincial = U.distance * (1 - g) + U.exhaustion * e + (inCrisis(s, ps, p) ? U.crisis : 0) + SMUGGLE.corruptUnrest * ps.corrupt[i]
   const ethnic = U.foreign * (1 - ps.assim[i]) + conquest
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
@@ -191,7 +194,7 @@ function fragment(s: HistoryState, ps: PolityState, p: number): void {
 }
 
 /** System part (every step): successions and crises, fragmentation, capital moves, dwindling. */
-export function realmStep(s: HistoryState, ps: PolityState): void {
+export function realmStep(s: HistoryState, ps: PolityState, ts: TradeState): void {
   const U = UNREST
   const rng = ps.rng
   const alive = ps.alive.slice()
@@ -206,8 +209,10 @@ export function realmStep(s: HistoryState, ps: PolityState): void {
       if (!inCrisis(s, ps, p) && rng.next() < chance) {
         ps.pCrisisUntil[p] = s.year + U.crisisMin + Math.floor(rng.next() * (U.crisisMax - U.crisisMin + 1))
         logEvent(s, EventType.SuccessionCrisis, ps.pCapital[p], -1, p)
+        crisisOpened(s, ps, ts, p) // v2: civil war or partition
+        if (ps.pEnded[p] >= 0) continue
       }
-    }
+    } else if (!inCrisis(s, ps, p)) lowCohesion(s, ps, ts, p) // v2: a realm without cohesion may fall into civil war
     if (inCrisis(s, ps, p) && ps.pAsab[p] < U.acrit && ps.pMembers[p] >= 2) { fragment(s, ps, p); if (ps.pEnded[p] >= 0) continue }
     // Capital move (b): a member long much larger and safer than the capital.
     const cap = ps.pCapital[p]

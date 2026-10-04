@@ -38,7 +38,7 @@ import { learnPath } from './knowledge.ts'
 import { hasHorse, moveMuls, siteFactorAt, siteRows } from './species.ts'
 import { contiguous, createFrontier, passJoin, setAllowed, syncFrontier } from './frontier.ts' // frontier:
 import type { FrontierState } from './frontier.ts'
-import { fleeChance, joinBlocked, joinFactor, siteFactor } from './polity/system.ts' // polities:
+import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteFactor } from './polity/system.ts' // polities:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -396,6 +396,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     s.pop[from] -= g
     s.pop[bestJoin] += g
     logEvent(s, EventType.Migration, from, bestJoin, g)
+    if (s.pol !== null && s.people[from] !== s.people[bestJoin]) refugeeKnowledge(s, s.pol, from, bestJoin, g) // polities: (v2) refugees carry their skills
     const arriveYear = s.year
     const path = joinPath ?? reconstructPath(prev, origin, s.cell[bestJoin])
     const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))

@@ -31,11 +31,15 @@ import { logEvent, logJourney, loseStructure } from '../state.ts'
 import { prosperity } from '../migration.ts'
 import { learnPath } from '../knowledge.ts'
 import { controlOne, distTo } from './control.ts'
-import { loseWalls, spike } from './danger.ts'
-import { COHESION, POLITY, WAR } from './params.ts'
+import { loseFort, loseWalls, spike } from './danger.ts'
+import { ALLIANCE, CIVIL, COHESION, POLITY, VASSAL, WAR } from './params.ts'
+import { blockade } from './outlaw.ts'
+import { bound } from './policy.ts'
+import { bufferAlarm, overlordOf, peaceTerms, protectorsOf, subject } from './bonds.ts'
 import { chooseCapital, membersOf, successors } from './realm.ts'
-import { relationOf } from './relations.ts'
+import { relIdx, relationOf } from './relations.ts'
 import { FAR, clampAsab, endPolity, horseOf, inCrisis, isCapital, localOf, moveCapital, projAt, setPolity, submits, wallFactor } from './state.ts'
+import { atWar } from './formation.ts'
 import type { PolityState } from './state.ts'
 
 // --- Declarations ------------------------------------------------------------------------------------
@@ -65,6 +69,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0 || s.year < ps.relTruce[r]) continue
     const rv = smoothstep(WAR.rLow, WAR.rHigh, ps.relR[r])
     if (rv <= 0 || ps.relEdges[r].length === 0) continue
+    if (bound(ps, a, b)) continue // (v2: a vassal and its overlord never fight)
     for (let dir = 0; dir < 2; dir++) {
       const p = dir === 0 ? a : b, q = dir === 0 ? b : a
       if (ps.pWars[p] >= WAR.maxWars || ps.relWar[r] >= 0) continue
@@ -81,9 +86,10 @@ export function declarations(s: HistoryState, ps: PolityState): void {
   }
 }
 
-function declare(s: HistoryState, ps: PolityState, r: number, p: number, q: number): void {
+/** p declares war on q (relation r); a civil war (v2) is logged as CivilWar, and allies and protectors of q may join a war of conquest. */
+export function declare(s: HistoryState, ps: PolityState, r: number, p: number, q: number, kind: number = WarKind.Conquest, joined = false): void {
   const w = ps.wKind.length
-  ps.wKind.push(WarKind.Conquest)
+  ps.wKind.push(kind)
   ps.wAtt.push(p); ps.wDef.push(q)
   ps.wStart.push(s.year); ps.wEnd.push(-1); ps.wOutcome.push(WarOutcome.Ongoing)
   ps.wTaken.push(0); ps.wRetaken.push(0); ps.wDead.push(0)
@@ -92,16 +98,37 @@ function declare(s: HistoryState, ps: PolityState, r: number, p: number, q: numb
   ps.relWar[r] = w
   ps.pWars[p]++
   ps.pWars[q]++
+  ps.warEpoch++
+  if (kind === WarKind.CivilWar) { logEvent(s, EventType.CivilWar, ps.pCapital[p], ps.pCapital[q], w); return }
   logEvent(s, EventType.WarDeclared, ps.pCapital[p], ps.pCapital[q], w)
+  if (joined) return
+  // v2: buffer states alarm the attacker's rivals; allies and the overlord of the attacked come to its defence.
+  const rng = ps.rngWar
+  bufferAlarm(s, ps, p, q, () => rng.next())
+  for (const x of protectorsOf(ps, q)) {
+    if (x === p || ps.pEnded[x] >= 0 || ps.pWars[x] >= WAR.maxWars || atWar(ps, x, p) || bound(ps, x, p)) continue
+    const rx = relIdx(ps, x, p)
+    if (rx < 0 || ps.relEdges[rx].length === 0 || ps.relWar[rx] >= 0) continue
+    if (rng.next() >= ALLIANCE.join) continue
+    declare(s, ps, rx, x, p, WarKind.Conquest, true)
+  }
 }
 
 // --- Campaigns -----------------------------------------------------------------------------------------
 
 /** Ends war w this year with the given outcome. */
 function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number): void {
+  if (ps.wEnd[w] >= 0) return
   const p = ps.wAtt[w], q = ps.wDef[w]
   ps.wEnd[w] = s.year
+  ps.warEpoch++
+  // v2: a civil war ends in reunification when one side is gone; an unfinished war of conquest may end in vassalage or tribute.
+  if (ps.wKind[w] === WarKind.CivilWar && (ps.pEnded[p] >= 0 || ps.pEnded[q] >= 0)) outcome = WarOutcome.Reunified
+  else if (ps.wKind[w] === WarKind.Conquest && outcome !== WarOutcome.Conquest && outcome !== WarOutcome.DefenderGains && outcome !== WarOutcome.Vassalage)
+    outcome = peaceTerms(s, ps, p, q, outcome, WarOutcome.Vassalage, WarOutcome.Tribute)
   ps.wOutcome[w] = outcome
+  if (ps.pBlockade[q] === w) ps.pBlockade[q] = -1
+  if (ps.pBlockade[p] === w) ps.pBlockade[p] = -1
   const i = ps.activeWars.indexOf(w)
   if (i >= 0) ps.activeWars.splice(i, 1)
   const lo = p < q ? p : q, hi = p < q ? q : p
@@ -118,7 +145,7 @@ function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number):
   if (sg >= 0 && s.abandoned[sg] < 0 && ps.polity[sg] === q) logEvent(s, EventType.SiegeLifted, sg, ps.wSiegeFrom[w], w)
   ps.wSiege[w] = -1
   // The winners' cohesion rises.
-  const winner = outcome === WarOutcome.AttackerGains || outcome === WarOutcome.Conquest ? p : outcome === WarOutcome.DefenderGains ? q : -1
+  const winner = outcome === WarOutcome.AttackerGains || outcome === WarOutcome.Conquest || outcome === WarOutcome.Vassalage || outcome === WarOutcome.Tribute ? (overlordOf(ps, p) === q ? q : p) : outcome === WarOutcome.DefenderGains ? q : outcome === WarOutcome.Reunified ? (ps.pEnded[p] >= 0 ? q : p) : -1
   if (winner >= 0 && ps.pEnded[winner] < 0) {
     const living = s.living
     for (let t = 0; t < living.length; t++) { const id = living[t]; if (ps.polity[id] === winner) ps.asab[id] = clampAsab(ps.asab[id] + COHESION.warWon) }
@@ -232,6 +259,7 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
     s.wealth[v] -= loot
     s.wealth[ps.pCapital[p]] += WAR.plunder * loot
     if (ps.walls[v] > 0 && rng.next() < WAR.slight) loseWalls(s, ps, v)
+    if (ps.fort[v] >= 0 && rng.next() < WAR.slight) loseFort(s, ps, v) // v2
     if (s.dam[v] >= 0 && rng.next() < WAR.damLost) loseStructure(s, s.dam[v])
     spike(ps, v, WAR.sackDanger)
     logEvent(s, EventType.Sacked, v, u, WAR.sackPop)
@@ -246,12 +274,26 @@ function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q:
   for (const j of rest) pop0 += s.pop[j]
   const base = ps.dist[fallen] // (now p's graph cost to the fallen capital)
   const people = ps.pPeople[p]
+  const civil = ps.wKind[w] === WarKind.CivilWar
+  // v2: a large foreign realm whose capital fell may bow as the conqueror's vassal instead (its rump keeps its government).
+  if (!civil && rest.length + 1 >= VASSAL.vassalMembers && ps.pPeople[q] !== people && ps.pSub[p] < 0 && ps.rngWar.next() < VASSAL.fall) {
+    let pop = 0
+    for (const j of rest) pop += s.pop[j]
+    if (rest.length > 0 && pop >= POLITY.minState) {
+      for (const j of rest) ps.asab[j] = clampAsab(ps.asab[j] + COHESION.capitalLost)
+      moveCapital(s, ps, q, chooseCapital(s, ps, rest, ps.pReach[q]))
+      controlOne(s, ps, q, ps.heap)
+      subject(s, ps, q, p, false)
+      closeWar(s, ps, w, WarOutcome.Vassalage)
+      return
+    }
+  }
   const keep: number[] = []
   for (const j of rest) {
     let d = distTo(ps, p, j, s.abandoned)
     const via = base + (ps.dist[j] < FAR ? ps.dist[j] : FAR)
     if (via < d) d = via
-    if (d < FAR && inContactPeople(s, people, s.people[j]) && submits(s, ps, j, projAt(ps, p, d), people, WAR.shock)) {
+    if (d < FAR && inContactPeople(s, people, s.people[j]) && submits(s, ps, j, projAt(ps, p, d), people, civil ? CIVIL.alpha : WAR.shock)) {
       setPolity(s, ps, j, p, d)
       ps.conqueredAt[j] = s.year
       ps.wTaken[w]++
@@ -261,6 +303,15 @@ function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q:
   for (const j of keep) ps.asab[j] = clampAsab(ps.asab[j] + COHESION.capitalLost)
   let pop = 0
   for (const j of keep) pop += s.pop[j]
+  if (civil) {
+    // v2: the civil war is won; the realm is one again (the holdouts go their own way).
+    for (const j of keep) setPolity(s, ps, j, -1, FAR)
+    logEvent(s, EventType.Reunified, ps.pCapital[p], fallen, q)
+    ps.diag.reunified++
+    endPolity(s, ps, q, PolityEnd.Reunified, ps.pCapital[p])
+    successors(s, ps, keep, q, PolityOrigin.Fragment, fallen)
+    return
+  }
   if (keep.length > 0 && pop >= POLITY.minState && pop >= WAR.rumpShare * pop0) {
     const c = chooseCapital(s, ps, keep, ps.pReach[q])
     moveCapital(s, ps, q, c)
@@ -334,13 +385,16 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     dead[0] = 0; dead[1] = 0
     const takenBefore = ps.wTaken[w]
+    blockade(s, ps, w, p, q) // (v2: the stronger fleet blockades the enemy's ports)
     const def = membersOf(s, ps, q)
     if (campaignFront(s, ps, p, q, def) > 0) battle(s, ps, w, p, q, frontU, frontV, frontD, true, dead)
+    if (ps.wEnd[w] >= 0) continue // (v2: ended in the battle: the defender bowed as a vassal)
     // Counteroffensive by a defender stronger on its own front.
     if (ps.pEnded[q] < 0) {
       const att = membersOf(s, ps, p)
       if (campaignFront(s, ps, q, p, att) >= WAR.counter) battle(s, ps, w, q, p, frontU, frontV, frontD, false, dead)
     }
+    if (ps.wEnd[w] >= 0) continue
     exhaust(s, ps, p, dead[0])
     if (ps.pEnded[q] < 0) exhaust(s, ps, q, dead[1])
     if (ps.pEnded[q] >= 0) { closeWar(s, ps, w, WarOutcome.Conquest); continue }

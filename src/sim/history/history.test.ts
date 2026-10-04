@@ -337,6 +337,9 @@ function checkInvariants(w: World, h: History): void {
       case EventType.WarDeclared: case EventType.PeaceMade: case EventType.Conquered: case EventType.Sacked: case EventType.SiegeLifted:
       case EventType.Raid: case EventType.Revolt: case EventType.RevoltCrushed: case EventType.Seceded: case EventType.Defected:
       case EventType.SuccessionCrisis:
+      // polities v2: checked in polity2.test.ts.
+      case EventType.CivilWar: case EventType.Partitioned: case EventType.Reunified: case EventType.BecameVassal: case EventType.Alliance:
+      case EventType.SmugglingRing: case EventType.PiratesRise: case EventType.PiratesSuppressed: case EventType.Blockade:
         break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
@@ -403,6 +406,8 @@ function checkInvariants(w: World, h: History): void {
       if (to < 0 || w.elevation[to] < 0) throw new Error(`dam ${k} at a river mouth`)
     } else if (x.type === StructureType.Walls) {
       expect(x.cell).toBe(owner.cell) // polities: walls on their town's cell
+    } else if (x.type === StructureType.Fort) {
+      if (w.elevation[x.cell] < 0) throw new Error(`fort ${k} at sea (cell ${x.cell})`) // polities v2: on land (polity2.test.ts checks the territory)
     } else {
       throw new Error(`unknown structure type ${x.type}`)
     }

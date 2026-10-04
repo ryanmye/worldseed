@@ -17,9 +17,10 @@
 
 import { EventType, PolityEnd, PolityOrigin, TOWN_POPULATION } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
+import type { TradeState } from '../trade.ts'
 import { logEvent } from '../state.ts'
 import { distTo, rebuildMembers } from './control.ts'
-import { POLITY } from './params.ts'
+import { LEAGUE, POLITY } from './params.ts'
 import { FAR, clampAsab, endPolity, grainShare, grip, inContact, localOf, newPolity, projAt, reachOf, setPolity } from './state.ts'
 import type { PolityState } from './state.ts'
 
@@ -130,7 +131,7 @@ export function accretion(s: HistoryState, ps: PolityState): void {
     let best = -1, bestR = 0, bestD = 0
     for (let i = 0; i < pl.length; i++) {
       const p = pl[i]
-      if (!inContact(s, ps.pPeople[p], s.people[j])) continue
+      if (ps.pOrigin[p] === PolityOrigin.League || !inContact(s, ps.pPeople[p], s.people[j])) continue // (v2: leagues take in towns only, by the league rule)
       const foreign = s.people[j] !== ps.pPeople[p] ? 1 + P.foreign : 1
       const ratio = (projAt(ps, p, dl[i]) * (P.subBase + (1 - P.subBase) * g)) / (P.submit * loc * foreign + 1e-9)
       if (ratio >= 1 && ratio > bestR) { best = p; bestR = ratio; bestD = dl[i] }
@@ -158,7 +159,7 @@ export function absorption(s: HistoryState, ps: PolityState): void {
   rebuildMembers(s, ps)
   const alive = ps.alive.slice()
   for (const p of alive) {
-    if (ps.pEnded[p] >= 0 || ps.pMembers[p] >= P.absorbMembers || ps.pWars[p] > 0) continue
+    if (ps.pEnded[p] >= 0 || ps.pMembers[p] >= P.absorbMembers || ps.pWars[p] > 0 || ps.pOrigin[p] === PolityOrigin.League) continue // (v2: leagues do not bow whole)
     const c = ps.pCapital[p]
     // Neighbouring polities of the members.
     let best = -1, bestR = 0, bestD = 0
@@ -193,5 +194,55 @@ export function absorption(s: HistoryState, ps: PolityState): void {
     }
     ps.diag.absorbed++
     endPolity(s, ps, p, PolityEnd.Absorbed, ps.pCapital[q])
+  }
+}
+
+/**
+ * System part (every slow step, v2; design 2.5): city leagues. Stateless towns of LEAGUE.minPop people of one people or
+ * peoples in contact, linked by an open route of LEAGUE.minVol loads a year, none more than LEAGUE.ratio times the
+ * other, and threatened (danger >= LEAGUE.danger at both) or next to a polity of LEAGUE.strong times their people, bind
+ * together: a new polity of origin League, its capital the member with the most trade through it; other towns join it
+ * the same way later. A league whose members' mean danger stays below LEAGUE.calm for calmYears sheds a member each step.
+ */
+export function leagues(s: HistoryState, ps: PolityState, ts: TradeState): void {
+  const X = LEAGUE
+  // Leagues in decline.
+  for (const p of ps.alive.slice()) {
+    if (ps.pOrigin[p] !== PolityOrigin.League) continue
+    let z = 0, n = 0, last = -1
+    const living = s.living
+    for (let t = 0; t < living.length; t++) { const id = living[t]; if (ps.polity[id] !== p) continue; z += ps.danger[id]; n++; if (id !== ps.pCapital[p]) last = id }
+    if (n > 0 && z / n >= X.calm) { ps.pCalm[p] = -1; continue }
+    if (ps.pCalm[p] < 0) { ps.pCalm[p] = s.year; continue }
+    if (s.year - ps.pCalm[p] >= X.calmYears && last >= 0) setPolity(s, ps, last, -1, FAR)
+  }
+  // New leagues.
+  for (const r of ts.openList) {
+    if (ts.rVol[r] < X.minVol) continue
+    const a = ts.rA[r], b = ts.rB[r]
+    if (a >= ps.seen || b >= ps.seen || s.abandoned[a] >= 0 || s.abandoned[b] >= 0 || s.outpost[a] || s.outpost[b]) continue
+    const pa = ps.polity[a], pb = ps.polity[b]
+    const la = pa >= 0 && ps.pOrigin[pa] === PolityOrigin.League, lb = pb >= 0 && ps.pOrigin[pb] === PolityOrigin.League
+    if (!((pa < 0 && pb < 0) || (la && pb < 0) || (lb && pa < 0))) continue
+    if (s.pop[a] < X.minPop || s.pop[b] < X.minPop || s.pop[a] > X.ratio * s.pop[b] || s.pop[b] > X.ratio * s.pop[a]) continue
+    if (!inContact(s, s.people[a], s.people[b])) continue
+    const j = la ? b : lb ? a : -1 // (a town joining an existing league)
+    const threatened = (x: number): boolean => {
+      if (ps.danger[x] >= X.danger) return true
+      const nb = ps.gNb[x]
+      if (nb) for (let k = 0; k < nb.length; k++) { const q = ps.polity[nb[k]]; if (q >= 0 && ps.pOrigin[q] !== PolityOrigin.League && ps.pPop[q] >= X.strong * (s.pop[a] + s.pop[b])) return true }
+      return false
+    }
+    if (j >= 0) {
+      if (!threatened(j)) continue
+      const p = la ? pa : pb
+      setPolity(s, ps, j, p, ps.dist[j === a ? b : a] + 1)
+      continue
+    }
+    if (!threatened(a) || !threatened(b)) continue
+    const cap = s.through[a] >= s.through[b] ? a : b
+    const p = newPolity(s, ps, cap, PolityOrigin.League, -1)
+    setPolity(s, ps, cap === a ? b : a, p, 1)
+    ps.diag.leagues++
   }
 }

@@ -1,7 +1,7 @@
 // polities: tests of states, borders, war and danger (the polity system, src/sim/history/polity).
 
 import { describe, expect, it } from 'vitest'
-import { EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarOutcome } from '../../contract.ts'
+import { EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarKind, WarOutcome } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 
@@ -192,9 +192,10 @@ function checkPolities(w: World, h: History): void {
         ended[e.value]++
         expect(e.year).toBe(h.polities[e.value].endedYear)
         break
-      case EventType.WarDeclared:
+      case EventType.WarDeclared: case EventType.CivilWar: // (v2: a civil war opens with CivilWar instead)
         declared[e.value]++
         expect(e.year).toBe(W.startYear[e.value])
+        expect(W.kind[e.value]).toBe(e.type === EventType.CivilWar ? WarKind.CivilWar : WarKind.Conquest)
         break
       case EventType.PeaceMade:
         peace[e.value]++
@@ -213,7 +214,7 @@ function checkPolities(w: World, h: History): void {
         expect(e.year).toBeGreaterThanOrEqual(x.foundedYear)
         if (x.endedYear >= 0) expect(e.year).toBeLessThanOrEqual(x.endedYear)
         if (e.type === EventType.Seceded) {
-          expect([PolityOrigin.Revolt, PolityOrigin.Colonial, PolityOrigin.Fragment]).toContain(x.origin)
+          expect([PolityOrigin.Revolt, PolityOrigin.Colonial, PolityOrigin.Fragment, PolityOrigin.Partition]).toContain(x.origin)
           expect(x.parent).toBeGreaterThanOrEqual(0)
           expect(e.settlement).toBe(x.capitals[0])
         }
@@ -257,8 +258,11 @@ describe('polities', () => {
       expect(h.polities.length).toBe(0)
       expect(h.polity.length + h.landCells.length + h.territory.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)
       expect(h.structures.some((x) => x.type === StructureType.Walls)).toBe(false)
-      // (Polity events are 20-34, in the range 20-43 reserved for them; species v2's are 44 and up.)
-      expect(h.events.some((e) => e.type >= EventType.PolityFounded && e.type <= EventType.SuccessionCrisis)).toBe(false)
+      // (Polity events are 20-43; species v2's are 44 and up.)
+      expect(h.events.some((e) => e.type >= EventType.PolityFounded && e.type <= EventType.Blockade)).toBe(false)
+      // (v2 fields empty too.)
+      expect(h.tariff.length + h.tariffRevenue.length + h.smuggleVolume.length + h.tradeLoss.length + h.contraband.length + h.piracy.length + h.bonds.count).toBe(0)
+      expect(h.structures.some((x) => x.type === StructureType.Fort)).toBe(false)
     }
   }, 60_000)
 

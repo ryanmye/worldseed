@@ -96,7 +96,7 @@ import type { TechState } from './technology.ts'
 // polities:
 import { POLITY } from './polity/params.ts'
 import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
-import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot } from './polity/assemble.ts'
+import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot, polTradeSnapshot } from './polity/assemble.ts'
 import type { PolityDiag } from './polity/state.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
@@ -393,6 +393,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     volCount.push(n)
     volUsed += n
     for (let g = 0; g < GOOD_COUNT; g++) goodVolume.push(trade.goodYear[g])
+    if (pol && polSnaps) polTradeSnapshot(pol, trade, polSnaps) // polities: (v2) contraband and losses per route
   }
 
   snapshot()
@@ -468,7 +469,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const journeys = assembleJourneys(s.journeys)
     const log = voyages.log
     // polities: states, borders, wars and danger (empty when the system is off).
-    const polHist = pol && polSnaps ? assemblePolityHistory(world, s, pol, polSnaps, years, snapshotCount, landSnapshotCount, naming, peoples.map((p) => p.name)) : emptyPolityHistory()
+    const polHist = pol && polSnaps ? assemblePolityHistory(world, s, pol, polSnaps, years, snapshotCount, landSnapshotCount, tradeSnapshotCount, RC, naming, peoples.map((p) => p.name)) : emptyPolityHistory()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -495,7 +496,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         expeditions: copyLog(explore.log), expSearches: explore.searches, expFruitless: explore.fruitless, discoveryKind: explore.discKind.slice(), discoveryCell: explore.discCell.slice(), revealed: explore.revealed.slice(),
         cradleSets: s.sp.cradleSet.map((x) => x.slice()), techYear: spT.techYear, techLog: s.sp.techLog.slice(), epiLog: s.sp.epiLog.slice(), disease: s.sp.disease.slice(),
         speciesV2: v2Diag(s, species.map((x) => x.name), v2.techniques.map((x) => x.name), naming), // species-v2
-        polity: pol ? { ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice(), foundFromZ: pol.diag.foundFromZ.slice(), foundHome: pol.diag.foundHome.slice(), foundCell: pol.diag.foundCell.slice() } : undefined, // polities:
+        polity: pol ? {
+          ...pol.diag, foundYear: pol.diag.foundYear.slice(), foundCellZ: pol.diag.foundCellZ.slice(), foundT: pol.diag.foundT.slice(), foundFromZ: pol.diag.foundFromZ.slice(), foundHome: pol.diag.foundHome.slice(), foundCell: pol.diag.foundCell.slice(),
+          yRev: pol.diag.yRev.slice(), yCapInc: pol.diag.yCapInc.slice(), yLegal: pol.diag.yLegal.slice(), ySmug: pol.diag.ySmug.slice(), yPir: pol.diag.yPir.slice(), yBand: pol.diag.yBand.slice(), yPirates: pol.diag.yPirates.slice(),
+        } : undefined, // polities:
       },
     }
   }

@@ -4,30 +4,40 @@
 //   new settlements (graph link, cohesion, membership) -> members abandoned this year leave (a lost
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
-//   danger, unrest, revolts, successions / fragmentation / capital moves; every POLITY.slowStep years
-//   also formation, accretion, absorption, rivalry, declarations, raids, walls, hostile borders; cell danger.
-// The tax (taxSystem) runs between trade and population: grain flows from members to capitals.
+//   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
+//   v2 bonds (vassals, tribute, alliances), coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
+//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, v2 alliances, v2 kin
+//   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
+//   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger.
+// The tax (taxSystem) runs between trade and population: grain flows from members to capitals (v2: and from vassals
+// and tributaries to their overlords). The market (trade.ts) reads the trade policy (policy.ts) every year.
 //
 // Hooks (every one a no-op while HistoryState.pol is null, which is how the off switch keeps the
 // history bit-identical): flight and siting by danger (migration.ts, voyages.ts), crowding into
 // walled towns, no joining an enemy at war, war embargo on trade (trade.ts), ravaged harvests
-// (population.ts), technology shared inside empires (technology.ts).
+// (population.ts), technology shared inside empires (technology.ts); v2: duties, embargoes, contraband
+// and the costs of pirates, privateers, blockades and bandits in the market (trade.ts), refugees
+// carrying their skills (migration.ts).
 
-import { EventType } from '../../../contract.ts'
+import { EventType, TECH_FIELD_COUNT } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { controlPass } from './control.ts'
 import { cellDanger, linkNew, mapPass, createMapHeap, zCell } from './territory.ts'
-import { dangerStep, loseWalls, wallStep } from './danger.ts'
-import { absorption, accretion, atWar, formation } from './formation.ts'
-import { COHESION, DANGER, POLITY, UNREST } from './params.ts'
+import { dangerStep, loseFort, loseWalls, wallStep } from './danger.ts'
+import { absorption, accretion, atWar, formation, leagues } from './formation.ts'
+import { COHESION, DANGER, PIRACY, POLITY, REFUGEE, UNREST } from './params.ts'
 import { relationOf, relationStep } from './relations.ts'
 import { FAR, createPolityState, ensureSettlements, grainShare, grip, setPolity, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
 import { cohesionStep, lostCapitals, realmStep, revoltStep, unrestStep } from './unrest.ts'
 import { campaigns, declarations, raids, warYear } from './war.ts'
+import { tariffStep } from './policy.ts'
+import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
+import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
+import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
 
 let mapHeap: Heap | null = null
@@ -111,6 +121,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     const id = e.settlement
     if (id >= ps.seen) continue
     if (ps.walls[id] > 0) loseWalls(s, ps, id)
+    if (ps.fort[id] >= 0) loseFort(s, ps, id) // v2
     if (ps.polity[id] >= 0) gone.push(id)
   }
   ps.evSeen = ev.length
@@ -118,6 +129,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   if (s.year % POLITY.mapStep === 0) {
     if (!mapHeap) mapHeap = createMapHeap()
     mapPass(s, ps, ts, mapHeap)
+    if (s.year % PIRACY.laneStep === 0) laneMap(s, ps, ts) // (v2: the sea lanes near each coast)
   }
   campaigns(s, ps)
   warYear(s, ps)
@@ -127,16 +139,26 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   cohesionStep(s, ps)
   unrestStep(s, ps)
   revoltStep(s, ps)
-  realmStep(s, ps)
+  realmStep(s, ps, ts)
+  bondStep(s, ps) // v2: vassals, tribute, alliances
+  if (ps.exId.length > 0) coastRaids(s, ps) // v2: pirates raid the coasts
+  tariffStep(s, ps) // v2: duties and embargoes
   if (s.year % POLITY.slowStep === 0) {
     formation(s, ps)
+    leagues(s, ps, ts) // v2: city leagues
     accretion(s, ps)
     absorption(s, ps)
+    const long = s.year % POLITY.mapStep === 0
+    if (long) overawe(s, ps) // v2 (every mapStep years)
     relationStep(s, ps, ts)
+    allianceStep(s, ps) // v2
+    if (long) kinStep(s, ps) // v2: kindred successor states reunified (every mapStep years)
+    hubStep(s, ps) // v2: smugglers' hubs, corruption
     declarations(s, ps)
     raids(s, ps)
     wallStep(s, ps)
     hostileCells(s, ps)
+    if (s.year % PIRACY.step === 0) outlawStep(s, ps, ts) // v2: pirates, privateers, bandits
   }
   cellDanger(s, ps)
   taxShares(s, ps)
@@ -190,6 +212,7 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
     s.wealth[cap] += w
     if (s.harvest[s.weatherRegion[s.cell[id]]] < UNREST.badHarvest) ps.badTax[id] = 1
   }
+  if (ps.activeBonds.length > 0) tributeFlows(s, ps, inFood) // v2: vassals and tributaries pay their overlords
   for (const p of ps.alive) {
     const cap = ps.pCapital[p]
     if (s.abandoned[cap] >= 0) continue
@@ -247,6 +270,31 @@ export function joinBlocked(ps: PolityState, from: number, occ: number): boolean
 export function embargoed(ps: PolityState, a: number, b: number): boolean {
   if (a >= ps.seen || b >= ps.seen) return false
   return atWar(ps, ps.polity[a], ps.polity[b])
+}
+
+/**
+ * v2 (design 9.5): refugees of another people fleeing danger carry their skills to the settlement that takes them in:
+ * its people gains rate * group / its population * max(0, L_from - L_to) in each field (at most REFUGEE.max).
+ */
+export function refugeeKnowledge(s: HistoryState, ps: PolityState, from: number, to: number, g: number): void {
+  if (from >= ps.seen || ps.danger[from] < REFUGEE.danger) return
+  const a = s.people[from], b = s.people[to]
+  if (a === b) return
+  let popB = 0
+  const living = s.living
+  for (let t = 0; t < living.length; t++) if (s.people[living[t]] === b) popB += s.pop[living[t]]
+  if (!(popB > 0)) return
+  const f = (REFUGEE.rate * g) / popB
+  let any = false
+  for (let k = 0; k < TECH_FIELD_COUNT; k++) {
+    const d = s.tech[a * TECH_FIELD_COUNT + k] - s.tech[b * TECH_FIELD_COUNT + k]
+    if (!(d > 0)) continue
+    let x = f * d
+    if (x > REFUGEE.max) x = REFUGEE.max
+    s.tech[b * TECH_FIELD_COUNT + k] += x
+    any = true
+  }
+  if (any) ps.diag.refugeeTech++
 }
 
 /** Harvest multiplier of settlement id from war damage to its fields (1 - ravage). */

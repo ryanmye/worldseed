@@ -66,7 +66,10 @@ import { ContactVia, learnPath, meet } from './knowledge.ts'
 import { moveMuls, packOf } from './species.ts'
 import { marketGoods, stimFlow } from './cashCrops.ts' // species-v2
 import { perishOf } from './storage.ts' // species-v2
-import { embargoed } from './polity/system.ts' // polities:
+import { incomeWatch, pairPolicy } from './polity/policy.ts' // polities: (v2) duties, embargo, smuggling, pirates and bandits
+import type { PairPolicy } from './polity/policy.ts' // polities:
+import { SMUGGLE, TARIFF } from './polity/params.ts' // polities:
+import { ACCOUNTS, flushAccounts } from './polity/outlaw.ts' // polities:
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -716,6 +719,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   }
   // Links, partners and resources every linkStep years (as soon as two settlements can trade).
   if (traders >= 2 && (ts.linkYear < 0 || s.year - ts.linkYear >= TRADE.linkStep)) {
+    if (s.pol !== null) flushAccounts(s, s.pol, ts) // polities: (v2) the accounts of the old pairs first
     rebuildLinks(s, ts)
     rebuildResources(s, ts)
     rebuildPairs(s, ts)
@@ -775,28 +779,138 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   }
   const perish = ts.perish, cashShare = CASHCROP.maxShare, v2 = s.sp.v2 // species-v2 (hoisted)
   const pol = s.pol // polities:
+  // polities (v2): this year's duties, embargoes (war included), smuggling and the costs of pirates and bandits per pair;
+  // pairs under a duty or an embargo take the restricted path below (legal flow net of duty, then contraband).
+  const pc: PairPolicy | null = pol !== null ? pairPolicy(s, pol, ts) : null
+  // A legal flow under a duty: merchants pass most of the duty on (only TARIFF.wedge of it enters the gap they need); a
+  // share sig of the flow evades it as contraband (no duty; a share seize * enforcement seized; the smugglers' cut to the
+  // hub). Duties, seizures and cuts are summed per pair and paid out as the market closes (polity/outlaw.ts marketClosed).
+  const restrictedFlow = (p: number, from: number, to: number, g: number, net: number, dir: number, duty: number, sig: number, enf: number): void => {
+    const kf = from * G + g, kt = to * G + g
+    let qq = (damping * net) / (deriv[kf] + deriv[kt])
+    const lim = (g >= 6 ? cashShare : maxShare) * stock[kf]
+    if (qq > lim) qq = lim
+    if (!(qq > 1e-6)) return
+    const pt = price[kt]
+    const x = pc as PairPolicy
+    const qs = sig * qq
+    if (qs > 0) {
+      // (what is seized is worth its value to the enforcer; the goods themselves stay in the market)
+      const seized = SMUGGLE.seize * enf * qs
+      const v = (qs - seized) * V[g]
+      x.smug[p] += v
+      const cut = SMUGGLE.hubCut * net * (qs - seized)
+      if (dir === 0) { x.revAB[p] += seized * pt; x.cutAB[p] += cut; if (cut > x.bestAB[p]) { x.bestAB[p] = cut; x.gAB[p] = g } }
+      else { x.revBA[p] += seized * pt; x.cutBA[p] += cut; if (cut > x.bestBA[p]) { x.bestBA[p] = cut; x.gBA[p] = g } }
+    }
+    stock[kf] -= qq
+    stock[kt] += qq
+    if (g >= 7) stimFlow(v2, g, from, to, qq, stock[kf] + qq, pt)
+    income[from] += qq * (0.5 * net + margin * V[g])
+    const d = duty * pt * (qq - qs)
+    if (d > 0) { if (dir === 0) x.revAB[p] += d; else x.revBA[p] += d }
+    pairFlow[(p * G + g) * 2 + dir] += qq
+    x.legal[p] += (qq - qs) * V[g]
+    if (g < FOOD) { setFoodPrices(s, ts, from); setFoodPrices(s, ts, to) }
+    else { setGoodPrice(ts, from, g); setGoodPrice(ts, to, g) }
+  }
+  // Under an embargo (or war) only contraband moves: a share sig of what the market would move, at premium times the transport.
+  const smuggleFlow = (p: number, from: number, to: number, g: number, net: number, dir: number, sig: number, enf: number): void => {
+    const kf = from * G + g, kt = to * G + g
+    let qq = (sig * damping * net) / (deriv[kf] + deriv[kt])
+    const lim = sig * (g >= 6 ? cashShare : maxShare) * stock[kf]
+    if (qq > lim) qq = lim
+    if (!(qq > 1e-6)) return
+    const pt = price[kt]
+    const x = pc as PairPolicy
+    // (what is seized is worth its value to the enforcer; the goods themselves stay in the market)
+    const seized = SMUGGLE.seize * enf * qq
+    const got = qq - seized
+    const v = got * V[g]
+    x.smug[p] += v
+    const cut = SMUGGLE.hubCut * net * got
+    if (dir === 0) { x.revAB[p] += seized * pt; x.cutAB[p] += cut; if (cut > x.bestAB[p]) { x.bestAB[p] = cut; x.gAB[p] = g } }
+    else { x.revBA[p] += seized * pt; x.cutBA[p] += cut; if (cut > x.bestBA[p]) { x.bestBA[p] = cut; x.gBA[p] = g } }
+    stock[kf] -= qq
+    stock[kt] += qq
+    if (g >= 7) stimFlow(v2, g, from, to, qq, stock[kf] + qq, pt)
+    income[from] += qq * margin * V[g]
+    pairFlow[(p * G + g) * 2 + dir] += qq
+    if (g < FOOD) { setFoodPrices(s, ts, from); setFoodPrices(s, ts, to) }
+    else { setGoodPrice(ts, from, g); setGoodPrice(ts, to, g) }
+  }
+  const wedge = TARIFF.wedge, foodDuty = TARIFF.food
+  /** A flow q of good g on duty pair p (dir 0: a to b), net gap net, at the importer's price pt: summed for marketClosed. */
+  const dutyFlow = (p: number, g: number, dir: number, q: number, net: number, pt: number): void => {
+    const x = pc as PairPolicy
+    const v = q * V[g], w = q * pt
+    if (dir === 0) { x.vAB[p] += v; x.pvAB[p] += w; x.dbAB[p] += (g < FOOD ? foodDuty : 1) * w; x.nbAB[p] += net * q; if (v > x.bestAB[p]) { x.bestAB[p] = v; x.gAB[p] = g } }
+    else { x.vBA[p] += v; x.pvBA[p] += w; x.dbBA[p] += (g < FOOD ? foodDuty : 1) * w; x.nbBA[p] += net * q; if (v > x.bestBA[p]) { x.bestBA[p] = v; x.gBA[p] = g } }
+  }
+  /** A pair under an embargo (food legal, under a duty) or at war: contraband only. */
+  const blocked = (p: number, a: number, b: number, c: number, oa: number, ob: number): void => {
+    const x = pc as PairPolicy
+    const bk = x.block[p]
+    const prem = SMUGGLE.premium
+    const dAB = x.dAB[p], dBA = x.dBA[p]
+    for (let gi = 0; gi < nGoods; gi++) {
+      const g = goods[gi]
+      if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue
+      const tg = tUnit[g] * c
+      const tA = g === 0 ? tg * perish[a] : tg
+      const tB = g === 0 ? tg * perish[b] : tg
+      const mg = minGap[g]
+      const gap = price[ob + g] - price[oa + g]
+      if (bk === 2 && g < FOOD) { // (an embargo stops all but food)
+        const rA = dAB * foodDuty, rB = dBA * foodDuty
+        const dA = wedge * rA * price[ob + g], dB = wedge * rB * price[oa + g]
+        if (gap > tA + dA + mg) restrictedFlow(p, a, b, g, gap - tA - dA, 0, rA, 0, 0)
+        else if (-gap > tB + dB + mg) restrictedFlow(p, b, a, g, -gap - tB - dB, 1, rB, 0, 0)
+        continue
+      }
+      if (gap > prem * tA + mg) { if (x.sAB[p] > 0) smuggleFlow(p, a, b, g, gap - prem * tA, 0, x.sAB[p], x.eAB[p]) }
+      else if (-gap > prem * tB + mg && x.sBA[p] > 0) smuggleFlow(p, b, a, g, -gap - prem * tB, 1, x.sBA[p], x.eBA[p])
+    }
+  }
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
       if (!trader[a] || !trader[b]) continue
-      if (pol !== null && embargoed(pol, a, b)) continue // polities: war embargo
       const r = pairRoute[p]
       if (r < 0 && probeOff) continue
       // Transport gets cheaper with the Crafts of the two ends' peoples (their mean).
       const cr = 0.5 * (tech[peopleOf[a] * TECH_FIELD_COUNT + TechField.Crafts] + tech[peopleOf[b] * TECH_FIELD_COUNT + TechField.Crafts])
       // Pack animals at the two ends carry it cheaper.
-      const c = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle) * 0.5 * (ts.pack[a] + ts.pack[b])) / (1 + tt * (cr - 1))
+      const c0 = (pairCost[p] * (r >= 0 && rOpen[r] ? 1 : 1 + TRADE.openHurdle) * 0.5 * (ts.pack[a] + ts.pack[b])) / (1 + tt * (cr - 1))
+      const c = pc !== null ? c0 * pc.cost[p] : c0 // polities: (v2) pirates, privateers, blockade, bandits on the way
       const oa = a * G, ob = b * G
+      // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
+      // what crosses for the accounts (duty, evasion, seizure: marketClosed); one under an embargo or at war takes blocked().
+      let rp = false, wAB = 0, wBA = 0
+      if (pc !== null && pc.code[p] !== 0) {
+        if (pc.block[p] !== 0) { blocked(p, a, b, c, oa, ob); continue }
+        rp = true
+        wAB = wedge * pc.dAB[p]
+        wBA = wedge * pc.dBA[p]
+      }
       for (let gi = 0; gi < nGoods; gi++) {
         const g = goods[gi]
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         const gap = price[ob + g] - price[oa + g]
         const tr = g === 0 ? tUnit[0] * c * (gap > 0 ? perish[a] : perish[b]) : tUnit[g] * c // species-v2: perishable grain
         let from: number, to: number, net: number, dir: number
-        const tm = tr + minGap[g]
-        if (gap > tm) { from = a; to = b; net = gap - tr; dir = 0 }
-        else if (-gap > tm) { from = b; to = a; net = -gap - tr; dir = 1 }
-        else continue
+        if (rp) { // polities: (v2) the duty's wedge (food pays a lower duty)
+          const fw = g < FOOD ? foodDuty : 1
+          const dA = wAB * fw * price[ob + g], dB = wBA * fw * price[oa + g]
+          if (gap > tr + dA + minGap[g]) { from = a; to = b; net = gap - tr - dA; dir = 0 }
+          else if (-gap > tr + dB + minGap[g]) { from = b; to = a; net = -gap - tr - dB; dir = 1 }
+          else continue
+        } else {
+          const tm = tr + minGap[g]
+          if (gap > tm) { from = a; to = b; net = gap - tr; dir = 0 }
+          else if (-gap > tm) { from = b; to = a; net = -gap - tr; dir = 1 }
+          else continue
+        }
         const kf = from * G + g, kt = to * G + g
         let q = (damping * net) / (deriv[kf] + deriv[kt])
         const cap = (g >= 6 ? cashShare : maxShare) * stock[kf] // species-v2: light, dear goods leave in bulk
@@ -807,6 +921,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt]) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
         income[from] += q * (0.5 * net + margin * V[g])
         pairFlow[(p * G + g) * 2 + dir] += q
+        if (rp) dutyFlow(p, g, dir, q, net, price[kt]) // polities: (v2)
         if (g < FOOD) { setFoodPrices(s, ts, from); setFoodPrices(s, ts, to) }
         else { setGoodPrice(ts, from, g); setGoodPrice(ts, to, g) }
       }
@@ -837,6 +952,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       ts.rGood[og + g * 2 + 1] += ba
       ts.goodYear[g] += (ab + ba) * V[g]
     }
+    if (pc !== null) { pc.route[p] = r; const l = pc.loss[p]; if (l > 0) pc.lossV[p] += l * vol } // polities: (v2) cargo lost to pirates and bandits (paid out by flushAccounts)
     throughYear[a] += TRADE.ownWeight * vol
     throughYear[b] += TRADE.ownWeight * vol
     const transit = ts.rTransit[r]
@@ -848,6 +964,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     }
   }
 
+  if (pol !== null && s.year % ACCOUNTS === ACCOUNTS - 1) flushAccounts(s, pol, ts) // polities: (v2) duties, contraband, plunder paid out
   // Fed by what is left after trade.
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
@@ -883,6 +1000,8 @@ function settle(s: HistoryState, ts: TradeState): void {
   list.length = w
   const living = s.living
   const W = WEALTH
+  const pol = s.pol // polities:
+  if (pol !== null) incomeWatch(s, pol, ts.income) // polities: (v2) smoothed income and contraband income of hubs and capitals
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const p = s.pop[id]

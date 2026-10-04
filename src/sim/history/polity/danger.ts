@@ -19,8 +19,8 @@ import { smoothstep } from '../../util.ts'
 import { TECH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent, techOf } from '../state.ts'
-import { COHESION, DANGER, POLITY, WALLS } from './params.ts'
-import { grip, inCrisis, isCapital } from './state.ts'
+import { BANDIT, COHESION, DANGER, FORT, POLITY, WALLS } from './params.ts'
+import { Tier, grip, inCrisis, isCapital, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
 import { relationOf } from './relations.ts'
 import { atWar } from './formation.ts'
@@ -50,7 +50,7 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
     const pi = polity[i]
     let on = 0
     // Also the frontier flags for cohesion (unrest.ts): 1 a frontier, 2 a steppe frontier (a raider-type neighbour of another people).
-    let front = 0
+    let front = 0, margin = false
     const nb = gNb[i]
     if (nb) {
       for (let k = 0; k < nb.length; k++) {
@@ -67,7 +67,7 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
           }
         }
         if ((pi < 0) !== (pv < 0) && on < D.frontier) on = D.frontier
-        if (pi < 0 && pv >= 0) front |= 1
+        if (pi < 0 && pv >= 0) { front |= 1; margin = true }
         if (other) front |= 1
         if (pv < 0 && other && raiderType(s, ps, v)) {
           front |= 2
@@ -77,11 +77,16 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
       }
     }
     ps.scratchI[i] = front
+    let lw = 0
     if (pi >= 0) {
       const A = ps.pAsab[pi] * (inCrisis(s, ps, pi) ? POLITY.crisisMass : 1)
-      const lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * smoothstep(D.lawlessHigh, D.lawlessLow, A)
+      lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * smoothstep(D.lawlessHigh, D.lawlessLow, A)
       if (lw > on) on = lw
-    }
+    } else if (margin) lw = BANDIT.stateless // (v2: the shatter zone at a state's margin: bandits on its roads)
+    ps.lawless[i] = lw
+    // v2: pirates on this coast, bandits on this road (outlaw.ts).
+    const zo = ps.cellOut[s.cell[i]]
+    if (zo > on) on = zo
     if (on > z) z = on
     danger[i] = z
     dangerAvg[i] += avg * (z - dangerAvg[i])
@@ -117,15 +122,56 @@ export function loseWalls(s: HistoryState, ps: PolityState, id: number): void {
   ps.wallPop[id] = 0
 }
 
-/** System part (every step, after the campaigns of the year): walls raised against danger, and walls lost. */
+/** v2: the fort of settlement id falls out of use this year. */
+export function loseFort(s: HistoryState, ps: PolityState, id: number): void {
+  const k = ps.fort[id]
+  if (k < 0) return
+  s.structures[k].lostYear = s.year
+  logEvent(s, EventType.StructureLost, id, k, StructureType.Fort)
+  ps.fort[id] = -1
+}
+
+/** v2: the best fort site of each settlement this slow step: its most defensible cell on a hostile border (scratch per cell list). */
+const fortCell: number[] = []
+function fortSites(ps: PolityState, out: Int32Array, mark: Int32Array): void {
+  fortCell.length = 0
+  const { borderCell, hostile, tOwner, defense } = ps
+  for (let k = 0; k < borderCell.length; k++) {
+    const c = borderCell[k]
+    if (!hostile[c]) continue
+    const o = tOwner[c]
+    if (o < 0) continue
+    if (mark[o] !== ps.run) { mark[o] = ps.run; out[o] = c; fortCell.push(o) }
+    else if (defense[c] > defense[out[o]]) out[o] = c
+  }
+}
+
+/** System part (every step, after the campaigns of the year): walls raised against danger, and walls lost; v2: forts on hostile borders. */
 export function wallStep(s: HistoryState, ps: PolityState): void {
   const W = WALLS
   const rng = ps.rng
   const living = s.living
   const step = POLITY.slowStep
+  // Fort sites (v2): the most defensible hostile border cell of each settlement's territory.
+  ++ps.run
+  const site = ps.scratchI, mark = ps.stamp
+  let cand = false
+  if (s.year % FORT.step === 0) for (let t = 0; t < living.length && !cand; t++) { const id = living[t]; if (ps.fort[id] < 0 && ps.polity[id] >= 0 && s.pop[id] >= FORT.minPop && ps.dangerAvg[id] >= FORT.danger) cand = true }
+  if (cand) fortSites(ps, site, mark)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const p = s.pop[id]
+    if (ps.fort[id] >= 0 && p < FORT.keep) loseFort(s, ps, id)
+    else if (ps.fort[id] < 0 && mark[id] === ps.run && p >= FORT.minPop && ps.dangerAvg[id] >= FORT.danger) {
+      const q = ps.polity[id]
+      if (q >= 0 && tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1) >= Tier.Kingdom && rng.next() < FORT.step * FORT.chance * buildSkill(s, id)) {
+        const sid = s.structures.length
+        s.structures.push({ id: sid, type: StructureType.Fort, cell: site[id], settlement: id, builtYear: s.year, lostYear: -1 })
+        logEvent(s, EventType.Built, id, sid, StructureType.Fort)
+        ps.fort[id] = sid
+        ps.diag.forts++
+      }
+    }
     const r = ps.walls[id]
     if (r > 0 && p < W.keep) { loseWalls(s, ps, id); continue }
     const cap = isCapital(ps, id)

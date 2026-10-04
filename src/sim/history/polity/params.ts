@@ -305,3 +305,220 @@ export const DEFENSE = {
   share: 0.2,
   fullShare: 0.03,
 }
+
+// --- polities v2 (design 5, 6.2, 6.5, 8.4, 9.1-9.3, 9.5, 9.7, 2.5) ---------------------------------
+
+/** Trade policy (policy.ts): tariffs on imports crossing a border, embargoes against rivals short of war. */
+export const TARIFF = {
+  /** Target rate by tier (Chiefdom, Kingdom, Empire), plus war while at war, plus need * treasury need, plus rivalry * the worst rivalry with a neighbour. */
+  base: [0.03, 0.06, 0.08],
+  war: 0.06,
+  need: 0.05,
+  rivalry: 0.05,
+  /** Treasury need: smoothstep(needHigh, needLow, capital wealth / (needRef * mass)). */
+  needLow: 0.02,
+  needHigh: 0.2,
+  needRef: 1,
+  /** Food (grain, fish, livestock) pays this share of the rate (cities must eat); an embargo short of war stops other goods only. */
+  food: 0.2,
+  /** Merchants pass most of a duty on to the buyers: only this share of it enters the price gap a flow must beat. */
+  wedge: 0.3,
+  /** The rate moves this share of the way to its target a year; at most max. */
+  rate: 0.1,
+  max: 0.6,
+  /** Embargo between rivals short of war: from rivalry embargoOn, lifted below embargoOff. */
+  embargoOn: 1.2,
+  embargoOff: 0.85,
+  /** Revenue (and seized contraband) is smoothed at this rate a year for the stats. */
+  smooth: 0.1,
+}
+
+/** Smuggling (policy.ts, trade.ts): a share of the flow held back by duties or embargo moves as contraband. */
+export const SMUGGLE = {
+  /**
+   * sigma = share * hide * (1 - enforcement) * incentive; hide = hideBase + hideSea [sea leg or coastal end] + hideRough * D of the ends +
+   * hideTransit [stateless or outpost on the way]. Under a duty, sigma of each legal flow evades it; under an embargo, contraband is sigma of
+   * what the market would move, at premium times the transport.
+   */
+  share: 1.5,
+  hideBase: 0.3,
+  hideSea: 0.3,
+  hideRough: 0.4,
+  hideTransit: 0.2,
+  /** Incentive: tariffs tau / (tau + tauHalf); embargo and blockade embargo (1) and blockade. */
+  tauHalf: 0.15,
+  blockade: 0.6,
+  /** Smugglers pay premium times the transport cost (no duty); a share seize * enforcement of the contraband is seized (to the enforcing capital). */
+  premium: 1.3,
+  seize: 0.3,
+  /** The smugglers' cut: hubCut of the net gap they close goes to the hub (the least policed place on the way), untaxed by duties. */
+  hubCut: 0.5,
+  /** Enforcement = grip * A / (A + enfA) * (crisis ? crisisEnf : 1) * (1 - corruptEnf * corruption). */
+  enfA: 0.2,
+  crisisEnf: 0.6,
+  corruptEnf: 0.5,
+  /** Corruption moves corruptRate a year toward the contraband share of a settlement's income; it adds corruptUnrest * corruption to grievance. */
+  corruptRate: 0.05,
+  corruptUnrest: 0.15,
+  /** A hub: contraband at least ringShare of its smoothed income and ringMin wealth a year (logged once per settlement: SmugglingRing). */
+  ringShare: 0.6,
+  ringMin: 20,
+  /** Smoothing of incomes for the hub measure, a year. */
+  smooth: 0.2,
+}
+
+/** Piracy and privateering, naval blockade (outlaw.ts). */
+export const PIRACY = {
+  /** The outlaw step (pirates, routes' losses, outlaw danger) runs every `step` years (a multiple of POLITY.slowStep); lanes are mapped every laneStep years (a multiple of POLITY.mapStep). */
+  step: 20,
+  laneStep: 40,
+  /** Lanes: sea cells within reachHops sea hops of a coastal settlement; havens hit routes passing within reachHops. */
+  reachHops: 3,
+  /** Haven candidates: coastal, Seafaring >= seafaring, stateless or enforcement <= weakEnf. */
+  seafaring: 1.4,
+  weakEnf: 0.3,
+  /**
+   * pi moves rate a year toward pi* = D * lane / (lane + laneHalf) * (1 - navy) * (poor ? 1 : rich) * (1 + ban * tariff on the lanes),
+   * D the haven's defensibility (islands, headlands, crags: open beaches make no pirate nests), poor: food < poorFood or prosperity < poorWealth.
+   */
+  rate: 0.03,
+  /** A nest that took no lane at the last outlaw step aims at rival times pi*. */
+  rival: 0.4,
+  laneHalf: 1500,
+  poorFood: 0.95,
+  poorWealth: 0.25,
+  rich: 0.5,
+  ban: 2,
+  /** Suppression: navy >= suppress decays pi by suppressRate a year. Navy of a polity with ports >= navyPorts: min(1, (Seafaring - 1) / navySea) * Proj / (Proj + Local of the haven). */
+  suppress: 0.6,
+  suppressRate: 0.2,
+  navyPorts: 2,
+  navySea: 1.5,
+  /** Routes passing a haven lose lose * pi of their cargo (as cost: lossCost per unit share; the plunder to the haven). */
+  lose: 0.15,
+  lossCost: 1.2,
+  /** Coastal danger: dangerZ * pi on coasts within dangerHops sea hops of a haven, fading with hops. */
+  dangerZ: 0.7,
+  dangerHops: 6,
+  /** Coastal raids: a settlement in reach loses raidWealth * z of its wealth and raidPop * z of its people a year (to the haven). */
+  raidWealth: 0.02,
+  raidPop: 0.002,
+  /** Settlements smaller than this lose no captives. */
+  raidMinPop: 300,
+  /** Events: PiratesRise when pi first reaches rise; suppressed below suppressed after it rose. */
+  rise: 0.45,
+  suppressed: 0.1,
+  /** Privateering: a belligerent with navyPorts ports raids the enemy's sea routes, loss privateer; blockade (Seafaring >= the enemy's): the enemy's sea routes cost * (1 + lossCost * blockade). */
+  privateer: 0.08,
+  blockade: 0.6,
+}
+
+/** Banditry on overland routes (outlaw.ts). */
+export const BANDIT = {
+  /** Route cost * (1 + cost * max lawlessness over its land ends and transit settlements); lawless members as danger.ts, stateless next to a state stateless. */
+  cost: 0.35,
+  stateless: 0.06,
+  /** Above toll, the route loses tollShare of its cargo to the most lawless settlement on it (protection money). */
+  toll: 0.1,
+  tollShare: 0.1,
+  /** Bandit roads: danger roadZ * lawlessness on the land cells of such routes. */
+  roadZ: 0.6,
+}
+
+/** Civil war, partition and reunification (civil.ts). */
+export const CIVIL = {
+  /** Rival centre: a member of at least rivalRatio times the capital's people (and rivalPop; see sizeRef), at least rivalDist * lambda from it. */
+  rivalRatio: 0.3,
+  rivalPop: 1000,
+  rivalDist: 0.4,
+  /** The rival centre's bar falls with the realm's size: / (1 + members / sizeRef); the civil war chance rises: * (1 + members / sizeCrisis). */
+  sizeRef: 40,
+  sizeCrisis: 200,
+  /** Members at least this many for a civil war or a partition. */
+  minMembers: 8,
+  /** At a succession crisis with a rival centre: civil war with chance crisis; low cohesion (A < lowA): chance per step lowChance * (1 - A / lowA). */
+  crisis: 0.25,
+  lowA: 0.3,
+  lowChance: 0.01,
+  /** Sides: affinity sameFolk for the centre's own people, times route for an open route to it. */
+  sameFolk: 1.3,
+  route: 1.2,
+  /** The winner of a civil war takes back every member of the loser that would submit at alpha. */
+  alpha: 0.8,
+  /** Partition: a crisis in a Kingdom or Empire with >= 2 heirs (towns of heirRatio times the capital's people, heirPop): chance partition. */
+  partition: 0.15,
+  heirRatio: 0.3,
+  heirPop: 1000,
+  /** Reunification of kin (polities of one lineage and people, adjacent, at peace): the larger's Proj at the other's capital >= alphaKin * its defence, chance kinChance per slow step. */
+  alphaKin: 1.2,
+  kinChance: 0.3,
+  kinRatio: 2,
+}
+
+/** Tribute, vassals, alliances (bonds.ts). */
+export const VASSAL = {
+  /** At peace: attacker advantage at the defender's capital >= vassalAdv (and the defender large: >= vassalMembers members, or of another people) makes it a vassal; tributeAdv..vassalAdv with nothing taken: tribute. */
+  vassalAdv: 1.2,
+  vassalMembers: 8,
+  tributeAdv: 0.6,
+  /** A realm too big to absorb whose capital would submit (at overawe) to a neighbour with overaweRatio times its people becomes its vassal. */
+  overawe: 1.2,
+  overaweRatio: 2,
+  /** The vassal pays share of the grain tax its capital receives (as wealth) and share of its capital's wealth income; tribute pays tribute of it for tributeYears. */
+  share: 0.15,
+  tribute: 0.1,
+  tributeYears: 30,
+  /** It throws off the bond when the overlord's Proj at its capital falls below rebel * its mass. */
+  rebel: 1,
+  /** It is absorbed after absorbYears when the overlord's Proj at its capital >= absorb * its mass (and same people or assimilated). */
+  absorbYears: 80,
+  absorb: 3.5,
+  /** When a large realm's capital falls to a foreign conqueror (>= vassalMembers members), its rump becomes the conqueror's vassal with chance fall instead of the shock submissions. */
+  fall: 0.7,
+}
+
+export const ALLIANCE = {
+  /** Two polities ally when a third has rivalry >= threat with both and theirs is < calm; an ally joins a defensive war with chance join; the bond lapses when both rivalries with the threat fall below lapse. */
+  threat: 0.7,
+  calm: 0.3,
+  join: 0.5,
+  lapse: 0.35,
+  /** Alliances bind realms (Kingdom or larger) against a rival at least as large as each; chance per slow step. */
+  chance: 0.25,
+  /** Buffer states: attacking a small polity (< buffer times the attacker's people) between two rivals raises the other rival's rivalry with the attacker by bufferR. */
+  buffer: 0.5,
+  bufferR: 0.3,
+}
+
+/** City leagues (formation.ts leagues, design 2.5): stateless trading towns of comparable size bind together. */
+export const LEAGUE = {
+  /** Towns of minPop people linked by an open route of at least minVol loads a year, pop ratio below ratio, threatened (danger >= danger) or next to a polity of strong times their people. */
+  minPop: 2000,
+  minVol: 100,
+  ratio: 2,
+  danger: 0.3,
+  strong: 3,
+  /** A league whose members' mean danger stays below calm for calmYears loses a member each step (Hanseatic decline). */
+  calm: 0.15,
+  calmYears: 50,
+}
+
+/** Forts on passes and hostile borders (danger.ts wallStep). */
+export const FORT = {
+  /** Forts are planned every `step` years (a multiple of POLITY.slowStep). */
+  step: 20,
+  /** A member of a Kingdom or larger on a hostile border with smoothed danger >= danger builds a fort (chance per year chance * skill) on its most defensible hostile border cell; Local * (1 + bonus); lost below keep people or when sacked. */
+  danger: 0.25,
+  chance: 0.02,
+  bonus: 0.5,
+  minPop: 600,
+  keep: 300,
+}
+
+/** Refugees of another people carry technology to the town that takes them in (migration.ts, design 9.5). */
+export const REFUGEE = {
+  /** gain = rate * group / people's population * max(0, L_from - L_to), capped at max per field; only groups fleeing danger >= danger. */
+  rate: 0.3,
+  max: 0.05,
+  danger: 0.25,
+}

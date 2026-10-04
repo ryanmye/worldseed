@@ -112,7 +112,7 @@ export const EventType = {
   Domesticated: 17, // the people of `settlement` first tamed or cultivated a wild species there; `other` is -1; `value` is the species id
   SpeciesAdopted: 18, // the people of `settlement` first took up a species from another people; `other` is the settlement it came from; `value` is the species id
   Epidemic: 19, // a sickness new to the people of `settlement` struck after contact; `other` is the settlement of the people it came from; `value` is the fraction of that people lost
-  // 20-43 are reserved for polities, war and unrest (added on another branch).
+  // 20-43 are polities, war and unrest (below).
   TechniqueFound: 44, // the people of `settlement` first worked out a farming technique or bred a strain there; `other` is -1; `value` is the technique id
   TechniqueAdopted: 45, // the people of `settlement` first took up a technique from another people; `other` is the settlement it came from; `value` is the technique id
   Blight: 46, // a crop disease struck the people of `settlement`, first there; `other` is -1; `value` is the species id; `extra` is the fraction of the harvest lost
@@ -120,7 +120,7 @@ export const EventType = {
   Drain: 48, // wealth is flowing out of the people of `settlement` to pay for a habit-forming good; `other` is the largest exporter's settlement; `value` is the species id
   Panzootic: 49, // a livestock plague struck the herds of the people of `settlement`; `other` is the settlement it came from or -1; `value` is the species id; `extra` is the fraction of herds lost
   FirstContact: 12, // two peoples met for the first time; `settlement` and `other` are the settlements through which they met; `value` is the other people's id (that of `other`)
-  // polities: ids 20-43 are reserved for polities (20-34 in use); 17-19 are the species events above.
+  // polities: ids 20-43 are polities (20-34 v1, 35-43 v2); 17-19 are the species events above.
   PolityFounded: 20, // a state was founded at its capital `settlement`; `other` is the parent polity's capital (successor states) or -1; `value` is the polity id
   PolityEnded: 21, // a polity ended (cause in History.polities); `settlement` is its last capital; `other` is the conqueror's capital or -1; `value` is the polity id
   CapitalMoved: 22, // `settlement` became the capital; `other` is the old capital (-1 if it was abandoned); `value` is the polity id
@@ -136,6 +136,16 @@ export const EventType = {
   Seceded: 32, // `settlement` became the capital of a new state that broke away from the one ruled from `other`; `value` is the new polity id
   Defected: 33, // `settlement` left its polity for the one ruled from `other`; `value` is that polity's id
   SuccessionCrisis: 34, // the death of a ruler at the capital `settlement` left the succession contested; `other` is -1; `value` is the polity id
+  // polities v2 (35-43).
+  CivilWar: 35, // a rival centre rose against its capital: `settlement` is the pretender's seat, now the capital of a new polity (origin CivilWar, parent the old realm), `other` the capital it rose against; `value` is the war id (History.wars, kind CivilWar). A civil war opens with this event instead of WarDeclared and ends with PeaceMade
+  Partitioned: 36, // a realm was divided among heirs: `settlement` is its capital (it keeps the capital's share), `other` is -1; `value` is its polity id. Each heir's share is a new polity (origin Partition), logged as Seceded the same year
+  Reunified: 37, // the polity ruled from `settlement` took back a realm of its own lineage (a civil war won, or a kindred successor state brought back); `other` is the absorbed realm's last capital; `value` is the absorbed polity's id (it ends with PolityEnd.Reunified)
+  BecameVassal: 38, // the polity ruled from `settlement` bowed to the one ruled from `other`: `value` is the overlord's polity id, or 1000 + it when it only pays tribute (see History.bonds); `extra` is 0 when the bond was made, 1 when the vassal threw it off
+  Alliance: 39, // the polities ruled from `settlement` and `other` allied against a common rival: `value` is the polity id of `other`'s polity; `extra` is the rival's polity id
+  SmugglingRing: 40, // `settlement` became a smugglers' hub (much of its income from contraband); `other` is the capital of the polity whose duties or embargo it evades most (-1 if none); `value` is the good mostly smuggled through it (Good)
+  PiratesRise: 41, // pirates based at `settlement` (a pirate haven) began to prey on the sea lanes nearby; `other` is -1; `value` is the route id of the busiest lane they strike (-1 if none)
+  PiratesSuppressed: 42, // the pirates of `settlement` were put down by the fleets of the polity ruled from `other`; `value` is -1
+  Blockade: 43, // the fleets of the polity ruled from `other` blockaded the ports of an enemy in war; `settlement` is the enemy's main port; `value` is the war id
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -271,6 +281,29 @@ export interface History {
   wars: Wars
   /** Raids on settlements below 1,000 people (not logged as events), summed per decade and settlement. */
   raids: RaidSummary
+
+  // polities v2: trade policy, the outlaw economy and bonds between states (all empty when polities are off).
+  /**
+   * Tariff (import duty) rate of each polity per snapshot, 0..255 for 0..1 of the goods' value at the importer's price,
+   * row-major: tariff[s * polities.length + id]; 0 outside the polity's life. Members' imports from settlements of other polities or
+   * stateless ones pay it (food a fifth of it); a vassal and its overlord trade duty-free.
+   */
+  tariff: Uint8Array
+  /** Duty revenue and seized contraband reaching each polity's capital, wealth a year (smoothed), same layout as `tariff`. */
+  tariffRevenue: Float32Array
+  /** Contraband loads a year on each route per trade snapshot, same layout as `tradeVolume` (and included in it): black-market routes. */
+  smuggleVolume: Float32Array
+  /**
+   * Share of each route's cargo lost a year to pirates, privateers, a blockade or bandits per trade snapshot, 0..255 for 0..1,
+   * same layout as `tradeVolume` (sea lanes struck by pirates, bandit roads). 0 while the route is not open.
+   */
+  tradeLoss: Uint8Array
+  /** Share of each settlement's income from smuggling per snapshot, 0..255 for 0..1, same layout as `population`: smugglers' hubs are high. */
+  contraband: Uint8Array
+  /** Strength of the pirates based at each settlement per snapshot, 0..255 for 0..1 (0: no pirate haven), same layout as `population`. */
+  piracy: Uint8Array
+  /** Vassalage, tribute and alliances between polities. */
+  bonds: Bonds
 }
 
 // ---------------------------------------------------------------------------
@@ -281,9 +314,9 @@ export const PolityOrigin = {
   Revolt: 1, // provinces that rose and broke away
   Fragment: 2, // a successor of a state that fell apart (its capital taken, or its cohesion gone)
   Colonial: 3, // overseas colonies that broke away
-  Partition: 4, // (later versions) heirs dividing a realm
-  CivilWar: 5, // (later versions)
-  League: 6, // (later versions) a league of trading towns
+  Partition: 4, // an heir's share of a realm divided at a succession
+  CivilWar: 5, // a rival centre that rose against its capital (see EventType.CivilWar)
+  League: 6, // a league of trading towns of comparable size that bound together against a threat (the UI calls it a League whatever its size)
 } as const
 export type PolityOrigin = (typeof PolityOrigin)[keyof typeof PolityOrigin]
 
@@ -292,7 +325,7 @@ export const PolityEnd = {
   Conquered: 1, // its capital fell and no rump was left
   Fragmented: 2, // it broke into successor states with no rump left
   Dwindled: 3, // its people died out or left
-  Reunified: 4, // (later versions)
+  Reunified: 4, // taken back by a polity of its own lineage (a civil war lost, or a kindred successor state absorbed it)
   Absorbed: 5, // a small chiefdom that submitted whole to a larger neighbour
 } as const
 export type PolityEnd = (typeof PolityEnd)[keyof typeof PolityEnd]
@@ -332,8 +365,14 @@ export interface Polity {
   hue: number
 }
 
+/** Kind of war. (Blockade is not used as a kind: a blockade is an act within a war, see EventType.Blockade.) */
 export const WarKind = { Conquest: 0, CivilWar: 1, Blockade: 2 } as const
 export type WarKind = (typeof WarKind)[keyof typeof WarKind]
+/**
+ * Outcome of a war at its end. Tribute: the defender pays tribute to the attacker for a term (History.bonds); Vassalage: one
+ * side (usually the defender, or its rump after its capital fell) became the other's vassal (History.bonds says which);
+ * Reunified: a civil war won by either side (the loser ended).
+ */
 export const WarOutcome = { Ongoing: 0, WhitePeace: 1, AttackerGains: 2, DefenderGains: 3, Conquest: 4, Tribute: 5, Vassalage: 6, Reunified: 7 } as const
 export type WarOutcome = (typeof WarOutcome)[keyof typeof WarOutcome]
 
@@ -351,6 +390,40 @@ export interface Wars {
   /** Settlements that changed hands either way, and people killed on both sides (battles, sieges, sacks). */
   taken: Uint16Array
   dead: Float32Array
+}
+
+/** Kinds of bond between two polities (History.bonds). */
+export const BondKind = {
+  Vassal: 0, // `a` is the vassal of overlord `b`: it keeps its own government, pays part of its revenue, never fights `b`
+  Tribute: 1, // `a` pays tribute to `b` for a term of years after a lost war
+  Alliance: 2, // `a` and `b` are allies against a common rival (they may come to each other's defence)
+} as const
+export type BondKind = (typeof BondKind)[keyof typeof BondKind]
+/** How a bond ended. */
+export const BondEnd = {
+  Ongoing: 0,
+  Freed: 1, // the vassal or tributary threw it off
+  Absorbed: 2, // the vassal was absorbed into its overlord (PolityEnded with PolityEnd.Absorbed)
+  Lapsed: 3, // the tribute's term ran out, or the common threat faded, or the allies fell out
+  Ended: 4, // one of the two polities ended, or the vassal passed to its overlord's overlord
+} as const
+export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
+
+/**
+ * Bonds between polities, struct-of-arrays in order of making (one entry per bond; the same pair may bond again
+ * later as a new entry). At any year a polity is the `a` of at most one ongoing Vassal or Tribute bond, and an
+ * overlord is never itself a vassal (no chains), so "overlord of p at year y" is unique.
+ */
+export interface Bonds {
+  count: number
+  kind: Uint8Array
+  /** Polity ids (see BondKind). */
+  a: Int16Array
+  b: Int16Array
+  startYear: Int16Array
+  /** -1 while ongoing at the end of the run. */
+  endYear: Int16Array
+  end: Uint8Array
 }
 
 /** Small raids per decade and settlement raided, struct-of-arrays, sorted by decade then settlement (only nonzero entries). */
@@ -406,6 +479,7 @@ export const StructureType = {
   Port: 0, // on a coastal settlement's cell; makes sea travel and fishing easier
   Dam: 1, // on a river cell near its settlement; irrigates land downstream and forms a reservoir
   Walls: 2, // polities: town walls on the settlement's cell, raised against danger; a town may have several rings in use (one Structure per ring, oldest first)
+  Fort: 3, // polities v2: a fort on a land cell of the settlement's territory at a hostile border (a pass or the most defensible border cell); one in use per settlement
 } as const
 export type StructureType = (typeof StructureType)[keyof typeof StructureType]
 

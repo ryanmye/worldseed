@@ -43,6 +43,7 @@ export function ensureRelation(ps: PolityState, p: number, q: number): number {
   ps.relTruce.push(NEVER)
   ps.relWar.push(-1)
   ps.relLastWar.push(NEVER)
+  ps.relEmb.push(0)
   ps.relEdges.push([])
   ps.relContested.push(0)
   return i

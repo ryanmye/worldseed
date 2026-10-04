@@ -6,7 +6,7 @@
 // territory is a function of membership and the territory map (territory.ts). Polity ids are assigned
 // in founding order and never reused, so they are prefix-stable.
 
-import { EventType, PolityEnd, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
+import { BondEnd, BondKind, EventType, PolityEnd, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import type { PolityOrigin } from '../../../contract.ts'
 import type { Rng } from '../../rng.ts'
 import { createRng } from '../../rng.ts'
@@ -16,7 +16,7 @@ import { logEvent } from '../state.ts'
 import { prosperity } from '../migration.ts'
 import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
-import { COHESION, POLITY, UNREST } from './params.ts'
+import { COHESION, FORT, POLITY, UNREST } from './params.ts'
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -61,6 +61,25 @@ export interface PolityState {
   foundZ: Float32Array
   /** Smoothed tax received (capitals) / paid. */
   taxIn: Float64Array
+  // v2 (outlaw economy): lawlessness (bandits) this step, corruption, contraband income this year and smoothed, smoothed
+  // income, pirate strength pi and lane traffic (havens), 1 once PiratesRise was logged (until suppressed), 1 once
+  // SmugglingRing was logged, the fort in use (structure id, -1).
+  lawless: Float64Array
+  corrupt: Float64Array
+  smugYear: Float64Array
+  smugSm: Float64Array
+  incSm: Float64Array
+  pir: Float64Array
+  lane: Float64Array
+  pirRose: Uint8Array
+  /** 1 when the haven preyed on some route at the last outlaw step. */
+  taker: Uint8Array
+  ringDone: Uint8Array
+  fort: Int32Array
+  /** Contraband through each hub: the largest cut this year, and the good and the evaded polity of the largest cut lately. */
+  hubBest: Float64Array
+  hubGood: Int32Array
+  hubPol: Int32Array
 
   // --- Per polity (capacity `pcap`) ---
   P: number
@@ -90,8 +109,44 @@ export interface PolityState {
   pEndBy: Int32Array
   pCapIds: number[][]
   pCapYears: number[][]
+  // v2: tariff rate, duty revenue and seized contraband this year and smoothed, ports among the members (control pass),
+  // the war in which its ports are blockaded (-1), the bond in which it is the vassal or tributary (-1).
+  pTariff: Float64Array
+  pRevYear: Float64Array
+  pRevSm: Float64Array
+  pSub: Int32Array
+  pPorts: Int32Array
+  pBlockade: Int32Array
+  /** Leagues: year since which its members have been safe (-1 not). */
+  pCalm: Int32Array
+  /** The market's view of the trade pairs (policy.ts; refreshed every step and when the pairs change), and the capitals this year (1, listed). */
+  policy: unknown
+  /** Year of the last flush of the market's accounts (outlaw.ts flushAccounts). */
+  flushYear: number
+  capMark: Uint8Array
+  capList: number[]
+  /** Settlements whose income is watched (capitals, smugglers' hubs): 1 per settlement, and the list in order of watching. */
+  watch: Uint8Array
+  watchList: number[]
+  /** Settlements with pirates (pi > 0) at the last outlaw step. */
+  havens: number[]
+  /** Per-polity scratch. */
+  scratchPol: Float64Array
+  scratchPol2: Int32Array
   /** Alive polity ids, ascending. */
   alive: number[]
+
+  // --- Bonds (v2, bonds.ts): vassalage, tribute, alliances, in order of making; the active ones in a list ---
+  bKind: number[]
+  bA: number[]
+  bB: number[]
+  bStart: number[]
+  bEnd: number[]
+  bCause: number[]
+  /** Tribute: the year it lapses; alliance: the common rival. */
+  bUntil: number[]
+  bThreat: number[]
+  activeBonds: number[]
 
   // --- Members, per polity (rebuilt by the control pass) ---
   memOff: Int32Array
@@ -132,6 +187,8 @@ export interface PolityState {
   relWar: number[]
   relLastWar: number[]
   relIndex: Map<number, number>
+  /** v2: 1 while the pair embargoes trade short of war (policy.ts). */
+  relEmb: number[]
   /** Border edges of each pair this step: flat (u, v, cost) triples, u < v. */
   relEdges: number[][]
   /** Contested cells per pair (recounted every map pass). */
@@ -157,6 +214,8 @@ export interface PolityState {
   /** Last year the attacker took ground. */
   wLastGain: number[]
   activeWars: number[]
+  /** v2: bumped whenever a war begins or ends (the market refreshes its embargoes then). */
+  warEpoch: number
 
   // --- Raid summary (decade, settlement) in order of first raid, looked up by key ---
   raidKey: Map<number, number>
@@ -179,6 +238,36 @@ export interface PolityState {
   ringDist: Float64Array
   scratchF: Float64Array
   scratchI: Int32Array
+  // --- Outlaw economy per route (v2, outlaw.ts; by route id, grown with the routes) ---
+  /** Share of the cargo lost to pirates / privateers and to bandits, and who takes it (-1 none). */
+  rPir: Float64Array
+  rPirBy: Int32Array
+  rBand: Float64Array
+  rBandBy: Int32Array
+  /** Sea cells on the route's path (-1 not counted yet). */
+  rSea: Int32Array
+  /** Contraband loads and share lost this year (for the trade snapshots). */
+  rSmug: Float64Array
+  rLoss: Float64Array
+  /** Routes whose losses were set at the last outlaw step (to clear), and routes with contraband or losses this year (to clear). */
+  outRoutes: number[]
+  lossRoutes: number[]
+  /** Coastal settlements near each route's sea cells (map pass): CSR over route ids [0, nearRoutes). */
+  nearRoutes: number
+  nearOff: Int32Array
+  nearId: Int32Array
+  /** Per cell: outlaw danger (pirates on coasts, bandits on roads) and the cells set, to clear; static sea-cell neighbourhoods of coasts (lazily). */
+  cellOut: Float32Array
+  outCells: number[]
+  /** The unowned ones among outCells (the last outlaw step). */
+  outFree: number[]
+  /** Settlements within reach of a pirate haven (the last outlaw step): id, danger, haven; exMark[id] = index or -1. */
+  exId: number[]
+  exZ: number[]
+  exBy: number[]
+  exMark: Int32Array
+  seaNearOff: Int32Array | null
+  seaNearCell: Int32Array | null
   /** Counters for the stats harness. */
   diag: PolityDiag
 }
@@ -202,6 +291,26 @@ export interface PolityDiag {
   foundHome: number[]
   /** The cell of each founding (for harness measures of site choice). */
   foundCell: number[]
+  // v2, per year (index = year): duty revenue, capitals' income, value crossing restricted borders legally and as
+  // contraband (loads), cargo value lost to pirates / privateers and to bandits, sum of pirate strength.
+  yRev: number[]
+  yCapInc: number[]
+  yLegal: number[]
+  ySmug: number[]
+  yPir: number[]
+  yBand: number[]
+  yPirates: number[]
+  civilWars: number
+  partitions: number
+  reunified: number
+  vassals: number
+  tributes: number
+  alliances: number
+  forts: number
+  refugeeTech: number
+  /** People taken from the coasts by pirates; leagues formed. */
+  pirCaptives: number
+  leagues: number
 }
 
 function f64(n: number): Float64Array { return new Float64Array(n) }
@@ -215,7 +324,8 @@ export function createPolityState(s: HistoryState): PolityState {
   const landIndex = new Int32Array(N).fill(-1)
   for (let c = 0; c < N; c++) if (!T.sea[c]) { landIndex[c] = land.length; land.push(c) }
   const { defense, defenseD } = buildDefense(s.world, T)
-  return {
+  // (two literals: V8 keeps an object literal of 128 or more properties in slow dictionary mode; one assigned on keeps it fast)
+  const base = {
     rng: createRng(s.world.seed, 'history-polities'),
     rngWar: createRng(s.world.seed, 'history-war'),
     defense, defenseD,
@@ -235,13 +345,26 @@ export function createPolityState(s: HistoryState): PolityState {
     gNb: [], gCost: [], linkA: [], linkB: [], linkCost: [],
     tOwner: new Int32Array(N).fill(-1), tDist: new Float64Array(N), borderCell: [], borderOther: [],
     cellZ: new Float32Array(N), hostile: new Uint8Array(N), fringeCell: [], fringeOff: [0], fringeOwner: [], taxShare: f64(cap), taxPayers: [], evSeen: 0, mapYear: -1,
-    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
-    wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [],
+    relA: [], relB: [], relR: [], relTruce: [], relWar: [], relLastWar: [], relIndex: new Map(), relEmb: [], relEdges: [], relContested: [], cellMark: new Int32Array(N), cellPol: new Int32Array(N), cellRun: 0,
+    wKind: [], wAtt: [], wDef: [], wStart: [], wEnd: [], wOutcome: [], wTaken: [], wRetaken: [], wDead: [], wSiege: [], wSiegeYears: [], wSiegeFrom: [], wLastGain: [], activeWars: [], warEpoch: 0,
     raidKey: new Map(), raidDecade: [], raidSettlement: [], raidCount: [], raidWealth: [],
     heap: new Heap(256), aDist: new Float64Array(N), aPrev: new Int32Array(N), aStamp: new Int32Array(N), aRun: 0, aHeap: new Heap(256),
     stamp: new Int32Array(cap), run: 0, ringDist: f64(cap), scratchF: f64(cap), scratchI: i32(cap),
-    diag: { raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [] },
+    diag: {
+      raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [],
+      yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0,
+    },
   }
+  const v2 = {
+    lawless: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
+    hubBest: f64(cap), hubGood: i32(cap), hubPol: i32(cap, -1),
+    pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
+    bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
+    rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
+    nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0),
+    cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
+  }
+  return Object.assign(base, v2) as PolityState
 }
 
 function grow<T extends Int32Array | Float64Array | Float32Array | Uint8Array>(a: T, size: number, fill = 0): T {
@@ -274,6 +397,23 @@ export function ensureSettlements(ps: PolityState, need: number): void {
   ps.rose = grow(ps.rose, size, NEVER)
   ps.foundZ = grow(ps.foundZ, size)
   ps.taxIn = grow(ps.taxIn, size)
+  ps.lawless = grow(ps.lawless, size)
+  ps.corrupt = grow(ps.corrupt, size)
+  ps.smugYear = grow(ps.smugYear, size)
+  ps.smugSm = grow(ps.smugSm, size)
+  ps.incSm = grow(ps.incSm, size)
+  ps.pir = grow(ps.pir, size)
+  ps.lane = grow(ps.lane, size)
+  ps.pirRose = grow(ps.pirRose, size)
+  ps.taker = grow(ps.taker, size)
+  ps.ringDone = grow(ps.ringDone, size)
+  ps.fort = grow(ps.fort, size, -1)
+  ps.hubBest = grow(ps.hubBest, size)
+  ps.hubGood = grow(ps.hubGood, size)
+  ps.hubPol = grow(ps.hubPol, size, -1)
+  ps.capMark = grow(ps.capMark, size)
+  ps.watch = grow(ps.watch, size)
+  ps.exMark = grow(ps.exMark, size, -1)
   ps.taxShare = grow(ps.taxShare, size)
   ps.stamp = grow(ps.stamp, size)
   ps.ringDist = grow(ps.ringDist, size)
@@ -307,7 +447,30 @@ function ensurePolities(ps: PolityState, need: number): void {
   ps.pPeak = grow(ps.pPeak, size)
   ps.pMulti = grow(ps.pMulti, size)
   ps.pEndBy = grow(ps.pEndBy, size)
+  ps.pTariff = grow(ps.pTariff, size)
+  ps.pRevYear = grow(ps.pRevYear, size)
+  ps.pRevSm = grow(ps.pRevSm, size)
+  ps.pSub = grow(ps.pSub, size, -1)
+  ps.pPorts = grow(ps.pPorts, size)
+  ps.pBlockade = grow(ps.pBlockade, size, -1)
+  ps.pCalm = grow(ps.pCalm, size, -1)
+  ps.scratchPol = grow(ps.scratchPol, size)
+  ps.scratchPol2 = grow(ps.scratchPol2, size)
   ps.pcap = size
+}
+
+/** Grows the per-route arrays (outlaw economy) to hold `need` routes. */
+export function ensureRoutesP(ps: PolityState, need: number): void {
+  if (need <= ps.rPir.length) return
+  let size = ps.rPir.length
+  while (size < need) size *= 2
+  ps.rPir = grow(ps.rPir, size)
+  ps.rPirBy = grow(ps.rPirBy, size, -1)
+  ps.rBand = grow(ps.rBand, size)
+  ps.rBandBy = grow(ps.rBandBy, size, -1)
+  ps.rSea = grow(ps.rSea, size, -1)
+  ps.rSmug = grow(ps.rSmug, size)
+  ps.rLoss = grow(ps.rLoss, size)
 }
 
 // --- Power -------------------------------------------------------------------------------------
@@ -372,7 +535,8 @@ export function isCapital(ps: PolityState, id: number): boolean {
 
 /** Local_i = a * b * T * (1 + wall): what a settlement can raise to defend itself (from this step's b). */
 export function localOf(s: HistoryState, ps: PolityState, id: number): number {
-  return ps.asab[id] * ps.str[id] * ps.defense[s.cell[id]] * wallFactor(ps, id, isCapital(ps, id))
+  const x = ps.asab[id] * ps.str[id] * ps.defense[s.cell[id]] * wallFactor(ps, id, isCapital(ps, id))
+  return ps.fort[id] >= 0 ? x * (1 + FORT.bonus) : x // (v2: a fort on its border)
 }
 
 /** Reach lambda_p (cost units) of polity p with `members` members. */
@@ -451,6 +615,13 @@ export function newPolity(s: HistoryState, ps: PolityState, capital: number, ori
   ps.pPeak[p] = 0
   ps.pMulti[p] = 0
   ps.pEndBy[p] = -1
+  ps.pTariff[p] = 0
+  ps.pRevYear[p] = 0
+  ps.pRevSm[p] = 0
+  ps.pSub[p] = -1
+  ps.pPorts[p] = 0
+  ps.pBlockade[p] = -1
+  ps.pCalm[p] = -1
   ps.pCapIds.push([capital])
   ps.pCapYears.push([s.year])
   ps.alive.push(p) // (ids ascend)
@@ -487,6 +658,15 @@ export function endPolity(s: HistoryState, ps: PolityState, p: number, cause: Po
   ps.pMass[p] = 0
   const i = ps.alive.indexOf(p)
   if (i >= 0) ps.alive.splice(i, 1)
+  // v2: its bonds end with it.
+  for (let j = ps.activeBonds.length - 1; j >= 0; j--) {
+    const k = ps.activeBonds[j]
+    if (ps.bA[k] !== p && ps.bB[k] !== p) continue
+    ps.bEnd[k] = s.year
+    ps.bCause[k] = BondEnd.Ended
+    if (ps.bKind[k] !== BondKind.Alliance && ps.pSub[ps.bA[k]] === k) ps.pSub[ps.bA[k]] = -1
+    ps.activeBonds.splice(j, 1)
+  }
   logEvent(s, EventType.PolityEnded, ps.pCapital[p], by, p)
 }
 

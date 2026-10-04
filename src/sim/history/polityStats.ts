@@ -6,9 +6,11 @@
 // settlements and people inside states, the largest state's share, lifetimes, formation / conquest /
 // secession / fragmentation counts, wars and their outcomes, the population cost against the same
 // world with polities off, where large towns sit (defensible sites, distance from borders) against the
-// off run, danger, capitals, churn, path dependence and snowballing, and the failure modes.
+// off run, danger, capitals, churn, path dependence and snowballing, and the failure modes; and (v2,
+// formatPolityV2) great empires and hegemons' spheres, civil wars, partitions, reunifications, bonds,
+// duty revenue, contraband, pirates and smugglers' hubs, towns on pirate-exposed coasts, forts, blockades.
 
-import { Biome, CITY_POPULATION, EventType, PolityEnd, PolityOrigin, StructureType, TOWN_POPULATION, WarOutcome } from '../../contract.ts'
+import { Biome, BondEnd, BondKind, CITY_POPULATION, EventType, PolityEnd, PolityOrigin, StructureType, TOWN_POPULATION, WarOutcome } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
 import { generateWorld } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -102,6 +104,50 @@ export interface PolityStatRow {
   raidsLogged: number
   raidsSmall: number
   diag: Record<string, number>
+  v2: PolityV2Row
+}
+
+/** v2 measures (trade policy, the outlaw economy, civil wars and bonds). */
+export interface PolityV2Row {
+  civilWars: number
+  partitions: number
+  /** Reunified events: civil wars won, kindred states brought back. */
+  reunified: number
+  vassals: number
+  tributes: number
+  alliances: number
+  freed: number
+  forts: number
+  blockades: number
+  /** Largest share of world people held by a state with its vassals (hegemon sphere) at any snapshot, its year, and whether it fell by >= 30% within 300 years. */
+  sphereMax: number
+  sphereYear: number
+  sphereFell: boolean
+  /** Largest single state share at any snapshot. */
+  stateMax: number
+  /** Duty revenue / capitals' income and contraband / value crossing restricted borders, means over 1500-2000; mean tariff rate of living polities at 2000. */
+  revShare: number
+  smugShare: number
+  tariff2000: number
+  /** Cargo value lost to pirates / privateers and to bandits over 1500-2000, as a share of the value crossing restricted borders (pirates) and of all route volume. */
+  pirLoss: number
+  bandLoss: number
+  /** Smugglers' hubs (SmugglingRing), pirate havens (PiratesRise), suppressions; mean defensibility of havens vs coastal settlements; share of hubs stateless; hubs on a border or a coast. */
+  hubs: number
+  havens: number
+  suppressed: number
+  havenD: number
+  coastD: number
+  hubStateless: number
+  hubEdge: number
+  /** Share of all towns (>= 3,000) at 2000 standing on coasts exposed to pirates (1000-2000) and on sheltered coasts, on and off (the same cells). */
+  townExposedOn: number
+  townShelteredOn: number
+  townExposedOff: number
+  townShelteredOff: number
+  exposedN: number
+  /** Refugee knowledge transfers. */
+  refugeeTech: number
 }
 
 const median = (xs: number[]): number => {
@@ -412,7 +458,9 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
   for (let p = 0; p < P; p++) { if (peakMem[p] < 2) continue; ever2++; if (peakMem[p] <= 3) tiny++ }
   let first = -1
   for (const p of h.polities) { first = p.foundedYear; break }
+  const v2 = polityV2(world, run, off, shareSeries)
   return {
+    v2,
     seed: world.seed, ms, msOff, firstYear: first, count, countMax, maxSettleShare,
     inside1000: a1000.living ? a1000.inside / a1000.living : 0, inside2000: a2000.living ? a2000.inside / a2000.living : 0,
     popInside2000: a2000.total ? sumArr(a2000.pop) / a2000.total : 0,
@@ -426,6 +474,168 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
     churn: median(churnRates), pathDep, peakShare: peak, peakFell: fell, tinyShare: ever2 ? tiny / ever2 : 0,
     raidsLogged, raidsSmall: sumRaids(h), diag: diag ? { raids: diag.raids, raidsWon: diag.raidsWon, revolts: diag.revolts, revoltsWon: diag.revoltsWon, frag: diag.fragmentations, absorbed: diag.absorbed, warDead: diag.warDead, sackDead: diag.sackDead, raidDead: diag.raidDead } : {},
   }
+}
+
+/** Overlord of each polity at year y from the bonds table (-1 none). */
+export function overlordsAt(h: History, y: number): Int32Array {
+  const out = new Int32Array(h.polities.length).fill(-1)
+  const B = h.bonds
+  for (let k = 0; k < B.count; k++) {
+    if (B.kind[k] !== BondKind.Vassal || B.startYear[k] > y || (B.endYear[k] >= 0 && B.endYear[k] <= y)) continue
+    out[B.a[k]] = B.b[k]
+  }
+  return out
+}
+
+/** Exposure of coastal land cells to pirates over years 1000..end (mean of the land snapshots): havens' strength fading over 6 sea hops. */
+function pirateExposure(world: World, h: History): Float64Array {
+  const N = world.grid.cellCount
+  const { neighborOffsets: off, neighbors: nb } = world.grid
+  const sea = (c: number): boolean => world.elevation[c] < 0
+  const E = new Float64Array(N)
+  const S = h.settlements.length
+  const mark = new Int32Array(N).fill(-1)
+  let samples = 0, run = 0
+  for (let y = 1000; y <= h.years; y += 20) {
+    const q = Math.floor(y / h.snapshotInterval)
+    samples++
+    for (let i = 0; i < S; i++) {
+      const x = h.piracy[q * S + i] / 255
+      if (!(x > 0.05)) continue
+      run++
+      let ring: number[] = []
+      const c0 = h.settlements[i].cell
+      mark[c0] = run
+      for (let k = off[c0]; k < off[c0 + 1]; k++) { const j = nb[k]; if (sea(j)) { mark[j] = run; ring.push(j) } }
+      for (let hop = 1; hop <= 6 && ring.length; hop++) {
+        const z = x * (1 - (hop - 1) / 6)
+        const next: number[] = []
+        for (const c of ring) for (let k = off[c]; k < off[c + 1]; k++) { const j = nb[k]; if (mark[j] === run) continue; mark[j] = run; if (sea(j)) next.push(j); else E[j] += z }
+        ring = next
+      }
+    }
+  }
+  if (samples) for (let c = 0; c < N; c++) E[c] /= samples
+  return E
+}
+
+function polityV2(world: World, run: HistoryRun, off: HistoryRun | null, shareSeries: Float64Array[]): PolityV2Row {
+  const h = run.history
+  const S = h.settlements.length
+  const P = h.polities.length
+  const last = h.snapshotCount - 1
+  const cnt = (t: number): number => h.events.reduce((n, e) => n + (e.type === t ? 1 : 0), 0)
+  const B = h.bonds
+  let vassals = 0, tributes = 0, alliances = 0, freed = 0
+  for (let k = 0; k < B.count; k++) { if (B.kind[k] === BondKind.Vassal) vassals++; else if (B.kind[k] === BondKind.Tribute) tributes++; else alliances++; if (B.end[k] === BondEnd.Freed) freed++ }
+  let forts = 0
+  for (const x of h.structures) if (x.type === StructureType.Fort) forts++
+  // Spheres: a state with its vassals.
+  let sphereMax = 0, sphereQ = 0, sphereP = -1, stateMax = 0
+  const sphereSeries: Float64Array[] = []
+  const q800 = Math.min(last, Math.floor(800 / h.snapshotInterval)) // (shares of a tiny early world do not count)
+  for (let q = 0; q <= last; q++) {
+    const ov = overlordsAt(h, q * h.snapshotInterval)
+    const sh = shareSeries[q]
+    const sp = new Float64Array(P)
+    for (let p = 0; p < P; p++) { sp[ov[p] >= 0 ? ov[p] : p] += sh[p]; if (q >= q800 && sh[p] > stateMax) stateMax = sh[p] }
+    sphereSeries.push(sp)
+    if (q >= q800) for (let p = 0; p < P; p++) if (sp[p] > sphereMax) { sphereMax = sp[p]; sphereQ = q; sphereP = p }
+  }
+  let sphereFell = false
+  if (sphereP >= 0) for (let q = sphereQ; q <= Math.min(last, sphereQ + Math.round(300 / h.snapshotInterval)); q++) if (sphereSeries[q][sphereP] <= 0.7 * sphereMax) sphereFell = true
+  // Revenue, contraband, losses over 1500-2000.
+  const d = run.diag.polity
+  let rev = 0, inc = 0, leg = 0, smug = 0, pir = 0, band = 0, vol = 0
+  if (d) for (let y = 1500; y < Math.min(h.years, 2000); y++) { rev += d.yRev[y] ?? 0; inc += d.yCapInc[y] ?? 0; leg += d.yLegal[y] ?? 0; smug += d.ySmug[y] ?? 0; pir += d.yPir[y] ?? 0; band += d.yBand[y] ?? 0 }
+  const RC = h.trade.count
+  for (let t = Math.floor(1500 / h.tradeInterval); t < h.tradeSnapshotCount; t++) for (let r = 0; r < RC; r++) vol += h.tradeVolume[t * RC + r] * h.tradeInterval
+  let tsum = 0, tn = 0
+  for (let p = 0; p < P; p++) { const x = h.tariff[last * P + p]; if (h.polities[p].endedYear < 0) { tsum += x / 255; tn++ } }
+  // Hubs and havens: where they are.
+  const T = run.terrain
+  const { defenseD } = buildDefense(world, T)
+  let hubs = 0, hubStateless = 0, hubEdge = 0, havens = 0, havenD = 0
+  for (const e of h.events) {
+    if (e.type === EventType.SmugglingRing) {
+      hubs++
+      const q = Math.min(last, Math.floor(e.year / h.snapshotInterval))
+      if (h.polity[q * S + e.settlement] < 0) hubStateless++
+      if (T.seaCoast[h.settlements[e.settlement].cell] || defenseD[h.settlements[e.settlement].cell] > 0) hubEdge++
+    } else if (e.type === EventType.PiratesRise) { havens++; havenD += defenseD[h.settlements[e.settlement].cell] }
+  }
+  let coastD = 0, coastN = 0
+  for (let i = 0; i < S; i++) if (h.population[last * S + i] > 0 && T.seaCoast[h.settlements[i].cell]) { coastD += defenseD[h.settlements[i].cell]; coastN++ }
+  // Pirates and coastal towns.
+  const E = pirateExposure(world, h)
+  // (the havens' own cells are left out: the comparison is of the coasts they prey on)
+  const nest = new Uint8Array(world.grid.cellCount)
+  for (let q = 0; q <= last; q++) for (let i = 0; i < S; i++) if (h.piracy[q * S + i] > 13) nest[h.settlements[i].cell] = 1
+  // Share of all towns (>= 3,000) at 2000 that stand on exposed coasts, and on sheltered coasts (the havens' own cells left out).
+  const coastTowns = (hh: History): [number, number, number, number] => {
+    const S2 = hh.settlements.length, l2 = hh.snapshotCount - 1
+    let all = 0, et = 0, st = 0, en = 0
+    for (let i = 0; i < S2; i++) {
+      const x = hh.population[l2 * S2 + i]
+      const c = hh.settlements[i].cell
+      if (x <= 0 || hh.settlements[i].outpost) continue
+      if (T.seaCoast[c] && !nest[c] && E[c] >= 0.05) en++
+      if (x < TOWN_POPULATION) continue
+      all++
+      if (!T.seaCoast[c] || nest[c]) continue
+      if (E[c] >= 0.05) et++
+      else if (E[c] < 0.01) st++
+    }
+    return [all ? et / all : NaN, all ? st / all : NaN, en, 0]
+  }
+  const [eOn, sOn, nE] = coastTowns(h)
+  const [eOff, sOff] = off ? coastTowns(off.history) : [NaN, NaN]
+  return {
+    civilWars: cnt(EventType.CivilWar), partitions: cnt(EventType.Partitioned), reunified: cnt(EventType.Reunified), vassals, tributes, alliances, freed, forts, blockades: cnt(EventType.Blockade),
+    sphereMax, sphereYear: sphereQ * h.snapshotInterval, sphereFell, stateMax,
+    revShare: inc > 0 ? rev / inc : NaN, smugShare: leg + smug > 0 ? smug / (leg + smug) : NaN, tariff2000: tn ? tsum / tn : NaN,
+    pirLoss: leg + smug > 0 ? pir / (leg + smug) : NaN, bandLoss: vol > 0 ? band / vol : NaN,
+    hubs, havens, suppressed: cnt(EventType.PiratesSuppressed), havenD: havens ? havenD / havens : NaN, coastD: coastN ? coastD / coastN : NaN,
+    hubStateless: hubs ? hubStateless / hubs : NaN, hubEdge: hubs ? hubEdge / hubs : NaN,
+    townExposedOn: eOn, townShelteredOn: sOn, townExposedOff: eOff, townShelteredOff: sOff, exposedN: nE, refugeeTech: d ? d.refugeeTech : 0,
+  }
+}
+
+/** The v2 table: per seed and the targets. */
+export function formatPolityV2(rows: PolityStatRow[]): string {
+  const n = rows.length
+  const out: string[] = []
+  out.push('seed  civil part reun  vass trib ally freed forts block  sphere  year fell state  rev/inc smug/x tariff pirLoss bandLoss hubs havens supp havenD coastD hubSL hubEdge  townExp/Shel on   off   nExp refTech')
+  for (const r of rows) {
+    const v = r.v2
+    out.push([pad(r.seed, 6), pad(v.civilWars, 5), pad(v.partitions, 4), pad(v.reunified, 4), pad(v.vassals, 5), pad(v.tributes, 4), pad(v.alliances, 4), pad(v.freed, 5), pad(v.forts, 5), pad(v.blockades, 5),
+      pad(f2(v.sphereMax), 7), pad(v.sphereYear, 5), pad(v.sphereFell ? 'y' : 'n', 4), pad(f2(v.stateMax), 5), pad(f2(v.revShare), 8), pad(f2(v.smugShare), 6), pad(f2(v.tariff2000), 6), pad(f2(v.pirLoss), 7), pad(f2(v.bandLoss), 8),
+      pad(v.hubs, 4), pad(v.havens, 6), pad(v.suppressed, 4), pad(f2(v.havenD), 6), pad(f2(v.coastD), 6), pad(f2(v.hubStateless), 5), pad(f2(v.hubEdge), 7),
+      pad(f2(v.townExposedOn) + '/' + f2(v.townShelteredOn), 14), pad(f2(v.townExposedOff) + '/' + f2(v.townShelteredOff), 10), pad(v.exposedN, 5), pad(v.refugeeTech, 6)].join(' '))
+  }
+  const col = (f: (r: PolityStatRow) => number): number[] => rows.map(f).filter((x) => Number.isFinite(x))
+  const cnt = (f: (r: PolityStatRow) => boolean): string => `${rows.filter(f).length}/${n}`
+  const rng = (xs: number[]): string => (xs.length ? `${f2(Math.min(...xs))}..${f2(Math.max(...xs))} (median ${f2(median(xs))})` : '-')
+  const t: [string, string, string][] = [
+    ['Great empire: a state or hegemon sphere >= 0.40 (from 800)', '>= 2/20', `${cnt((r) => r.v2.sphereMax >= 0.4)} (state alone ${cnt((r) => r.v2.stateMax >= 0.4)}); sphere max ${rng(col((r) => r.v2.sphereMax))}`],
+    ['  ... and it fell >= 30% within 300 years', 'all of them', `${cnt((r) => r.v2.sphereMax >= 0.4 && r.v2.sphereFell)}`],
+    ['Civil wars per world', 'some in larger states', `${rng(col((r) => r.v2.civilWars))}; worlds with any ${cnt((r) => r.v2.civilWars > 0)}`],
+    ['Partitions / reunifications (sum)', 'both occur', `${sum(rows, (r) => r.v2.partitions)} / ${sum(rows, (r) => r.v2.reunified)}; worlds with a partition ${cnt((r) => r.v2.partitions > 0)}, a reunification ${cnt((r) => r.v2.reunified > 0)}`],
+    ['Vassals / tributes / alliances / freed (sum)', '(info)', `${sum(rows, (r) => r.v2.vassals)} / ${sum(rows, (r) => r.v2.tributes)} / ${sum(rows, (r) => r.v2.alliances)} / ${sum(rows, (r) => r.v2.freed)}`],
+    ['Duty revenue / capitals\' income 1500-2000', 'visible part', rng(col((r) => r.v2.revShare))],
+    ['Contraband / value crossing restricted borders', '0.05-0.20', rng(col((r) => r.v2.smugShare))],
+    ['Mean tariff y2000', '(info)', rng(col((r) => r.v2.tariff2000))],
+    ['Lost to pirates / restricted value; to bandits / route volume', '(info)', `${rng(col((r) => r.v2.pirLoss))}; ${rng(col((r) => r.v2.bandLoss))}`],
+    ['Smugglers\' hubs per world (SmugglingRing)', 'a handful', `${rng(col((r) => r.v2.hubs))}; stateless share ${f2(median(col((r) => r.v2.hubStateless)))}, on a coast or rough site ${f2(median(col((r) => r.v2.hubEdge)))}`],
+    ['Pirate havens per world (PiratesRise) / suppressed', 'a handful', `${rng(col((r) => r.v2.havens))} / ${sum(rows, (r) => r.v2.suppressed)} suppressed`],
+    ['  havens\' defensibility vs coastal settlements', 'havens > coast', `${f2(median(col((r) => r.v2.havenD)))} vs ${f2(median(col((r) => r.v2.coastD)))}`],
+    ['Share of towns >= 3k on exposed / sheltered coasts', 'exposed lower than off', `on ${f2(median(col((r) => r.v2.townExposedOn)))} / ${f2(median(col((r) => r.v2.townShelteredOn)))}, off ${f2(median(col((r) => r.v2.townExposedOff)))} / ${f2(median(col((r) => r.v2.townShelteredOff)))}; exposed on < off in ${rows.filter((r) => r.v2.townExposedOn < r.v2.townExposedOff).length}/${n}, exposed/sheltered on < off in ${rows.filter((r) => r.v2.townExposedOn * r.v2.townShelteredOff < r.v2.townExposedOff * r.v2.townShelteredOn).length}/${n}`],
+    ['Forts / blockades (sum)', '(info)', `${sum(rows, (r) => r.v2.forts)} / ${sum(rows, (r) => r.v2.blockades)}`],
+  ]
+  out.push('')
+  out.push('Measure (v2)'.padEnd(60) + 'Target'.padEnd(34) + 'Result')
+  for (const [a, b, c] of t) out.push(a.padEnd(60) + b.padEnd(34) + c)
+  return out.join('\n')
 }
 
 function sumArr(a: Float64Array): number { let t = 0; for (let i = 0; i < a.length; i++) t += a[i]; return t }
@@ -549,7 +759,7 @@ export function polityTimeline(h: History, minPeak = 6): string {
     if (p.capitals.length > 1) s += `; capitals ${p.capitals.map((c, k) => h.settlements[c].name + ' ' + p.capitalYears[k]).join(', ')}`
     const att: string[] = [], def: string[] = []
     for (let w = 0; w < W.count; w++) {
-      const o = ['?', 'white', 'won', 'lost', 'conquest', '', '', ''][W.outcome[w]]
+      const o = ['?', 'white', 'won', 'lost', 'conquest', 'tribute', 'vassalage', 'reunified'][W.outcome[w]] + (W.kind[w] === 1 ? ' (civil war)' : '')
       if (W.attacker[w] === p.id) att.push(`${W.startYear[w]}-${W.endYear[w] < 0 ? '' : W.endYear[w]} vs ${name(W.defender[w])} ${o}`)
       if (W.defender[w] === p.id) def.push(`${W.startYear[w]} by ${name(W.attacker[w])}`)
     }
@@ -574,7 +784,34 @@ export function polityTimeline(h: History, minPeak = 6): string {
     while (stack.length) { const x = stack.pop() as number; if (peak[x] >= 10) big = true; stack.push(...kids[x]) }
     if (big) walk(p.id, 0)
   }
-  return lines.join('\n') + '\n\nSuccessor trees (lineages with a polity of >= 10 settlements):\n' + tree.join('\n')
+  return lines.join('\n') + '\n\nSuccessor trees (lineages with a polity of >= 10 settlements):\n' + tree.join('\n') + '\n\nv2 chronicle:\n' + v2Chronicle(h, peak, minPeak)
+}
+
+const GOOD_WORD = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants']
+
+/** The v2 events in order, as chronicle lines (bonds and civil wars of polities that reached minPeak settlements; every pirate and smuggler event). */
+export function v2Chronicle(h: History, peak: Int32Array, minPeak: number): string {
+  const name = (p: number): string => QUAL_WORD[h.polities[p].qualifier] + h.polities[p].name
+  const sn = (id: number): string => (id >= 0 ? h.settlements[id].name : '-')
+  const polOf = (id: number, y: number): number => { const q = Math.min(h.snapshotCount - 1, Math.floor(y / h.snapshotInterval)); return id >= 0 ? h.polity[q * h.settlements.length + id] : -1 }
+  const out: string[] = []
+  for (const e of h.events) {
+    let line = ''
+    switch (e.type) {
+      case EventType.CivilWar: { const a = h.wars.attacker[e.value], d = h.wars.defender[e.value]; if (peak[d] >= minPeak || peak[a] >= minPeak) line = `civil war: ${sn(e.settlement)} rose against ${sn(e.other)}; ${name(a)} (#${a}) against ${name(d)} (#${d}), war #${e.value} ended ${h.wars.endYear[e.value] < 0 ? 'not yet' : h.wars.endYear[e.value] + ' ' + ['?', 'white peace', 'pretender gained', 'crown gained', 'conquest', 'tribute', 'vassalage', 'reunified'][h.wars.outcome[e.value]]}`; break }
+      case EventType.Partitioned: line = `${name(e.value)} (#${e.value}) partitioned among heirs at ${sn(e.settlement)}`; break
+      case EventType.Reunified: { const x = polOf(e.settlement, e.year); line = `${x >= 0 ? name(x) + ' (#' + x + ')' : sn(e.settlement)} reunified ${name(e.value)} (#${e.value}, last capital ${sn(e.other)})`; break }
+      case EventType.BecameVassal: { const b = e.value % 1000, a = polOf(e.settlement, e.year); if (peak[b] >= minPeak || (a >= 0 && peak[a] >= minPeak)) line = `${a >= 0 ? name(a) + ' (#' + a + ')' : sn(e.settlement)} ${e.extra === 1 ? 'threw off its bond to' : e.value >= 1000 ? 'pays tribute to' : 'became the vassal of'} ${name(b)} (#${b})`; break }
+      case EventType.Alliance: { const a = polOf(e.settlement, e.year); if (peak[e.value] >= minPeak || (a >= 0 && peak[a] >= minPeak)) line = `alliance: ${a >= 0 ? name(a) : sn(e.settlement)} and ${name(e.value)} against ${e.extra !== undefined && e.extra >= 0 ? name(e.extra) : '?'}`; break }
+      case EventType.SmugglingRing: line = `smugglers' hub at ${sn(e.settlement)} (${polOf(e.settlement, e.year) >= 0 ? 'in ' + name(polOf(e.settlement, e.year)) : 'stateless'}): ${GOOD_WORD[e.value] ?? '?'}, evading ${e.other >= 0 ? sn(e.other) : '-'}`; break
+      case EventType.PiratesRise: line = `pirates rise at ${sn(e.settlement)} (${polOf(e.settlement, e.year) >= 0 ? 'in ' + name(polOf(e.settlement, e.year)) : 'stateless'})${e.value >= 0 ? `, striking the lane ${sn(h.trade.a[e.value])}-${sn(h.trade.b[e.value])}` : ''}`; break
+      case EventType.PiratesSuppressed: line = `pirates of ${sn(e.settlement)} put down by the fleets of ${sn(e.other)}`; break
+      case EventType.Blockade: { const a = h.wars.attacker[e.value]; if (peak[a] >= minPeak || peak[h.wars.defender[e.value]] >= minPeak) line = `${name(a)} blockades ${sn(e.settlement)} (war #${e.value})`; break }
+      default: break
+    }
+    if (line) out.push(`${pad(e.year, 4)}  ${line}`)
+  }
+  return out.join('\n')
 }
 
 /** Equirectangular map of territory at `year`: one letter per polity (largest first), '.' stateless land. */
@@ -609,8 +846,20 @@ export function asciiPolityMap(world: World, h: History, year: number, W = 120, 
     if (pol >= 0) { ch = letter.get(pol) ?? '+'; r = 2 + a.pop[pol] / (a.total + 1) }
     if (r > rank[pix]) { rank[pix] = r; grid[pix] = ch }
   }
-  const legend = order.slice(0, 12).map((p) => `${letter.get(p)} ${QUAL_WORD[h.polities[p].qualifier]}${h.polities[p].name} (${a.mem[p]}, ${f0(a.pop[p])})`).join('  ')
-  const lines = [`year ${year}: ${legend}${order.length > 12 ? `  ... ${order.length} polities` : ''}   (. stateless land)`]
+  // v2: pirate havens (@, strength >= 0.2) and smugglers' hubs ($, contraband >= 0.3 of income) over the territory.
+  let havens = 0, hubs = 0
+  for (let i = 0; i < S; i++) {
+    const pir = h.piracy[q * S + i], con = h.contraband[q * S + i]
+    if (pir < 51 && con < 77) continue
+    const pix = at(h.settlements[i].cell)
+    if (pir >= 51) { grid[pix] = '@'; rank[pix] = 99; havens++ } else { grid[pix] = '$'; rank[pix] = 98; hubs++ }
+  }
+  const ov = overlordsAt(h, year)
+  const vassal = (p: number): string => (ov[p] >= 0 ? `, vassal of ${letter.get(ov[p]) ?? '#' + ov[p]}` : '')
+  const legend = order.slice(0, 14).map((p) => `${letter.get(p)} ${QUAL_WORD[h.polities[p].qualifier]}${h.polities[p].name} (${a.mem[p]}, ${f0(a.pop[p])}${vassal(p)})`).join('  ')
+  const others: string[] = []
+  for (const p of order.slice(14)) if (ov[p] >= 0) others.push(`${letter.get(p)} vassal of ${letter.get(ov[p]) ?? '#' + ov[p]}`)
+  const lines = [`year ${year}: ${legend}${order.length > 14 ? `  ... ${order.length} polities${others.length ? ' (' + others.join(', ') + ')' : ''}` : ''}   (. stateless land, @ pirate haven ${havens}, $ smugglers' hub ${hubs})`]
   for (let row = 0; row < H; row++) lines.push(grid.slice(row * W, row * W + W).join(''))
   return lines.join('\n')
 }
@@ -633,7 +882,7 @@ export function runPolityStats(seeds: number[], maps: boolean, ab: boolean): str
       for (const y of [800, 1200, 1600, 2000]) if (y <= run.history.years) extra.push(asciiPolityMap(w, run.history, y))
     }
   }
-  return formatPolityStats(rows) + '\n' + extra.join('\n')
+  return formatPolityStats(rows) + '\n\n' + formatPolityV2(rows) + '\n' + extra.join('\n')
 }
 
 if (typeof import.meta !== 'undefined' && (import.meta as { main?: boolean }).main) {

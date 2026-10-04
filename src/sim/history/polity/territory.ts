@@ -224,9 +224,10 @@ export function linkNew(s: HistoryState, ps: PolityState, id: number): void {
 export function zCell(s: HistoryState, ps: PolityState, c: number): number {
   const o = ps.tOwner[c]
   if (o < 0) return ps.cellZ[c]
-  if (s.abandoned[o] >= 0) return DANGER.wild
+  const zo = ps.cellOut[c] // (v2: pirates on the coast, bandits on the road)
+  if (s.abandoned[o] >= 0) return zo > DANGER.wild ? zo : DANGER.wild
   const z = ps.danger[o] + (ps.hostile[c] ? DANGER.hostileEdge : 0)
-  return z > 1 ? 1 : z
+  return z > 1 ? 1 : z > zo ? z : zo
 }
 
 /** Every land cell's danger into cellZ (for the danger layer). */
@@ -249,6 +250,12 @@ export function cellDanger(s: HistoryState, ps: PolityState): void {
     }
     const z = wild + 0.5 * m
     cellZ[fringeCell[k]] = z > 1 ? 1 : z
+  }
+  // v2: outlaw danger on unowned cells (coasts near pirate havens, bandit roads through the wilds).
+  const { outFree, cellOut } = ps
+  for (let k = 0; k < outFree.length; k++) {
+    const c = outFree[k]
+    if (cellOut[c] > cellZ[c]) cellZ[c] = cellOut[c]
   }
 }
 
