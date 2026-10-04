@@ -97,13 +97,13 @@ function checkReligion(h: History): void {
     switch (e.type) {
       case EventType.FaithFounded: { const x = h.faiths[e.value]; expect(x.foundedYear).toBe(e.year); expect(x.holyCity).toBe(e.settlement); expect(x.parent).toBe(-1); break }
       case EventType.Schism: { const x = h.faiths[e.value]; expect(x.foundedYear).toBe(e.year); expect(x.parent).toBeGreaterThanOrEqual(0); expect(e.other).toBe(h.faiths[x.parent].holyCity); break }
-      case EventType.RulerConverted: { expect(h.faiths[e.value].kind).toBe(FaithKind.Universal); if (e.other >= 0) { const r = h.rulers[e.other]; expect(r.acceded).toBeLessThanOrEqual(e.year); expect(r.ended < 0 || r.ended >= e.year).toBe(true) } break }
-      case EventType.StateReligion: { const x = h.polities[e.other]; expect(e.year >= x.foundedYear && (x.endedYear < 0 || e.year <= x.endedYear)).toBe(true); expect(h.faiths[e.value].kind).toBe(FaithKind.Universal); break }
+      case EventType.RulerConverted: expect(h.faiths[e.value].kind).toBe(FaithKind.Universal); expect(e.extra).not.toBe(e.value); break
+      case EventType.StateReligion: expect(h.faiths[e.value].kind).toBe(FaithKind.Universal); expect(h.faiths[e.value].foundedYear).toBeLessThanOrEqual(e.year); break
       case EventType.HolyWar: expect(Array.from(h.holyWars)).toContain(e.value); expect(h.wars.startYear[e.value]).toBe(e.year); break
       case EventType.HolyCityFell: expect(h.faiths[e.value].holyCity).toBe(e.settlement); break
       case EventType.FaithDied: expect(h.faiths[e.value].endedYear).toBe(e.year); break
       case EventType.FaithReached: expect(h.settlements[e.settlement].people).toBe(e.extra); break
-      case EventType.Persecution: { const x = h.polities[e.other]; expect(e.year >= x.foundedYear && (x.endedYear < 0 || e.year <= x.endedYear)).toBe(true); break }
+      case EventType.Persecution: expect(h.faiths[e.value].kind).toBe(FaithKind.Universal); break
       default: break
     }
   }

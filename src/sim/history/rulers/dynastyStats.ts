@@ -288,9 +288,11 @@ export function dynastyReport(world: World, h: History): string {
   const capName = (id: number): string => (id >= 0 ? h.settlements[id].name : '-')
   out.push('\n--- schisms, conversions, state religions, persecutions, holy wars, holy cities fallen ---')
   pick(EventType.Schism, (e) => `${e.year} schism: ${h.faiths[e.value].name} split from ${h.faiths[h.faiths[e.value].parent].name} at ${capName(e.settlement)}`)
-  pick(EventType.RulerConverted, (e) => `${e.year} ${e.other >= 0 ? title(e.other) : 'the ruler'} at ${capName(e.settlement)} converted from ${e.extra !== undefined && e.extra >= 0 ? h.faiths[e.extra].name : '-'} to ${h.faiths[e.value].name}`, 20)
-  pick(EventType.StateReligion, (e) => `${e.year} ${h.polities[e.other].name}: state religion ${h.faiths[e.value].name}`, 20)
-  pick(EventType.Persecution, (e) => `${e.year} ${h.polities[e.other].name} persecutes the ${e.extra !== undefined && e.extra >= 0 ? h.faiths[e.extra].name : '-'} (state faith ${h.faiths[e.value].name})`, 15)
+  const reignAt = (cap: number, y: number): number => { for (let p = 0; p < h.polities.length; p++) { const x = h.polities[p]; if (y < x.foundedYear || (x.endedYear >= 0 && y > x.endedYear)) continue; let c = x.capitals[0]; for (let i = 0; i < x.capitals.length; i++) if (x.capitalYears[i] <= y) c = x.capitals[i]; if (c === cap) return p } return -1 }
+  const polName = (cap: number, y: number): string => { const p = reignAt(cap, y); return p >= 0 ? h.polities[p].name : capName(cap) }
+  pick(EventType.RulerConverted, (e) => { const p = reignAt(e.settlement, e.year); const r = p >= 0 ? rulerAt(h, p, e.year) : -1; return `${e.year} ${r >= 0 ? title(r) : 'the ruler'} at ${capName(e.settlement)} converted from ${e.extra !== undefined && e.extra >= 0 ? h.faiths[e.extra].name : '-'} to ${h.faiths[e.value].name}` }, 20)
+  pick(EventType.StateReligion, (e) => `${e.year} ${polName(e.settlement, e.year)}: state religion ${h.faiths[e.value].name}`, 20)
+  pick(EventType.Persecution, (e) => `${e.year} ${polName(e.settlement, e.year)} persecutes the ${e.extra !== undefined && e.extra >= 0 ? h.faiths[e.extra].name : '-'} (state faith ${h.faiths[e.value].name})`, 15)
   pick(EventType.HolyWar, (e) => `${e.year} holy war of ${h.polities[h.wars.attacker[e.value]].name} (${h.faiths[e.extra ?? 0].name}) on ${h.polities[h.wars.defender[e.value]].name}`, 15)
   pick(EventType.HolyCityFell, (e) => `${e.year} holy city ${capName(e.settlement)} of ${h.faiths[e.value].name} fell`, 10)
   pick(EventType.FaithDied, (e) => `${e.year} the ${h.faiths[e.value].name} faith died out (last at ${capName(e.settlement)})`, 10)

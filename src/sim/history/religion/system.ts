@@ -31,6 +31,7 @@ import { E, K, createReligion, ensureReligionPolities, ensureReligionSettlements
 import type { ReligionState } from './state.ts'
 import { TECH } from '../params.ts'
 import { FAR, grip } from '../polity/state.ts'
+import { milestoneSystem } from '../population.ts'
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -437,7 +438,9 @@ function spreadStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
     if (fol[f] > rel.peak[f]) rel.peak[f] = fol[f]
     if (rel.endYear[f] < 0 && (!(fol[f] > 0) || (fol[f] < X.dieBelow && rel.peak[f] >= X.dieOnce))) {
       rel.endYear[f] = year
-      logX(s, EventType.FaithDied, rel.stronghold[f], -1, f, -1)
+      let at = rel.stronghold[f]
+      if (s.abandoned[at] >= 0 && s.abandoned[at] < year) at = living.length > 0 ? living[0] : at // (its last stronghold is gone: logged at the oldest living settlement)
+      logX(s, EventType.FaithDied, at, -1, f, -1)
       if (fol[f] > 0) purge(s, rel, f)
     }
   }
@@ -506,7 +509,7 @@ function rulersStep(s: HistoryState, rel: ReligionState): void {
           if (chance > 0 && rng.next() < chance) {
             const person = R.rPerson[r]
             for (const p2 of ps.alive) if (p2 < R.pcap && R.cur[p2] >= 0 && R.rPerson[R.cur[p2]] === person) R.rFaith[R.cur[p2]] = bf // (both thrones of a union)
-            logX(s, EventType.RulerConverted, c, r, bf, rf)
+            logX(s, EventType.RulerConverted, c, -1, bf, rf)
             rel.diag.conversions++
             rf = bf
           }
@@ -518,7 +521,7 @@ function rulersStep(s: HistoryState, rel: ReligionState): void {
       if (rng.next() < C.adopt * (C.adoptBase + rel.org[rf])) {
         const old = rel.state[p]
         rel.state[p] = rf
-        logX(s, EventType.StateReligion, c, p, rf, old)
+        logX(s, EventType.StateReligion, c, -1, rf, old)
         rel.diag.adopted++
         rel.persUntil[p] = -1000000
       }
@@ -535,7 +538,7 @@ function rulersStep(s: HistoryState, rel: ReligionState): void {
         rel.persUntil[p] = year + rng.int(Z.min, Z.max)
         rel.persFaith[p] = bf
         rel.persRuler[p] = R.cur[p]
-        logX(s, EventType.Persecution, c, p, sf, bf)
+        logX(s, EventType.Persecution, c, -1, sf, bf)
         rel.diag.persecutions++
       }
     }
@@ -561,6 +564,7 @@ function flightStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   for (const r of list) { adj[fill[ts.rA[r]]++] = r; adj[fill[ts.rB[r]]++] = r }
   const Z = PERSECUTION
   const living = s.living.slice()
+  let fled = false
   for (const i of living) {
     if (i >= ps.seen || i >= rel.seen || s.abandoned[i] >= 0) continue
     const p = ps.polity[i]
@@ -605,7 +609,9 @@ function flightStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
     fleeSkills(s, i, to, group)
     rel.diag.flights++
     rel.diag.fled += group
+    fled = true
   }
+  if (fled) milestoneSystem(s) // (the refugees may make a town or a city of their refuge this year)
 }
 
 /** Refugees of another people carry their skills (as polities' refugees do, without the danger gate). */

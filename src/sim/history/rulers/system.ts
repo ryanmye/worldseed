@@ -233,10 +233,10 @@ export function accede(s: HistoryState, ps: PolityState, R: RulerState, p: numbe
   }
   R.cur[p] = r
   if (dyn >= 0) {
-    if (R.dFounder[dyn] < 0) { R.dFounder[dyn] = r; logX(s, EventType.DynastyFounded, ps.pCapital[p], p, dyn, r) }
+    if (R.dFounder[dyn] < 0) { R.dFounder[dyn] = r; logX(s, EventType.DynastyFounded, ps.pCapital[p], -1, dyn, r) }
     R.dThrones[dyn]++
   }
-  logX(s, EventType.RulerAcceded, ps.pCapital[p], pred, r, how)
+  logX(s, EventType.RulerAcceded, ps.pCapital[p], -1, r, how)
   const age = s.year - born
   if (dyn >= 0 && person < 0 && age < RULERS.majority) {
     const left = RULERS.majority - age
@@ -268,7 +268,7 @@ export function endReign(s: HistoryState, ps: PolityState, R: RulerState, p: num
 export function checkHouse(s: HistoryState, ps: PolityState, R: RulerState, d: number, p: number, last: number): void {
   if (d < 0 || R.dEnded[d] >= 0 || R.dThrones[d] > 0) return
   R.dEnded[d] = s.year
-  logX(s, EventType.DynastyEnded, ps.pCapital[p], p, d, last)
+  logX(s, EventType.DynastyEnded, ps.pCapital[p], -1, d, last)
 }
 
 /** A new house's founder takes p's throne (how), with siblings and children of their own. */

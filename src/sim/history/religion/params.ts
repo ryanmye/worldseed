@@ -42,9 +42,9 @@ export const RELIGION = {
   /** A persecuting state presses conversion on its members: exposure + persecuteConvert to its faith. */
   persecuteConvert: 1.2,
   /** Pilgrims: a holy city earns pilgrim * followers * safety a year (safety 1 - danger, * hostileHoly when held by a ruler of another faith), at most pilgrimCap * its people. */
-  pilgrim: 0.005,
+  pilgrim: 0.012,
   hostileHoly: 0.4,
-  pilgrimCap: 0.6,
+  pilgrimCap: 1,
   /** A faith reaches a people in earnest when one of its settlements holds reach of it. */
   reach: 0.25,
   /** A faith dies out when its followers fall below dieBelow (having once had dieOnce): its last followers fold into their neighbours' faiths. */
@@ -85,9 +85,9 @@ export const CONVERT = {
 
 export const EFFECTS = {
   /** Grievance of a member under a ruler of a universal faith (folk faiths are not exclusive; foreign rule is the ethnic grievance): grievance * (1 - share of the ruler's faith) * (1 - sync * assimilation) (* stateChurch under a state church); persecution adds persecute * (1 - share). */
-  grievance: 0.07,
+  grievance: 0.05,
   sync: 0.7,
-  stateChurch: 1.3,
+  stateChurch: 1.15,
   persecute: 0.25,
   /** Rivalry a year: + differ * zeal between realms of different faiths (one universal), - same between realms of one universal faith, + schism between a faith and its schism. */
   differ: 0.008,

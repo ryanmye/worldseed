@@ -346,6 +346,12 @@ function checkInvariants(w: World, h: History): void {
       case EventType.TraditionMoved: case EventType.TraditionLost: case EventType.SecretGuarded: case EventType.SecretLeaked: case EventType.MonopolyBroken:
       case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
         break
+      // rulers and religion (checked against their tables in rulers/rulers.test.ts and religion/religion.test.ts).
+      case EventType.RulerAcceded: case EventType.ReignEnded: case EventType.DynastyFounded: case EventType.DynastyEnded: case EventType.Regency:
+      case EventType.UnionFormed: case EventType.UnionDissolved: case EventType.RoyalMarriage: case EventType.SuccessionWar:
+      case EventType.FaithFounded: case EventType.RulerConverted: case EventType.StateReligion: case EventType.Schism: case EventType.Persecution:
+      case EventType.HolyWar: case EventType.HolyCityFell: case EventType.FaithDied: case EventType.FaithReached:
+        break
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year

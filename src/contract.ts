@@ -167,10 +167,10 @@ export const EventType = {
   SecretSmuggled: 65, // contraband in a secret's goods (duties or an embargo evaded, or its monopoly rent: smuggling is polities v2's, SmugglingRing 40) first reached the people of `settlement` (its largest settlement) in earnest; `other` the settlement where the secret began; `value` the secret id; `extra` the contraband value a year. The smuggled seeds' leak channel (LeakChannel.Smuggling) grows with it
   // (66-79 are reserved for the disease system.)
   // rulers: named rulers, dynasties, marriages and unions (80-88; empty when HistoryOptions.rulers is false).
-  RulerAcceded: 80, // ruler `value` (History.rulers) took the throne at the capital `settlement`; `other` the predecessor's ruler id or -1; `extra` how (AccessionHow)
+  RulerAcceded: 80, // ruler `value` (History.rulers) took the throne at the capital `settlement`; `other` -1; `extra` how (AccessionHow)
   ReignEnded: 81, // the reign of ruler `value` ended at the capital `settlement`; `other` -1; `extra` the cause (ReignEnd): death by age, battle, the fall of the capital, overthrow, plague; deposition; the realm's end; a league head's term
-  DynastyFounded: 82, // a house (History.dynasties `value`) came to the throne for the first time at the capital `settlement`; `other` the polity id; `extra` the founder's ruler id
-  DynastyEnded: 83, // house `value` lost its last throne at the capital `settlement` (no heir, overthrown, passed over, or its realm gone); `other` the polity id; `extra` the house's last ruler id
+  DynastyFounded: 82, // a house (History.dynasties `value`) came to the throne for the first time at the capital `settlement`; `other` -1; `extra` the founder's ruler id
+  DynastyEnded: 83, // house `value` lost its last throne at the capital `settlement` (no heir, overthrown, passed over, or its realm gone); `other` -1; `extra` the house's last ruler id
   Regency: 84, // ruler `value` came to the throne a minor: a regency rules from the capital `settlement`; `other` -1; `extra` the years until the ruler comes of age
   UnionFormed: 85, // a personal union (History.unions `value`): the ruler of the senior realm (capital `other`) also took the throne of the junior realm (capital `settlement`) through a marriage claim; `extra` the ruler id
   UnionDissolved: 86, // union `value` ended: `settlement` the junior's capital, `other` the senior's; `extra` the UnionEnd (merged into one realm, split at a contested succession or a revolt, or a realm ended)
@@ -178,13 +178,13 @@ export const EventType = {
   SuccessionWar: 88, // a claimant passed over pressed its claim by war: `settlement` the claimant's capital, `other` the target's; `value` the war id (History.wars); `extra` the marriage tie of the claim
   // religion: faiths, conversion, state churches, schism and holy war (89-97; empty when HistoryOptions.religion is false).
   FaithFounded: 89, // a universal faith (History.faiths `value`) was founded at `settlement`, its holy city; `other` -1; `extra` -1
-  RulerConverted: 90, // the ruler of the polity ruled from `settlement` took up faith `value`; `other` the ruler id (History.rulers), or -1 without rulers; `extra` the faith left
-  StateReligion: 91, // faith `value` became the state religion of the polity ruled from `settlement`; `other` the polity id; `extra` the faith it replaced, or -1
+  RulerConverted: 90, // the ruler of the polity ruled from `settlement` (History.rulers: its reign at the year) took up faith `value`; `other` -1; `extra` the faith left
+  StateReligion: 91, // faith `value` became the state religion of the polity ruled from `settlement`; `other` -1; `extra` the faith it replaced, or -1
   Schism: 92, // faith `value` split from its parent (History.faiths[value].parent) with its seat at `settlement`; `other` the parent's holy city; `extra` the polity whose ruler led it, or -1
-  Persecution: 93, // the state ruled from `settlement` began to persecute its minorities; `other` the polity id; `value` the state faith; `extra` the largest faith persecuted
+  Persecution: 93, // the state ruled from `settlement` began to persecute its minorities; `other` -1; `value` the state faith; `extra` the largest faith persecuted
   HolyWar: 94, // war `value` (History.wars) was declared as a holy war by the state ruled from `settlement` on the one ruled from `other`; `extra` the attacker's faith
   HolyCityFell: 95, // the holy city `settlement` of faith `value` fell to the army from `other` of a polity of another faith; `extra` the war id
-  FaithDied: 96, // faith `value` lost its last followers; `settlement` its last stronghold; `other` -1
+  FaithDied: 96, // faith `value` lost its last followers (a remnant under RELIGION.dieBelow folds into its neighbours' faiths); `settlement` its last stronghold (or, when that is gone, the oldest living settlement); `other` -1
   FaithReached: 97, // faith `value` first reached a people (that of `settlement`) in earnest; `other` the settlement it came from (-1 by conversion of its rulers or none known); `extra` the people id
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]

@@ -51,6 +51,10 @@
 // storage, blight and techniques ('history-species-hazard' for blight and
 // livestock plague, 'history-species-techniques' for techniques found;
 // technique names from 'names-technique-<id>').
+// rulers (rulers/; HistoryOptions.rulers, needs polities): named rulers, heirs, successions, houses, marriages and
+// unions, from 'history-rulers' (names from 'names-house-<id>', 'names-ruler-<id>' and endings per language).
+// religion (religion/; HistoryOptions.religion): faiths, spread, conversion, churches, schism, persecution and holy war,
+// from 'history-religion', at the end of the year before the snapshots (names from 'names-faith-<id>').
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
