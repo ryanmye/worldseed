@@ -113,9 +113,10 @@ function buildFaithsData(h: History): FaithsData | null {
   for (const f of faiths) {
     let c: [number, number, number]
     if (f.kind !== FaithKind.Universal) {
-      // folk practice: a muted earth tone per people (hue by people, low saturation)
-      const hue = (0.06 + ((f.people * 0.618034) % 1) * 0.9) % 1
-      c = hsl2rgb(hue, 0.16, 0.38 + 0.08 * ((f.people * 7) % 3) / 2)
+      // folk practice: a muted earth tone per people (umber to olive to slate, low saturation), so the universal faiths stand out
+      const u = (f.people * 0.618034) % 1
+      const hue = u < 0.75 ? 0.06 + u * 0.32 : 0.52 + (u - 0.75) * 0.4
+      c = hsl2rgb(hue, 0.13 + 0.06 * ((f.people * 5) % 3) / 2, 0.36 + 0.07 * ((f.people * 7) % 3) / 2)
     } else if (f.parent < 0 || f.parent >= F) {
       const u = UNIVERSAL_RGB[roots++ % UNIVERSAL_RGB.length]
       c = [u[0] / 255, u[1] / 255, u[2] / 255]
