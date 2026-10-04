@@ -32,11 +32,13 @@ export function hashBaseFields(h: History): string {
   return (x >>> 0).toString(16)
 }
 /** hashBaseFields of the history without rulers and religion (the base commit 7bdbe75; since the merge, the disease system's main, verified by hashing every field against it; tourism, merged later, off): [seed, years, subdivisions, options, hash]. */
+// (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
+// plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, '4071f7fd'],
-  [3, 600, undefined, {}, '94f3e1d2'],
-  [9, 800, 24, {}, '7b860c73'],
-  [7, 900, undefined, { polities: false }, '370f5ff0'],
+  [42, 2000, undefined, {}, '6377a0a8'],
+  [3, 600, undefined, {}, 'e689b0cb'],
+  [9, 800, 24, {}, '77e3dcab'],
+  [7, 900, undefined, { polities: false }, '764a249'],
 ]
 
 function hashRulers(h: History): string {

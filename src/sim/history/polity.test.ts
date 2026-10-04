@@ -46,10 +46,12 @@ function hashBase(hi: History): string {
  * checked field by field (every History field) against it. (A later merge or retune that changes the simulation
  * outside the polity system must regenerate these from its own pre-polity state.)
  */
+// (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
+// plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, '9748af3a'],
-  [3, 600, undefined, '3d922e42'],
-  [9, 800, 24, '81a0f279'],
+  [42, 2000, undefined, '6a5fffc'],
+  [3, 600, undefined, '80e6198a'],
+  [9, 800, 24, '5e191d88'],
 ]
 
 /** Hash of the polity fields. */

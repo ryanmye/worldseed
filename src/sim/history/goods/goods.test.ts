@@ -74,11 +74,13 @@ function hashGoods(hi: History): string {
  * the history is still 9a10d65's (and 8d50bc5's). A later change outside the goods system must regenerate these. (A later merge or retune that changes the
  * simulation outside the goods system must regenerate these from its own pre-goods state.)
  */
+// (Re-recorded with the far ventures, port gateways and danger siting: tourism-off runs checked on every field against f960f11
+// plus this branch's diff; goods-off and polities-off runs against this tree with goods/ or polity/ and migration.ts as before.)
 const GOLDEN: [number, number, number | undefined, boolean, string][] = [
-  [42, 2000, undefined, true, '9f9f3911'],
-  [3, 600, undefined, true, '39a0574d'],
-  [9, 800, 24, true, 'daf67c33'],
-  [7, 900, undefined, false, '1a3a2048'],
+  [42, 2000, undefined, true, '74c3f384'],
+  [3, 600, undefined, true, '9b7e5331'],
+  [9, 800, 24, true, 'fb723267'],
+  [7, 900, undefined, false, '3e1e45d7'],
 ]
 
 const worlds = new Map<number, World>()
