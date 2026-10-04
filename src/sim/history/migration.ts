@@ -38,7 +38,7 @@ import { learnPath } from './knowledge.ts'
 import { hasHorse, moveMuls, siteFactorAt, siteRows } from './species.ts'
 import { contiguous, createFrontier, passJoin, setAllowed, syncFrontier } from './frontier.ts' // frontier:
 import type { FrontierState } from './frontier.ts'
-import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteFactor } from './polity/system.ts' // polities:
+import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteAlt, siteAltReset, siteChosen, siteFactor } from './polity/system.ts' // polities:
 import { rushAt } from './goods/hooks.ts' // goods:
 import { feverSite } from './disease/system.ts' // disease:
 
@@ -230,6 +230,8 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   let bestScore = 0
   let bestCell = -1
   let bestJoin = -1
+  const note = jitter && s.pol !== null // polities: the sites weighed (PolityDiag.site*)
+  if (note) siteAltReset()
   const minFood = M.foundMinRatio * g
   // Hoisted for the hot loop.
   const { occupant, food: foodRatio, people: peopleOf, nearCount, claim, effCap, portReach, outpost } = s
@@ -313,9 +315,11 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           let score = (food * (1 + pull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
           if (!leap) { const dd = 1 + d * invHalf; score *= (contig ? 1 + FR.contigBonus : 1) / (dd * dd) }
           if (portReach[c]) score *= sitePref
-          if (s.pol !== null) score *= siteFactor(s, s.pol, c, from) // polities: danger and defensibility
+          let pf = 1
+          if (s.pol !== null) { pf = siteFactor(s, s.pol, c, from); score *= pf } // polities: danger and defensibility
           if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
           if (s.dz !== null) score *= feverSite(s.dz, c, s.people[from]) // disease: fever ground shunned
+          if (note) siteAlt(c, score / pf) // polities: (diag) the choice danger did not shape
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }
@@ -426,6 +430,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
     return true
   }
   if (bestCell >= 0) {
+    if (s.pol !== null) siteChosen(s, s.pol, from, bestCell) // polities: (diag) the site against those weighed
     s.pop[from] -= g
     const to = found(s, bestCell, g, from)
     const arriveYear = s.year

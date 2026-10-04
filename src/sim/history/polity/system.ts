@@ -235,22 +235,50 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
 /** Extra yearly chance that a group flees settlement id from danger (migration). */
 export function fleeChance(ps: PolityState, id: number): number {
   if (id >= ps.seen) return 0
-  const z = ps.danger[id]
+  // (persistent danger drives people out: the smoothed danger, or the present one when it is lower)
+  const z = ps.dangerAvg[id] < ps.danger[id] ? ps.dangerAvg[id] : ps.danger[id]
   if (z <= DANGER.fleeLow) return 0 // (the smoothstep is 0 there)
   return DANGER.flee * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, z)
 }
 
 /**
  * Site score factor of a new settlement on cell c founded from settlement `from` (migration, voyages):
- * (1 - site * z * (1 - D)) * (1 + refuge * z * D): danger repels, eased by defensibility D, and makes defensible
- * sites sought after; z is the cell's danger or, for a group fleeing danger, part of its own (fear sends people
- * to hilltops and islands even where it is quiet for now).
+ * max(siteMin, 1 - siteNew * max(0, z - siteFree) * (1 - D)) * (1 + refuge * zr * D): the cell's danger z beyond that of
+ * any frontier (siteFree) repels, eased by defensibility D,
+ * and danger makes defensible sites sought after; zr is the cell's danger or, for a group fleeing danger, part of its
+ * own (fear sends people to hilltops and islands even where it is quiet for now), while the repulsion still tells
+ * quiet land from raided borderlands and pirate coasts.
  */
 export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: number): number {
-  let z = zCell(s, ps, c)
-  if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > z) z = zf }
+  const z = zCell(s, ps, c)
+  let zr = z
+  if (from < ps.seen) { const zf = DANGER.fear * ps.danger[from]; if (zf > zr) zr = zf }
   const D = ps.defenseD[c]
-  return (1 - DANGER.site * z * (1 - D)) * (1 + DANGER.refuge * z * D)
+  const rep = z > DANGER.siteFree ? 1 - DANGER.siteNew * (z - DANGER.siteFree) * (1 - D) : 1
+  return (rep > DANGER.siteMin ? rep : DANGER.siteMin) * (1 + DANGER.refuge * zr * D)
+}
+
+/** The sites a group weighs (migration's search), for PolityDiag.site*: the best of them by its score without danger. */
+let ALT_N = 0, ALT_BEST = 0, ALT_CELL = -1
+
+/** A new site search begins (migration). */
+export function siteAltReset(): void {
+  ALT_N = 0; ALT_BEST = 0; ALT_CELL = -1
+}
+
+/** The search weighed a new site on cell c, scoring `score0` without its danger and defensibility factor. */
+export function siteAlt(c: number, score0: number): void {
+  ALT_N++
+  if (score0 > ALT_BEST) { ALT_BEST = score0; ALT_CELL = c }
+}
+
+/** The group from `from` founds on cell c, chosen among the sites weighed since siteAltReset. */
+export function siteChosen(s: HistoryState, ps: PolityState, from: number, c: number): void {
+  if (ALT_CELL < 0) return
+  const d = ps.diag
+  d.siteYear.push(s.year); d.siteZ.push(zCell(s, ps, c)); d.siteD.push(ps.defenseD[c])
+  d.siteAltZ.push(zCell(s, ps, ALT_CELL)); d.siteAltD.push(ps.defenseD[ALT_CELL]); d.siteAltN.push(ALT_N); d.siteSame.push(c === ALT_CELL ? 1 : 0)
+  d.siteFromZ.push(from < ps.seen ? ps.danger[from] : 0)
 }
 
 /**
@@ -301,9 +329,15 @@ export function refugeeKnowledge(s: HistoryState, ps: PolityState, from: number,
   if (any) ps.diag.refugeeTech++
 }
 
-/** Harvest multiplier of settlement id from war damage to its fields (1 - ravage). */
+/**
+ * Harvest multiplier of settlement id from war damage to its fields (1 - ravage) and, under persistent danger, the outlying
+ * fields left untilled: * (1 - fieldsLost * smoothstep(fleeLow, fleeHigh, smoothed danger)).
+ */
 export function harvestLeft(ps: PolityState, id: number): number {
-  return id < ps.seen ? 1 - ps.ravage[id] : 1
+  if (id >= ps.seen) return 1
+  const za = ps.dangerAvg[id]
+  const r = 1 - ps.ravage[id]
+  return za > DANGER.fleeLow ? r * (1 - DANGER.fieldsLost * smoothstep(DANGER.fleeLow, DANGER.fleeHigh, za)) : r
 }
 
 /**
