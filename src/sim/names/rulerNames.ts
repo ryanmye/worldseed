@@ -5,7 +5,8 @@
 // is founded (six for men, four for women, a women's ending fused on where the language allows). A ruler takes, in order:
 // the same person's name on a second throne (a union); a man: his father's name (0.35, if his father reigned), an earlier
 // king's of the house (0.25), else a name of the stock (the first ones are favoured); a woman: from the women's stock. The
-// regnal number counts the earlier reigns of the same polity with that name. A league's head gets a fresh name of the
+// regnal number counts the earlier reigns of the same polity with that name; a name worn past IV gives way, the more often
+// the higher it would go, to a new name of the house's language that joins its stock (numbers past VIII are rare). A league's head gets a fresh name of the
 // capital's language. A faith is named from its people's language (traditional: the people's name or a fresh root with a
 // faith ending) or its founding town's (universal: the town's root or a fresh root with the ending), unique among faiths.
 //
@@ -62,6 +63,9 @@ function word(lang: Language, rng: Rng, min: number, max: number): string {
   return capitalizeName(buildRoot(lang, rng))
 }
 
+/** A ruler's name whose regnal number would pass `soft` is replaced by a new one with chance (number - soft) / span. */
+const REGNAL = { soft: 4, span: 8 }
+
 /** Favours the first entries: index k with weight 1 / (k + 1). */
 function pickFav(rng: Rng, n: number): number {
   let t = 0
@@ -77,10 +81,12 @@ export function nameRulers(world: World, naming: SettlementNaming, houses: reado
   const used = new Set<string>()
   const houseNames: string[] = []
   const male: string[][] = [], female: string[][] = []
+  const langs: Language[] = []
   for (let d = 0; d < houses.length; d++) {
     const cap = houses[d].capital
     const tribe = naming.tribe[cap], level = naming.level[cap]
     const lang = naming.language(tribe, level)
+    langs.push(lang)
     const ends = morphs(world, naming, cache, 'names-houseaffix-', tribe, level, 2)
     const fem = morphs(world, naming, cache, 'names-fem-', tribe, level, 2)
     const rng = createRng(world.seed, `names-house-${d}`)
@@ -144,8 +150,19 @@ export function nameRulers(world: World, naming: SettlementNaming, houses: reado
         name = prior || st[pickFav(rng, st.length)]
       }
     }
-    const key = x.polity + ':' + name
-    const n = (count.get(key) ?? 0) + 1
+    let key = x.polity + ':' + name
+    let n = (count.get(key) ?? 0) + 1
+    // A worn name (its regnal number past REGNAL.soft) gives way, more often the higher it would go, to a new name of the
+    // house's language, which joins the house's stock (so a long house keeps a handful of names in use, rarely past VIII).
+    if (x.dynasty >= 0 && x.person === r && n > REGNAL.soft && rng.next() < (n - REGNAL.soft) / REGNAL.span) {
+      const st = x.female ? female[x.dynasty] : male[x.dynasty]
+      let w = word(langs[x.dynasty], rng, 3, 9)
+      for (let t = 0; t < 10 && (st.indexOf(w) >= 0 || (count.get(x.polity + ':' + w) ?? 0) > 0); t++) w = word(langs[x.dynasty], rng, 3, 9)
+      st.push(w)
+      name = w
+      key = x.polity + ':' + name
+      n = (count.get(key) ?? 0) + 1
+    }
     count.set(key, n)
     names.push(name)
     regnal.push(n)
