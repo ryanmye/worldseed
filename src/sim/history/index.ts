@@ -34,7 +34,8 @@
 // go), 'history-voyages' (voyages of settlement by sea: who sails, where to,
 // who is lost; voyages.ts), 'history-structures' (when ports and dams get
 // built) and 'history-expeditions' (who explores, where, who is lost, where
-// bases go; exploration.ts); 'history-ore' seeds the ore-richness noise; people
+// bases go; exploration.ts), 'history-frontier' (which land groups go far,
+// and whether a group stops at a town it passes; frontier.ts); 'history-ore' seeds the ore-richness noise; people
 // names come from 'names-people-<founder>' (peoples.ts). Knowledge, contact
 // and technology draw nothing.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
