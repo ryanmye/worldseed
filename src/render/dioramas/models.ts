@@ -9,7 +9,8 @@
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { CIVIC_PIECES, civicPieceGeometry, mergeAtlas, SACRED_PIECES, sacredPieceGeometry, type PieceGeometry } from './landmarkShapes.ts'
+import { CIVIC_PACK_PIECES, CIVIC_PIECES, civicPieceGeometry,
+ mergeAtlas, SACRED_PIECES, sacredPieceGeometry, type PieceGeometry } from './landmarkShapes.ts'
 import {
   buildBanner, buildBlob, buildBoat, buildDam, buildHaystacks, buildRubble, buildSmoke, buildStalls, buildTownBridge, buildWallSegment, buildWallTower, buildWell, FLORA_COUNT, floraGeometry,
   isFarKind, KIND_COUNT, STYLE_COUNT, styleGeometry, type Flora, type Kind, type Style,
@@ -159,7 +160,9 @@ export interface ModelLibrary {
 }
 
 const BASE = import.meta.env?.BASE_URL ?? '/'
-const FILES = [`${BASE}models/kaykit/kaykit-medieval.glb`, `${BASE}models/kenney/kenney-ships.glb`]
+const FILES = [`${BASE}models/kaykit/kaykit-medieval.glb`, `${BASE}models/kenney/kenney-ships.glb`, `${BASE}models/landmarks/landmarks.glb`]
+/** Meshes of the packs by name while the library is made (the civic atlas takes its KayKit pieces from them). */
+let packed: Map<string, THREE.BufferGeometry> = new Map()
 
 let pending: Promise<ModelLibrary> | null = null
 
@@ -184,7 +187,7 @@ function generated(id: number): THREE.BufferGeometry | null {
     case Model.Rubble: return buildRubble()
     case Model.Smoke: return buildSmoke()
     case Model.LandmarkSacred: return atlas(SACRED_PIECES, sacredPieceGeometry, atlasInfo.sacred)
-    case Model.LandmarkCivic: return atlas(CIVIC_PIECES, civicPieceGeometry, atlasInfo.civic)
+    case Model.LandmarkCivic: return atlas(CIVIC_PIECES + CIVIC_PACK_PIECES.length, civicOrPacked, atlasInfo.civic)
   }
   if (id >= STYLE_BASE) {
     const k = id - STYLE_BASE
@@ -192,6 +195,23 @@ function generated(id: number): THREE.BufferGeometry | null {
   }
   if (id >= FLORA_BASE) return floraGeometry((id - FLORA_BASE) as Flora)
   return null
+}
+
+/** A civic piece: generated, or (from CIVIC_PIECES on) a KayKit piece of landmarks.glb; an empty piece if the file did not load. */
+function civicOrPacked(p: number): PieceGeometry {
+  if (p < CIVIC_PIECES) return civicPieceGeometry(p)
+  const g = packed.get(CIVIC_PACK_PIECES[p - CIVIC_PIECES])
+  if (!g) {
+    const e = new THREE.BufferGeometry()
+    e.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 0, -1, 0, 0, -1, 0], 3))
+    e.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3))
+    e.setAttribute('aColor', new THREE.BufferAttribute(new Uint8Array(12), 4, true))
+    return { geometry: e, size: [0, 0, 0] }
+  }
+  const c = g.clone()
+  c.computeBoundingBox()
+  const bb = c.boundingBox!
+  return { geometry: c, size: [bb.max.x - bb.min.x, bb.max.y, bb.max.z - bb.min.z] }
 }
 
 /** Pieces of the two landmark atlases as built (generated), and their merged geometries. */
@@ -231,6 +251,7 @@ async function load(): Promise<ModelLibrary> {
       for (const m of mats) m.dispose()
     })
   }
+  packed = byName
   const models: (ModelEntry | null)[] = MODEL_SPECS.map((spec, id) => {
     const g = spec.name ? byName.get(spec.name) : generated(id)
     if (!g) return null
@@ -245,6 +266,7 @@ async function load(): Promise<ModelLibrary> {
   })
   // unused meshes of the packs
   for (const [name, g] of byName) if (!MODEL_SPECS.some((s) => s.name === name)) g.dispose()
+  packed = new Map()
   const blob = buildBlob()
   return {
     models,

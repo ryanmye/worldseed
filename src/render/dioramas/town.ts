@@ -72,7 +72,7 @@
 // plan covers population `need` or the time budget runs out. Whatever has been computed
 // is final: further work only appends items and ground.
 
-import { CITY_POPULATION, TOWN_POPULATION } from '../../contract.ts'
+import { CITY_POPULATION, LandmarkKind, TOWN_POPULATION } from '../../contract.ts'
 import { HOUSEHOLD, households, STOREY as STOREY_H, storeys, urbanPopulation, urbanThreshold } from './census.ts'
 import { householdsPerPatch, PATCH, planScale, townHouseholds } from './footprint.ts'
 import { area, centroid, compactness, createAlleys, CUT, inset, insideConvex, lineDistance, radialCut, rayExtent, ringCut, type AlleyParams, type Poly } from './plan/geom.ts'
@@ -109,6 +109,8 @@ export const Ward = {
   Green: 17,
   /** (tourism) A resort quarter's pieces (TownPlan.resort); never a patch's ward. */
   Resort: 18,
+  /** (landmarks data) A patch kept by the plaza for a great hall of the history: a guildhall, a library, great baths. */
+  Landmark: 19,
 } as const
 type Ward = (typeof Ward)[keyof typeof Ward]
 
@@ -138,6 +140,7 @@ export const Role = {
   Rubble: 21, // a slighted wall's rubble
   Stockade: 22, // a garrison's stockade (the style's fort)
   Boat: 23, // (tourism) a pleasure boat on the water: `kind` 0 a rowing boat, 1 a small sailing boat
+  Landmark: 24, // (landmarks data) a piece of a landmark atlas: `kind` the sacred piece, or LANDMARK_CIVIC + the civic piece (landmarkShapes.ts)
 } as const
 export type Role = (typeof Role)[keyof typeof Role]
 
@@ -212,7 +215,46 @@ export interface Site {
   walls?: number[]
   /** Polity data: it is a capital at some time (room for a palace by the plaza). */
   palace?: boolean
+  /**
+   * Landmarks data (History.landmarks): the kinds (LandmarkKind) of the town's landmarks known when the plan is made, in the
+   * order they were begun. The plan keeps room for them (a citadel, a palace ward, temple closes, halls by the plaza) and
+   * gives up the generic church, castle, council hall and market hall they stand for.
+   */
+  landmarks?: number[]
 }
+
+/** Role.Landmark kinds from this up are civic pieces (kind - LANDMARK_CIVIC); below, sacred ones. */
+export const LANDMARK_CIVIC = 32
+
+/** What TownPlan.landmark places: the landmark's kind and its number among the town's landmarks of that kind, and its pieces. */
+export interface LandmarkSpec {
+  kind: number
+  ord: number
+  /** Role.Landmark kind of its main piece (a sacred piece, or LANDMARK_CIVIC + a civic piece). */
+  code: number
+  /** Half sizes along x and z and the height of the piece (model units, at scale 1). */
+  hx: number
+  hz: number
+  h: number
+  great: boolean
+  /** A second piece beside it (a monastery's cloister: its Role.Landmark kind and half sizes), or -1. */
+  extra: number
+  ehx: number
+  ehz: number
+  /** The Role.Landmark kind of the construction scaffold. */
+  scaffold: number
+  /** Pieces beside it (Role.Landmark kinds, footprint 2 model units across, or -1): the builders' yard while it is building, a roofless outbuilding while it is neglected or ruined, a tower that stands with it. */
+  yard: number
+  outbuilding: number
+  tower: number
+}
+
+/**
+ * Parts of a landmark's slot set, in their threshold: the building (its states: rising, standing, worn, ruined), the
+ * scaffold (while building), the debris of a ruin (rubble, a tree grown through it), and works that stand with the
+ * finished building (a citadel's wall round its bailey).
+ */
+export const LandmarkPart = { Building: 0, Scaffold: 1, Debris: 2, Works: 3, Outbuilding: 4 } as const
 
 // ---------- the plan ----------
 
@@ -313,6 +355,15 @@ export interface TownPlan {
    * (performance.now() ms): null until done.
    */
   resort(pop: number, spec: ResortSpec, kinds: number, deadline: number): PlanItem[] | null
+  /**
+   * Landmarks data: the pieces of one landmark (LandmarkPart in each threshold) at its place in the town: a castle on the
+   * citadel's high ground with the citadel's wall round its bailey, a palace in its ward by the plaza, the great temple in the
+   * main temple close and the town's temples in the others, a market hall in the market, a council house in the
+   * administration's ward, guildhalls, libraries and baths in the halls kept by the plaza, a monument on the plaza, a
+   * lighthouse on the shore toward the open water, a monastery, a shrine and a tomb out of town (high ground, the main road).
+   * Deterministic in the plan and the spec alone: the same landmark stands in the same place whatever else the town builds.
+   */
+  landmark(spec: LandmarkSpec): PlanItem[] | null
 }
 
 /** What a resort quarter holds (resort.ts sizes it by its visitors). */
@@ -381,7 +432,7 @@ export function createTownPlan(site: Site): TownPlan {
   /** A plan item handed out at the town's footprint scale. */
   const scaled = (it: PlanItem): PlanItem => {
     const o: PlanItem = { ...it, x: it.x * U, y: it.y * U }
-    if (it.role === Role.House || it.role === Role.Palace) { o.sx = it.sx * U; o.sz = it.sz * U; o.sy = it.sy * UL }
+    if (it.role === Role.House || it.role === Role.Palace || it.role === Role.Landmark) { o.sx = it.sx * U; o.sz = it.sz * U; o.sy = it.sy * UL }
     else if (it.role === Role.WallSeg || it.role === Role.Bridge) { o.sx = it.sx * U; o.sz = it.sz * UL }
     else if (MONUMENT[it.role]) { o.sx = it.sx * monument; o.sz = it.sz * monument; o.sy = it.sy * monument }
     else { o.sx = it.sx * UL; o.sz = it.sz * UL; o.sy = it.sy * UL }
@@ -424,6 +475,7 @@ export function createTownPlan(site: Site): TownPlan {
     palace: (tier) => (plan ? scaledAll(plan.palace(tier)) : null),
     camp: (pop, n) => (plan ? scaledAll(plan.camp(pop, n)) : null),
     works: (kind, pop, n, angle, kinds) => (plan ? scaledAll(plan.works(kind, pop, n, angle, kinds)) : null),
+    landmark: (spec) => (plan ? scaledAll(plan.landmark(spec)) : null),
     resort: (pop, spec, kinds, deadline) => (plan ? scaledAll(plan.resort(pop, spec, kinds, deadline)) : null),
   }
 }
@@ -493,6 +545,14 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   const peak = Math.max(1, site.peak)
   const isTown = peak >= T * 0.8
   const isCity = peak >= C * 0.85
+  // (landmarks data) the town's landmarks known now: room for them
+  const LK = LandmarkKind
+  const lmList = site.landmarks ?? []
+  const lmN = (k: number) => { let c = 0; for (const x of lmList) if (x === k) c++; return c }
+  const lmTemples = Math.min(6, lmN(LK.Temple)), lmGreatTemple = lmN(LK.GreatTemple) > 0
+  const lmWorship = lmTemples > 0 || lmGreatTemple
+  const lmHalls = Math.min(4, lmN(LK.Guildhall) + lmN(LK.Library) + lmN(LK.Baths))
+  const lmCastle = lmN(LK.Castle) > 0, lmPalace = lmN(LK.Palace) > 0, lmCouncil = lmN(LK.CouncilHouse) > 0, lmMarket = lmN(LK.MarketHall) > 0
   const rot = rnd(1, 0) * Math.PI * 2
   const seedX = (i: number) => {
     const r = i === 0 ? 0 : PATCH * Math.sqrt(i + 0.3) * (0.92 + 0.16 * rnd(i, 2))
@@ -507,7 +567,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   stageAt = 'seeds'
   // the spiral goes on until it holds the inner patches the peak needs on dry land and as
   // much again to grow into (water takes its share on a shore)
-  const landmarkWards = isTown ? 2 + (peak >= 6000 ? 1 : 0) + (isCity ? 2 : 0) + Math.floor(site.trade * 2) + (site.palace ? 1 : 0) : 0
+  const landmarkWards = isTown ? 2 + (peak >= 6000 ? 1 : 0) + (isCity ? 2 : 0) + Math.floor(site.trade * 2) + (site.palace ? 1 : 0) + lmHalls + lmTemples + (lmCouncil ? 1 : 0) + (lmPalace && !site.palace ? 1 : 0) + (lmCastle && !isCity ? 1 : 0) : 0
   const wantInner = Math.max(1, Math.ceil((townHouseholds(peak) * 1.2) / householdsPerPatch(peak))) + landmarkWards
   const wantDry = Math.ceil(wantInner * fieldShare(peak)) + Math.ceil(2.2 * Math.sqrt(wantInner)) + 4
   let nSeeds = 0
@@ -863,7 +923,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   const touchesWater = (i: number) => patches[i].poly.t.some((t) => t >= 0 && patches[t].water) || (patches[i].poly.t.some((t) => t === -1) && site.wet(patches[i].cx * 1.3, patches[i].cy * 1.3, 0))
   if (patches[0].water || patches.every((p) => p.water)) {
     // all water as drawn (a settlement on a lake shore cell, say): nothing to build on
-    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [], works: () => [], resort: () => [] }
+    return { items, ground, radius: 0, advance: () => true, wallRing: () => [], ruinRing: () => [], palace: () => [], camp: () => [], works: () => [], resort: () => [], landmark: () => [] }
   }
 
   // ---- 3. growth: the patches ranked by their distance from the plaza as a town grows ----
@@ -1087,11 +1147,13 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     const n = innerSet.length - 1
     const add = (w: Ward, count: number) => { for (let k = 0; k < count; k++) pool.push(w) }
     // a big city has its parish churches and several markets
-    add(Ward.Cathedral, (peak >= 12000 + 8000 * rnd(4, 1) ? 2 : 1) + Math.min(5, Math.floor(n / 60)))
-    if (peak >= 6000) add(Ward.Admin, 1)
+    // (landmarks data: a close for each of the town's temples instead)
+    add(Ward.Cathedral, lmWorship ? Math.max(1, Math.min(7, lmTemples + (lmGreatTemple ? 1 : 0))) : (peak >= 12000 + 8000 * rnd(4, 1) ? 2 : 1) + Math.min(5, Math.floor(n / 60)))
+    if (peak >= 6000 || lmCouncil) add(Ward.Admin, 1)
     // (polity data) a capital's palace by the plaza
-    if (site.palace) add(Ward.Palace, 1)
-    add(Ward.Market, Math.min(3, Math.floor(site.trade * 3 + rnd(4, 2) * 0.8 + (n > 12 ? 1 : 0))) + Math.min(3, Math.floor(n / 90)))
+    if (site.palace || lmPalace) add(Ward.Palace, 1)
+    add(Ward.Market, Math.max(lmMarket ? 1 : 0, Math.min(3, Math.floor(site.trade * 3 + rnd(4, 2) * 0.8 + (n > 12 ? 1 : 0))) + Math.min(3, Math.floor(n / 90))))
+    add(Ward.Landmark, lmHalls)
     if (isCity) add(Ward.Military, 1)
     if (site.port) add(Ward.Harbour, Math.max(1, Math.min(Math.round(n * 0.12), 6 + Math.round(n * 0.04))))
     add(Ward.Park, n > 14 && rnd(4, 3) < 0.6 ? 1 + Math.floor(n / 150) : 0)
@@ -1110,9 +1172,9 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   // citadel: Watabou's castle stands on the city's edge, on a compact patch; ours on the
   // highest such patch of the outer part of a city's inner town
   let citadel = -1
-  if (isCity) {
+  if (isCity || (isTown && lmCastle)) {
     let hb = -Infinity
-    for (let k = Math.floor(innerSet.length * 0.4); k < Math.floor(innerSet.length * 0.75); k++) {
+    for (let k = Math.floor(innerSet.length * 0.4); k < Math.max(Math.floor(innerSet.length * 0.4) + 1, Math.floor(innerSet.length * 0.75)); k++) {
       const i = innerSet[k]
       const pa = patches[i]
       const edge = neighbours(i).some((j) => !patches[j].inner)
@@ -1135,7 +1197,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     for (const j of placedAt[w] ?? []) m = Math.min(m, Math.hypot(patches[j].cx - patches[i].cx, patches[j].cy - patches[i].cy))
     return m / Math.max(1, Rin)
   }
-  const placed = new Int32Array(Ward.Green + 1)
+  const placed = new Int32Array(Ward.Landmark + 1)
   /** Watabou's rateLocation per ward type (lower is better; Infinity: not here), with our own terms for the site. */
   const rating = (w: Ward, i: number): number => {
     const d = dPlaza(i)
@@ -1146,6 +1208,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
         if (placed[w] === 0) return bordersPatch(i, plaza) ? -1 / aN : d * aN
         return -nearestOf(i, Ward.Cathedral) + d * 0.5 + (isNeighbour(i, Ward.Cathedral) ? 3 : 0)
       case Ward.Admin: return bordersPatch(i, plaza) ? 0 : d
+      // (landmarks data) the great halls by the plaza, spread round it, on dry even ground
+      case Ward.Landmark: return (bordersPatch(i, plaza) ? -0.4 : d) + (isNeighbour(i, Ward.Landmark) ? 0.6 : 0) + (1 - patches[i].dry) * 4 + (riverNear[i] ? 1.5 : 0) + Math.min(2, slope[i] * 12)
       // (on dry, even ground, off the river: a large building)
       case Ward.Palace: return (bordersPatch(i, plaza) ? -1 : d) - Math.min(1.5, Math.abs(area(patches[i].poly.p)) / meanArea) * 0.3 - inradiusOf(patches[i]) * 0.1 + (1 - patches[i].dry) * 4 + (riverNear[i] ? 3 : 0) + Math.min(2, slope[i] * 12)
       // markets never touch another, nor are much larger than the plaza; ours by the main streets
@@ -1175,9 +1239,9 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   // the pool in a fixed interleaved order (each type spread through it, the landmarks
   // early, as in Watabou's WARDS list): each in turn takes its best rated free patch
   {
-    const counts = new Int32Array(Ward.Green + 1)
+    const counts = new Int32Array(Ward.Landmark + 1)
     for (const w of pool) counts[w]++
-    const OFFSET: Record<number, number> = { [Ward.Palace]: 0.01, [Ward.Cathedral]: 0.02, [Ward.Merchant]: 0.04, [Ward.Admin]: 0.12, [Ward.Harbour]: 0.06, [Ward.Market]: 0.2, [Ward.Slum]: 0.3, [Ward.Patrician]: 0.35, [Ward.Military]: 0.45, [Ward.Park]: 0.55 }
+    const OFFSET: Record<number, number> = { [Ward.Palace]: 0.01, [Ward.Cathedral]: 0.02, [Ward.Landmark]: 0.03, [Ward.Merchant]: 0.04, [Ward.Admin]: 0.12, [Ward.Harbour]: 0.06, [Ward.Market]: 0.2, [Ward.Slum]: 0.3, [Ward.Patrician]: 0.35, [Ward.Military]: 0.45, [Ward.Park]: 0.55 }
     const seq: { w: Ward; at: number }[] = []
     for (let w = 0; w < counts.length; w++) {
       const n = counts[w]
@@ -1300,8 +1364,9 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     if (over()) yield
     const pa = patches[i]
     const w = pa.ward
-    if (w === Ward.Plaza || w === Ward.Admin || w === Ward.Market || w === Ward.Citadel || w === Ward.Palace) continue
-    if (w === Ward.Cathedral && !(isTown && inradiusOf(pa) > 1.3 && rnd(i, 0x84) < 0.45)) continue
+    if (w === Ward.Plaza || w === Ward.Admin || w === Ward.Market || w === Ward.Citadel || w === Ward.Palace || w === Ward.Landmark) continue
+    // (a close round a temple of the history's is left open: the temple stands in its middle)
+    if (w === Ward.Cathedral && (lmWorship || !(isTown && inradiusOf(pa) > 1.3 && rnd(i, 0x84) < 0.45))) continue
     const ids = patchEdgeVerts[i]
     const n = ids.length
     const widths: number[] = []
@@ -1446,6 +1511,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     const yaw = longestEdgeYaw(i)
     switch (pa.ward) {
       case Ward.Cathedral:
+        // (landmarks data: the history's temples stand here instead)
+        if (lmWorship) { churches++; break }
         mk(Role.Church, pa.cx, pa.cy, yaw, pa.key, churches === 0 ? 1500 + 1500 * rnd(6, 1) : 9000 + 6000 * rnd(6, 2), 0.8, fitScale(i, 0.85) * (churches === 0 ? 1.15 : 1))
         // a bell tower beside the main church of a large town
         if (churches === 0 && peak >= 5000) {
@@ -1455,6 +1522,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
         churches++
         break
       case Ward.Admin:
+        if (lmCouncil) break
         mk(Role.Hall, pa.cx, pa.cy, yaw, pa.key, 6000 + 3000 * rnd(6, 3), 0.9, fitScale(i, 0.9))
         if (isCity) {
           const o = Math.min(1.0, inradius(i) * 0.75)
@@ -1462,9 +1530,11 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
         }
         break
       case Ward.Market:
+        if (lmMarket && (placedAt[Ward.Market] ?? [])[0] === i) break
         mk(Role.Market, pa.cx, pa.cy, yaw, pa.key, T + 2000 * rnd(i, 61), 0.9, fitScale(i, 0.9))
         break
       case Ward.Citadel:
+        if (lmCastle) break
         mk(Role.Castle, pa.cx, pa.cy, yaw, pa.key, C * (0.9 + 0.3 * rnd(6, 4)), 1.1, fitScale(i, 1.1))
         break
       case Ward.Military:
@@ -1475,7 +1545,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     }
   }
   // a village without a town yet still gets its chapel once it is large
-  if (!isTown && peak >= 1200) {
+  if (!isTown && peak >= 1200 && !lmWorship && lmN(LK.Shrine) === 0) {
+
     const i = innerSet[Math.min(innerSet.length - 1, 1)]
     const pa = patches[i]
     mk(Role.Church, (pa.cx + 0) * 0.5, pa.cy * 0.5, longestEdgeYaw(i), pa.key * 0.5, 1200 + 800 * rnd(6, 5), 0.8, 0.85)
@@ -1569,7 +1640,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
   for (const l of lots) lotsOf[l.patch].push(l)
   /** Lots built before their patch's ground was laid (their yards wait for it). */
   const waiting: Lot[][] = patches.map(() => [])
-  const paved = (w: Ward) => w === Ward.Plaza || w === Ward.Market || w === Ward.Cathedral || w === Ward.Admin || w === Ward.Citadel || w === Ward.Palace
+  const paved = (w: Ward) => w === Ward.Plaza || w === Ward.Market || w === Ward.Cathedral || w === Ward.Admin || w === Ward.Citadel || w === Ward.Palace || w === Ward.Landmark
   const leafy = (w: Ward) => w === Ward.Patrician || w === Ward.Park || w === Ward.Village || w === Ward.Outskirts || w === Ward.Farm || w === Ward.Green
   /** Outer wards lay no street ground of their own: their houses stand on the fields, each with its yard. */
   const openWard = (i: number) => !patches[i].inner && patches[i].ward !== Ward.Gate
@@ -2159,7 +2230,8 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     return out
   }
   /** Watabou's Castle: the citadel's own wall round its patch, a gate on the side toward the plaza. */
-  const placeCitadelWall = (threshold: number) => {
+  const placeCitadelWall = (threshold: number) => placeCitadelWallInto(threshold, items)
+  const placeCitadelWallInto = (threshold: number, into: PlanItem[]) => {
     if (citadel < 0) return
     const p = patches[citadel].poly.p
     const n = p.length / 2
@@ -2177,7 +2249,215 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
       x.push(pull(p[k * 2], cx)); y.push(pull(p[k * 2 + 1], cy)); shore.push(false); gate.push(false)
       if (k === gk) { x.push(pull((p[k * 2] + p[k1 * 2]) / 2, cx)); y.push(pull((p[k * 2 + 1] + p[k1 * 2 + 1]) / 2, cy)); shore.push(false); gate.push(true) }
     }
-    drain(placeLoop({ x, y, shore, gate }, threshold, true, items))
+    drain(placeLoop({ x, y, shore, gate }, threshold, true, into))
+  }
+
+  // ---- (landmarks data) each landmark at a place of its own ----
+  /** Patches kept for the landmarks known when the plan was made: per (kind, number) key, -1 none (a lot or the open country then). */
+  const lmSlot = new Map<number, number>()
+  {
+    const cath = placedAt[Ward.Cathedral] ?? [], markets = placedAt[Ward.Market] ?? []
+    const halls = order.filter((i) => patches[i].ward === Ward.Landmark)
+    const admin = order.find((i) => patches[i].ward === Ward.Admin) ?? -1
+    const seen = new Int32Array(32)
+    let hall = 0
+    for (const k of lmList) {
+      const ord = seen[k]++
+      let p = -1
+      if (k === LK.Castle && ord === 0) p = citadel
+      else if (k === LK.Palace && ord === 0) p = palacePatch
+      else if (k === LK.GreatTemple && ord === 0) p = cath[0] ?? -1
+      else if (k === LK.Temple) p = cath[ord + (lmGreatTemple ? 1 : 0)] ?? -1
+      else if (k === LK.MarketHall && ord === 0) p = markets[0] ?? -1
+      else if (k === LK.CouncilHouse && ord === 0) p = admin
+      else if ((k === LK.Guildhall || k === LK.Library || k === LK.Baths) && ord === 0) p = halls[hall++] ?? -1
+      lmSlot.set(k * 64 + ord, p)
+    }
+  }
+  /** Largest scale (up to smax) at which a box of half sizes hx, hz turned to yaw fits round (x, y) inside convex polygon p, less margin m. */
+  const fitBox = (p: number[], x: number, y: number, yaw: number, hx: number, hz: number, smax: number, m: number): number => {
+    const ux = Math.cos(yaw), uy = Math.sin(yaw)
+    let s = smax
+    for (let t = 0; t < 14; t++) {
+      let ok = true
+      for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const px = x + (ux * a * hx - uy * b * hz) * s, py = y + (uy * a * hx + ux * b * hz) * s
+        if (!insideConvex(p, px, py, m)) { ok = false; break }
+      }
+      if (ok) return s
+      s *= 0.88
+    }
+    return s
+  }
+  /** The outermost patches round the town's edge (beyond the inner town, within reach), for the works out of town. */
+  const outerPatches = (): number[] => {
+    const out: number[] = []
+    for (const i of order) {
+      const pa = patches[i]
+      if (pa.inner || pa.dry < 0.8 || rankOf[i] < innerSet.length || rankOf[i] > innerSet.length + 40) continue
+      if (pa.ward !== Ward.Outskirts && pa.ward !== Ward.Farm) continue
+      out.push(i)
+    }
+    return out
+  }
+  /** Empty lots of the town (not paved, not a park) large enough for a hall, nearest the plaza first. */
+  let freeLots: number[] | null = null
+  const freeLotList = (): number[] => {
+    if (freeLots) return freeLots
+    const c: { q: number; d: number }[] = []
+    for (let q = 0; q < lots.length; q++) {
+      const l = lots[q]
+      const w = patches[l.patch].ward
+      if (!l.empty || paved(w) || w === Ward.Park || w === Ward.Green || !patches[l.patch].inner) continue
+      if (Math.abs(area(l.poly)) < 0.45) continue
+      c.push({ q, d: Math.hypot(l.cx - plazaX, l.cy - plazaY) + 0.4 * rnd(q, 0x6c) })
+    }
+    c.sort((a, b) => a.d - b.d || a.q - b.q)
+    freeLots = c.map((x) => x.q)
+    return freeLots
+  }
+  const landmark = (spec: LandmarkSpec): PlanItem[] => {
+    const out: PlanItem[] = []
+    const { kind, ord } = spec
+    const salt = kind * 64 + ord
+    const base = { kind: spec.code, style, roof: hash4(seed, id, 0x6a, salt) % 5, wall: hash4(seed, id, 0x6b, salt) % 4, jitter: rnd(salt, 0x6d), homes: 0 }
+    let x = 0, y = 0, yaw = 0, s = 0, ward: number = Ward.Plaza
+    let patch = lmSlot.get(salt) ?? -1
+    const smax = spec.great ? 1.5 : 1.05
+    // (taller than its footprint alone would make it: a landmark rises over the roofs; the more so in a city of tall houses)
+    const lift = (kind === LK.Castle ? 1.2 : spec.great ? 1.45 : 1.25) * (isCity ? 1.12 : 1)
+    const inPatch = (i: number, m = 0.14) => {
+      const pa = patches[i]
+      x = pa.cx; y = pa.cy
+      yaw = longestEdgeYaw(i)
+      s = fitBox(pa.poly.p, x, y, yaw, spec.hx, spec.hz, smax, m)
+      ward = pa.ward
+    }
+    if (patch < 0 && (kind === LK.Monastery || kind === LK.Shrine || kind === LK.Mausoleum)) {
+      // out of town: a monastery on high ground off the roads, a shrine on a rise or in a wood, a tomb by the main road
+      const cand = outerPatches()
+      const ra = site.routes[ord % Math.max(1, site.routes.length)] ?? 0
+      const score = (i: number) => {
+        const pa = patches[i]
+        const d = Math.hypot(pa.cx, pa.cy) / Math.max(1, Rin)
+        if (kind === LK.Mausoleum) return (1 - (pa.cx * Math.cos(ra) + pa.cy * Math.sin(ra)) / (Math.hypot(pa.cx, pa.cy) || 1)) * 3 + d * 0.5 - (onMain(i) ? 1 : 0)
+        const h = (hgt[i] - hgt[0]) / site.unit
+        return -h * (kind === LK.Monastery ? 2 : 1) + d * 0.6 + (onMain(i) ? 1.5 : 0) + slope[i] * 6 + 0.3 * rnd(i, 0x6e + kind)
+      }
+      const ranked = cand.map((i) => ({ i, v: score(i) })).sort((a, b) => a.v - b.v || a.i - b.i)
+      // the ord-th of its kind, each well apart from those before it
+      const taken: number[] = []
+      for (const { i } of ranked) {
+        if (taken.some((j) => Math.hypot(patches[j].cx - patches[i].cx, patches[j].cy - patches[i].cy) < PATCH * 1.5)) continue
+        taken.push(i)
+        if (taken.length > ord) break
+      }
+      patch = taken[ord] ?? taken[taken.length - 1] ?? -1
+    }
+    if (kind === LK.Lighthouse) {
+      // on the shore toward open water: the dry patch edge facing water farthest out from the plaza
+      let bx = 0, by = 0, bv = -Infinity, bn = 0
+      const reach = Math.min(order.length, innerSet.length + 30)
+      for (let q = 0; q < reach; q++) {
+        const i = order[q]
+        const pa = patches[i]
+        const p = pa.poly.p, nv = p.length / 2
+        for (let k = 0; k < nv; k++) {
+          const t = pa.poly.t[k]
+          if (!(t >= 0 && patches[t].water)) continue
+          const k1 = (k + 1) % nv
+          const mx = (p[k * 2] + p[k1 * 2]) / 2, my = (p[k * 2 + 1] + p[k1 * 2 + 1]) / 2
+          const dx = mx - pa.cx, dy = my - pa.cy, dl = Math.hypot(dx, dy) || 1
+          const px = mx - (dx / dl) * 0.45, py = my - (dy / dl) * 0.45
+          const v = Math.hypot(px - plazaX, py - plazaY) + 0.5 * rnd(i * 16 + k, 0x6f) - (ord > 0 ? 0 : 0)
+          if (v > bv && site.clear(px, py, 0.3) && !site.wet(px, py, 0.02)) { bv = v; bx = px; by = py; bn = Math.atan2(dy, dx) }
+        }
+      }
+      if (bv > -Infinity) {
+        x = bx; y = by; yaw = bn + Math.PI / 2; s = smax * 0.85; ward = Ward.Harbour
+        patch = -2
+      }
+    }
+    if (kind === LK.Monument && patch < 0 && isTown && ord === 0) {
+      // on the plaza, across from the market stalls
+      const pl = patches[plaza]
+      const a = Math.atan2(pl.cy * 0.3 - pl.cy, pl.cx * 0.3 - pl.cx)
+      const r = Math.min(0.7, inradiusOf(pl) * 0.55)
+      x = pl.cx - Math.cos(a) * r * 0.2 + Math.cos(a + Math.PI * 0.6) * r; y = pl.cy - Math.sin(a) * r * 0.2 + Math.sin(a + Math.PI * 0.6) * r
+      yaw = longestEdgeYaw(plaza)
+      s = Math.min(smax, Math.max(0.5, (r * 0.9) / Math.max(spec.hx, spec.hz)))
+      ward = Ward.Plaza
+      patch = -2
+    }
+    if (patch >= 0) inPatch(patch, kind === LK.Castle ? 0.12 : 0.06)
+    else if (patch === -1) {
+      // a landmark the plan kept no room for: the empty lot it fits best near the plaza (village patches: one of the inner ones)
+      if (!isTown) {
+        const k = Math.min(innerSet.length - 1, 1 + ((salt * 7) % Math.max(1, innerSet.length - 1)))
+        inPatch(innerSet[k], 0.1)
+      } else {
+        const fl = freeLotList()
+        let best = -1, bs = 0
+        const start = fl.length ? hash4(seed, id, 0x70, salt) % Math.min(6, fl.length) : 0
+        for (let t = 0; t < Math.min(24, fl.length); t++) {
+          const q = fl[(start + t) % fl.length]
+          const l = lots[q]
+          const yw = Math.atan2(l.uy, l.ux)
+          const sc = fitBox(l.poly, l.cx, l.cy, yw, spec.hx, spec.hz, smax, 0.02)
+          if (sc > bs * 1.25) { bs = sc; best = q }
+          if (sc >= smax * 0.6) break
+        }
+        if (best >= 0) {
+          const l = lots[best]
+          x = l.cx; y = l.cy; yaw = Math.atan2(l.uy, l.ux); s = bs; ward = patches[l.patch].ward
+        } else inPatch(innerSet[Math.min(innerSet.length - 1, 1)], 0.1)
+      }
+    }
+    s = Math.max(spec.great ? 0.6 : 0.45, s)
+    // (on wet ground or over a river: smaller, then where it may)
+    for (let t = 0; t < 4 && !site.clear(x, y, Math.min(spec.hx, spec.hz) * s * 0.7); t++) s *= 0.85
+    out.push({ ...base, role: Role.Landmark, x, y, yaw, sx: s, sz: s, sy: s * lift, threshold: LandmarkPart.Building, ward })
+    const ux = Math.cos(yaw), uy = Math.sin(yaw)
+    // the plan's yaw is the model's x axis; its front (+z) faces (sin yaw, -cos yaw)
+    const fx = Math.sin(yaw), fy = -Math.cos(yaw)
+    if (spec.extra >= 0) {
+      // a monastery's cloister behind its church
+      const o = (spec.hz + spec.ehz) * s * 0.95
+      out.push({ ...base, kind: spec.extra, role: Role.Landmark, x: x - fx * o, y: y - fy * o, yaw, sx: s, sz: s, sy: s, threshold: LandmarkPart.Building, ward })
+    }
+    // the scaffold round the works, a little larger than the building
+    out.push({ ...base, kind: spec.scaffold, role: Role.Landmark, x, y, yaw, sx: spec.hx * 2.1 * s, sz: spec.hz * 2.1 * s, sy: spec.h * 0.75 * s * lift, threshold: LandmarkPart.Scaffold, ward })
+    // beside it: the builders' yard while it goes up, a roofless outbuilding of its neglect, a tower standing with it
+    const side = (code: number, part: number, along: number, across: number, sc: number) => {
+      if (code < 0) return
+      for (const sg of [1, -1]) {
+        const px = x + (ux * along * sg + fx * across) * 1, py = y + (uy * along * sg + fy * across) * 1
+        if (!site.clear(px, py, sc * 0.8)) continue
+        out.push({ ...base, kind: code, role: Role.Landmark, x: px, y: py, yaw: yaw + (sg < 0 ? Math.PI : 0), sx: sc, sz: sc, sy: sc, threshold: part, ward })
+        return
+      }
+    }
+    side(spec.yard, LandmarkPart.Scaffold, spec.hx * s + 0.45, spec.hz * s * 0.3, Math.max(0.32, 0.42 * Math.min(1, s)))
+    side(spec.outbuilding, LandmarkPart.Outbuilding, spec.hx * s * 0.55, -(spec.hz * s + 0.38), Math.max(0.28, 0.34 * Math.min(1, s)))
+    side(spec.tower, LandmarkPart.Works, spec.hx * s + 0.32, -spec.hz * s * 0.6, Math.max(0.3, 0.36 * s))
+    // a ruin's debris: tumbled stones along its walls, a tree or two grown up through it
+
+    for (let q = 0; q < 4; q++) {
+      const a = rnd(salt * 8 + q, 0x71) * 2 - 1, b = q % 2 ? 1 : -1
+      const px = x + (ux * a * spec.hx * 0.9 + fx * b * spec.hz * 1.05) * s, py = y + (uy * a * spec.hx * 0.9 + fy * b * spec.hz * 1.05) * s
+      out.push({ ...base, kind: 0, role: Role.Rubble, x: px, y: py, yaw: a * 3, sx: 0.55 + 0.35 * rnd(q, 0x72), sz: 0.55, sy: 0.7, threshold: LandmarkPart.Debris, ward })
+    }
+    for (let q = 0; q < 2; q++) {
+      const a = (rnd(salt * 8 + q, 0x73) * 2 - 1) * 0.7, b = q ? 0.6 : -0.5
+      out.push({ ...base, kind: 0, role: Role.Grove, x: x + (ux * a * spec.hx + fx * b * spec.hz) * s, y: y + (uy * a * spec.hx + fy * b * spec.hz) * s, yaw: q * 2.3, sx: 0.5, sz: 0.5, sy: 0.55, threshold: LandmarkPart.Debris, ward })
+    }
+    // a castle on the citadel's patch: the citadel's own wall round its bailey, a gate toward the plaza
+    if (kind === LK.Castle && patch >= 0 && patch === citadel) {
+      const wall: PlanItem[] = []
+      placeCitadelWallInto(LandmarkPart.Works, wall)
+      for (const it of wall) out.push({ ...it, threshold: LandmarkPart.Works })
+    }
+    return out
   }
 
   const flushPending = (key: number, pop: number) => {
@@ -2988,8 +3268,10 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     camp,
     works,
     resort,
+    landmark,
   }
 }
+
 
 /** Radius of the largest circle round a patch's centre inside it (eight directions). */
 function inradiusOf(p: Patch): number {

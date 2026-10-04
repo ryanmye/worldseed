@@ -16,7 +16,9 @@
 // collapses the pieces an instance does not show (material.ts).
 
 import * as THREE from 'three'
-import { Builder, type RGB } from './shapes.ts'
+import { LandmarkKind } from '../../contract.ts'
+import { Builder, Style, type RGB } from './shapes.ts'
+import { LANDMARK_CIVIC } from './town.ts'
 
 const M_FIXED = 0
 const M_WALL = 128
@@ -62,7 +64,12 @@ export const CivicPiece = {
   MarketHall: 6, Guildhall: 7, Lighthouse: 8, Library: 9,
   Column: 10, Obelisk: 11, Mausoleum: 12, PyramidTomb: 13,
   Baths: 14, CouncilHouse: 15, Scaffold: 16, Cloister: 17,
+  /** From the KayKit pack (public/models/landmarks/landmarks.glb), appended to the atlas when it loads (else empty). */
+  RuinHouse: 18, BuildYard: 19, BuildA: 20, BuildB: 21, BuildC: 22, Watchtower: 23, RoundTower: 24,
 } as const
+/** Mesh names in landmarks.glb of the civic pieces from CIVIC_PIECES on. */
+export const CIVIC_PACK_PIECES = ['ruin_house', 'build_yard', 'build_a', 'build_b', 'build_c', 'watchtower', 'round_tower'] as const
+
 export const CIVIC_PIECES = 18
 
 // ---------- helpers ----------
@@ -812,4 +819,40 @@ export function mergeAtlas(pieces: readonly THREE.BufferGeometry[]): THREE.Buffe
   out.setAttribute('aFace', new THREE.BufferAttribute(face, 2))
   out.setAttribute('aPiece', new THREE.BufferAttribute(piece, 1))
   return out
+}
+
+// ---------- which pieces stand for a landmark ----------
+
+/** The pieces of a landmark (Role.Landmark kinds: a sacred piece, or LANDMARK_CIVIC + a civic piece) and a second one beside it (-1). */
+export interface LandmarkPieces {
+  code: number
+  extra: number
+}
+
+/**
+ * The pieces of a landmark of `kind` (LandmarkKind) by its form (LandmarkForm, houses of worship), its variant and the town's
+ * building style: a stone keep in the temperate lands and the mountains, a mud-brick citadel in the dry lands and the savanna, a
+ * timber stronghold in the north and the forests; a courtyard palace, a palace of domes in the hot lands, a great timber hall in
+ * the north; an obelisk or a column, a domed tomb or a pyramid; a sacred grove in the woods and a stone circle in the open.
+ */
+export function landmarkPieces(kind: number, form: number, variant: number, style: number, id: number): LandmarkPieces {
+  const C = (p: number) => LANDMARK_CIVIC + p
+  const hot = style === Style.Desert || style === Style.Savanna
+  const wood = style === Style.Cold || style === Style.Rainforest
+  switch (kind) {
+    case LandmarkKind.Castle: return { code: C(hot ? CivicPiece.Citadel : wood ? CivicPiece.Stronghold : CivicPiece.Keep), extra: -1 }
+    case LandmarkKind.Palace: return { code: C(hot || style === Style.Rainforest ? CivicPiece.DomedPalace : style === Style.Cold ? CivicPiece.TimberHall : CivicPiece.Palace), extra: -1 }
+    case LandmarkKind.GreatTemple: return { code: sacredPiece(form, true), extra: -1 }
+    case LandmarkKind.Monastery: return { code: sacredPiece(form, false), extra: C(CivicPiece.Cloister) }
+    case LandmarkKind.MarketHall: return { code: C(CivicPiece.MarketHall), extra: -1 }
+    case LandmarkKind.Guildhall: return { code: C(CivicPiece.Guildhall), extra: -1 }
+    case LandmarkKind.Lighthouse: return { code: C(CivicPiece.Lighthouse), extra: -1 }
+    case LandmarkKind.Library: return { code: C(CivicPiece.Library), extra: -1 }
+    case LandmarkKind.Monument: return { code: C(hot || ((id + variant) & 1) ? CivicPiece.Obelisk : CivicPiece.Column), extra: -1 }
+    case LandmarkKind.Mausoleum: return { code: C(style === Style.Desert || (style === Style.Rainforest && (id & 1)) ? CivicPiece.PyramidTomb : CivicPiece.Mausoleum), extra: -1 }
+    case LandmarkKind.Baths: return { code: C(CivicPiece.Baths), extra: -1 }
+    case LandmarkKind.CouncilHouse: return { code: C(CivicPiece.CouncilHouse), extra: -1 }
+    case LandmarkKind.Shrine: return { code: wood || style === Style.Temperate && (id % 3 === 0) ? SacredPiece.Grove : SacredPiece.StoneCircle, extra: -1 }
+    default: return { code: sacredPiece(form, false), extra: -1 }
+  }
 }

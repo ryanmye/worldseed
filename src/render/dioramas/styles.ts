@@ -93,3 +93,10 @@ export function floraOf(world: World, c: number): { kinds: Flora[]; count: numbe
 
 /** Whether windmills make sense in the style's countryside. */
 export const windmillsFit = (s: StyleT) => s === Style.Temperate || s === Style.Cold
+
+/**
+ * Landmarks' masonry per style (sRGB): cut stone in the temperate lands and the mountains, grey stone in the north, mud
+ * brick in the dry lands and the savanna, weathered stone in the forests. (Timber pieces, the stave churches, strongholds and
+ * great halls, take the style's own WALL_STONE: timber where the towns build in timber.)
+ */
+export const LANDMARK_STONE: readonly RGB[] = [[196, 188, 170], [156, 152, 146], [170, 166, 158], [214, 184, 138], [190, 146, 102], [164, 154, 128]]

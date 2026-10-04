@@ -35,6 +35,8 @@ export const FACADE_WORN = 8
  * takes; its walls rise from the ground with the years and its roof and trim go on at the end.
  */
 export const FACADE_RISING = 16
+/** Facade flag (bit 32) of a landmark's state span: it stands exactly from its appear to its disappear year (no pop-in or shrink), so its spans join seamlessly. */
+export const FACADE_STEADY = 32
 
 /** Team colours (linear RGB); index 0 keeps the model's own colours. */
 export const PALETTE: readonly [number, number, number][] = [
@@ -103,6 +105,15 @@ const LIFE_GLSL = /* glsl */ `
     float e = t - 1.0;
     return 1.0 + 2.2 * e * e * e + 1.2 * e * e;
   }
+  /** The camera fade alone (distance, facing): 0 = hidden, 1 = full size. */
+  float instanceFade(vec3 origin) {
+    vec3 toCam = uCamObj - origin;
+    float dist = length(toCam);
+    float facing = dot(normalize(origin), toCam) / dist;
+    float farD = aAnim.w >= 2.0 ? floor(aAnim.w * 0.5) * 0.002 : uFade.y;
+    float near = 1.0 - smoothstep(min(uFade.x, farD * 0.66), farD, dist);
+    return near * near * (3.0 - 2.0 * near) * smoothstep(0.0, 0.12, facing);
+  }
   /** 0 = hidden; 1 = full size. aAnim.w above 2 holds a nearer fade-out distance (x 1000). */
   float instanceSize(vec3 origin) {
     if (uYear < aAnim.x) return 0.0;
@@ -145,6 +156,11 @@ const LANDMARK_GLSL = /* glsl */ `
   }
   bool landmarkRising() {
     return mod(floor(floor(aInfo.w) / 16.0), 2.0) > 0.5;
+  }
+  /** A landmark's size: steady within its span (no pop), else the common life. */
+  float landmarkSize(vec3 origin) {
+    if (mod(floor(floor(aInfo.w) / 32.0), 2.0) > 0.5) return uYear >= aAnim.x && uYear < aAnim.y ? instanceFade(origin) : 0.0;
+    return instanceSize(origin);
   }
   vec3 landmarkRuinPos(vec3 p, vec3 origin) {
     float m = aColor.a;
@@ -251,7 +267,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
         }
-        float s = instanceSize(origin);
+        float s = lm ? landmarkSize(origin) : instanceSize(origin);
         bool smoke = aInfo.x < 0.5 && mod(floor(aInfo.w * 0.25), 2.0) > 0.5;
         if (smoke) s *= ruinState();
         if (s <= 0.002) {
@@ -277,9 +293,9 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
           // the settlement's roof colour, else the palette
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
           if (lm && aInfo.y >= 1.0 && !landmarkRising()) {
-            // a landmark's trim: its faith's, its realm's, gilt (aInfo.y: 6-bit linear rgb, r * 4096 + g * 64 + b)
+            // a landmark's trim: its faith's, its realm's, gilt (aInfo.y: the square roots of linear rgb in 6 bits, r * 4096 + g * 64 + b)
             vec3 t = vec3(floor(aInfo.y / 4096.0), mod(floor(aInfo.y / 64.0), 64.0), mod(aInfo.y, 64.0)) / 63.0;
-            c = t * clamp(l / 0.13, 0.55, 1.6);
+            c = t * t * clamp(l / 0.13, 0.55, 1.6);
           } else if (tinted) c = aRoof.rgb * clamp(l / 0.13, 0.55, 1.6);
           else if (pi > 0) c = uPalette[pi] * clamp(l / 0.13, 0.5, 1.8);
           vRoof = 1.0;
@@ -785,7 +801,8 @@ export function createDepthMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
       void main() {
         vec3 origin = instanceMatrix[3].xyz;
         bool lm = aInfo.x < -0.5;
-        float s = lm && landmarkHidden() ? 0.0 : instanceSize(origin);
+        float s = lm ? (landmarkHidden() ? 0.0 : landmarkSize(origin)) : instanceSize(origin);
+
         if (s <= 0.002) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
