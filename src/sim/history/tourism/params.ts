@@ -187,4 +187,6 @@ export const SIGHT = {
   polarTemp: 0.15,
   /** Holy-city hook scores (hooks.ts) at least this make a settlement a destination. */
   holyMin: 0.2,
+  /** religion: a holy city's score is x / (x + holyHalf) for its pilgrims' income x a year (0.2 at 100, 0.5 at 400; hooks.ts). */
+  holyHalf: 400,
 }

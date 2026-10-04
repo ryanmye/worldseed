@@ -841,15 +841,9 @@ export function faithLinks(rel: ReligionState, link: Float64Array, P: number): v
   }
 }
 
-// disease: religionPlague (a plague at a town is a woe) lives in hooks.ts, which the disease system imports without this module's.
-export { religionPlague } from './hooks.ts'
-
-/** tourism (hook): pilgrims' income a year at settlement id (0 unless it is a holy city). */
-export function pilgrimsAt(rel: ReligionState, id: number): number {
-  let x = 0
-  for (let f = 0; f < rel.kind.length; f++) if (rel.holy[f] === id && rel.endYear[f] < 0) x += rel.pilgrims[f]
-  return x
-}
+// disease: religionPlague (a plague at a town is a woe) lives in hooks.ts, which the disease system imports without this module's;
+// tourism: so does pilgrimsAt (holy cities as destinations, read by tourism/hooks.ts).
+export { pilgrimsAt, religionPlague } from './hooks.ts'
 
 // --- Snapshots ----------------------------------------------------------------------------------------------------
 

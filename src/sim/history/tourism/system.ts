@@ -182,7 +182,7 @@ function setHost(tz: TourismState, d: number, h: number): void {
 
 /** Every destStep years: hosts, holy cities (hook), vogue. */
 function refreshDestinations(s: HistoryState, tz: TourismState): void {
-  // Holy cities and other extra scores (hooks.ts; none until the religion system fills them).
+  // Holy cities and other extra scores (hooks.ts: the religion system's holy cities, by their pilgrims).
   if (EXTRA.length < s.count) EXTRA = new Float64Array(2 * s.count)
   EXTRA.fill(0, 0, s.count)
   if (tourismExtraScores(s, EXTRA)) {
