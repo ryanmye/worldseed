@@ -32,7 +32,7 @@ export const EntryKind = {
   Named: 6,
   /** Events of one exploration or technology type (BURST_TYPES) in one decade; the representative is the largest. */
   Burst: 7,
-  /** Landfalls on small islands (under SMALL_ISLAND_CELLS) in one decade; landfalls on larger land stay single entries. */
+  /** Landfalls on small islands (under SMALL_ISLAND_CELLS) in one century (ISLAND_BUCKET_YEARS); landfalls on larger land stay single entries. */
   Landfalls: 8,
   /** polities: minor gains (towns joining, settlements taken that are not capitals) of one polity from one other in one decade (polityFormat.ts gainKey). */
   PolityGains: 9,
@@ -56,7 +56,7 @@ export const EntryKind = {
   Goods: 18,
   /** disease: cities struck per epidemic, armies struck per war, ports in quarantine per decade, sicknesses become endemic per disease and decade (diseaseFormat.ts diseaseGroupKey). */
   Disease: 19,
-  /** tourism: places coming into and falling out of fashion per half-century, sights recognised per decade (tourismFormat.ts tourismGroupKey). */
+  /** tourism: places coming into and falling out of fashion per century, sights recognised per decade (tourismFormat.ts tourismGroupKey). */
   Tourism: 20,
   /** rulers: one state's successions per quarter-century, a contested succession's events, a war of succession (rulersFormat.ts rulersGroupKey; numbered apart from the others). */
   Rulers: 40,
@@ -402,11 +402,12 @@ function otherIsSettlement(type: number): boolean {
 const SMALL_ISLAND_CELLS = 25
 
 /**
- * Island landfalls are gathered per this many years rather than per FOUNDING_BUCKET_YEARS:
- * they happen roughly once every 38 years, so the finer decade grouping rarely sees two in
- * the same bucket and the chronicle lists them one by one.
+ * Island landfalls are gathered per century rather than per FOUNDING_BUCKET_YEARS: they come
+ * a few per century, now and then a burst, so finer buckets (a decade, then half a century)
+ * still left most of them on lines of their own, one small island after another. Labelled
+ * by the century's first year ("the 1600s").
  */
-export const ISLAND_BUCKET_YEARS = 50
+export const ISLAND_BUCKET_YEARS = 100
 const islandBucketOf = (year: number) => Math.floor(year / ISLAND_BUCKET_YEARS)
 
 /** Whether naming a feature is worth a chronicle line: continents and oceans, the larger seas, rivers, ranges and so on. */
@@ -635,7 +636,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     diseasePerKey.set(k, (diseasePerKey.get(k) ?? 0) + 1)
   })
   const diseaseEntry = new Map<number, number>()
-  // tourism: fashion per half-century, sights per decade (tourismGroupKey), gathered when two or more
+  // tourism: fashion per century, sights per decade (tourismGroupKey), gathered when two or more
   const tourismKeyOfEvent = new Map<number, number>()
   const tourismPerKey = new Map<number, number>()
   h.events.forEach((e, i) => {

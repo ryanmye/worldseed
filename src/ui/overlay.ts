@@ -1,6 +1,7 @@
 // Plain-DOM UI overlay. Top left: the seed bar with the settings (sun, quality) and help
-// popovers. Top right: the map panel, a view-mode menu and the collapsible Layers panel
-// (toggles grouped Nature / People / Movement; the goods legend under Trade while it is
+// popovers. Top right: the map panel, a view-mode menu (grouped: VIEW_GROUPS) and the
+// collapsible Layers panel (toggles grouped Map / People / Movement, each group in the fixed
+// order of LAYER_ORDER whichever module adds a toggle; the goods legend under Trade while it is
 // on). Bottom left: the hover readout. Other panels join the exposed columns: the
 // inspector under the seed bar (left), the chronicle under the map panel (right), the
 // timeline at the bottom centre. The columns scroll internally and stop above the
@@ -137,7 +138,28 @@ const MODE_LABELS: Record<ViewMode, string> = {
   scenery: 'Scenery',
 }
 
-const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Nature', people: 'People', movement: 'Movement' }
+const GROUP_LABELS: Record<LayerGroup, string> = { nature: 'Map', people: 'People', movement: 'Movement' }
+
+/**
+ * Place of each toggle within its group (the grid fills row by row, two to a row), so the list reads
+ * the same whichever panel adds its toggle first: the map's own things, then what people built and
+ * hold, then what moves. Toggles not listed go last.
+ */
+const LAYER_ORDER: Record<string, number> = {
+  rivers: 0, clouds: 1, mapClouds: 1, labels: 2, graticule: 3, mapNight: 4,
+  markers: 0, buildings: 1, farmland: 2, structures: 3, peoples: 4, factions: 5, disease: 6,
+  journeys: 0, expeditions: 1, roads: 2, trade: 3, longhaul: 4, travel: 5,
+}
+
+/** The view menu's groups (and the order V steps through). */
+export const VIEW_GROUPS: readonly { label: string; modes: readonly ViewMode[] }[] = [
+  { label: 'The planet', modes: ['terrain', 'elevation', 'temperature', 'rainfall', 'biomes', 'plates'] },
+  { label: 'Land and food', modes: ['population', 'capacity', 'landuse', 'crops', 'herds', 'cash'] },
+  { label: 'States and beliefs', modes: ['factions', 'danger', 'faiths'] },
+  { label: 'Goods, travel, sickness', modes: ['resources', 'scenery', 'fever'] },
+]
+/** Every view mode in menu order. */
+const MENU_MODES: readonly ViewMode[] = [...VIEW_GROUPS.flatMap((g) => g.modes), ...VIEW_MODES.filter((m) => !VIEW_GROUPS.some((g) => g.modes.includes(m)))]
 
 const LAYERS_KEY = 'worldseed.layers'
 const LAYERS_OPEN_KEY = 'worldseed.layersOpen'
@@ -367,6 +389,22 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       const rows = shortcutList().filter((s) => s.group === g).map((s) => [s.label, s.description] as [string, string])
       if (rows.length) section(g, rows)
     }
+    // the views this history offers, as the menu groups them (V steps through them in this order)
+    const h = document.createElement('div')
+    h.className = 'help-section'
+    h.textContent = 'Views'
+    const dl = document.createElement('dl')
+    dl.className = 'help-list help-views'
+    for (const g of VIEW_GROUPS) {
+      const names = g.modes.filter((m) => !unavailable.has(m)).map((m) => MODE_LABELS[m])
+      if (!names.length) continue
+      const dt = document.createElement('dt')
+      dt.textContent = g.label
+      const dd = document.createElement('dd')
+      dd.textContent = names.join(', ')
+      dl.append(dt, dd)
+    }
+    body.append(h, dl)
   }
 
   // ---------- map panel: view mode and layers ----------
@@ -380,8 +418,19 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   viewLabel.textContent = 'View'
   const viewSelect = document.createElement('select')
   viewSelect.className = 'view-select'
-  viewSelect.title = 'What the globe shows (V / Shift+V)'
-  for (const mode of VIEW_MODES) {
+  viewSelect.title = 'What the globe and the map show (V / Shift+V)'
+  for (const g of VIEW_GROUPS) {
+    const og = document.createElement('optgroup')
+    og.label = g.label
+    for (const mode of g.modes) {
+      const o = document.createElement('option')
+      o.value = mode
+      o.textContent = MODE_LABELS[mode]
+      og.appendChild(o)
+    }
+    viewSelect.appendChild(og)
+  }
+  for (const mode of MENU_MODES.slice(VIEW_GROUPS.reduce((n, g) => n + g.modes.length, 0))) {
     const o = document.createElement('option')
     o.value = mode
     o.textContent = MODE_LABELS[mode]
@@ -442,7 +491,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     const text = document.createElement('span')
     text.textContent = t.label
     row.append(box, text)
-    groups.get(t.group)!.appendChild(row)
+    row.dataset.order = String(LAYER_ORDER[t.key] ?? 99)
+    const grid = groups.get(t.group)!
+    const before = [...grid.children].find((c) => Number((c as HTMLElement).dataset.order) > (LAYER_ORDER[t.key] ?? 99))
+    grid.insertBefore(row, before ?? null)
     box.addEventListener('change', () => {
       saveLayerPref(t.key, box.checked)
       syncCount()
@@ -453,15 +505,15 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     return box
   }
 
-  addLayerToggle({ key: 'rivers', label: 'Rivers', group: 'nature', checked: initial.rivers, onChange: (s) => callbacks.onRiversToggle(s) })
-  addLayerToggle({ key: 'clouds', label: 'Clouds', group: 'nature', checked: initial.clouds, onChange: (s) => callbacks.onCloudsToggle(s) })
+  addLayerToggle({ key: 'rivers', label: 'Rivers', group: 'nature', checked: initial.rivers, title: 'Rivers, on the Terrain view', onChange: (s) => callbacks.onRiversToggle(s) })
+  addLayerToggle({ key: 'clouds', label: 'Clouds', group: 'nature', checked: initial.clouds, title: 'Clouds over the globe, on the Terrain view', onChange: (s) => callbacks.onCloudsToggle(s) })
   if (callbacks.onLabelsToggle) {
     const cb = callbacks.onLabelsToggle
     addLayerToggle({ key: 'labels', label: 'Labels', group: 'nature', checked: initial.labels ?? true, title: 'Names of places', onChange: (s) => cb(s) })
   }
-  addLayerToggle({ key: 'markers', label: 'Settlements', group: 'people', checked: initial.markers, onChange: (s) => callbacks.onMarkersToggle(s) })
+  addLayerToggle({ key: 'markers', label: 'Settlements', group: 'people', checked: initial.markers, title: 'A marker for every settlement, larger the more people live there', onChange: (s) => callbacks.onMarkersToggle(s) })
   addLayerToggle({ key: 'buildings', label: 'Buildings', group: 'people', checked: initial.buildings ?? true, title: '3D towns, farms and ships up close', onChange: (s) => callbacks.onBuildingsToggle?.(s) })
-  addLayerToggle({ key: 'farmland', label: 'Farmland', group: 'people', checked: initial.farmland, onChange: (s) => callbacks.onFarmlandToggle(s) })
+  addLayerToggle({ key: 'farmland', label: 'Farmland', group: 'people', checked: initial.farmland, title: 'Fields and pastures, on the Terrain view', onChange: (s) => callbacks.onFarmlandToggle(s) })
   addLayerToggle({ key: 'structures', label: 'Structures', group: 'people', checked: initial.structures, title: 'Ports, dams and reservoirs', onChange: (s) => callbacks.onStructuresToggle(s) })
   addLayerToggle({ key: 'journeys', label: 'Journeys', group: 'movement', checked: initial.journeys, title: 'Settlers and migrants on the move', onChange: (s) => callbacks.onJourneysToggle(s) })
   const tradeBox = addLayerToggle({
@@ -497,7 +549,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   legend.classList.toggle('hidden', !tradeBox.checked)
   groups.get('movement')!.parentElement!.appendChild(legend)
 
-  let layersOpen = loadFlag(LAYERS_OPEN_KEY, true)
+  // (first visit: open on a tall window; on a short one the list starts folded, L opens it, so the
+  // panels under it fit without the column scrolling)
+  let layersOpen = loadFlag(LAYERS_OPEN_KEY, window.innerHeight >= 960)
   const syncLayersOpen = () => {
     mapPanel.classList.toggle('layers-collapsed', !layersOpen)
     layersHead.setAttribute('aria-expanded', String(layersOpen))
@@ -625,12 +679,12 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   addShortcut({ keys: ['?'], label: '?', description: 'This help', group: 'Panels', run: () => togglePopover(helpPop.p) })
   const unavailable = new Set<ViewMode>()
   const stepMode = (dir: number) => {
-    let i = VIEW_MODES.indexOf(viewSelect.value as ViewMode)
-    for (let k = 0; k < VIEW_MODES.length; k++) {
-      i = (i + dir + VIEW_MODES.length) % VIEW_MODES.length
-      if (!unavailable.has(VIEW_MODES[i])) break
+    let i = MENU_MODES.indexOf(viewSelect.value as ViewMode)
+    for (let k = 0; k < MENU_MODES.length; k++) {
+      i = (i + dir + MENU_MODES.length) % MENU_MODES.length
+      if (!unavailable.has(MENU_MODES[i])) break
     }
-    callbacks.onViewModeChange(VIEW_MODES[i])
+    callbacks.onViewModeChange(MENU_MODES[i])
   }
   addShortcut({ keys: ['v', 'V'], shift: false, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(1) })
   addShortcut({ keys: ['v', 'V'], shift: true, label: 'V / Shift+V', description: 'Next / previous view', group: 'View', run: () => stepMode(-1) })
@@ -669,6 +723,8 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       if (available) unavailable.delete(mode)
       else unavailable.add(mode)
       for (const o of viewSelect.options) if (o.value === mode) o.hidden = !available
+      // (a group whose views are all unavailable is hidden with them)
+      for (const og of viewSelect.querySelectorAll('optgroup')) (og as HTMLElement).hidden = [...og.querySelectorAll('option')].every((o) => o.hidden)
     },
     relayout: queueRelayout,
     setProjection(map: boolean) {

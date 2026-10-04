@@ -4,10 +4,11 @@
 .species {
   width: var(--right-w);
   padding: 8px 10px 8px 12px;
-  flex: 0 0.03 auto !important;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
   /* 40 species in groups and the techniques: taller than the other lists when there is room */
   max-height: max(110px, min(520px, 50vh));
-  min-height: 34px;
+  min-height: 92px; /* open: the head and a few rows (collapsed: the head alone) */
   display: flex;
   flex-direction: column;
 }

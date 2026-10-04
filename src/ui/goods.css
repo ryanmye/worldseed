@@ -3,9 +3,10 @@
 .goods {
   width: var(--right-w);
   padding: 8px 10px 8px 12px;
-  flex: 0 0.03 auto !important;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
   max-height: max(110px, min(360px, 38vh));
-  min-height: 34px;
+  min-height: 92px; /* open: the head and a few rows (collapsed: the head alone) */
   display: flex;
   flex-direction: column;
 }
@@ -63,6 +64,9 @@
 }
 .gp-tab:hover {
   background: var(--ctl-bg-hover);
+}
+.gp-tab.empty:not(.active) {
+  color: var(--text-faint);
 }
 .gp-tab.active {
   background: rgba(255, 214, 120, 0.2);

@@ -109,10 +109,10 @@ export function setDiscoveryPlace(e: HistoryEvent, place: string): void {
   discoveryPlaces.set(e, place)
 }
 
-/** Chronicle line for `count` landfalls on small islands in one decade, naming `example`'s sender, or all senders when there is one. */
+/** Chronicle line for `count` landfalls on small islands in one century, naming `example`'s sender ("and others" when there are several). */
 export function describeLandfallBurst(h: History, example: HistoryEvent, count: number, oneSender: boolean): string {
   const from = example.other >= 0 ? settlementName(h, example.other) : settlementName(h, example.settlement)
-  return oneSender ? `Settlers from ${from} reach ${count} more islands` : `Settlers reach ${count} more islands, among them from ${from}`
+  return `Settlers from ${from}${oneSender ? '' : ' and other towns'} make landfall on ${count} small islands`
 }
 
 /** Where a Discovery event's expedition got to: "the sea Oru Tal", "the southern ice" (`southern` null: "the polar ice"). */

@@ -218,7 +218,8 @@ input[type='checkbox'] {
 }
 .help-list {
   display: grid;
-  grid-template-columns: max-content 1fr;
+  /* one key column for every section, so the descriptions line up down the whole help */
+  grid-template-columns: 118px 1fr;
   gap: 4px 12px;
   margin: 0;
   font-size: 12px;
@@ -226,6 +227,10 @@ input[type='checkbox'] {
 }
 .help-list dt {
   white-space: nowrap;
+}
+.help-views dt {
+  white-space: normal;
+  color: var(--text-dim);
 }
 .help-list dd {
   margin: 0;
@@ -328,7 +333,7 @@ kbd {
 .map-panel {
   width: var(--right-w);
   padding: 9px 12px 10px;
-  /* the chronicle under it gives way first; on a very short window it scrolls itself */
+  /* the open panels under it give way first; on a very short window it scrolls itself */
   flex: 0 0 auto !important;
   max-height: calc(100vh - 32px - var(--right-reserve) - 94px);
   overflow-y: auto;
@@ -938,7 +943,11 @@ kbd {
   padding: 8px 10px 8px 12px;
 }
 .chronicle:not(.collapsed) {
-  min-height: 84px;
+  /* the open panels above it give way down to their own minimum before the chronicle drops below a few rows */
+  min-height: min(170px, 20vh);
+}
+.chronicle.collapsed .chr-filter {
+  display: none;
 }
 .chr-head {
   display: flex;

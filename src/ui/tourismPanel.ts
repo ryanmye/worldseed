@@ -5,7 +5,8 @@
 // the hover readout's sights, visitors and scenery.
 //
 // Clicking a place, resort or sight selects it (the camera flies there). The Travel layer toggle
-// (travel=0) hides the map marks and flows. Everything is a function of the year; the lists follow
+// (travel=0) hides the map marks and flows (not the 3D resort quarters and their boats: those go with
+// Buildings). Everything is a function of the year; the lists follow
 // the trade snapshot at or before it (every tradeInterval years), and DOM writes happen only when
 // what is shown changes.
 
@@ -622,6 +623,7 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       }
       if (layer) {
         deps.planetGroup.add(layer.object)
+        layer.setFaithsView(viewMode === ViewMode.Faiths)
         layer.setKnownMask(knownMask)
         layer.setMasked(knownMask !== null)
         layer.setSelected(inspected)
@@ -636,7 +638,8 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
           label: 'Travel',
           group: 'movement',
           checked: layerOn,
-          title: 'Leisure travel: travellers on their way, places visited, resort towns and sights',
+          // (the resort quarters of the 3D towns and their pleasure boats are part of the town: they go with Buildings, see render/tourism.ts)
+          title: 'Leisure travel: the busiest travellers on their way (all of a selected place\'s), places visited, resort towns and sights. The 3D resort quarters and their boats go with Buildings',
           onChange: (on) => {
             layerOn = on
             deps.setUrlParam('travel', on ? null : '0')
@@ -654,6 +657,7 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
     },
     setViewMode(mode: ViewMode) {
       viewMode = mode
+      layer?.setFaithsView(mode === ViewMode.Faiths)
       syncLegend()
       shownSceneryKey = ''
       dirty = true
@@ -737,6 +741,8 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       data: () => data,
       active: () => layer?.active ?? false,
       pairs: () => layer?.pairsDrawn ?? 0,
+      /** The flow limits of the last frame and how many pairs they show (of those with SHOW_MIN visitors or more). */
+      flows: () => layer?.flowStats() ?? null,
       where: (id: number) => {
         if (!world || !data || id < 0 || id >= data.N) return null
         const c = data.history.settlements[id].cell

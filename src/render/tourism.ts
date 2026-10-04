@@ -2,35 +2,51 @@
 // year: scrubbing back shows what a direct load shows.
 //
 //  - Marks (one instanced draw of static instances):
-//      sights, from the year they were recognised, as a small glyph over the place in a colour of
+//      sights, from the year they were recognised, as a small glyph to the left of the place's marker
+//      (over the place where nothing lives on its cell; markerSlots.ts) in a colour of
 //      their kind (broken columns for ruins, a crown for an old capital, a flagged peak for a summit
 //      first climbed, a snowflake for an old polar base, crossed tools for a mining town gone quiet, a
 //      faded parasol for a resort long out of fashion, a four-point star for a holy city), a little
-//      larger the more famous;
+//      larger the more famous (a faded parasol is not drawn while the place is a living resort again,
+//      nor a holy city's star on the Faiths view, which marks holy cities itself);
 //      visited places, a ring of pink dots round the settlement marker, wider with its visitors a
-//      year (larger, brighter dots while in fashion; it fades out as they stop coming);
-//      resort towns, a striped parasol over the marker: bright pink while in fashion, muted out of
+//      year within the ring band (larger, brighter dots while in fashion; it fades out as they stop coming);
+//      resort towns, a striped parasol up and to the left of the marker: bright pink while in fashion, muted out of
 //      it, a faint grey outline once given up.
 //  - Flows (one draw of one ribbon geometry): from home town to the place visited along the pair's
 //    path, for pairs that ever carry PAIR_MIN visitors a year or more, while they carry SHOW_MIN or
-//    more: a faint pink track with beads running toward the place, wider with the visitors (unlike
-//    trade's cyan sea dashes and warm land lines and the solid kind-coloured disease links).
+//    more: a faint pink track with beads running toward the place, wider and brighter the nearer its
+//    visitors come to the strongest pair of the year (unlike trade's cyan sea dashes and warm land
+//    lines and the solid kind-coloured disease links).
+//    Not all of them: in a busy region they would weave a pink web. A pair shows while it is among
+//    the strongest of the year world-wide (its rank at the snapshot, by visitors: under TOP_FAR at
+//    the globe's far zoom, more as the camera comes down, TOP_NEAR up close; the whole flat map
+//    counts as far) and among the LOCAL_FAR..LOCAL_NEAR strongest of the place it goes to (the home
+//    towns most of its visitors come from, as the inspector names them). Pairs fade out over the
+//    last ranks, so zooming thins them smoothly. A selected settlement (as home town or place
+//    visited) shows all of its flows; the others dim.
 //  - Per frame nothing is uploaded: a float texture holds each destination's visitors, fashion and
-//    marker radius and each drawn pair's visitors at the two trade snapshots around the year; it is
-//    rewritten only when that pair of snapshots changes, and the shaders interpolate.
+//    marker radius and each drawn pair's visitors and ranks at the two trade snapshots around the
+//    year; it is rewritten (and the pairs ranked) only when that pair of snapshots changes, and the
+//    shaders interpolate. The zoom only moves uniforms.
+//  - The Travel layer toggle hides these marks and flows only. The resort quarters of the 3D towns
+//    (dioramas/resort.ts) and their pleasure boats are part of the town model and go with Buildings,
+//    as the 3D docks' moored boats and the ships between towns stay when Trade is off (the boats are
+//    pieces of the town's instanced batches, built with its other pieces).
 //  - Activity: the years in which anything is drawn are known per history (merged spans): before
 //    the first sight or visitor neither draw is made, and the flows only while a pair is busy.
 //  - Known world: marks in cells not yet known are hidden; the flows lie under the mist.
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { CITY_POPULATION, TOWN_POPULATION } from '../contract.ts'
+import { CITY_POPULATION, SightKind, TOWN_POPULATION } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { smoothPaths } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
+import { MARKER_SLOT_GLSL } from './markerSlots.ts'
 import { inFashion, SIGHT_RGB, snapPair, TRAVEL_RGB, type TourismData } from '../ui/tourismData.ts'
 
 const LIFT = 0.0034
@@ -44,6 +60,21 @@ const CITY_MIN_RADIUS = 7.0
 /** A pair is drawn if it ever carries this many visitors a year; it shows while it carries SHOW_MIN or more. */
 export const PAIR_MIN = 12
 export const SHOW_MIN = 8
+/**
+ * Flows shown at a zoom: the TOP_* strongest pairs of the year world-wide, and of each place visited
+ * its LOCAL_* strongest home towns; *_NEAR at camera altitude NEAR_ALT (globe radii) and closer,
+ * *_FAR at FAR_ALT and beyond, log-interpolated in altitude between (at the mid zoom, altitude 0.6,
+ * about 38 and 2). The last TOP_FADE of the world-wide count and the last one of the local count fade.
+ */
+export const TOP_NEAR = 160
+export const TOP_FAR = 12
+export const LOCAL_NEAR = 8
+export const LOCAL_FAR = 1
+const NEAR_ALT = 0.12
+const FAR_ALT = 2.25
+const TOP_FADE = 0.35
+/** Rank of a pair with no visitors at either snapshot around the year (never shown). */
+const NO_RANK = 1e5
 const TEX_W = 256
 const DEST_KIND = 8
 
@@ -54,6 +85,8 @@ export interface TourismLayer {
   setKnownMask(cellYear: Float32Array | null): void
   /** Draw order of the marks: over the clouds while a known world is shown. */
   setMasked(on: boolean): void
+  /** The Faiths view is shown: its holy-city marks (render/faiths.ts) stand for the holy-city sights, which are then not drawn. */
+  setFaithsView(on: boolean): void
   /** Highlight the flows of a settlement (as home town or place visited); -1 none. */
   setSelected(id: number): void
   /** Per frame: the year, and an effect strength (lower at high playback speed: the beads blur into a line). */
@@ -65,6 +98,8 @@ export interface TourismLayer {
   readonly active: boolean
   /** Pairs with geometry (for measurement). */
   readonly pairsDrawn: number
+  /** For measurement (perf=1): the flow limits of the last frame and the pairs they show (as the shader, at least half shown). */
+  flowStats(): { dist: number; top: number; local: number; vmax: number; busy: number; shown: number }
   dispose(): void
 }
 
@@ -78,6 +113,7 @@ vec4 ws_item(float item, float texel) {
 
 const MARK_VERT = /* glsl */ `
 ${RELIEF_GLSL}
+${MARKER_SLOT_GLSL}
 ${TEX_GLSL}
 attribute vec3 aPos;
 attribute vec4 aA; // from year, until year (NEVER), kind (0..6 a sight, 8 a destination), item (destinations: texture item)
@@ -89,6 +125,7 @@ uniform float uFrac;
 uniform float uMaskOn;
 uniform float uSizeScale;
 uniform float uSel;
+uniform float uFaithsView;
 uniform vec2 uYield;
 uniform vec2 uViewport;
 uniform float uPixelRatio;
@@ -115,6 +152,10 @@ void main() {
   float kind = aA.z;
   bool hidden = uMaskOn > 0.5 && uYear < aKnown;
   float show = uYear >= aA.x && uYear < aA.y ? 1.0 : 0.0;
+  // a sight already marked otherwise is not drawn twice (markerSlots.ts): a faded parasol while the
+  // place is a living resort again (its own parasol shows), a holy city on the Faiths view
+  if (kind < 7.5 && aB.z > 1.5 && uYear >= aB.w && uYear < aC.x) show = 0.0;
+  if (kind > 5.5 && kind < 6.5 && uFaithsView > 0.5) show = 0.0;
   float inner = aB.x;
   float vis = 0.0, fashion = 0.0, resort = 0.0;
   if (kind > 7.5) {
@@ -137,11 +178,13 @@ void main() {
   float s = uSizeScale * mix(0.6, 1.0, sqrt(facing)) * mix(1.0, 0.6, yieldK);
   inner *= s;
   float ring = inner * 1.25 + (2.4 + 2.3 * sqrt(max(vis, 0.0) / 10.0)) * s;
-  ring = min(ring, inner * 1.25 + 26.0 * s);
+  // (the dots keep to the ring band round the marker, clear of the glyph slots: markerSlots.ts)
+  ring = min(ring, inner * 1.25 + 9.0 * s);
   float scale = kind > 7.5 ? s : s * (0.85 + 0.5 * aB.y);
-  // a sight's glyph sits over the place (a quarantine flag takes the upper right); a resort's parasol up and to the left
-  // (clear of a town's or city's outer rings: about 1.4 times its marker radius)
-  vec2 glyphOff = kind > 7.5 ? vec2(-(inner * 1.25 + 3.5 * s), inner * 1.25 + 4.0 * s) : (inner > 2.0 * s ? vec2(0.0, inner * 1.45 + 5.5 * scale) : vec2(0.0));
+  // the marker slots (markerSlots.ts): a resort's parasol up and to the left, a sight's glyph to the left
+  // (the capital's star and the holy city take the top, a quarantine flag the upper right, the name the right);
+  // a sight with no living place on its cell sits over it
+  vec2 glyphOff = kind > 7.5 ? ws_slotAt(WS_SLOT_UPPER_LEFT, inner, 4.0 * s, s) : (inner > 2.0 * s ? ws_slotAt(WS_SLOT_LEFT, inner, 4.6 * scale, s) : vec2(0.0));
   float ext = kind > 7.5 ? max(ring + 3.0, length(glyphOff) + 9.0 * s) : 8.0 * scale;
   vec2 centre = kind > 7.5 ? vec2(0.0) : glyphOff;
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
@@ -306,6 +349,24 @@ void main() {
 }
 `
 
+/** Widths and brightness of the flows follow sqrt(visitors / max(strongest pair, VMAX_FLOOR)). */
+const VMAX_FLOOR = 60
+
+/** How much a flow shows (0..1): over SHOW_MIN visitors a year, its ranks (world-wide, at its place visited) within uTop. */
+const flowShowGlsl = () => /* glsl */ `
+float ws_flowShow(float vis, float rankG, float rankL) {
+  float s = smoothstep(${(SHOW_MIN * 0.6).toFixed(2)}, ${(SHOW_MIN * 1.4).toFixed(2)}, vis);
+  s *= 1.0 - smoothstep(uTop.x - uTop.z, uTop.x, rankG);
+  s *= 1.0 - smoothstep(uTop.y - 1.0, uTop.y, rankL);
+  return s;
+}
+`
+/** CPU twin of ws_flowShow (measurement only). */
+function flowShowAt(vis: number, rankG: number, rankL: number, top: THREE.Vector3): number {
+  const ss = (a: number, b: number, x: number) => smoothAt(x, a, b)
+  return ss(SHOW_MIN * 0.6, SHOW_MIN * 1.4, vis) * (1 - ss(top.x - top.z, top.x, rankG)) * (1 - ss(top.y - 1, top.y, rankL))
+}
+
 const LINE_VERT = /* glsl */ `
 ${RELIEF_GLSL}
 ${TEX_GLSL}
@@ -320,6 +381,8 @@ uniform float uPixelRatio;
 uniform float uClose;
 uniform float uDrop;
 uniform vec3 uCamObj;
+uniform vec3 uTop; // pairs shown world-wide, per place visited, fade width (ranks)
+uniform float uVmax; // visitors of the strongest pair of the year
 varying float vAcross;
 varying float vSoft;
 varying float vCore;
@@ -328,21 +391,26 @@ varying float vShow;
 varying float vFacing;
 varying float vSel;
 varying float vOuterPx;
+${flowShowGlsl()}
 void main() {
   vec3 pR = ws_relief(position);
   vec4 t = ws_item(aInfo.x, 0.0);
+  vec4 t2 = ws_item(aInfo.x, 1.0);
   float vis = mix(t.x, t.y, uFrac);
-  float show = smoothstep(${(SHOW_MIN * 0.6).toFixed(2)}, ${(SHOW_MIN * 1.4).toFixed(2)}, vis);
   bool sel = uSel >= 0.0 && (abs(aInfo.w - uSel) < 0.5 || abs(aTo - uSel) < 0.5);
+  // (the strongest pairs at this zoom; all of a selected settlement's)
+  float show = ws_flowShow(vis, mix(t.z, t.w, uFrac), mix(t2.x, t2.y, uFrac));
   if (sel) show = max(show, vis > 0.2 ? 0.85 : 0.0);
   else if (uSelOn > 0.5) show *= 0.4;
   if (show <= 0.003) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  vShow = show;
+  // wider and brighter the nearer the strongest pair of the year (a weak year's few pairs not swollen)
+  float rel = sqrt(clamp(vis / max(uVmax, ${VMAX_FLOOR.toFixed(1)}), 0.0, 1.0));
+  vShow = show * (sel ? 1.0 : mix(0.6, 1.0, rel));
   vSel = sel ? 1.0 : 0.0;
-  float core = 0.55 + 0.55 * min(2.2, sqrt(max(vis, 0.0) / 12.0));
+  float core = 0.5 + 1.25 * rel;
   core *= mix(0.7, 1.0, uClose) * (sel ? 1.2 : 1.0);
   vec3 up = normalize(pR);
   vec3 base = pR - up * uDrop;
@@ -481,6 +549,13 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     mB[k * 4 + 1] = Math.max(0, Math.min(1, x.fame))
     mC[k * 2] = NEVER
     mC[k * 2 + 1] = on
+    // a former resort: hidden while the place is a resort again (flag 2, the resort's span in aB.w, aC.x)
+    const again = x.kind === SightKind.FormerResort ? (td.resortOf.get(on) ?? td.resortOf.get(x.settlement)) : undefined
+    if (again) {
+      mB[k * 4 + 2] = 2
+      mB[k * 4 + 3] = again.founded
+      mC[k * 2] = again.abandoned >= 0 ? again.abandoned : NEVER
+    }
     markIv.push(x.fromYear, NEVER)
   }
   for (let d = 0; d < D; d++) {
@@ -596,7 +671,8 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     lineGeom.setIndex(new THREE.BufferAttribute(idx, 1))
   }
 
-  // ---------- the texture: per destination (vis q0, q1, fashion q0, q1), (radius q0, q1); per drawn pair (vis q0, q1) ----------
+  // ---------- the texture: per destination (vis q0, q1, fashion q0, q1), (radius q0, q1); per drawn pair
+  // (vis q0, q1, world-wide rank q0, q1), (rank among the pairs to its place visited q0, q1) ----------
   const items = D + nL
   const texH = Math.max(1, Math.ceil((Math.max(1, items) * 2) / TEX_W))
   const texData = new Float32Array(TEX_W * texH * 4)
@@ -605,6 +681,33 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
   visTex.generateMipmaps = false
   visTex.needsUpdate = true
   let texQ0 = -1, texQ1 = -1
+  // ranking scratch (reused at every snapshot change)
+  const order = new Int32Array(Math.max(1, nL))
+  const localCount = new Int32Array(Math.max(1, D))
+  const pairDest = new Int32Array(Math.max(1, nL))
+  for (let l = 0; l < nL; l++) pairDest[l] = td.destOf[F.to[drawn[l]]] ?? -1
+  /** Visitors of the strongest drawn pair at q0 and q1. */
+  const vmax = [0, 0]
+  const pv = (l: number, c: number) => texData[(D + l) * 8 + c]
+  /** Ranks the drawn pairs with visitors at snapshot c (0 q0, 1 q1) by visitors (ties by pair), world-wide and per place visited. */
+  const rankPairs = (c: number) => {
+    let n = 0
+    for (let l = 0; l < nL; l++) if (pv(l, c) > 0) order[n++] = l
+    const live = order.subarray(0, n)
+    live.sort((a, b) => pv(b, c) - pv(a, c) || a - b)
+    vmax[c] = n > 0 ? pv(live[0], c) : 0
+    for (let i = 0; i < n; i++) {
+      const l = live[i]
+      const o = (D + l) * 8
+      texData[o + 2 + c] = i
+      const d = pairDest[l]
+      texData[o + 4 + c] = d >= 0 ? localCount[d]++ : 0
+    }
+    for (let i = 0; i < n; i++) {
+      const d = pairDest[live[i]]
+      if (d >= 0) localCount[d] = 0
+    }
+  }
   const writeSnapshots = (q0: number, q1: number) => {
     texData.fill(0)
     const y0 = q0 * I, y1 = q1 * I
@@ -625,6 +728,19 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
         if (it >= 0) texData[it * 8 + c] = F.visitors[r]
       }
     }
+    rankPairs(0)
+    rankPairs(1)
+    // a pair with no visitors at one of the two snapshots keeps its rank at the other (its visitors fade it)
+    for (let l = 0; l < nL; l++) {
+      const o = (D + l) * 8
+      const on0 = texData[o] > 0, on1 = texData[o + 1] > 0
+      if (on0 && on1) continue
+      for (let k = 2; k <= 4; k += 2) {
+        if (on0) texData[o + k + 1] = texData[o + k]
+        else if (on1) texData[o + k] = texData[o + k + 1]
+        else texData[o + k] = texData[o + k + 1] = NO_RANK
+      }
+    }
     visTex.needsUpdate = true
   }
 
@@ -638,6 +754,7 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     uMaskOn: { value: 0 },
     uSizeScale: { value: 1 },
     uSel: { value: -1 },
+    uFaithsView: { value: 0 },
     uYield: { value: new THREE.Vector2(0, 0) },
     uViewport: { value: new THREE.Vector2(1, 1) },
     uPixelRatio: { value: 1 },
@@ -677,6 +794,8 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     uClose: { value: 1 },
     uDrop: { value: 0 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
+    uTop: { value: new THREE.Vector3(TOP_FAR, LOCAL_FAR, 1) },
+    uVmax: { value: 0 },
   }
   const lineMat = new THREE.ShaderMaterial({ uniforms: lu, vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, ...blend, side: THREE.DoubleSide })
   const lines = new THREE.Mesh(lineGeom, lineMat)
@@ -690,6 +809,7 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
   let shown = true
   let knownMask: Float32Array | null = null
   let marksOn = false, linksOn = false
+  let lastDist = 0
   const pair = { q0: 0, q1: 0, frac: 0 }
   const tmpQ = new THREE.Quaternion()
   const camObj = new THREE.Vector3()
@@ -717,6 +837,10 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     setMasked(on: boolean) {
       marks.renderOrder = on ? 9.76 : 8.64
     },
+    setFaithsView(on: boolean) {
+      mu.uFaithsView.value = on ? 1 : 0
+      requestRender()
+    },
     setSelected(id: number) {
       const v = id >= 0 && id < N ? id : -1
       mu.uSel.value = v
@@ -732,6 +856,7 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
       }
       mu.uYear.value = year
       mu.uFrac.value = pair.frac
+      lu.uVmax.value = vmax[0] + (vmax[1] - vmax[0]) * pair.frac
       lu.uFx.value = effect
       marksOn = inSpans(markSpans, year)
       linksOn = inSpans(flowSpans, year)
@@ -754,6 +879,12 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
       mu.uPixelRatio.value = pixelRatio
       lu.uClose.value = smoothAt(dist, 1.1, 1.35)
       lu.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, (dist - 1) / 0.6)))
+      // the flows shown: fewer as the camera goes up (log of the altitude; the map's altitude as the globe's)
+      lastDist = dist
+      const z = Math.min(1, Math.max(0, Math.log(Math.max(1e-3, dist - 1) / NEAR_ALT) / Math.log(FAR_ALT / NEAR_ALT)))
+      const top = Math.exp(Math.log(TOP_NEAR) + (Math.log(TOP_FAR) - Math.log(TOP_NEAR)) * z)
+      const local = Math.exp(Math.log(LOCAL_NEAR) + (Math.log(LOCAL_FAR) - Math.log(LOCAL_NEAR)) * z)
+      lu.uTop.value.set(top, local, Math.max(1, top * TOP_FADE))
       // as the settlement markers (the rings must fit them)
       mu.uSizeScale.value = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / Math.max(1e-3, (camera as THREE.PerspectiveCamera).position.length()))))
     },
@@ -765,6 +896,18 @@ export function buildTourismLayer(world: World, h: History, td: TourismData, max
     },
     get pairsDrawn() {
       return nL
+    },
+    flowStats() {
+      const f = mu.uFrac.value
+      let busy = 0, shown = 0
+      for (let l = 0; l < nL; l++) {
+        const o = (D + l) * 8
+        const vis = texData[o] + (texData[o + 1] - texData[o]) * f
+        if (vis >= SHOW_MIN) busy++
+        if (flowShowAt(vis, texData[o + 2] + (texData[o + 3] - texData[o + 2]) * f, texData[o + 4] + (texData[o + 5] - texData[o + 4]) * f, lu.uTop.value) >= 0.5) shown++
+      }
+      const t = lu.uTop.value
+      return { dist: lastDist, top: t.x, local: t.y, vmax: lu.uVmax.value, busy, shown }
     },
     dispose() {
       geom.dispose()

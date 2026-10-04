@@ -1,7 +1,7 @@
 // Chronicle and inspector lines for the tourism events (types 100-105: a people's first leisure
 // travel, a resort town founded, a place come into fashion and fallen out of it, a resort given up,
 // a sight recognised), from ui/tourismData.ts. The chronicle gathers the comings into and goings
-// out of fashion of all places per half-century, and the sights recognised in one decade, so that
+// out of fashion of all places per century, and the sights recognised in one decade, so that
 // fashion does not flood it. Every function tolerates a history without tourism data (null: the
 // caller falls back).
 
@@ -129,8 +129,12 @@ export function describeTourismEventFor(h: History, e: HistoryEvent, id: number)
   return null
 }
 
-/** Years per bucket of the chronicle's fashion lines (all places together; labelled like the island landfalls, "2950s"). */
-export const FASHION_BUCKET_YEARS = 50
+/**
+ * Years per bucket of the chronicle's fashion lines (all places together, in and out on one line;
+ * labelled like the island landfalls, "the 2900s"). Half a century left fashion about a third of
+ * the Travel filter's lines once resorts multiplied.
+ */
+export const FASHION_BUCKET_YEARS = 100
 
 /**
  * Grouping key of a tourism event for the chronicle, or -1 for a line of its own: the comings into
@@ -143,7 +147,7 @@ export function tourismGroupKey(e: HistoryEvent): number {
   return -1
 }
 
-/** Whether a group is one of sights (dated by decade) rather than of fashion (dated by half-century). */
+/** Whether a group is one of sights (dated by decade) rather than of fashion (dated by century). */
 export const isSightGroup = (e: HistoryEvent) => (e.type as number) === EventType.SightRecognised
 
 /** "A", "A and B", "A, B and C", "A, B and 3 more". */
@@ -158,7 +162,7 @@ export function describeTourismGroup(h: History, members: readonly HistoryEvent[
   const e = members[members.length - 1]
   if (members.length === 1) return describeTourismEvent(h, e) ?? ''
   if (isSightGroup(e)) return `New sights worth the journey: ${listOf(members.map((m) => sightPhrase(sightOf(h, m))))}`
-  // fashion: per place, in order: in, out, back, a brief vogue
+  // fashion: per place, in order: in, out, back in, in and out again
   const order: number[] = []
   const seq = new Map<number, HistoryEvent[]>()
   for (const m of members) {
@@ -176,7 +180,12 @@ export function describeTourismGroup(h: History, members: readonly HistoryEvent[
     const lastOut = [...a].reverse().find((m) => (m.type as number) === EventType.ResortDeclined)
     const nm = name(h, id)
     if ((last.type as number) === EventType.ResortInFashion) ins.push(lastOut ? `${nm} (back after ${causeShort(lastOut.extra ?? 0)})` : nm)
-    else outs.push(a.length > 1 ? `${nm} (after a brief vogue: ${causeShort(last.extra ?? 0)})` : `${nm} (${causeShort(last.extra ?? 0)})`)
+    else {
+      // in and out within the century: how long the vogue lasted
+      const lastIn = [...a].reverse().find((m) => (m.type as number) === EventType.ResortInFashion)
+      const span = lastIn ? Math.max(1, Math.round(last.year - lastIn.year)) : 0
+      outs.push(span > 0 ? `${nm} (after ${span} ${span === 1 ? 'year' : 'years'} in fashion: ${causeShort(last.extra ?? 0)})` : `${nm} (${causeShort(last.extra ?? 0)})`)
+    }
   }
   const inPart = ins.length ? `${listOf(ins)} ${ins.length === 1 ? 'comes' : 'come'} into fashion` : ''
   const outPart = outs.length ? `${listOf(outs, 2)} ${outs.length === 1 ? 'falls' : 'fall'} out of ${ins.length ? 'it' : 'fashion'}` : ''

@@ -573,21 +573,22 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       }
       const plural = (n: number, one: string, many: string) => `${formatInt(n)} ${n === 1 ? one : many}`
       let t = towns === undefined ? '' : towns + (cities ?? 0) === 0 ? 'no towns yet' : `${plural(towns, 'town', 'towns')} · ${plural(cities ?? 0, 'city', 'cities')}`
-      // (the bar is narrow: "routes" here, the full wording on hover)
-      if (routes !== undefined && routes > 0) t += `${t ? ' · ' : ''}${plural(routes, 'route', 'routes')}`
       // polities: states, and wars while any is fought
       if (states !== undefined && states > 0) t += `${t ? ' · ' : ''}${plural(states, 'state', 'states')}`
       if (wars !== undefined && wars > 0) t += `${t ? ' · ' : ''}${plural(wars, 'war', 'wars')}`
+      // (the bar is narrow: the open trade routes and the largest bloc are on hover; the wars, which
+      // come and go, stay in view rather than being the first thing clipped)
+      const full = t + (routes !== undefined && routes > 0 ? ` · ${formatInt(routes)} trade ${routes === 1 ? 'route' : 'routes'} open` : '')
       const bl = largest ? ` · Largest bloc: ${largest} of the people` : ''
       if (bl !== shownBloc) {
         shownBloc = bl
         blocText.textContent = bl
         blocText.title = largest ? `The largest bloc of states (a state with its vassals, or a state alone): ${largest.replace(/ (\d+%)$/, ', $1 of the people')}` : ''
       }
-      if (t !== shownTiers) {
-        shownTiers = t
+      if (full + bl !== shownTiers) {
+        shownTiers = full + bl
         tierText.textContent = t
-        statLine2.title = routes !== undefined && routes > 0 ? t.replace(/(\d[\d,]*) (routes?)\b/, (_m, n: string, w: string) => `${n} trade ${w} open`) : ''
+        statLine2.title = full + (largest ? ` · the largest bloc of states: ${largest.replace(/ (\d+%)$/, ', $1 of the people')}` : '')
       }
     },
   }

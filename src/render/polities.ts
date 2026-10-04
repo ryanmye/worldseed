@@ -50,6 +50,7 @@ import { RELIEF_GLSL, relief, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
+import { capitalSlotHeight } from './markerSlots.ts'
 import { bondActive, capitalAt, cellPolities, embargoesAt, landSnapNear, polityAt, PolityEvent, SACK_YEARS, type PolitiesData } from '../ui/politiesData.ts'
 import { BondKind, WarKind } from '../contract.ts'
 
@@ -919,7 +920,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       const cell = cellOf(cap)
       writePos(capitals.pos, n, cell)
       const pop = h.population[s * N + cap]
-      const off = pop >= 10000 ? 11.5 : pop >= 3000 ? 8.5 : 6
+      // the top slot over the marker (markerSlots.ts)
+      const off = capitalSlotHeight(pop)
       const isSel = p === selected
       capitals.a.set([0, Mark.Capital, isSel ? 6.2 : 5, off], n * 4)
       capitals.col.set(isSel ? [1, 1, 1] : [1.0, 0.82, 0.3], n * 3)

@@ -9,11 +9,11 @@ import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall
 import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import { describeAlliances, describeBlockades, describeBonds, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isPolityHeadline } from './polityFormat.ts'
-import { entryCategory, CHRONICLE_FILTERS, isOptionalFilter } from './chronicleFilter.ts'
+import { entryCategory, CHRONICLE_FILTERS, CHRONICLE_FILTER_ORDER, isOptionalFilter } from './chronicleFilter.ts'
 import { describeGoodsGroup, isGoodsHeadline } from './goodsFormat.ts'
 import { describeDiseaseGroup, isDiseaseGroupHeadline, isDiseaseHeadline } from './diseaseFormat.ts'
 import { describeTourismGroup, FASHION_BUCKET_YEARS, isSightGroup, isTourismHeadline } from './tourismFormat.ts'
-import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, rulersGroupKey } from './rulersFormat.ts'
+import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, rulersGroupKey, rulersHiddenInAll } from './rulersFormat.ts'
 import { addShortcut } from './shortcuts.ts'
 import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
@@ -69,16 +69,19 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   const filterSelect = document.createElement('select')
   filterSelect.className = 'chr-filter-select'
   filterSelect.title = 'Which events the chronicle lists'
-  CHRONICLE_FILTERS.forEach((f, i) => {
+  // (listed in CHRONICLE_FILTER_ORDER; the value, and the remembered choice, is the index in CHRONICLE_FILTERS)
+  const filterOption: HTMLOptionElement[] = []
+  for (const i of CHRONICLE_FILTER_ORDER) {
     const o = document.createElement('option')
     o.value = String(i)
-    o.textContent = f
+    o.textContent = CHRONICLE_FILTERS[i]
     filterSelect.appendChild(o)
-  })
+    filterOption[i] = o
+  }
   let filter = Math.max(0, Math.min(CHRONICLE_FILTERS.length - 1, Number(loadPref('worldseed.chronicle.filter')) || 0))
   filterSelect.value = String(filter)
   filterRow.append(filterLabel, filterSelect)
-  /** Per filter (index > 0), the entries of that category and their years; built per index. */
+  /** Per filter, the entries of that category and their years (All: every entry but the chiefdoms' routine successions); built per index. */
   let catEntries: Int32Array[] = []
   let catYears: Float64Array[] = []
   root.append(head, filterRow, list, empty)
@@ -244,7 +247,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ev].settlement
     } else if (kind === EntryKind.Landfalls && m > 1) {
-      // landfalls on small islands in one decade: name the sender (or one of them)
+      // landfalls on small islands in one century: name the sender (or the first of them)
       let oneSender = true
       for (let q = lo + 1; q < lo + m; q++) if (h.events[ix.notableMembers[q]].other !== h.events[ev].other) oneSender = false
       text = describeLandfallBurst(h, h.events[ev], m, oneSender)
@@ -284,7 +287,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       yearText = t === EventType.CityStricken || t === EventType.ArmyStricken ? String(h.events[ev].year) : `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ix.notableMembers[lo + m - 1]].settlement
     } else if (kind === EntryKind.Tourism && m > 1) {
-      // tourism: the comings into and goings out of fashion of a half-century, the sights of a decade
+      // tourism: the comings into and goings out of fashion of a century, the sights of a decade
       const members = []
       for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
       text = describeTourismGroup(h, members)
@@ -340,12 +343,20 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       }
       politics = counts[1]
       // rulers, religion: their filters only with entries of their kind (a remembered one left empty falls back to All)
-      ;[...filterSelect.options].forEach((o, i) => (o.hidden = isOptionalFilter(i) && counts[i] === 0))
-      if (filterSelect.options[filter]?.hidden) filterSelect.value = String((filter = 0))
+      filterOption.forEach((o, i) => (o.hidden = isOptionalFilter(i) && counts[i] === 0))
+      if (filterOption[filter]?.hidden) filterSelect.value = String((filter = 0))
+      // All: the chiefdoms' routine successions are left to the Rulers filter (one line a quarter-century of minor realms' chiefs)
+      const inAll = new Uint8Array(E)
+      const rulers = CHRONICLE_FILTERS.indexOf('Rulers')
+      for (let k = 0; k < E; k++) {
+        const m0 = ix.notableMembers[ix.notableOffsets[k]]
+        inAll[k] = cat[k] === rulers && m0 >= 0 && rulersHiddenInAll(ix.history, m0) ? 0 : 1
+        counts[0] += inAll[k]
+      }
       for (let c = 0; c < CHRONICLE_FILTERS.length; c++) {
-        const list = new Int32Array(c === 0 ? 0 : counts[c])
+        const list = new Int32Array(counts[c])
         let j = 0
-        if (c > 0) for (let k = 0; k < E; k++) if (cat[k] === c) list[j++] = k
+        for (let k = 0; k < E; k++) if (c === 0 ? inAll[k] === 1 : cat[k] === c) list[j++] = k
         catEntries.push(list)
         catYears.push(Float64Array.from(list, (k) => ix.notableYear[k]))
       }
@@ -379,14 +390,15 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       const members = countUpTo(index.memberYearsSorted, year)
       if (members === shownMembers) return
       shownMembers = members
-      const f = filterRow.classList.contains('hidden') ? 0 : filter
-      const n = f > 0 ? countUpTo(catYears[f], year) : countUpTo(index.notableYear, year)
+      // (without the filter row, every entry: there is no Rulers filter to find the chiefdoms under)
+      const f = filterRow.classList.contains('hidden') ? -1 : filter
+      const n = f >= 0 ? countUpTo(catYears[f], year) : countUpTo(index.notableYear, year)
       count.textContent = n > 0 ? String(n) : ''
       empty.hidden = n > 0 || collapsed
       if (collapsed) return
       for (let k = 0; k < ROWS; k++) {
         const r = rows[k]
-        const entry = n - 1 - k < 0 ? -1 : f > 0 ? catEntries[f][n - 1 - k] : n - 1 - k
+        const entry = n - 1 - k < 0 ? -1 : f >= 0 ? catEntries[f][n - 1 - k] : n - 1 - k
         if (entry < 0) {
           if (r.entry !== -1) {
             r.entry = -1
@@ -407,5 +419,27 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     },
   }
   api.setIndex(null)
+  if (new URLSearchParams(location.search).get('perf') === '1') {
+    // measurement (perf=1): every entry of filter f up to `year` as the chronicle would word it, oldest first, and the counts per filter
+    const scratch: Row = { li: document.createElement('li'), year: document.createElement('span'), text: document.createElement('span'), entry: -1, shown: 0, target: -1 }
+    ;(window as unknown as { __worldseedChronicle: unknown }).__worldseedChronicle = {
+      filters: () => CHRONICLE_FILTERS.map((name, i) => ({ name, hidden: filterOption[i]?.hidden ?? false, count: index && catYears[i] ? countUpTo(catYears[i], lastYear) : 0 })),
+      /** f: a filter's index, or -1 for every entry. */
+      dump: (f: number, year = lastYear) => {
+        const ix = index
+        if (!ix) return []
+        const n = f >= 0 ? countUpTo(catYears[f], year) : countUpTo(ix.notableYear, year)
+        const out: string[] = []
+        for (let j = 0; j < n; j++) {
+          const entry = f >= 0 ? catEntries[f][j] : j
+          const lo = ix.notableOffsets[entry]
+          const m = countUpTo(ix.notableMemberYear, year, lo, ix.notableOffsets[entry + 1])
+          withEventNames(ix.notableMemberYear[lo + m - 1], () => render(ix, scratch, entry, m))
+          out.push(`${scratch.year.textContent}\t${scratch.text.textContent}\t[${scratch.li.className}]`)
+        }
+        return out
+      },
+    }
+  }
   return api
 }

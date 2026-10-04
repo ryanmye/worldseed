@@ -4,7 +4,8 @@
 // persecutions, holy wars, holy cities fallen, faiths dying out, faiths reaching a people), with
 // ruler, house and faith names (rulersData.ts, faithsData.ts), and their grouping in the chronicle:
 // a succession's events (the old reign's end, the accession, a regency, a new house) make one line;
-// routine successions are gathered per state per quarter-century (chiefdoms all together); contested
+// routine successions are gathered per state per quarter-century (chiefdoms all together, and listed
+// under the Rulers filter only, not in the chronicle's All view); contested
 // and dynastic successions, unions, wars of succession, holy wars, faiths founded, schisms and holy
 // cities fallen are headlines. Every function tolerates a history without the tables (null: the
 // caller falls back to what it said before).
@@ -30,6 +31,13 @@ export function rulersEventKind(e: HistoryEvent): string | null {
 export function rulersGroupKey(h: History, i: number): number {
   return rulersOf(h)?.groupKey.get(i) ?? -1
 }
+/**
+ * Whether a grouping key gathers the routine successions of chiefdoms (and leagues' terms): those lines are left
+ * out of the chronicle's All view and listed under its Rulers filter only (rulersHiddenInAll).
+ */
+export const isChiefdomGroupKey = (key: number) => groupClassOf(key) === GroupClass.Chiefdoms
+/** Whether event index i is a chiefdom's routine succession (see isChiefdomGroupKey). */
+export const rulersHiddenInAll = (h: History, i: number) => { const k = rulersGroupKey(h, i); return k >= 0 && isChiefdomGroupKey(k) }
 /** Whether a grouping key gathers faith events (else rulers). */
 export const isFaithGroupKey = (key: number) => groupClassOf(key) === GroupClass.Faith || groupClassOf(key) === GroupClass.Reached || groupClassOf(key) === GroupClass.HolyWar
 
@@ -433,12 +441,15 @@ export function describeRulersGroup(h: History, members: readonly HistoryEvent[]
     const sameYear = members.filter((x) => x.year === rd.rulers[acc[0]].acceded)
     return successionLine(rd, partsOf(rd, sameYear))
   }
+  const q = rd.rulers[acc[0]].polity
   if (cls === GroupClass.Chiefdoms) {
+    // the chiefdoms of a quarter-century: one of them as a big state's line (below, without the house), several in a count
     const states = new Set(acc.map((r) => rd.rulers[r].polity))
     const last = acc[acc.length - 1]
-    return `New rulers in ${states.size} ${states.size === 1 ? 'chiefdom' : 'chiefdoms'} (${acc.length} successions), the latest ${rd.title[last]} of ${pname(rd, rd.rulers[last].polity)}`
+    if (states.size > 1) return `${acc.length} successions in ${states.size} chiefdoms, the latest ${rd.title[last]} of ${pname(rd, rd.rulers[last].polity)}`
+    const names = acc.map((r) => rd.title[r])
+    return `${pname(rd, q)}: ${names.length <= 4 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} succeed in turn` : `${names.length} reigns in turn, ${names[0]} to ${names[names.length - 1]}`}`
   }
-  const q = rd.rulers[acc[0]].polity
   const houses = [...new Set(acc.map((r) => rd.rulers[r].dynasty))]
   const names = acc.map((r) => rd.title[r])
   const list = names.length <= 4 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : `${names.length} reigns, ${names[0]} to ${names[names.length - 1]}`

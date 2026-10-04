@@ -3,8 +3,8 @@
 .peoples {
   width: var(--right-w);
   padding: 8px 10px 8px 12px;
-  /* the chronicle under it gives way first (this shrinks with a tiny weight, down to a few rows); scrolls itself */
-  flex: 0 0.03 auto !important;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
   max-height: max(110px, min(330px, 36vh));
   min-height: 92px;
   display: flex;

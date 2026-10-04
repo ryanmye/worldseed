@@ -217,21 +217,28 @@ export function isRenamingHeadline(h: History, e: HistoryEvent): boolean {
 }
 
 /**
- * The inspector's names line for settlement `id` at `year`: "Formerly Ilchanak (until 1202) · the Leko still call it Tiboi";
- * '' when it bears its founding name (or a Distinguished one with no other).
+ * The inspector's names line for settlement `id` at `year`: "Formerly Ilchanak (until 1202), Tiboi (until 1318; the Leko still
+ * call it that)". The name a people kept is said once, beside that former name; a kept name not among them (or the
+ * current one) gets its own clause: "the Leko still call it Tiboi". '' when it bears its founding name (or a
+ * Distinguished one with no other).
  */
 export function namesLine(h: History, id: number, year: number): string {
   if (!renamingsOf(h)) return ''
   const former = formerNames(h, id, year)
-  const parts: string[] = []
-  if (former.length) parts.push('Formerly ' + former.map((f) => `${f.name} (until ${f.until})`).join(', '))
   const i = renamingRowAt(h, id, year)
-  if (i >= 0) {
-    const R = h.renamings
-    const k = R.keptBy[i]
-    const n = k >= 0 ? peopleName(h, k) : null
-    if (n) parts.push(`called ${oldName(h, i)} by the ${n}`)
-  }
+  const R = h.renamings
+  const k = i >= 0 ? R.keptBy[i] : -1
+  const people = k >= 0 ? peopleName(h, k) : null
+  const kept = people ? oldName(h, i) : ''
+  let keptSaid = !people || kept === R.name[i] // (a people keeping the name it bears now has nothing to add)
+  const names = former.map((f) => {
+    if (keptSaid || f.name !== kept) return `${f.name} (until ${f.until})`
+    keptSaid = true
+    return `${f.name} (until ${f.until}; the ${people} still call it that)`
+  })
+  const parts: string[] = []
+  if (names.length) parts.push('Formerly ' + names.join(', '))
+  if (!keptSaid) parts.push(`the ${people} still call it ${kept}`)
   const s = parts.join(' · ')
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''
 }

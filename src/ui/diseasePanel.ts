@@ -812,8 +812,8 @@ export function createDiseaseView(deps: DiseaseViewDeps): DiseaseView {
       if (data && !toggle && deps.addLayerToggle) {
         toggle = deps.addLayerToggle({
           key: 'disease',
-          label: 'Disease',
-          group: 'nature',
+          label: 'Sickness',
+          group: 'people',
           checked: layerOn,
           title: 'Epidemics spreading: places sick, the way the sickness came, the ground it passed; ports in quarantine',
           onChange: (on) => {

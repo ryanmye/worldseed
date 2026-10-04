@@ -3,9 +3,10 @@
 .faiths {
   width: var(--right-w);
   padding: 8px 10px 8px 12px;
-  flex: 0 0.03 auto !important;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
   max-height: max(110px, min(360px, 38vh));
-  min-height: 34px;
+  min-height: 92px; /* open: the head and a few rows (collapsed: the head alone) */
   display: flex;
   flex-direction: column;
 }
@@ -71,6 +72,17 @@
   line-height: 1;
   color: #ffe9a8;
   text-shadow: 0 0 2px #000;
+}
+/* the legend: a state religion's ring round its capital's marker (render/faiths.ts) */
+.fa-state-ring {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #a9c8ef;
+  background: #f4f6fb;
+  box-shadow: 0 0 0 1px #0d0b10;
 }
 /* inspector: the rulers slot (seat line, faith lines), taking no room while empty */
 .insp-rulers {

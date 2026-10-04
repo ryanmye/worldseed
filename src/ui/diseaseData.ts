@@ -254,9 +254,13 @@ export function diseaseGloss(d: DiseaseInfo, world: World | null): string {
 }
 
 export const KIND_WORDS: readonly string[] = ['Crowd sickness', 'Plague', 'Fever', 'Camp fever']
-/** Colours per disease kind (CSS), as the map draws them (render/disease.ts). */
-export const KIND_CSS: readonly string[] = ['#cfe24c', '#b968ff', '#ff9a3c', '#8fb2ff']
-export const KIND_RGB: readonly (readonly [number, number, number])[] = [[0.81, 0.89, 0.3], [0.73, 0.41, 1.0], [1.0, 0.6, 0.24], [0.56, 0.7, 1.0]]
+/**
+ * Colours per disease kind (CSS), as the map draws them (render/disease.ts). Plague is a pale bone
+ * rather than a violet: violets are taken by faction colours, faiths and the luxuries good, and a
+ * violet ring round a town in a violet realm or faith did not read.
+ */
+export const KIND_CSS: readonly string[] = ['#cfe24c', '#ece3cc', '#ff9a3c', '#8fb2ff']
+export const KIND_RGB: readonly (readonly [number, number, number])[] = [[0.81, 0.89, 0.3], [0.93, 0.89, 0.8], [1.0, 0.6, 0.24], [0.56, 0.7, 1.0]]
 
 /** How an outbreak came: "by sea from Rilko". */
 export function viaWords(via: number): string {

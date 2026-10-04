@@ -544,11 +544,13 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
     sw.style.background = tones.length > 1 ? `linear-gradient(90deg, ${tones.join(', ')})` : tones[0] ?? 'rgb(90, 86, 78)'
     folk.append(sw, 'Folk practice of the peoples')
     const holy = el('div', 'sp-legend-item none', el('span', 'fa-holy-glyph', '✸'), 'Holy city')
+    // (render/faiths.ts: a ring in the faith's colour round the capital of a state that holds it)
+    const state = el('div', 'sp-legend-item none', el('span', 'fa-state-ring'), 'Capital of a state that holds it')
     const none = el('div', 'sp-legend-item none')
     const sw2 = el('span', 'sp-swatch')
     sw2.style.background = `rgb(${UNCLAIMED.join(', ')})`
     none.append(sw2, 'No one’s land; paler where the majority is slim')
-    legendList.append(folk, holy, none)
+    legendList.append(folk, holy, state, none)
   }
 
   // ---------- inspector ----------

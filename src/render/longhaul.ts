@@ -3,9 +3,13 @@
 // rare deposits and their rushes, the industries of towns (Resources view), the prices of a class
 // (price view), ships on the lanes and highlights of what the Goods panel selects.
 //
-//  - Lines (one draw of one ribbon geometry): every leg along its own smoothed cell path
-//    (routeCurves.ts smoothPaths). A lane is bold gold-white, drawn out from its home mart over
-//    its first two years, wider with its volume; a relay leg is a thin amber line with beads
+//  - Lines (one draw of one ribbon geometry): the legs along the bundled network of
+//    routeCurves.ts (routeNetwork: sea runs snap onto lanes already sailed, a shared link is one
+//    curve, so parallel lanes draw as one bundle), the opening expeditions' trails along their own
+//    smoothed paths (smoothPaths). A lane is gold, drawn out from its home mart over its first two
+//    years, wider and brighter with its volume (log scale against the busiest lane, a few pixels at
+//    most, narrower zoomed out: the lanes read as a network without burying the towns and names
+//    along them); a relay leg is a thin amber line with beads
 //    drifting along it (distinct from the cyan sea dashes and warm land lines of the ordinary
 //    trade); the route-seeking expedition that opened a lane is a dotted white-gold trail while
 //    the lane is selected and for a few decades after it came home. A float texture holds each
@@ -13,9 +17,9 @@
 //    rewritten only when that pair (or the highlight) changes. Lines lie under the known-world
 //    mist (as the trade lines do) and thin out among the 3D towns.
 //  - Marks (one instanced draw of static instances): a gold ring round each mart's marker
-//    (thicker, then doubled, the busier it is; zoomed out only the busiest show); the
-//    trading posts (a pennant in the owner's colour beside a factory's host, a small fort or a
-//    beacon tower over a fort's or a station's own marker, from mid zoom); deposit icons by kind
+//    (thicker, then doubled from mid zoom, the busier it is; zoomed out only the busiest show, and
+//    thinner); the trading posts (a pennant in the owner's colour beside a factory's host, a small
+//    fort or a beacon tower below a fort's or a station's own marker, from mid zoom: markerSlots.ts); deposit icons by kind
 //    from the year found (sized by output, grey and struck through once spent) with a pulsing
 //    ring while a rush lasts; industry dots round the settlement markers on the Resources view
 //    (one per industry, colours of goodsData INDUSTRY_LIST); price discs over the traders of
@@ -35,8 +39,9 @@ import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { smoothPaths } from './routeCurves.ts'
+import { networkRouteSamples, routeNetwork, smoothPaths, type PathSamples } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
+import { MARKER_SLOT_GLSL } from './markerSlots.ts'
 import { INDUSTRY_LIST, ownerRgb, type GoodsData } from '../ui/goodsData.ts'
 
 const LIFT = 0.0033
@@ -82,6 +87,119 @@ export interface LongHaulLayer {
   dispose(): void
 }
 
+/** Every other sample of each path (its ends kept); arc lengths and fractions as they were. */
+function thinSamples(a: PathSamples): PathSamples {
+  const keep: number[] = []
+  const offsets = new Uint32Array(a.count + 1)
+  for (let i = 0; i < a.count; i++) {
+    offsets[i] = keep.length
+    const s0 = a.offsets[i], s1 = a.offsets[i + 1]
+    for (let k = s0; k < s1; k += 2) keep.push(k)
+    if (s1 - s0 > 1 && (s1 - 1 - s0) % 2 === 1) keep.push(s1 - 1)
+  }
+  offsets[a.count] = keep.length
+  const n = keep.length
+  const pos = new Float32Array(n * 3), side = new Float32Array(n * 3), arc = new Float32Array(n), frac = new Float32Array(n), water = new Uint8Array(n)
+  keep.forEach((k, j) => {
+    for (let c = 0; c < 3; c++) {
+      pos[j * 3 + c] = a.pos[k * 3 + c]
+      side[j * 3 + c] = a.side[k * 3 + c]
+    }
+    arc[j] = a.arc[k]
+    frac[j] = a.frac[k]
+    water[j] = a.water[k]
+  })
+  return { count: a.count, offsets, pos, side, arc, frac, water, length: a.length }
+}
+
+/**
+ * Each path's samples averaged over a window of w samples each side, `iters` times (its ends kept),
+ * back at their radius; the sideways vectors from the new tangents, arc lengths and fractions anew.
+ */
+function easeSamples(a: PathSamples, w: number, iters: number): PathSamples {
+  const pos = a.pos.slice(), side = a.side.slice(), arc = a.arc.slice(), frac = a.frac.slice()
+  const length = a.length.slice()
+  const tmp = new Float32Array(pos.length)
+  for (let i = 0; i < a.count; i++) {
+    const s0 = a.offsets[i], s1 = a.offsets[i + 1]
+    if (s1 - s0 < 3) continue
+    for (let it = 0; it < iters; it++) {
+      for (let k = s0; k < s1; k++) {
+        if (k === s0 || k === s1 - 1) {
+          for (let c = 0; c < 3; c++) tmp[k * 3 + c] = pos[k * 3 + c]
+          continue
+        }
+        // (a narrower window near the ends, so they stay put)
+        const r = Math.min(w, k - s0, s1 - 1 - k)
+        let x = 0, y = 0, z = 0
+        for (let q = k - r; q <= k + r; q++) {
+          x += pos[q * 3]
+          y += pos[q * 3 + 1]
+          z += pos[q * 3 + 2]
+        }
+        const len0 = Math.hypot(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2])
+        const len = Math.hypot(x, y, z) || 1
+        tmp[k * 3] = (x / len) * len0
+        tmp[k * 3 + 1] = (y / len) * len0
+        tmp[k * 3 + 2] = (z / len) * len0
+      }
+      pos.set(tmp.subarray(s0 * 3, s1 * 3), s0 * 3)
+    }
+    let total = 0
+    for (let k = s0; k < s1; k++) {
+      const kp = Math.max(s0, k - 1), kn = Math.min(s1 - 1, k + 1)
+      const tx = pos[kn * 3] - pos[kp * 3], ty = pos[kn * 3 + 1] - pos[kp * 3 + 1], tz = pos[kn * 3 + 2] - pos[kp * 3 + 2]
+      const ux = pos[k * 3], uy = pos[k * 3 + 1], uz = pos[k * 3 + 2]
+      // side = up x tangent, in the tangent plane: one handedness along the whole path (the network's
+      // half curves carry their own, which flips where a route runs a half backwards)
+      let sx = uy * tz - uz * ty, sy = uz * tx - ux * tz, sz = ux * ty - uy * tx
+      const sl = Math.hypot(sx, sy, sz)
+      if (sl > 1e-12) {
+        sx /= sl
+        sy /= sl
+        sz /= sl
+        side[k * 3] = sx
+        side[k * 3 + 1] = sy
+        side[k * 3 + 2] = sz
+      }
+      if (k > s0) total += Math.hypot(pos[k * 3] - pos[k * 3 - 3], pos[k * 3 + 1] - pos[k * 3 - 2], pos[k * 3 + 2] - pos[k * 3 - 1])
+      arc[k] = total
+    }
+    for (let k = s0; k < s1; k++) frac[k] = total > 0 ? arc[k] / total : 0
+    length[i] = total
+  }
+  return { count: a.count, offsets: a.offsets, pos, side, arc, frac, water: a.water, length }
+}
+
+/** Samples of a's paths, then b's (one geometry for the legs and the trails). */
+function concatSamples(a: PathSamples, b: PathSamples): PathSamples {
+  const na = a.offsets[a.count], nb = b.offsets[b.count]
+  const count = a.count + b.count
+  const offsets = new Uint32Array(count + 1)
+  offsets.set(a.offsets.subarray(0, a.count))
+  for (let i = 0; i <= b.count; i++) offsets[a.count + i] = na + b.offsets[i]
+  const cat = <T extends Float32Array | Uint8Array>(x: T, y: T, n: number, m: number, k: number, make: (len: number) => T): T => {
+    const out = make((n + m) * k)
+    out.set(x.subarray(0, n * k))
+    out.set(y.subarray(0, m * k), n * k)
+    return out
+  }
+  const f32 = (len: number) => new Float32Array(len)
+  const length = new Float32Array(count)
+  length.set(a.length.subarray(0, a.count))
+  length.set(b.length.subarray(0, b.count), a.count)
+  return {
+    count,
+    offsets,
+    pos: cat(a.pos, b.pos, na, nb, 3, f32),
+    side: cat(a.side, b.side, na, nb, 3, f32),
+    arc: cat(a.arc, b.arc, na, nb, 1, f32),
+    frac: cat(a.frac, b.frac, na, nb, 1, f32),
+    water: cat(a.water, b.water, na, nb, 1, (len) => new Uint8Array(len)),
+    length,
+  }
+}
+
 function hash01(a: number, b: number): number {
   let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be59b, 0xc2b2ae35)
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b)
@@ -98,9 +216,11 @@ uniform sampler2D uLeg;
 uniform float uFrac;
 uniform float uYear;
 uniform float uLogMax;
+uniform float uLaneLogMax;
 uniform float uPixel;
 uniform float uPixelRatio;
 uniform float uClose;
+uniform float uFar;
 uniform float uDrop;
 uniform float uRelay;
 uniform float uLanes;
@@ -113,6 +233,7 @@ varying float vKind;
 varying float vHl;
 varying float vShow;
 varying float vFacing;
+varying float vS;
 void main() {
   vec3 pR = ws_relief(position);
   int i = int(aInfo.x + 0.5);
@@ -127,12 +248,16 @@ void main() {
   if (kind < 0.5) {
     show = open && v > 0.0 ? uRelay * mix(0.55, 1.0, s) : 0.0;
     if (hl > 0.5) show = open ? 1.0 : 0.0;
-    core = (0.45 + 1.0 * s) * (1.0 + 0.8 * hl);
+    core = (0.45 + 1.0 * s) * mix(1.0, 0.7, uFar) * (1.0 + 0.8 * hl);
   } else if (kind < 1.5) {
-    // drawn out from its home over its first two years
+    // (lanes against the busiest lane: relay legs between marts carry far more)
+    s = v > 0.0 ? clamp(log(1.0 + v) / uLaneLogMax, 0.0, 1.0) : 0.0;
+    // drawn out from its home over its first two years; fainter and narrower the less it carries
+    // (log volume against the busiest leg), capped at a few pixels, narrower zoomed out: the
+    // lanes read as the long-distance network without burying the towns and names under them
     float grow = clamp((uYear - aYears.x) / 2.0, 0.0, 1.0);
-    show = open && aInfo.w <= grow + 1e-4 ? uLanes : 0.0;
-    core = (2.0 + 2.4 * s) * (1.0 + 0.4 * hl);
+    show = open && aInfo.w <= grow + 1e-4 ? uLanes * (hl > 0.5 ? 1.0 : mix(0.6, 1.0, s)) : 0.0;
+    core = mix(1.3, 2.6, s) * mix(1.0, 0.75, uFar) * (1.0 + 0.5 * hl);
   } else {
     // the expedition that opened the lane: while the lane is selected, else fading for 40 years after it came home
     float after = uYear - aYears.y;
@@ -146,6 +271,7 @@ void main() {
     return;
   }
   vShow = show;
+  vS = s;
   vKind = kind;
   vHl = hl;
   core *= mix(0.5, 1.0, uClose);
@@ -153,7 +279,7 @@ void main() {
   vec3 base = pR - up * uDrop;
   vec4 mv = modelViewMatrix * vec4(ws_place(base), 1.0);
   float pix = -mv.z * uPixel * uPixelRatio;
-  float outer = core + (kind > 0.5 && kind < 1.5 ? 1.4 : 0.8);
+  float outer = core + 0.8;
   vCore = core / outer;
   vSoft = 0.9 / outer;
   vAcross = aSide.w;
@@ -174,6 +300,7 @@ varying float vKind;
 varying float vHl;
 varying float vShow;
 varying float vFacing;
+varying float vS;
 ${SEAM_FRAG_GLSL}
 void main() {
   ws_clipLine();
@@ -191,12 +318,12 @@ void main() {
     a = body * mix(0.5, 0.95, coreMask);
     if (vHl > 0.5) col = mix(col, vec3(1.0, 0.97, 0.86), 0.35 * coreMask);
   } else if (vKind < 1.5) {
-    // a lane: bold gold-white with a warm edge and a slow glint running out from its home
+    // a lane: gold with a thin warm edge, a pale centre on the busy ones, a slow glint running out from its home
     float inner = 1.0 - smoothstep(0.0, vCore, x);
-    float glint = smoothstep(0.86, 1.0, sin(vArcPx / 34.0 - uYear * 0.9)) * 0.3;
-    vec3 gold = mix(vec3(1.0, 0.7, 0.16), vec3(1.0, 0.97, 0.82), smoothstep(0.25, 0.9, inner) * 0.9 + glint);
-    col = mix(vec3(0.24, 0.12, 0.02), gold, coreMask);
-    a = body * mix(0.7, 1.0, coreMask);
+    float glint = smoothstep(0.86, 1.0, sin(vArcPx / 34.0 - uYear * 0.9)) * 0.25;
+    vec3 gold = mix(vec3(0.98, 0.7, 0.22), vec3(1.0, 0.95, 0.8), smoothstep(0.3, 0.95, inner) * (0.35 + 0.55 * vS) + glint);
+    col = mix(vec3(0.3, 0.17, 0.03), gold, coreMask);
+    a = body * mix(0.55, 0.95, coreMask);
     if (vHl > 0.5) col = mix(col, vec3(1.0), 0.25 * coreMask);
   } else {
     // the opening expedition's trail: white-gold dots
@@ -213,6 +340,7 @@ void main() {
 
 const MARK_VERT = /* glsl */ `
 ${RELIEF_GLSL}
+${MARKER_SLOT_GLSL}
 attribute vec3 aPos;
 attribute vec4 aA; // kind, size (px), value at t0, value at t1
 attribute vec4 aB; // per kind: deposit kind and spent year, industry bits, ship heading; marker radius at s0, s1 (zw)
@@ -286,11 +414,16 @@ void main() {
   } else if (kind > 7.5 && kind < 8.5) {
     size = 9.0 * uSizeScale;
     ext = size * 2.8 + 3.0;
-  } else if (kind > 8.5) ext = size + 3.0;
+  } else if (kind > 8.5) {
+    // ships: a little smaller zoomed out, where a lane carries up to three
+    size *= mix(0.75, 1.0, uZoom);
+    ext = size + 3.0;
+  }
   else {
-    // posts: a factory's pennant beside its host's marker, a fort or station over its own
+    // posts: a factory's pennant beside its host's marker, a fort or station below its own (the
+    // top is the capital's and the holy city's slot: markerSlots.ts)
     ext = size * 1.9 + 3.0;
-    off = kind < 3.5 ? vec2(inner + size * 0.35, 0.0) : vec2(0.0, inner + size * 0.8);
+    off = kind < 3.5 ? vec2(inner + size * 0.35, 0.0) : ws_slotAt(WS_SLOT_BELOW, inner, size * 0.75, uSizeScale);
   }
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
   vFlip = 1.0;
@@ -317,6 +450,7 @@ void main() {
 
 const MARK_FRAG = /* glsl */ `
 uniform float uYear;
+uniform float uZoomF;
 uniform vec3 uInd[13];
 varying vec2 vPx;
 flat varying float vKind;
@@ -367,12 +501,13 @@ void main() {
   vec3 dark = vec3(0.07, 0.05, 0.03);
   int k = int(vKind + 0.5);
   if (k == 0) {
-    // a mart: a gold ring round the marker, thicker the busier, doubled for the busiest
-    float R = vInner + 2.4;
-    float w = 0.9 + 1.5 * vV;
+    // a mart: a gold ring round the marker, thicker the busier, doubled for the busiest from mid zoom
+    // (zoomed out a thinner single ring, so the marts do not bury the towns and names around them)
+    float R = vInner + 2.0;
+    float w = (0.9 + 1.5 * vV) * mix(0.6, 1.0, uZoomF);
     float d = abs(length(p) - R - w * 0.5) - w * 0.5;
     o = glyph(d, vec3(1.0, 0.82, 0.36), dark, 0.9);
-    if (vV > 0.55) {
+    if (vV > 0.55 && uZoomF > 0.5) {
       float d2 = abs(length(p) - (R + w + 2.2)) - 0.55;
       o = over(o, glyph(d2, vec3(1.0, 0.9, 0.58), dark, 0.7) * 0.9);
     }
@@ -543,7 +678,18 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     w += J!.pathOffsets[j + 1] - J!.pathOffsets[j]
   })
   offs[count] = w
-  const smp = smoothPaths(world, offs, path, count, LIFT)
+  // legs along the bundled network (routeCurves.ts routeNetwork: sea runs snap onto lanes already
+  // sailed, every shared link is one curve), so parallel lanes through a strait or along a coast
+  // draw as one bundle that brightens with its members instead of a braid of ribbons; the opening
+  // expeditions' trails on their own smoothed paths
+  const legNet = routeNetwork(world, offs, path, L)
+  // (every other sample of the network's half curves is plenty at a lane's few pixels: fewer triangles)
+  // and eased round the hex grid's corners (a lane crosses open sea in long straight runs): the same
+  // window over the same shared samples, so a bundle stays one curve
+  const legSmp = easeSamples(thinSamples(networkRouteSamples(legNet, L, LIFT)), 8, 3)
+  const trailOffs = new Uint32Array(trails.length + 1)
+  for (let i = 0; i <= trails.length; i++) trailOffs[i] = offs[L + i] - offs[L]
+  const smp = concatSamples(legSmp, smoothPaths(world, trailOffs, path.subarray(offs[L]), trails.length, LIFT))
   const nS = smp.offsets[count]
   let quads = 0
   for (let i = 0; i < count; i++) quads += Math.max(0, smp.offsets[i + 1] - smp.offsets[i] - 1)
@@ -591,6 +737,12 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     lineGeom.setAttribute('aYears', new THREE.BufferAttribute(vYears, 2))
     lineGeom.setIndex(new THREE.BufferAttribute(idx, 1))
   }
+  // the busiest lane's volume at any snapshot of the first 2000 years (as goodsData's legVolumeMax)
+  let laneVolumeMax = 1
+  if (gd.legVolume) {
+    const tn = Math.min(TS, Math.floor(2000 / gd.TI) + 1)
+    for (let q = 0; q < tn; q++) for (const k of gd.lanes) laneVolumeMax = Math.max(laneVolumeMax, gd.legVolume[q * L + k])
+  }
   const texH = Math.max(1, Math.ceil(Math.max(1, L) / TEX_W))
   const legData = new Float32Array(TEX_W * texH * 4)
   const legTex = new THREE.DataTexture(legData, TEX_W, texH, THREE.RGBAFormat, THREE.FloatType)
@@ -604,9 +756,11 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     uFrac: { value: 0 },
     uYear: { value: 0 },
     uLogMax: { value: Math.log(1 + gd.legVolumeMax) },
+    uLaneLogMax: { value: Math.log(1 + laneVolumeMax) },
     uPixel: { value: 0.001 },
     uPixelRatio: { value: 1 },
     uClose: { value: 1 },
+    uFar: { value: 0 },
     uDrop: { value: 0 },
     uRelay: { value: 1 },
     uLanes: { value: 1 },
@@ -760,6 +914,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     uMaskOn: { value: 0 },
     uSizeScale: { value: 1 },
     uZoom: { value: 1 },
+    uZoomF: { value: 1 },
     uPostZoom: { value: 1 },
     uMarks: { value: 1 },
     uDeps: { value: 1 },
@@ -1087,10 +1242,12 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
         return t * t * (3 - 2 * t)
       }
       lu.uClose.value = smooth(1.1, 1.35)
+      lu.uFar.value = smooth(1.7, 3.0)
       lu.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, alt / 0.6)))
       // as the settlement markers (their rings must fit them)
       mu.uSizeScale.value = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / Math.max(1e-3, (camera as THREE.PerspectiveCamera).position.length()))))
       mu.uZoom.value = 1 - smooth(1.6, 3.2)
+      mu.uZoomF.value = mu.uZoom.value
       // posts show from mid zoom in
       mu.uPostZoom.value = 1 - smooth(2.3, 3.0)
     },

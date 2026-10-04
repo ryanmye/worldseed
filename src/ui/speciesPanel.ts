@@ -18,6 +18,7 @@ import { goodName, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
 import { CASH_VIEW, cropSnapshotAt, habitLevel, habitSnapshotAt, heldAt, holdersAt, inViewCategory, isHabitForming, techHoldersAt, type SpeciesData } from './speciesData.ts'
 import { loadFlag, saveFlag } from './panels.ts'
+import { addShortcut } from './shortcuts.ts'
 import { ViewMode } from '../render/palette.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
 import './species.css'
@@ -292,7 +293,7 @@ export function createSpeciesView(deps: SpeciesViewDeps): SpeciesView {
   const head = document.createElement('button')
   head.type = 'button'
   head.className = 'pp-head'
-  head.title = 'Show or hide the species and techniques'
+  head.title = 'Show or hide the species and techniques (N)'
   const title = document.createElement('span')
   title.className = 'pp-title'
   title.textContent = 'Species'
@@ -333,6 +334,8 @@ export function createSpeciesView(deps: SpeciesViewDeps): SpeciesView {
     syncCollapsed()
     forceRefresh()
   })
+  // (as the other panels' letters: P, R, G, F, D, T, C)
+  addShortcut({ keys: ['n', 'N'], label: 'N', description: 'Show or hide the species (crops, herds, plants, techniques)', group: 'Panels', run: () => (root.classList.contains('hidden') ? false : head.click()) })
 
   // ---------- legend of the Crops, Herds and Cash crops views ----------
   const legend = document.createElement('div')

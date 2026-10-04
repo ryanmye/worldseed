@@ -865,14 +865,26 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
         layer.setMasked(knownMask !== null)
       }
       root.classList.toggle('hidden', !data)
+      if (data) {
+        // a tab with nothing in the whole history is dimmed, and the panel opens on one that has something
+        const has = [data.T > 0, data.secrets.length > 0, !!data.mart, data.D > 0, data.lanes.length > 0]
+        tabBtns.forEach((btn, i) => {
+          btn.classList.toggle('empty', !has[i])
+          btn.title = has[i] ? '' : `No ${TABS[i].toLowerCase()} in this history`
+        })
+        if (!has[tab] && has.some(Boolean)) {
+          tab = has.indexOf(true)
+          syncTabs()
+        }
+      }
       deps.setViewModeAvailable?.(ViewMode.Resources, !!data && (data.D > 0 || !!data.industry))
       if (data && !toggle && deps.addLayerToggle) {
         toggle = deps.addLayerToggle({
           key: 'longhaul',
-          label: 'Long-distance trade',
+          label: 'Lanes and marts',
           group: 'movement',
           checked: lanesOn,
-          title: 'Sea lanes opened by expeditions and their ships, relay legs between marts, marts and trading posts',
+          title: 'Long-distance trade: sea lanes opened by expeditions and their ships, relay legs between marts, marts and trading posts',
           onChange: (on) => {
             lanesOn = on
             deps.setUrlParam('longhaul', on ? null : '0')

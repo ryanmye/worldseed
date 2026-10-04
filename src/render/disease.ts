@@ -5,7 +5,7 @@
 //
 //  - Marks (one instanced draw of static instances, one per outbreak row and one per quarantine):
 //    while a place is sick, a ring round its marker in its disease kind's colour (crowd sickness a
-//    sickly chartreuse, plague a livid violet, camp fever a pale blue; nothing like the reds of
+//    sickly chartreuse, plague a pale bone (violets are the factions' and faiths'), camp fever a pale blue; nothing like the reds of
 //    war, the browns of blight or the cyan and amber of trade), wider and thicker with its toll,
 //    over a faint wash; a city struck gets a second ring; a great epidemic's marks are brighter and
 //    a minor outbreak's fainter. In the year struck a ring spreads from it (only while playing). The

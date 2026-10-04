@@ -1,18 +1,24 @@
-// religion: the holy cities of the universal faiths on the map (data from ui/faithsData.ts), one
-// instanced draw of static instances (one per faith with a holy city). Shown on the Faiths view, and
-// for a selected faith on any view; a pure function of the year: a holy city is marked from the
-// faith's founding until the faith dies out or the city is abandoned. The mark is a small sunburst in
-// the faith's colour over a dark rim; the selected faith's is larger with a halo, the others dimmed. Globe and flat map
-// (ws_place); in a known world, marks in cells not yet known are hidden. Nothing applies: no draw.
+// religion: the holy cities of the universal faiths and the capitals of states with a state religion
+// on the map (data from ui/faithsData.ts), one instanced draw of static instances (one per faith with
+// a holy city, one per run of snapshots in which a state kept the same capital and state religion).
+// Shown on the Faiths view, and for a selected faith on any view; a pure function of the year: a holy
+// city is marked from the faith's founding until the faith dies out or the city is abandoned. The holy
+// city's mark is a small sunburst in the faith's colour over a dark rim, in the top slot over the
+// marker one step above a capital's star (markerSlots.ts); a state religion is a thin ring in the
+// faith's colour round the capital's marker (inside the ring band). The selected faith's marks are
+// larger with a halo, the others dimmed. Globe and flat map (ws_place); in a known world, marks in
+// cells not yet known are hidden. Nothing applies: no draw.
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
+import { CITY_POPULATION, TOWN_POPULATION } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
-import type { FaithsData } from '../ui/faithsData.ts'
+import { stateFaithAt, type FaithsData } from '../ui/faithsData.ts'
+import { holySlotHeight } from './markerSlots.ts'
 
 const MARK_LIFT = 0.0047
 const NEVER = 1e9
@@ -35,6 +41,7 @@ ${RELIEF_GLSL}
 attribute vec3 aPos;
 attribute vec3 aA; // from, until, faith id
 attribute vec3 aCol;
+attribute vec2 aK; // kind (0 holy city, 1 state religion's capital), height over the marker (holy) or marker radius (ring), CSS px unscaled
 attribute float aKnown;
 uniform float uYear;
 uniform float uSel;
@@ -52,6 +59,8 @@ varying float vSel;
 varying float vDim;
 varying float vAlpha;
 varying float vR;
+varying float vKind;
+varying float vInner;
 void main() {
   vec3 pos = ws_relief(aPos);
   vec3 up = normalize(pos);
@@ -62,10 +71,22 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  float R = (sel ? 8.0 : 6.2) * uSizeScale * mix(0.7, 1.0, sqrt(facing));
-  float ext = R + (sel ? 9.0 : 3.0);
-  // above the town's marker (a city's ring is about CITY_MIN_RADIUS), so both read
-  vec2 off = vec2(0.0, 7.0 * uSizeScale + R + 1.0);
+  float fs = uSizeScale * mix(0.7, 1.0, sqrt(facing));
+  float R, ext;
+  vec2 off = vec2(0.0);
+  vKind = aK.x;
+  vInner = 0.0;
+  if (aK.x < 0.5) {
+    R = (sel ? 8.0 : 6.2) * fs;
+    ext = R + (sel ? 9.0 : 3.0);
+    // the top slot, a step above a capital's star (markerSlots.ts)
+    off = vec2(0.0, aK.y * fs + (sel ? 1.8 : 0.0) * fs);
+  } else {
+    // a ring hugging the capital's marker, under a mart's gold rings (which start a little further out)
+    vInner = aK.y * uSizeScale * mix(0.55, 1.0, sqrt(facing));
+    R = vInner + 1.1;
+    ext = R + (sel ? 7.0 : 3.0);
+  }
   vec4 clip = projectionMatrix * modelViewMatrix * vec4(ws_place(pos), 1.0);
   clip.xy += (position.xy * ext + off) * uPixelRatio * 2.0 / uViewport * clip.w;
   gl_Position = clip;
@@ -85,17 +106,35 @@ varying float vSel;
 varying float vDim;
 varying float vAlpha;
 varying float vR;
+varying float vKind;
+varying float vInner;
 vec4 over(vec4 a, vec4 b) { return vec4(a.rgb + b.rgb * (1.0 - a.a), a.a + b.a * (1.0 - a.a)); }
 void main() {
   vec2 p = vPx;
   float d = length(p);
+  vec3 dark = vec3(0.05, 0.04, 0.06);
+  if (vKind > 0.5) {
+    // the state religion: a ring in the faith's colour, a dark line each side
+    float w = vSel > 0.5 ? 1.3 : 1.1;
+    float rd = abs(d - vR) - w;
+    float fill = 1.0 - smoothstep(-0.5, 0.5, rd);
+    float edge = 1.0 - smoothstep(-0.5, 0.5, rd - 0.6);
+    vec4 o = vec4(mix(dark, mix(vCol, vec3(1.0), 0.3), fill) * edge, edge);
+    if (vSel > 0.5) {
+      float halo = (1.0 - smoothstep(0.0, 1.4, abs(d - vR - 6.0))) * 0.7;
+      o = over(o, vec4(mix(vCol, vec3(1.0), 0.5) * halo, halo));
+    }
+    o *= vAlpha * vDim;
+    if (o.a < 0.004) discard;
+    gl_FragColor = o;
+    return;
+  }
   float ang = atan(p.y, p.x);
   // a pale gold eight-rayed star over a dark rim, its heart in the faith's colour
   float rays = 0.5 + 0.5 * cos(ang * 8.0 + 0.3927);
   float r = vR * (0.5 + 0.5 * pow(rays, 2.5));
   float body = 1.0 - smoothstep(r - 0.6, r + 0.6, d);
   float rim = 1.0 - smoothstep(r + 0.5, r + 1.7, d);
-  vec3 dark = vec3(0.05, 0.04, 0.06);
   float coreR = vR * 0.42;
   float core = 1.0 - smoothstep(coreR - 0.6, coreR + 0.6, d);
   float coreRim = 1.0 - smoothstep(coreR + 0.2, coreR + 1.2, d);
@@ -119,25 +158,77 @@ export function buildFaithLayer(world: World, h: History, fd: FaithsData): Faith
   const object = new THREE.Group()
   object.name = 'faiths'
   const holy = fd.faiths.filter((f) => f.holyCity >= 0 && f.holyCity < N)
-  const n = holy.length
+  const popAt = (id: number, s: number) => h.population[Math.max(0, Math.min(h.snapshotCount - 1, s)) * N + id] ?? 0
+  // the capitals of states with a state religion: runs of snapshots with the same capital and faith
+  const rings: { id: number; from: number; until: number; f: number; pop: number }[] = []
+  const pols = h.polities ?? []
+  const iv = Math.max(1, fd.interval)
+  if (h.stateFaith && pols.length) {
+    const open = new Map<number, (typeof rings)[number]>()
+    for (let s = 0; s < fd.S; s++) {
+      const y = s * iv
+      const seen = new Set<number>()
+      pols.forEach((x, q) => {
+        if (y < x.foundedYear || (x.endedYear >= 0 && y >= x.endedYear) || !x.capitals?.length) return
+        const f = stateFaithAt(fd, q, s)
+        if (f < 0) return
+        let k = 0
+        while (k + 1 < x.capitals.length && (x.capitalYears[k + 1] ?? Infinity) <= y) k++
+        const id = x.capitals[k]
+        if (id < 0 || id >= N || popAt(id, s) <= 0) return
+        seen.add(q)
+        const run = open.get(q)
+        const tier = (p: number) => (p >= CITY_POPULATION ? 2 : p >= TOWN_POPULATION ? 1 : 0)
+        if (run && run.id === id && run.f === f && tier(run.pop) === tier(popAt(id, s))) {
+          run.until = y + iv
+          return
+        }
+        const r = { id, from: y, until: y + iv, f, pop: popAt(id, s) }
+        rings.push(r)
+        open.set(q, r)
+      })
+      for (const q of [...open.keys()]) if (!seen.has(q)) open.delete(q)
+    }
+    // (the last snapshot's run lasts to the end of the history; none outlives its capital)
+    for (const r of rings) {
+      const ab = h.settlements[r.id].abandonedYear
+      if (r.until >= (fd.S - 1) * iv + iv) r.until = NEVER
+      if (ab >= 0) r.until = Math.min(r.until, ab)
+    }
+  }
+  const n = holy.length + rings.length
   const cap = Math.max(1, n)
-  const aPos = new Float32Array(cap * 3), aA = new Float32Array(cap * 3), aCol = new Float32Array(cap * 3), aKnown = new Float32Array(cap)
+  const aPos = new Float32Array(cap * 3), aA = new Float32Array(cap * 3), aCol = new Float32Array(cap * 3), aK = new Float32Array(cap * 2), aKnown = new Float32Array(cap)
   const cells = new Int32Array(cap).fill(-1)
-  holy.forEach((f, k) => {
-    const s = h.settlements[f.holyCity]
-    const cell = s.cell
+  const put = (k: number, id: number, from: number, until: number, f: number) => {
+    const cell = h.settlements[id].cell
     cells[k] = cell
     const r = surfaceRadius(world, cell) + MARK_LIFT
     aPos[k * 3] = P[cell * 3] * r
     aPos[k * 3 + 1] = P[cell * 3 + 1] * r
     aPos[k * 3 + 2] = P[cell * 3 + 2] * r
-    const until = Math.min(f.endedYear >= 0 ? f.endedYear : NEVER, s.abandonedYear >= 0 ? s.abandonedYear : NEVER)
-    aA[k * 3] = f.foundedYear
+    aA[k * 3] = from
     aA[k * 3 + 1] = until
-    aA[k * 3 + 2] = f.id
-    aCol[k * 3] = fd.rgb[f.id * 3]
-    aCol[k * 3 + 1] = fd.rgb[f.id * 3 + 1]
-    aCol[k * 3 + 2] = fd.rgb[f.id * 3 + 2]
+    aA[k * 3 + 2] = f
+    aCol[k * 3] = fd.rgb[f * 3]
+    aCol[k * 3 + 1] = fd.rgb[f * 3 + 1]
+    aCol[k * 3 + 2] = fd.rgb[f * 3 + 2]
+  }
+  holy.forEach((f, k) => {
+    const s = h.settlements[f.holyCity]
+    put(k, f.holyCity, f.foundedYear, Math.min(f.endedYear >= 0 ? f.endedYear : NEVER, s.abandonedYear >= 0 ? s.abandonedYear : NEVER), f.id)
+    // the top slot by the city's size over the faith's life (its largest)
+    let pop = 0
+    for (let q = Math.floor(f.foundedYear / iv); q < h.snapshotCount; q++) pop = Math.max(pop, popAt(f.holyCity, q))
+    aK[k * 2] = 0
+    aK[k * 2 + 1] = holySlotHeight(pop)
+  })
+  rings.forEach((x, j) => {
+    const k = holy.length + j
+    put(k, x.id, x.from, x.until, x.f)
+    aK[k * 2] = 1
+    // the capital's marker radius (as render/settlements.ts at its tier)
+    aK[k * 2 + 1] = x.pop >= CITY_POPULATION ? 7.0 : x.pop >= TOWN_POPULATION ? 4.6 : 2.6
   })
   const geom = new THREE.InstancedBufferGeometry()
   geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3))
@@ -146,6 +237,7 @@ export function buildFaithLayer(world: World, h: History, fd: FaithsData): Faith
   geom.setAttribute('aPos', new THREE.InstancedBufferAttribute(aPos, 3))
   geom.setAttribute('aA', new THREE.InstancedBufferAttribute(aA, 3))
   geom.setAttribute('aCol', new THREE.InstancedBufferAttribute(aCol, 3))
+  geom.setAttribute('aK', new THREE.InstancedBufferAttribute(aK, 2))
   geom.setAttribute('aKnown', knownAttr)
   geom.instanceCount = n
   const u = {
@@ -169,7 +261,7 @@ export function buildFaithLayer(world: World, h: History, fd: FaithsData): Faith
   const mesh = new THREE.Mesh(geom, mat)
   mesh.frustumCulled = false
   mesh.renderOrder = 8.68 // over the settlement markers and the sickness marks
-  mesh.name = 'holy cities'
+  mesh.name = 'holy cities and state religions'
   mesh.visible = false
   object.add(mesh)
 

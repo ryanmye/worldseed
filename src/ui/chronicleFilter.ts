@@ -11,10 +11,12 @@ const POLITICS = 1, SETTLEMENT = 2, TRADE = 3, NATURE = 4, SICKNESS = 5, TRAVEL 
 // rulers, religion: two more categories (pushed on their own line, found by name, so other additions merge beside them)
 ;(CHRONICLE_FILTERS as string[]).push('Rulers', 'Faiths')
 const RULERS = CHRONICLE_FILTERS.indexOf('Rulers'), FAITHS = CHRONICLE_FILTERS.indexOf('Faiths')
+/** The order the filter lists them in (indices into CHRONICLE_FILTERS, which stay the stored values): rulers and faiths beside politics. */
+export const CHRONICLE_FILTER_ORDER: readonly number[] = [0, POLITICS, RULERS, FAITHS, SETTLEMENT, TRADE, NATURE, SICKNESS, TRAVEL]
 /** Whether filter i is offered only when the history has entries of its kind (Rulers, Faiths: a history without them shows the filter as before). */
 export const isOptionalFilter = (i: number) => i === RULERS || i === FAITHS
 
-/** Category (1..4) of a chronicle entry of kind `kind` whose first member is `first` (null for non-event members). */
+/** Category (1 .. CHRONICLE_FILTERS.length - 1) of a chronicle entry of kind `kind` whose first member is `first` (null for non-event members). */
 export function entryCategory(h: History, kind: number, first: HistoryEvent | null): number {
   // rulers (80-88 and their groups) and faiths (89-97 and theirs)
   if (kind === EntryKind.Rulers || (kind === EntryKind.Single && first && isRulersEvent(first.type as number))) return RULERS
