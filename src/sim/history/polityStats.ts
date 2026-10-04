@@ -25,6 +25,8 @@ export interface PolityStatRow {
   /** Living polities with >= 2 members at 800, 1200, 1500, 1600, 2000, and the most at any snapshot. */
   count: number[]
   countMax: number
+  /** Largest share of the living settlements any one polity held at any snapshot. */
+  maxSettleShare: number
   /** Share of living settlements inside polities at 1000 and 2000; share of people at 2000. */
   inside1000: number
   inside2000: number
@@ -180,7 +182,7 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
     for (let p = 0; p < P; p++) if (a.mem[p] >= 2) n++
     count.push(n)
   }
-  let countMax = 0
+  let countMax = 0, maxSettleShare = 0
   const tierEver = new Uint8Array(P)
   const peakMem = new Int32Array(P)
   const shareSeries: Float64Array[] = []
@@ -194,6 +196,7 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
       const t = tierOf(a.pop[p], a.mem[p], false)
       if (t > tierEver[p]) tierEver[p] = t
       sh[p] = a.total > 0 ? a.pop[p] / a.total : 0
+      if (a.living > 0 && a.mem[p] / a.living > maxSettleShare) maxSettleShare = a.mem[p] / a.living
     }
     shareSeries.push(sh)
     if (n > countMax) countMax = n
@@ -410,7 +413,7 @@ export function polityStats(world: World, run: HistoryRun, off: HistoryRun | nul
   let first = -1
   for (const p of h.polities) { first = p.foundedYear; break }
   return {
-    seed: world.seed, ms, msOff, firstYear: first, count, countMax,
+    seed: world.seed, ms, msOff, firstYear: first, count, countMax, maxSettleShare,
     inside1000: a1000.living ? a1000.inside / a1000.living : 0, inside2000: a2000.living ? a2000.inside / a2000.living : 0,
     popInside2000: a2000.total ? sumArr(a2000.pop) / a2000.total : 0,
     largest2000: a2000.total ? largest / a2000.total : 0,
@@ -451,18 +454,21 @@ export function formatPolityStats(rows: PolityStatRow[]): string {
   const lens = rows.flatMap((r) => r.warLength)
   const t: [string, string, string][] = [
     ['First polity founded', 'year 350-900 (median ~600)', `${rng(col((r) => r.firstYear))}`],
+    ['  by year 900 / by 1200', '>= 18/20 / all', `${cnt((r) => r.firstYear >= 0 && r.firstYear <= 900)} / ${cnt((r) => r.firstYear >= 0 && r.firstYear <= 1200)}`],
     ['Polities >= 2 members y800', '2-15', rng(col((r) => r.count[0]))],
     ['  y1200', '8-30', rng(col((r) => r.count[1]))],
     ['  y1600', '12-45', rng(col((r) => r.count[3]))],
     ['  y2000', '12-50', rng(col((r) => r.count[4]))],
     ['  never > 80', 'all', cnt((r) => r.countMax <= 80)],
     ['  >= 3 at y1500 (no world state)', '>= 19/20', cnt((r) => r.count[2] >= 3)],
+    ['  >= 5 at y1500', '>= 18/20', cnt((r) => r.count[2] >= 5)],
     ['Settlements inside polities y1000', '0.20-0.50', rng(col((r) => r.inside1000))],
     ['  y2000', '0.55-0.85', rng(col((r) => r.inside2000))],
     ['  stateless >= 10% at y2000', '>= 18/20', cnt((r) => r.inside2000 <= 0.9)],
     ['People inside polities y2000', '(info)', rng(col((r) => r.popInside2000))],
     ['Largest polity share y2000', 'median 0.15-0.30, <= 0.60 all', rng(col((r) => r.largest2000))],
     ['  >= 0.40 (a great empire)', '>= 2/20', cnt((r) => r.largest2000 >= 0.4)],
+    ['  >= 0.40 of settlements at any time', '>= 2/20', `${cnt((r) => r.maxSettleShare >= 0.4)} (max share median ${f2(median(col((r) => r.maxSettleShare)))})`],
     ['Lifetimes of Kingdoms+ (years)', 'median 120-300', `median ${f0(median(lives))}, mean ${f0(mean(lives))}, n ${lives.length}`],
     ['  polities ending < 20 years', '<= 0.30', rng(col((r) => r.shortShare))],
     ['Lineage holding its core >= 500 y', '>= 10/20', cnt((r) => r.coreYears >= 500)],
