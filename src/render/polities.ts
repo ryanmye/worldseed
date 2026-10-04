@@ -144,6 +144,7 @@ uniform float uSel;
 uniform vec4 uWars[${MAX_WARS}];
 uniform int uWarCount;
 uniform float uTint;
+uniform int uCoastOct;
 uniform float uBorderPx;
 uniform float uYear;
 uniform float uPulse;
@@ -167,6 +168,14 @@ varying float vElev;
 varying float vSlope;
 ${NOISE_GLSL}
 
+// cheap value noise in about [-0.5, 0.5] (the sweep of a changing border needs no gradient noise)
+float pl_vnoise(vec3 x) {
+  vec3 i = floor(x), f = fract(x);
+  f = f * f * (3.0 - 2.0 * f);
+  float a = ws_hash33(i).x, b = ws_hash33(i + vec3(1.0, 0.0, 0.0)).x, c = ws_hash33(i + vec3(0.0, 1.0, 0.0)).x, d = ws_hash33(i + vec3(1.0, 1.0, 0.0)).x;
+  float e = ws_hash33(i + vec3(0.0, 0.0, 1.0)).x, g = ws_hash33(i + vec3(1.0, 0.0, 1.0)).x, h = ws_hash33(i + vec3(0.0, 1.0, 1.0)).x, k = ws_hash33(i + vec3(1.0, 1.0, 1.0)).x;
+  return 0.5 * mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y), mix(mix(e, g, f.x), mix(h, k, f.x), f.y), f.z);
+}
 vec3 pl_color(float id) {
   int i = int(id + 0.5);
   return ws_srgbToLinear(texelFetch(uPalette, ivec2(i % ${PAL_W}, i / ${PAL_W}), 0).rgb);
@@ -199,7 +208,8 @@ void main() {
   // owners at this pixel: a cell changing hands switches at a noise threshold during the five years
   vec3 ids = vP0;
   if (any(notEqual(vP0, vP1))) {
-    float thr = clamp(0.5 + 1.25 * ws_fbm(p * uCellFreq * 0.55 + 11.0, 1.0, 2, footprint * uCellFreq * 0.55), 0.03, 0.97);
+    vec3 q = p * uCellFreq * 0.55 + 11.0;
+    float thr = clamp(0.5 + 1.1 * (pl_vnoise(q) + 0.5 * pl_vnoise(q * 2.03 + 5.0)), 0.03, 0.97);
     ids = uFrac >= thr ? vP1 : vP0;
   }
   // the data views colour lakes as water; the Terrain view draws their shores itself (below)
@@ -213,13 +223,18 @@ void main() {
     float l0 = ids.x > -1.5 ? ids.x : ids.y > -1.5 ? ids.y : ids.z;
     flat3 = (ids.x < -1.5 || ids.x == l0) && (ids.y < -1.5 || ids.y == l0) && (ids.z < -1.5 || ids.z == l0);
   }
+  // up close the tint has stepped back for the towns: only borders are drawn
+  if (flat3 && tint && uTint < 0.004) discard;
   if (!flat3 || danger) {
     vec3 q = p * uCellFreq * 1.1;
     float fp = footprint * uCellFreq * 1.1;
+    // (the Terrain view shows no cell categories of its own: two octaves are enough for the borders there;
+    // the data views keep the planet's three, so the coast matches theirs exactly)
+    int oct = tint ? 2 : 3;
     vec3 n = vec3(
-      ws_fbm(q + vSeed.x * vec3(173.3, 291.7, 117.1), 1.0, 3, fp),
-      ws_fbm(q + vSeed.y * vec3(173.3, 291.7, 117.1), 1.0, 3, fp),
-      ws_fbm(q + vSeed.z * vec3(173.3, 291.7, 117.1), 1.0, 3, fp));
+      ws_fbm(q + vSeed.x * vec3(173.3, 291.7, 117.1), 1.0, oct, fp),
+      ws_fbm(q + vSeed.y * vec3(173.3, 291.7, 117.1), 1.0, oct, fp),
+      ws_fbm(q + vSeed.z * vec3(173.3, 291.7, 117.1), 1.0, oct, fp));
     ws = pow(b, vec3(6.0)) * exp(n * 16.0);
     ws /= max(ws.x + ws.y + ws.z, 1e-6);
   }
@@ -250,12 +265,13 @@ void main() {
     // the coast and lake shores as the Terrain view draws them
     float coastAmp = max(vSlope, 0.01) * 1.7;
     float e = vElev;
-    if (abs(e) < coastAmp * 1.25) e += ws_fbm(p + 17.0, uCellFreq * 0.6, 5, footprint) * coastAmp;
+    // (the planet's five octaves at a distance; fewer up close, where the tint has faded and only borders remain)
+    if (abs(e) < coastAmp * 1.25) e += ws_fbm(p + 17.0, uCellFreq * 0.6, uCoastOct, footprint) * coastAmp;
     float aaE = fwidth(vElev) * 1.2 + 1e-5;
     landM = smoothstep(-aaE, aaE, e);
     if (max(vLake.x, max(vLake.y, vLake.z)) > 0.0) {
       float lakeLin = dot(b, vLake);
-      float lakeF = lakeLin - 0.5 + 0.55 * ws_fbm(p + 29.0, uCellFreq * 0.6, 5, footprint);
+      float lakeF = lakeLin - 0.5 + 0.55 * ws_fbm(p + 29.0, uCellFreq * 0.6, uCoastOct, footprint);
       float aaL = fwidth(lakeLin) * 1.2 + footprint * uCellFreq * 0.25 + 1e-4;
       landM *= 1.0 - smoothstep(-aaL, aaL, lakeF);
     }
@@ -622,6 +638,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uWars: { value: wars },
     uWarCount: { value: 0 },
     uTint: { value: 0.4 },
+    uCoastOct: { value: 5 },
     uBorderPx: { value: 1.6 },
     uYear: { value: 0 },
     uPulse: { value: 20 },
@@ -1010,7 +1027,9 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       const alt = ou.uCamObj.value.length() - 1
       // borders a little bolder as the camera comes down; the tint steps back for the 3D towns up close
       ou.uBorderPx.value = (alt > 1.2 ? 1.5 : alt > 0.3 ? 1.8 : 2.2) * pixelRatio
-      if (view === PolityView.Tint) ou.uTint.value = 0.4 * (alt < 0.08 ? Math.max(0.35, alt / 0.08) : 1)
+      ou.uCoastOct.value = alt < 0.12 ? 3 : 5
+      // (gone at the closest zoom, where the 3D towns and fields take over: the borders stay)
+      if (view === PolityView.Tint) ou.uTint.value = 0.4 * Math.min(1, Math.max(0, (alt - 0.025) / 0.06))
       mu.uViewport.value.copy(drawSize)
       mu.uPixelRatio.value = pixelRatio
       mu.uSizeScale.value = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / Math.max(1.05, alt + 1))))

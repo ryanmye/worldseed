@@ -19,6 +19,7 @@ import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, ty
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
 import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
 import { createTownPlan, GroundKind, Role, townExtent, townRadius, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
 
 export const NEVER = 1e9
 /** Model id of the packed-earth ground decal under built-up patches (drawn by the ground batch). */
@@ -311,6 +312,18 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
 
   // ---------- geometry helpers ----------
   const probe: Probe = { radius: 1, nx: 0, ny: 1, nz: 0, elev: 0, lake: 0, cell: 0 }
+  /**
+   * Whether a tree may stand at the point last probed (u: its 0..1 draw): none above the tree
+   * line, 0.16 below the snow line, where the planet shader bares the rock (planetShaders.ts:
+   * alpine = smoothstep(treeLine - 0.01, treeLine + 0.06, h)), thinning over the last stretch below it.
+   */
+  const snowLine = terrainOf(world).snowLine
+  const treeFits = (u: number) => {
+    const h = (probe.radius - 1) / RELIEF_NEAR
+    const tl = snowLine[probe.cell] - 0.16
+    const t = Math.min(1, Math.max(0, (h - (tl - 0.06)) / 0.09))
+    return u >= t * t * (3 - 2 * t)
+  }
   const fr = { ux: 0, uy: 0, uz: 0, ex: 0, ey: 0, ez: 0, nx: 0, ny: 0, nz: 0 }
   const frameAt = (x: number, y: number, z: number) => {
     const l = Math.hypot(x, y, z)
@@ -670,6 +683,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
         probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, c)
         return probe.radius
       },
+      unit: KK,
       clear(x, y, r) {
         if (!riverClear(segs, x * KK, y * KK, r * KK)) return false
         return dryFootprint(ox, oy, oz, ex, ey, ez, nx, ny, nz, x * KK, y * KK, r * KK, c)
@@ -783,6 +797,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const model = modelFor(it)
       if (model < 0) continue
       probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, it.x * KK, it.y * KK, c)
+      if (it.role === Role.Grove && !treeFits(it.jitter)) continue
       const style = it.style
       if (model === GROUND_MODEL) {
         const g = lin(GROUND[style])
@@ -799,7 +814,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       if (it.role === Role.Barracks && model !== Model.Barracks) { sx *= 1.3; sz *= 1.3; sy *= 1.2 }
       const r = footprint(model) * Math.max(sx, sz)
       // half-timbering on many temperate houses (more in the old core than out of town)
-      const timber = style === Style.Temperate && rand4(seed, id, st.written, 0x74) < (it.ward === 12 || it.ward >= 13 ? 0.3 : 0.6)
+      const timber = style === Style.Temperate && rand4(seed, id, st.written, 0x74) < (it.ward === 12 || it.ward === 13 || it.ward === 14 ? 0.3 : 0.6)
       const info = infoFor(model, it.jitter, timber, style)
       // the plan's yaw is the model's x axis; KayKit models face +z: put their long side along the street too
       writeSlot(w, model, it.threshold, it.yaw, it.role === Role.Bridge ? 0 : sinkFor(r), sx, sy, sz, roofTmp, wallTmp, 0, it.role === Role.WallSeg ? 0.6 : 1.2, info)
@@ -1373,6 +1388,8 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       const sc = 0.8 + 0.5 * rand4(seed, cell, k, 0x8d)
       const p = spot(k + 8, 0x8e, footprint(m) * sc, 0.05, 0.55)
       if (!p) continue
+      probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, p[0], p[1], cell)
+      if (!treeFits(rand4(seed, cell, k, 0x91))) continue
       const t = 70 + 150 * rand4(seed, cell, k, 0x8f)
       put(m, -t, p[0], p[1], rand4(seed, cell, k, 0x90) * 6.28, 0, 0, sc)
     }
@@ -1469,6 +1486,7 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
         }
         probeAt(ox, oy, oz, ex, ey, ez, nx, ny, nz, x, y, cell)
         if (surface.wet(probe, 0.08)) continue
+        if (!treeFits(rand4(seed, cell, i * 7919 + j, 0x97))) continue
         const r = probe.radius
         const t = clearedAt((px / l) * r, (py / l) * r, (pz / l) * r)
         if (t <= 2) continue
@@ -1488,14 +1506,12 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   function layoutPort(pos: ArrayLike<number>, po: number, dir: ArrayLike<number>, d0: number, owner: number): SlotSet {
     const ox = pos[po], oy = pos[po + 1], oz = pos[po + 2]
     const ol = Math.hypot(ox, oy, oz)
-    const ux = ox / ol, uy = oy / ol, uz = oz / ol
+    let ux = ox / ol, uy = oy / ol, uz = oz / ol
     frameAt(ux, uy, uz)
-    const sx = dir[d0] * fr.ex + dir[d0 + 1] * fr.ey + dir[d0 + 2] * fr.ez
-    const sy = dir[d0] * fr.nx + dir[d0 + 1] * fr.ny + dir[d0 + 2] * fr.nz
-    const sl = Math.hypot(sx, sy) || 1
-    let fx = sx / sl, fy = sy / sl // seaward
-    const ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
-    const start = surface.nearestCell(ux, uy, uz, settlements[owner]?.cell ?? 0)
+    // seaward, as a direction on the globe (kept while the pier's place moves below)
+    let dX = dir[d0], dY = dir[d0 + 1], dZ = dir[d0 + 2]
+    let ex = fr.ex, ey = fr.ey, ez = fr.ez, nx = fr.nx, ny = fr.ny, nz = fr.nz
+    let start = surface.nearestCell(ux, uy, uz, settlements[owner]?.cell ?? 0)
     const w = new SlotWriter()
     const style = owner >= 0 ? styleOf(owner) : Style.Temperate
     const dockLen = (lib.models[Model.Dock]?.size.z ?? 2.5) * MODEL_SPECS[Model.Dock].scale
@@ -1503,9 +1519,44 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       probeAt(ux, uy, uz, ex, ey, ez, nx, ny, nz, x, y, start)
       return surface.wet(probe, 0)
     }
+    const stepS = spacing * 0.012
+    // the town's own waterfront: where the port's place lies across the water from the
+    // town (over a bay, a lake or an estuary), the pier moves to the shore the town stands
+    // on, on the line from the town toward the port, and reaches out from there
+    if (owner >= 0 && owner < N && !settlements[owner].outpost) {
+      const o = originOf(owner)
+      const tx = (o[0] - ux) * ex + (o[1] - uy) * ey + (o[2] - uz) * ez
+      const ty = (o[0] - ux) * nx + (o[1] - uy) * ny + (o[2] - uz) * nz
+      const td = Math.hypot(tx, ty)
+      if (td > stepS * 3) {
+        const dx = -tx / td, dy = -ty / td
+        const h = stepS * 0.5
+        let firstWet = -1, dryAgain = false
+        for (let s = 0; s <= td; s += h) {
+          const wet = wetAt(tx + dx * s, ty + dy * s)
+          if (firstWet < 0) { if (wet) firstWet = s }
+          else if (!wet && s < td - h * 2) { dryAgain = true; break }
+        }
+        if (firstWet > 0 && dryAgain) {
+          const bx = tx + dx * (firstWet - h), by = ty + dy * (firstWet - h)
+          const px = ux + ex * bx + nx * by, py = uy + ey * bx + ny * by, pz = uz + ez * bx + nz * by
+          const pl = Math.hypot(px, py, pz)
+          dX = ex * dx + nx * dy; dY = ey * dx + ny * dy; dZ = ez * dx + nz * dy
+          ux = px / pl; uy = py / pl; uz = pz / pl
+          frameAt(ux, uy, uz)
+          ex = fr.ex; ey = fr.ey; ez = fr.ez; nx = fr.nx; ny = fr.ny; nz = fr.nz
+          start = surface.nearestCell(ux, uy, uz, settlements[owner].cell)
+          const pm = (globalThis as { __dioramaPierMoved?: Record<number, number> }).__dioramaPierMoved
+          if (pm) pm[owner] = +(td / spacing).toFixed(3)
+        }
+      }
+    }
+    const sx = dX * ex + dY * ey + dZ * ez
+    const sy = dX * nx + dY * ny + dZ * nz
+    const sl = Math.hypot(sx, sy) || 1
+    let fx = sx / sl, fy = sy / sl // seaward
     // the pier starts at the drawn shoreline nearest the port position and reaches out
     let shore = 0
-    const stepS = spacing * 0.012
     if (wetAt(0, 0)) {
       search: for (let i = 1; i <= 60; i++) {
         for (let a = 0; a <= 8; a++) {

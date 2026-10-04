@@ -29,8 +29,10 @@ temples, longhouses, stave towers), town walls and towers, market stalls, a smal
 town bridges, groves (broadleaf, conifer, palm, jungle, acacia, cactus, rocks), haystacks,
 the dam and the soft contact shadows.
 
-The settlement plans (`town.ts`) follow the ideas of ward-based medieval town generators,
-notably Oleg Dolya's (watabou) Medieval Fantasy City Generator / TownGeneratorOS
-(https://github.com/watabou/TownGeneratorOS): Voronoi patches on a spiral, inner-patch
-relaxation, wards by location rating, recursive lot bisection. The code is an independent
-implementation, not a port.
+The settlement plans (`town.ts`, `plan/geom.ts`) contain portions ported from
+TownGeneratorOS by Oleg Dolya (watabou), GPL-3.0, https://github.com/watabou/TownGeneratorOS
+(Medieval Fantasy City Generator): junction optimisation, artery smoothing, the curtain wall
+on the outline of the walled patches with its gates and towers, the citadel's own wall, the
+ward set and location ratings, block insetting by street width, the alley and lot cutter
+with each ward's lot parameters, radial park and ring temple-close cuts, and the thinning
+of outer wards toward roads (filterOutskirts). worldseed is GPL-3.0 as well.

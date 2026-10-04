@@ -63,6 +63,9 @@ export function warOutcomeWords(pd: PolitiesData, w: number): string {
 /** "The Kingdom of Vashtar", title at the snapshot after the event. */
 const The = (pd: PolitiesData, p: number, s: number) => `The ${polityTitle(pd, p, s)}`
 
+/** Words for political events of a history whose polity data is missing (types 20-34). */
+const FALLBACK = ['a state is founded', 'a state ends', 'the court moves here', 'joins a state', 'war is declared', 'peace is made', 'taken in war', 'sacked', 'a siege is lifted', 'raided', 'a revolt breaks out', 'a revolt is crushed', 'breaks away', 'changes sides', 'a disputed succession']
+
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
   const t = e.type as number
@@ -76,7 +79,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
     }
     return wallSlighted(pd, e.settlement, e.year) ? `The walls of ${name} are slighted` : `The walls of ${name} fall into ruin`
   }
-  if (!pd) return null
+  if (!pd) return `${name}: ${FALLBACK[t - 20] ?? 'a political event'}`
   const b = snapBefore(pd, e.year), a = snapAfter(pd, e.year)
   const W = pd.wars
   switch (t) {
@@ -190,7 +193,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
     if (e.type === 4) return 'Raised walls'
     return wallSlighted(pd, e.settlement, e.year) ? 'Its walls were slighted' : 'Its walls fell into ruin'
   }
-  if (!pd) return null
+  if (!pd) return FALLBACK[t - 20] ? FALLBACK[t - 20].charAt(0).toUpperCase() + FALLBACK[t - 20].slice(1) : null
   const b = snapBefore(pd, e.year), a = snapAfter(pd, e.year)
   const W = pd.wars
   const self = e.settlement === id

@@ -670,9 +670,11 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
         float diff = max(dot(N, L), 0.0) * day;
         vec3 sky = mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu));
         vec3 col = alb * (uSunColor * diff + sky * 1.4);
-        // at night the streets glow with lamps and windows, as the planet's city lights do
-        float lamp = k < 1.5 ? 1.7 : k < 2.5 ? 1.05 : 0.6;
-        col += (1.0 - day) * lamp * (0.75 + 0.5 * n1) * vec3(1.0, 0.74, 0.46);
+        // at night the arteries and squares glow with lamps and windows, as the planet's city
+        // lights do; lanes and yards only where light spills from the houses (so the night
+        // shows the street network, not every patch outline)
+        float lamp = k < 0.5 ? 0.32 : k < 1.5 ? 0.7 : k < 2.5 ? 0.2 : 0.06;
+        col += (1.0 - day) * lamp * (0.55 + 0.9 * n1 * n2) * vec3(1.0, 0.74, 0.46);
         gl_FragColor = vec4(col, vA);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>

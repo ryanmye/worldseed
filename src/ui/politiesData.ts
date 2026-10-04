@@ -104,6 +104,8 @@ export interface PolitiesData {
   sacksOf: Map<number, number[]>
   /** Conquests per settlement: years, chronological (for slighted walls). */
   conquestsOf: Map<number, number[]>
+  /** Years a settlement changed hands (taken, joined, went over, broke away, founded a state), chronological. */
+  changesOf: Map<number, number[]>
   /** Cell-polity cache (see cellPolities). */
   cache: { key: number; cells: Int16Array }[]
   cellCount: number
@@ -270,6 +272,7 @@ function buildPolitiesData(h: History): PolitiesData | null {
     wallsOf: new Map(),
     sacksOf: new Map(),
     conquestsOf: new Map(),
+    changesOf: new Map(),
     cache: [],
     cellCount,
   }
@@ -298,6 +301,7 @@ function buildPolitiesData(h: History): PolitiesData | null {
     for (const q of eventPolities(pd, e)) addTo(q, i)
     if (t === PolityEvent.Sacked) push(pd.sacksOf, e.settlement, e.year, e.value)
     if (t === PolityEvent.Conquered) push(pd.conquestsOf, e.settlement, e.year)
+    if (t === PolityEvent.Conquered || t === PolityEvent.Joined || t === PolityEvent.Defected || t === PolityEvent.Seceded || t === PolityEvent.Founded) push(pd.changesOf, e.settlement, e.year)
   }
   for (const a of pd.eventsOf) a.sort((x, y) => h.events[x].year - h.events[y].year || x - y)
 
@@ -388,6 +392,9 @@ export function polityAtYear(pd: PolitiesData, id: number, year: number): number
   const s = clampS(pd, Math.floor(year / pd.interval))
   const p = polityAt(pd, id, s)
   if (p >= 0 && !polityLives(pd, p, year)) return polityAt(pd, id, s + 1)
+  // it changed hands since the snapshot: the next snapshot has its new polity
+  const ch = pd.changesOf.get(id)
+  if (ch) for (const y of ch) if (y > s * pd.interval && y <= year) return polityAt(pd, id, s + 1)
   return p
 }
 
@@ -572,7 +579,7 @@ export function assignPolityColors(pd: PolitiesData, world: World): void {
   }
   // (saturated enough to read as a tint over green land and over sand alike)
   const shades: [number, number][] = [[0.68, 0.55], [0.78, 0.43], [0.62, 0.67], [0.85, 0.36], [0.74, 0.61]]
-  const shifts = [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15]
+  const shifts = [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.2, -0.2]
   const labs = new Float64Array(P * 6)
   const cand = new Float64Array(6)
   const cosNear = Math.cos(0.42) // radians between capitals
@@ -600,7 +607,7 @@ export function assignPolityColors(pd: PolitiesData, world: World): void {
           d = Math.min(d, dn, dd * 1.15)
         }
         // enough apart is enough: then stay close to the intended hue and shade
-        const score = Math.min(d, 42) - Math.abs(shifts[hi]) * 30 - v * 1.2
+        const score = Math.min(d, 45) - Math.abs(shifts[hi]) * 22 - v * 1.2
         if (score > bestScore) {
           bestScore = score
           best = c

@@ -29,6 +29,7 @@
 // the GLSL twin of evalDetail). CPU placements use the full band.
 
 import { RIVER_FLOW_THRESHOLD, type History, type World } from '../contract.ts'
+import { townFootprint } from './dioramas/footprint.ts'
 
 /** Relief (fraction of the planet radius per unit of h) of the stored ground and up close. */
 export const RELIEF_NEAR = 0.028
@@ -599,8 +600,16 @@ export function setTerrainHistory(world: World, history: History | null): void {
       if (m <= 0) continue
       const outpost = (s as { outpost?: boolean }).outpost === true
       // a town plan is ~0.002 across for a village, ~0.006 for a city (dioramas/town.ts)
-      const flat = (outpost ? 0.0012 : 0.0018) + 0.0011 * Math.log10(Math.max(1, m / 100) + 1)
-      siteList.push(P[s.cell * 3], P[s.cell * 3 + 1], P[s.cell * 3 + 2], flat, flat * 1.6 + 0.0015)
+      let flat = (outpost ? 0.0012 : 0.0018) + 0.0011 * Math.log10(Math.max(1, m / 100) + 1)
+      let reach = flat * 1.6 + 0.0015
+      if (!outpost) {
+        // the town plan's own size at its peak (dioramas/footprint.ts): flat under nine in ten
+        // of its buildings, easing out past the farthest it grows along its roads
+        const fp = townFootprint(m)
+        flat = Math.max(flat, fp.radius * 1.1)
+        reach = Math.max(reach, fp.reach + 0.002)
+      }
+      siteList.push(P[s.cell * 3], P[s.cell * 3 + 1], P[s.cell * 3 + 2], flat, reach)
       siteCell.push(s.cell)
     }
   }

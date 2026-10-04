@@ -505,6 +505,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     (globalThis as unknown as { __dioramaStats: Stats }).__dioramaStats = stats
     ;(globalThis as unknown as { __dioramaPlans: object }).__dioramaPlans = {}
     ;(globalThis as unknown as { __dioramaPending: object }).__dioramaPending = pendWhy
+    ;(globalThis as unknown as { __dioramaPierMoved: object }).__dioramaPierMoved = {}
   }
 
   // owner palette for travelling groups: the journey's origin is not exposed per group, so use a neutral team colour
