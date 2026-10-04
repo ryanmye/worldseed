@@ -6,7 +6,7 @@
 //   weather -> food -> trade -> population -> migration
 //   -> voyages -> abandonment (-> routes of the abandoned close) -> structures
 //   -> [land use -> degradation] -> [roads] -> milestones -> exploration
-//   -> technology -> knowledge -> species -> snapshots
+//   -> technology -> knowledge -> knowledge spread -> species -> snapshots
 // (land use and degradation advance every LAND.step years, roads every
 // ROAD.step years; in land
 // years the food system also records which fields feed each settlement). The
@@ -37,7 +37,9 @@
 // go), 'history-voyages' (voyages of settlement by sea: who sails, where to,
 // who is lost; voyages.ts), 'history-structures' (when ports and dams get
 // built) and 'history-expeditions' (who explores, where, who is lost, where
-// bases go; exploration.ts), 'history-species-origins' (where species are
+// bases go; exploration.ts), 'history-frontier' (which land groups go far,
+// and whether a group stops at a town it passes; frontier.ts),
+// 'history-species-origins' (where species are
 // native, the cradles' founding sets) and 'history-species-spread' (taming,
 // adoption, techniques, what seaborne colonies carry; species.ts);
 // 'history-ore' seeds the ore-richness noise; people names come from
@@ -66,6 +68,7 @@ import { createPortSearch, structureSystem } from './structures.ts'
 import type { HistoryState } from './state.ts'
 import { createState } from './state.ts'
 import { knowledgeSystem } from './knowledge.ts'
+import { knowledgeSpreadSystem } from './knowledgeSpread.ts' // gradual-knowledge:
 import type { CradlePlan } from './peoples.ts'
 import { namePeoples, seedPeoples } from './peoples.ts'
 import { buildTerrain } from './terrain.ts'
@@ -389,6 +392,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     explorationSystem(s, explore)
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
+    knowledgeSpreadSystem(s, techState) // gradual-knowledge: fronts of knowledge between peoples in contact
     speciesSystem(s, trade)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
