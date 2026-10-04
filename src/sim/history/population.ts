@@ -27,6 +27,7 @@ import type { HistoryState } from './state.ts'
 import { abandon, logEvent } from './state.ts'
 import { foodBase } from './migration.ts'
 import { stored } from './storage.ts' // species-v2
+import { harvestLeft } from './polity/system.ts' // polities:
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -183,7 +184,7 @@ export function foodSystem(s: HistoryState): void {
     let h = s.harvest[s.weatherRegion[c]]
     if (h < 1) h = stored(h, sp.damp[id]) // species-v2: drought sensitivity and stores of its staples (storage.ts)
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
-    const supply = expected * h
+    const supply = s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h // polities: fields ravaged by war
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p

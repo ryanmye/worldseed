@@ -23,16 +23,22 @@
 // of the land there (so nobody settles highlands without a highland crop),
 // crosses desert cheaply with camels and highlands with llamas, and travels
 // further with horses.
+//
+// frontier: expansion advances as a front with occasional leaps: most groups
+// prefer near, contiguous land and may stop at a town they pass (frontier.ts).
 
 import { EventType, JourneyKind, TechField } from '../../contract.ts'
 import { clamp, smoothstep } from '../util.ts'
-import { MIGRATION, PORT, SPECIES, VOYAGE, WEALTH } from './params.ts'
+import { FRONTIER, MIGRATION, PORT, SPECIES, VOYAGE, WEALTH } from './params.ts'
 import { claimStrength } from './population.ts'
 import { hubSize } from './trade.ts'
 import type { HistoryState } from './state.ts'
 import { found, logEvent, logJourney, productivityOf, techOf } from './state.ts'
 import { learnPath } from './knowledge.ts'
 import { hasHorse, moveMuls, siteFactorAt, siteRows } from './species.ts'
+import { contiguous, createFrontier, passJoin, setAllowed, syncFrontier } from './frontier.ts' // frontier:
+import type { FrontierState } from './frontier.ts'
+import { fleeChance, joinBlocked, joinFactor, siteFactor } from './polity/system.ts' // polities:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -55,6 +61,8 @@ export interface Search {
   /** 1 / bucket width. */
   inv: number
   run: number
+  /** frontier: settled-land counts and the frontier stream (frontier.ts), created at the first migration. */
+  frontier: FrontierState | null
 }
 
 export function createSearch(cellCount: number, cellScale: number): Search {
@@ -71,6 +79,7 @@ export function createSearch(cellCount: number, cellScale: number): Search {
     used: 0,
     inv: 1 / (MIGRATION.bucketWidth * cellScale),
     run: 0,
+    frontier: null,
   }
 }
 
@@ -151,13 +160,16 @@ export function foodBase(s: HistoryState, id: number): number {
 export function migrationSystem(s: HistoryState, search: Search): void {
   const M = MIGRATION
   const rng = s.rngMigration
+  // frontier: settled land as of now (foundings and abandonments since last year).
+  if (!search.frontier) search.frontier = createFrontier(s)
+  syncFrontier(s, search.frontier, true)
   // Groups leave from settlements alive at the start of the system; new ones wait a year.
   const movers = s.living.slice()
   for (let t = 0; t < movers.length; t++) {
     const id = movers[t]
     const p = s.pop[id]
     const roll = rng.next()
-    const flee = M.hungerChance * (1 - smoothstep(M.hungerLow, M.hungerHigh, s.food[id]))
+    const flee = M.hungerChance * (1 - smoothstep(M.hungerLow, M.hungerHigh, s.food[id])) + (s.pol !== null ? fleeChance(s.pol, id) : 0) // polities: flight from danger
     if (p < M.minPop) {
       // Too few to split up: when hunger drives them out, the whole hamlet
       // leaves together (and the site is abandoned).
@@ -196,8 +208,9 @@ let foundFrontier = false
  * cost within `budget`). With `restrict`, only through cells its people knows and joining only
  * peoples it has met; with `jitter`, scores carry the usual random factor (drawn from the
  * migration stream; without it nothing is drawn, for shadow decisions). Sets foundCell / foundJoin.
+ * frontier: unless `leap`, near and contiguous sites are preferred (frontier.ts; setAllowed done by the caller).
  */
-function siteSearch(s: HistoryState, search: Search, from: number, g: number, mayJoin: boolean, budget: number, ocean: number, seaMul: number, prod: number, restrict: boolean, jitter: boolean): void {
+function siteSearch(s: HistoryState, search: Search, from: number, g: number, mayJoin: boolean, budget: number, ocean: number, seaMul: number, prod: number, restrict: boolean, jitter: boolean, leap: boolean): void {
   const M = MIGRATION
   const T = s.terrain
   const rng = s.rngMigration
@@ -242,6 +255,11 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   let visits = 0
   let frontier = false
   const inv = search.inv
+  // frontier: distance discount and contiguity (none for a group that goes far).
+  const fr = search.frontier as FrontierState
+  const FR = FRONTIER
+  const originLm = T.landmass[origin]
+  const invHalf = 1 / FR.distHalf
   for (let b = 0, i = 0; ;) {
     if (i >= search.bucketLen[b]) {
       if (++b >= search.used) break
@@ -265,9 +283,11 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           const rich = wf >= WEALTH.joinMin
           let spare = M.joinRoom * foodBase(s, occ) - pop
           if (rich) { const room = WEALTH.joinRoom * wf * pop; if (room > spare) spare = room }
-          if ((mayJoin || rich) && spare >= g) {
+          if ((mayJoin || rich) && spare >= g && (s.pol === null || !joinBlocked(s.pol, from, occ))) { // polities: never into an enemy at war
             const draw = (1 + (M.urbanDraw * pop) / (pop + M.urbanHalf)) * (1 + WEALTH.draw * wf)
-            const score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+            let score = (M.joinBias * spare * draw * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+            if (!leap) { const dd = 1 + d * invHalf; score *= (1 + FR.contigBonus) / (dd * dd) } // frontier: (a settlement is settled land)
+            if (s.pol !== null) score *= joinFactor(s, s.pol, from, occ) // polities: crowding into walled towns
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
@@ -288,8 +308,13 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           // Empty land pulls: the larger the share of the land nobody else works, the better.
           const alone = a * prod * sf
           const free = alone > 0 ? food / alone : 0
-          let score = (food * (1 + M.emptyPull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+          // frontier: near, contiguous land first; the empty-land pull at the frontier and overseas.
+          const contig = leap || contiguous(s, fr, c)
+          const pull = contig || T.landmass[c] !== originLm ? M.emptyPull : M.emptyPull * FR.farPull
+          let score = (food * (1 + pull * free * free) * (jitter ? rng.range(0.75, 1.25) : 1)) / (1 + (costPenalty * d) / budget)
+          if (!leap) { const dd = 1 + d * invHalf; score *= (contig ? 1 + FR.contigBonus : 1) / (dd * dd) }
           if (portReach[c]) score *= sitePref
+          if (s.pol !== null) score *= siteFactor(s, s.pol, c, from) // polities: danger and defensibility
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
       }
@@ -328,6 +353,11 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   if (hasHorse(s, from)) budget *= 1 + SPECIES.horseBudget
   let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(techOf(s, from, TechField.Seafaring))
   if (voyage) { budget *= M.voyageBudget; ocean *= M.voyageOcean }
+  // frontier: a few groups go far (long voyages, and leapChance of the rest: from the frontier stream).
+  const fr = search.frontier as FrontierState
+  const leap = fr.rng.next() < FRONTIER.leapChance || voyage
+  syncFrontier(s, fr, false)
+  setAllowed(s, fr, s.people[from])
   // Boats: from a port the sea is cheap; without one every sea cell costs more.
   ocean *= hasPort ? PORT.oceanMul : M.seaNoPort
   const seaMul = hasPort ? PORT.seaMul : M.seaNoPort
@@ -335,27 +365,39 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const kd = s.knowDiag
   if (kd) {
     // Shadow decisions without randomness: from what the people knows, and from full knowledge.
-    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, false)
+    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, false, leap)
     const kc = foundCell, kj = foundJoin
     if (foundFrontier) kd.migFrontier++
-    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, false, false)
+    siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, false, false, leap)
     kd.migrations++
     if (foundCell !== kc || foundJoin !== kj) {
       if (kc < 0 && kj < 0) kd.migBlocked++
       else kd.migRedirected++
     }
   }
-  siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, true)
-  const bestCell = foundCell, bestJoin = foundJoin
+  siteSearch(s, search, from, g, mayJoin, budget, ocean, seaMul, prod, true, true, leap)
+  let bestCell = foundCell, bestJoin = foundJoin
   const { prev } = search
   const origin = s.cell[from]
 
+  // frontier: bound for a new site, the group may stop at a settlement it passes that takes it in.
+  let joinPath: number[] | null = null
+  if (bestCell >= 0 && !leap) {
+    const way = reconstructPath(prev, origin, bestCell)
+    const stop = passJoin(s, fr, from, g, way, foodBase, prosperity)
+    if (stop.join >= 0) {
+      bestJoin = stop.join
+      bestCell = -1
+      joinPath = way.slice(0, stop.at + 1)
+      if (joinPath[stop.at] !== s.cell[stop.join]) joinPath.push(s.cell[stop.join])
+    }
+  }
   if (bestJoin >= 0) {
     s.pop[from] -= g
     s.pop[bestJoin] += g
     logEvent(s, EventType.Migration, from, bestJoin, g)
     const arriveYear = s.year
-    const path = reconstructPath(prev, origin, s.cell[bestJoin])
+    const path = joinPath ?? reconstructPath(prev, origin, s.cell[bestJoin])
     const departYear = Math.max(s.founded[from], arriveYear - travelYears(s, path, budget))
     logJourney(s, { departYear, arriveYear, from, to: bestJoin, size: g, kind: JourneyKind.Migrants, path })
     learnPath(s, from, path, true)

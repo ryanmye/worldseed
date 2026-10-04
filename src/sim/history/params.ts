@@ -1057,3 +1057,46 @@ export const TECHNIQUE2 = {
   hardyT: 0.4,
   hardyChance: 0.02,
 }
+
+// ---------------------------------------------------------------------------
+// gradual-knowledge / frontier: constants added for gradual sharing of knowledge after contact
+// (knowledgeSpread.ts) and for frontier settlement (frontier.ts). Kept together here for the merge.
+
+/**
+ * gradual-knowledge: knowledge passing between peoples in contact (knowledgeSpread.ts). At first contact each side
+ * learns what the other knows within revealHops plain hops (n = 48) of the two settlements that met, and the other's
+ * settlements within revealSettleHops. Afterwards,
+ * every `step` years, the learner's front advances (contact + near + trade * v / (v + tradeHalf)) * (1 + craftsTech * (Crafts - 1))
+ * hops a year into what the teacher knows (near: settlements of the two have seen each other; v: their smoothed
+ * trade volume, loads a year), at most maxHops per step.
+ */
+export const KNOW_SPREAD = {
+  step: 5,
+  revealHops: 5,
+  revealSettleHops: 12,
+  contact: 0.01,
+  near: 0.03,
+  trade: 8,
+  tradeHalf: 1200,
+  craftsTech: 0.25,
+  maxHops: 20,
+}
+
+/**
+ * frontier: land migration advances as a front (frontier.ts, migration.ts). Unless a group goes far (a long voyage, or
+ * leapChance), a site's score is divided by (1 + d / distHalf)^2 (d its travel cost from the origin, n = 48 cell units)
+ * and multiplied by 1 + contigBonus when contiguous: within contigDist (catchment distance, n = 48 hops) of a living
+ * settlement of the group's people or a people it has met, or on a road of level >= roadMin; joins count as contiguous.
+ * The empty-land pull is multiplied by farPull on sites neither contiguous nor on another landmass. A group bound for a
+ * new site stops at a town it passes (at least passMinPop people) that would take it in with chance passJoin (each such town).
+ */
+export const FRONTIER = {
+  distHalf: 5,
+  contigBonus: 1,
+  contigDist: 4,
+  roadMin: 0.15,
+  farPull: 0.1,
+  leapChance: 0.05,
+  passJoin: 0.4,
+  passMinPop: 300,
+}

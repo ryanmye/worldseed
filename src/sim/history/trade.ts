@@ -66,6 +66,7 @@ import { ContactVia, learnPath, meet } from './knowledge.ts'
 import { moveMuls, packOf } from './species.ts'
 import { marketGoods, stimFlow } from './cashCrops.ts' // species-v2
 import { perishOf } from './storage.ts' // species-v2
+import { embargoed } from './polity/system.ts' // polities:
 
 const G = GOOD_COUNT
 /** Goods [0, FOOD) are food. */
@@ -773,10 +774,12 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     if (any) goods[nGoods++] = g
   }
   const perish = ts.perish, cashShare = CASHCROP.maxShare, v2 = s.sp.v2 // species-v2 (hoisted)
+  const pol = s.pol // polities:
   for (let pass = 0; pass < TRADE.passes; pass++) {
     for (let p = 0; p < P; p++) {
       const a = pairA[p], b = pairB[p]
       if (!trader[a] || !trader[b]) continue
+      if (pol !== null && embargoed(pol, a, b)) continue // polities: war embargo
       const r = pairRoute[p]
       if (r < 0 && probeOff) continue
       // Transport gets cheaper with the Crafts of the two ends' peoples (their mean).

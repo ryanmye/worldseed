@@ -36,6 +36,7 @@ import { GOODS, TECH } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent } from './state.ts'
 import type { TradeState } from './trade.ts'
+import { empireLinks } from './polity/system.ts' // polities:
 
 const F = TECH_FIELD_COUNT
 
@@ -195,6 +196,7 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
       link[p * P + q] = rate
     }
   }
+  if (s.pol !== null) empireLinks(s, s.pol, link, P) // polities: empires link their peoples
 
   // Growth from each people's own activity and part of that of the peoples it is linked with.
   const tech = s.tech

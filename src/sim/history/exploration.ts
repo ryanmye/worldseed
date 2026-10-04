@@ -687,7 +687,7 @@ function discoveries(s: HistoryState, es: ExploreState, id: number, path: readon
     es.discEvent.push(s.events.length)
     es.discKind.push(kind)
     es.discCell.push(cell)
-    logEvent(s, EventType.Discovery, id, -1, -1)
+    logEvent(s, EventType.Discovery, id, cell, -1) // discovery-cell: `other` is the cell reached
   }
   const at = (bit: number): number => { for (let k = 0; k < path.length; k++) if (mark[path[k]] & bit) return path[k]; return -1 }
   if (m & 1) place(Place.NorthPole, at(1))
@@ -716,6 +716,21 @@ function discoveries(s: HistoryState, es: ExploreState, id: number, path: readon
     es.discEvent.push(s.events.length)
     es.discKind.push(Place.Landmass)
     es.discCell.push(c)
-    logEvent(s, EventType.Discovery, id, -1, -1)
+    logEvent(s, EventType.Discovery, id, landmassReached(s, path, lm, c), -1) // discovery-cell: where the way out touched the landmass
   }
+}
+
+/**
+ * discovery-cell: the cell of landmass `lm` an expedition reached: the first cell of its way out on that landmass,
+ * else the first beside the way, else `seen` (a cell of it within the expedition's sight margin).
+ */
+function landmassReached(s: HistoryState, path: readonly number[], lm: number, seen: number): number {
+  const L = s.terrain.landmass
+  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  for (let k = 0; k < path.length; k++) if (L[path[k]] === lm) return path[k]
+  for (let k = 0; k < path.length; k++) {
+    const c = path[k]
+    for (let e = off[c]; e < off[c + 1]; e++) if (L[nb[e]] === lm) return nb[e]
+  }
+  return seen
 }
