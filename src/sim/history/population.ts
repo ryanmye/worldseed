@@ -51,11 +51,8 @@ export function foodSystem(s: HistoryState): void {
   const { catchOff, catchBase, catchCell, catchW, catchDist, capFish } = T
   const capacity = s.effCap
   const claim = s.claim
-  // Last year's claimed cells back to 0 (every other cell already is), then this year's claims,
-  // listing each cell the first time it is claimed.
-  const claimed = s.claimed
-  for (let t = 0; t < s.claimedCount; t++) claim[claimed[t]] = 0
-  let nClaimed = 0
+  // Every cell back to 0 (cheaper than listing the claimed ones), then this year's claims.
+  claim.fill(0)
   const living = s.living
   const smallPop = CATCHMENT.reachLow
   for (let t = 0; t < living.length; t++) {
@@ -65,11 +62,7 @@ export function foodSystem(s: HistoryState): void {
     const st = claimStrength(p)
     if (p <= smallPop) {
       // Base catchment only: the common case, kept tight.
-      for (let k = catchOff[c], e = catchBase[c]; k < e; k++) {
-        const j = catchCell[k]
-        if (claim[j] === 0) claimed[nClaimed++] = j
-        claim[j] += catchW[k] * st
-      }
+      for (let k = catchOff[c], e = catchBase[c]; k < e; k++) claim[catchCell[k]] += catchW[k] * st
       continue
     }
     const r1 = reachOf(p) + 1
@@ -82,18 +75,10 @@ export function foodSystem(s: HistoryState): void {
         if (f <= 0) break
         if (f > 1) f = 1
       }
-      const j = catchCell[k]
-      if (claim[j] === 0) claimed[nClaimed++] = j
-      claim[j] += f * catchW[k] * st
+      claim[catchCell[k]] += f * catchW[k] * st
     }
   }
-  s.claimedCount = nClaimed
-  // Inverse claims, once per claimed cell (the same quotient each claimant would compute).
-  const invClaim = s.invClaim
-  for (let t = 0; t < nClaimed; t++) {
-    const j = claimed[t]
-    invClaim[j] = 1 / claim[j]
-  }
+  // (Each claimant divides by the cell's whole claim below: 1 / claim, the same quotient for all.)
   // Expected food per settlement. Along the way, record which fields feed its
   // people this year: nearest catchment cells first, each up to the
   // settlement's share of the cell, until the food covers the population.
@@ -143,7 +128,7 @@ export function foodSystem(s: HistoryState): void {
         const j = catchCell[k]
         const w = catchW[k]
         const cj = capacity[j] + fish * capFish[j]
-        perStrength += cj * (w * w * invClaim[j])
+        perStrength += cj * (w * w * (1 / claim[j]))
       }
     } else for (let k = catchOff[c]; k < end; k++) {
       let w = catchW[k]
@@ -154,7 +139,7 @@ export function foodSystem(s: HistoryState): void {
         if (f < 1) w *= f
       }
       const j = catchCell[k]
-      const ic = invClaim[j]
+      const ic = 1 / claim[j]
       const cj = capacity[j] + fish * capFish[j]
       const ww = w * w * ic
       const term = cj * ww

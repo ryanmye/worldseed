@@ -48,20 +48,20 @@ import { rushAt } from './goods/hooks.ts' // goods:
  * bucket cells are settled in the order they were reached.
  */
 export interface Search {
+  /** Travel cost of each cell reached this run; Infinity elsewhere (reset at the end of each run). */
   dist: Float64Array
-  stamp: Int32Array
-  /** Predecessor cell on the shortest path found so far, valid wherever `stamp` matches `run`. */
+  /** Predecessor cell on the shortest path found so far, valid for the cells reached in the last run. */
   prev: Int32Array
-  /** Cells settled this run (stamp), at what cost. */
-  done: Int32Array
+  /** Cost at which each cell was settled this run; Infinity if not settled (reset with dist). */
   doneDist: Float64Array
+  /** Cells reached this run, to reset dist and doneDist. */
+  reached: Int32Array
   buckets: Int32Array[]
   bucketLen: Int32Array
   /** Buckets [0, used) may hold entries from the last run. */
   used: number
   /** 1 / bucket width. */
   inv: number
-  run: number
   /** frontier: settled-land counts and the frontier stream (frontier.ts), created at the first migration. */
   frontier: FrontierState | null
 }
@@ -70,41 +70,26 @@ export function createSearch(cellCount: number, cellScale: number): Search {
   const buckets: Int32Array[] = []
   for (let b = 0; b < 64; b++) buckets.push(new Int32Array(16))
   return {
-    dist: new Float64Array(cellCount),
-    stamp: new Int32Array(cellCount),
+    dist: new Float64Array(cellCount).fill(Infinity),
     prev: new Int32Array(cellCount),
-    done: new Int32Array(cellCount),
-    doneDist: new Float64Array(cellCount),
+    doneDist: new Float64Array(cellCount).fill(Infinity),
+    reached: new Int32Array(cellCount),
     buckets,
     bucketLen: new Int32Array(64),
     used: 0,
     inv: 1 / (MIGRATION.bucketWidth * cellScale),
-    run: 0,
     frontier: null,
   }
 }
 
-/** Queues cell c at cost d (bucket floor(d * inv)), growing the buckets as needed. */
-function enqueue(search: Search, c: number, d: number): void {
-  const b = Math.floor(d * search.inv)
-  if (b >= search.bucketLen.length) {
-    let size = search.bucketLen.length
-    while (size <= b) size *= 2
-    const len = new Int32Array(size)
-    len.set(search.bucketLen)
-    search.bucketLen = len
-    for (let k = search.buckets.length; k < size; k++) search.buckets.push(new Int32Array(16))
-  }
-  let arr = search.buckets[b]
-  const n = search.bucketLen[b]
-  if (n === arr.length) {
-    const a = new Int32Array(arr.length * 2)
-    a.set(arr)
-    search.buckets[b] = arr = a
-  }
-  arr[n] = c
-  search.bucketLen[b] = n + 1
-  if (b >= search.used) search.used = b + 1
+/** Grows the bucket queue to hold bucket b (sizes doubling). */
+function growBuckets(search: Search, b: number): void {
+  let size = search.bucketLen.length
+  while (size <= b) size *= 2
+  const len = new Int32Array(size)
+  len.set(search.bucketLen)
+  search.bucketLen = len
+  for (let k = search.buckets.length; k < size; k++) search.buckets.push(new Int32Array(16))
 }
 
 /** Walks `prev` from `dest` back to `origin`, returning the path origin-first. */
@@ -170,17 +155,21 @@ export function migrationSystem(s: HistoryState, search: Search): void {
     const id = movers[t]
     const p = s.pop[id]
     const roll = rng.next()
+    // Still waiting after a search that found nothing (both cases below need s.year >= nextMigration).
+    if (s.year < s.nextMigration[id]) continue
     const flee = M.hungerChance * (1 - smoothstep(M.hungerLow, M.hungerHigh, s.food[id])) + (s.pol !== null ? fleeChance(s.pol, id) : 0) // polities: flight from danger
     if (p < M.minPop) {
       // Too few to split up: when hunger drives them out, the whole hamlet
       // leaves together (and the site is abandoned).
-      if (p >= M.minGroup && roll < flee * M.exodusChance && s.year >= s.nextMigration[id]) {
+      if (p >= M.minGroup && roll < flee * M.exodusChance) {
         if (!migrate(s, search, id, p, true)) s.nextMigration[id] = s.year + M.retryRefugees
       }
       continue
     }
+    // A cheap exit first: a roll above what colonise (at most pressureChance) could reach.
+    if (roll >= M.pressureChance + flee) continue
     const colonise = (M.pressureChance * smoothstep(M.pressureLow, M.pressureHigh, p / foodBase(s, id))) / (1 + WEALTH.stay * prosperity(s, id))
-    if (roll >= colonise + flee || s.year < s.nextMigration[id]) continue
+    if (roll >= colonise + flee) continue
     const g = Math.floor(p * rng.range(M.groupMin, M.groupMax))
     if (g < M.minGroup || p - g < M.minGroup) continue
     const refugees = roll >= colonise
@@ -223,15 +212,16 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   const cBase = people * k.P
   const contact = k.contact
 
-  const { dist, stamp, prev, done, doneDist } = search
-  const run = ++search.run
+  const { dist, prev, doneDist, reached } = search
   search.bucketLen.fill(0, 0, search.used)
-  search.used = 0
   const origin = s.cell[from]
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
   dist[origin] = 0
-  stamp[origin] = run
-  enqueue(search, origin, 0)
+  reached[0] = origin
+  let nReached = 1
+  search.buckets[0][0] = origin
+  search.bucketLen[0] = 1
+  search.used = 1
 
   let bestScore = 0
   let bestCell = -1
@@ -261,17 +251,20 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
   const FR = FRONTIER
   const originLm = T.landmass[origin]
   const invHalf = 1 / FR.distHalf
+  // The bucket queue in locals (written back at the end).
+  const buckets = search.buckets
+  let bucketLen = search.bucketLen
+  let used = search.used
   for (let b = 0, i = 0; ;) {
-    if (i >= search.bucketLen[b]) {
-      if (++b >= search.used) break
+    if (i >= bucketLen[b]) {
+      if (++b >= used) break
       i = 0
       continue
     }
-    const c = search.buckets[b][i++]
+    const c = buckets[b][i++]
     const d = dist[c]
-    if (Math.floor(d * inv) !== b || (done[c] === run && doneDist[c] <= d)) continue // stale entry
+    if (Math.floor(d * inv) !== b || doneDist[c] <= d) continue // stale entry
     if (visits >= maxVisits) break
-    done[c] = run
     doneDist[c] = d
     visits++
     if (c !== origin) {
@@ -324,6 +317,10 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
     }
     for (let e = off[c], e1 = off[c + 1]; e < e1; e++) {
       const j = nb[e]
+      // Reached at no more than d already: no step (>= 0) can improve it, so skip the step cost
+      // (a reached cell is known, except perhaps the origin, which the shadow search still checks below).
+      const dj = dist[j]
+      if (dj <= d && (jitter || j !== origin)) continue
       if (restrict && known[kBase + j] < 0) {
         // Nobody of this people has seen it (the shadow search notes whether that cut its reach short).
         if (!jitter && !frontier) frontier = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : plain ? moveCost[j] : moveCost[j] * tm[mcls[j]]) <= budget
@@ -331,13 +328,28 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
       }
       const nd = d + (deep[j] ? ocean : sea[j] ? seaCost[j] * seaMul : plain ? moveCost[j] : moveCost[j] * tm[mcls[j]])
       if (nd > budget) continue
-      if (stamp[j] === run && nd >= dist[j]) continue
-      stamp[j] = run
+      if (nd >= dj) continue
+      if (dj === Infinity) reached[nReached++] = j
       dist[j] = nd
       prev[j] = c
-      enqueue(search, j, nd)
+      // Queue it in bucket floor(nd * inv), growing the buckets as needed.
+      const qb = Math.floor(nd * inv)
+      if (qb >= bucketLen.length) { growBuckets(search, qb); bucketLen = search.bucketLen }
+      let arr = buckets[qb]
+      const n = bucketLen[qb]
+      if (n === arr.length) {
+        const a = new Int32Array(arr.length * 2)
+        a.set(arr)
+        buckets[qb] = arr = a
+      }
+      arr[n] = j
+      bucketLen[qb] = n + 1
+      if (qb >= used) used = qb + 1
     }
   }
+  search.used = used
+  // Unreached again for the next run.
+  for (let t = 0; t < nReached; t++) { const j = reached[t]; dist[j] = Infinity; doneDist[j] = Infinity }
   foundCell = bestCell
   foundJoin = bestJoin
   foundFrontier = frontier
