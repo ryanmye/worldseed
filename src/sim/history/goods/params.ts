@@ -358,10 +358,12 @@ export const LANE = {
 export const POST = {
   /** Factory: a lane end at a foreign trader of at least factoryPop in contact, at peace with the sponsor. */
   factoryPop: 1000,
+  /** A lane's foreign end outside any kingdom (stateless or a chiefdom's) gets a fort beside it instead of a factory, when the sponsor is a state's. */
+  fortWeak: true,
   /** Fort / station: people sent, supply years, self-sufficient at pop and food. */
   fortPop: 60,
-  supplyYears: 60,
-  selfPop: 1000,
+  supplyYears: 200,
+  selfPop: 3000,
   selfFood: 0.9,
   /** Supply cost a year: supply * pop * route cost of the post (like an outpost), from the owner's wealth; strikes before it is lost.
    *  A supplied post's food is topped up to fed * its people (from the owner), and every colonyStep years the owner sends
@@ -401,7 +403,7 @@ export const SECRET = {
   stateless: 0.15,
   /** Monopoly rent: rho = rent * psi of the sender's price on the secret varieties leaving the holder polity. */
   rent: 0.3,
-  contact: 0.006,
+  contact: 0.012,
   /** Craft secrets pass by contact at this share of the rate (tacit skill travels with craftsmen, not goods). */
   craftContact: 0.1,
   contactHalf: 1000,
@@ -418,7 +420,7 @@ export const SECRET = {
   /** SecretSmuggled is logged once per secret and people when its contraband reaching the people first reaches smuggledMin a year. */
   smuggledMin: 20,
   rediscovery: 0.005,
-  chart: 0.008,
+  chart: 0.014,
   chartGuard: 0.6,
   chartWar: 0.03,
   /** Inside a holder polity, other ports gain a chart after chartYears * psi years. */

@@ -400,10 +400,14 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   let post = -1, postKind = -1
   const ps = s.pol
   const hostile = e >= 0 && ps !== null && hp >= 0 && polityOf(s, e) >= 0 && atWar(ps, hp, polityOf(s, e))
-  if (e < 0 || hostile) {
-    // A fort beside the source, on the best free coastal cell within two hops.
+  // A foreign trader outside any kingdom gives no factory leave: a state's sponsor fortifies a post beside it (Elmina, Luanda).
+  const ep = e >= 0 ? polityOf(s, e) : -1
+  const weak = e >= 0 && POST.fortWeak && ps !== null && hp >= 0 && s.people[e] !== people && (ep < 0 || tierOf(ps.pPop[ep], ps.pMembers[ep], ps.pMulti[ep] === 1, ps.worldPop) < Tier.Kingdom)
+  if (e < 0 || hostile || weak) {
+    // A fort beside the source, on the best free coastal cell within two hops (for a weak host, a factory when there is no room).
     const site = siteNear(s, endCell, 2)
-    if (site >= 0) {
+    if (site < 0 && weak && !hostile) { if (s.pop[e] >= POST.factoryPop) postKind = PostKind.Factory }
+    else if (site >= 0) {
       const n = Math.min(POST.fortPop, Math.floor(s.pop[h] * 0.05))
       if (n >= 20) {
         s.pop[h] -= n
@@ -411,7 +415,8 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
         ensureGoods(g, s.count)
         postKind = PostKind.Fort
         logJourney(s, { departYear: depart, arriveYear: s.year, from: h, to: e, size: n, kind: JourneyKind.Settlers, path: extendTo(s, path, site) })
-      } else e = -1
+      } else if (!weak || hostile) e = -1
+      else if (s.pop[e] >= POST.factoryPop) postKind = PostKind.Factory
     } else e = -1
   } else if (s.people[e] !== people && s.pop[e] >= POST.factoryPop) postKind = PostKind.Factory
   logEvent(s, EventType.ExpeditionReturned, h, postKind === PostKind.Fort ? e : -1, cells)
