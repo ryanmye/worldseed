@@ -71,7 +71,7 @@ import type { PairPolicy } from './polity/policy.ts' // polities:
 import { SMUGGLE, TARIFF } from './polity/params.ts' // polities:
 import { ACCOUNTS, flushAccounts } from './polity/outlaw.ts' // polities:
 // goods: high-value classes, stocks and merchants, middlemen, the long-haul layer (goods/*); contraband is polities v2's.
-import { HVR, cutOf, goodsSettle, goodsStock, hvLoads, hvMoved, hvPair, hvPrice, hvTransport, pairCuts } from './goods/market.ts'
+import { HVR, cutOf, goodsSettle, goodsStock, hvMoved, hvPair, hvPrice, hvTransport, pairCuts } from './goods/market.ts'
 import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
 import { noteIncome } from './goods/state.ts'
 import { STOCK } from './goods/params.ts'
@@ -291,6 +291,8 @@ function ensureRoutes(ts: TradeState, count: number): void {
 
 /** species-v2: goods traded this year (scratch). */
 const GOODS_LIST = new Int32Array(G)
+/** This year's traders in living order (scratch, grown). */
+let TRADERS = new Int32Array(256)
 /** Travel cost multipliers by species move class (species.moveMuls), scratch. */
 const LINK_MUL = new Float64Array(3)
 const ROUTE_MUL = new Float64Array(3)
@@ -719,10 +721,13 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   const gx = s.goods // goods:
   let traders = 0
   trader.fill(0, 0, s.count) // (abandoned settlements never trade)
+  if (TRADERS.length < living.length) TRADERS = new Int32Array(2 * living.length)
+  const tl = TRADERS // (the traders in living order: the loops below that only touch traders)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     const on = s.pop[id] >= TRADE.minPop || (gx !== null && id < gx.cap && gx.postOf[id] >= 0) ? 1 : 0 // goods: trading posts always trade
     trader[id] = on
+    if (on) tl[traders] = id
     traders += on
     income[id] = 0
     throughYear[id] = 0
@@ -739,9 +744,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   if (ts.pairCount === 0) { settle(s, ts); return }
 
   // Stocks, needs and prices of the traders.
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
-    if (!trader[id]) continue
+  for (let t = 0; t < traders; t++) {
+    const id = tl[t]
     const o = id * G
     const p = s.pop[id]
     const F = s.supply[id]
@@ -785,7 +789,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   let nGoods = 0
   for (let g = 0; g < G; g++) {
     let any = g < 6
-    for (let t = 0; t < living.length && !any; t++) { const id = living[t]; if (trader[id] && stock[id * G + g] > 0) any = true }
+    for (let t = 0; t < traders && !any; t++) if (stock[tl[t] * G + g] > 0) any = true
     if (any) goods[nGoods++] = g
   }
   const perish = ts.perish, cashShare = CASHCROP.maxShare, v2 = s.sp.v2 // species-v2 (hoisted)
@@ -969,10 +973,11 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   for (let p = 0; p < P; p++) {
     const a = pairA[p], b = pairB[p]
     if (!trader[a] || !trader[b]) continue
-    let vol = 0
+    let vol = 0, hvl = 0
     const o = p * G * 2
-    // (only the goods traded this year can have moved: the others' flows are 0)
-    for (let gi = 0; gi < nGoods; gi++) { const g = goods[gi]; vol += (pairFlow[o + g * 2] + pairFlow[o + g * 2 + 1]) * V[g] }
+    // (only the goods traded this year can have moved: the others' flows are 0; goods: hvl sums the high-value classes' loads
+    // in hvLoads's order, without its +0 terms)
+    for (let gi = 0; gi < nGoods; gi++) { const g = goods[gi]; const x = (pairFlow[o + g * 2] + pairFlow[o + g * 2 + 1]) * V[g]; vol += x; if (g >= 7) hvl += x }
     if (!(vol > 0)) continue
     let r = pairRoute[p]
     if (r < 0) { r = createRoute(s, ts, p); pairRoute[p] = r } // (may grow the route buffers: use ts.* below)
@@ -996,7 +1001,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
     throughYear[b] += TRADE.ownWeight * vol
     const transit = ts.rTransit[r]
     const hvv = gx !== null ? gx.pairHv[p] : 0
-    const tollVol = gx !== null ? vol - hvLoads(ts, p) : vol // goods: high-value goods pay their cut instead
+    const tollVol = gx !== null ? vol - hvl : vol // goods: high-value goods pay their cut instead (hvLoads)
     for (let k = 0; k < transit.length; k++) {
       const x = transit[k]
       if (s.abandoned[x] >= 0) continue
@@ -1008,9 +1013,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
 
   if (pol !== null && s.year % ACCOUNTS === ACCOUNTS - 1) flushAccounts(s, pol, ts) // polities: (v2) duties, contraband, plunder paid out
   // Fed by what is left after trade.
-  for (let t = 0; t < living.length; t++) {
-    const id = living[t]
-    if (!trader[id]) continue
+  for (let t = 0; t < traders; t++) {
+    const id = tl[t]
     const o = id * G
     const F = stock[o] + stock[o + 1] + stock[o + 2]
     const p = s.pop[id]

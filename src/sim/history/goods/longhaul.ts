@@ -243,7 +243,7 @@ export function forwardPrices(s: HistoryState, ts: TradeState, g: GoodsState): v
   for (let i = 0; i < S; i++) ADJ_OFF[i + 1] += ADJ_OFF[i]
   if (ADJ_N.length < n) { ADJ_N = new Int32Array(2 * n); ADJ_MU = new Float64Array(2 * n); ADJ_T = new Float64Array(2 * n) }
   const fill = FILL.length >= S ? FILL : (FILL = new Int32Array(2 * S))
-  for (let i = 0; i < S; i++) fill[i] = ADJ_OFF[i]
+  fill.set(ADJ_OFF.subarray(0, S)) // (a copy of the offsets)
   for (let i = 0; i < order.length; i++) {
     const k = order[i]
     if (!g.legOpen[k]) continue
@@ -567,7 +567,9 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         }
       }
       const wedge = TARIFF.wedge * duty
-      for (const gd of LEG_GOODS) {
+      const fwdBid = g.fwdBid, toMart = g.isMart[to], fromMart = g.isMart[from]
+      for (let j = 0; j < NLG; j++) {
+        const gd = LEG_GOODS[j]
         if (lane && !(capLeft > 0)) break
         const kf = from * G + gd, kt = to * G + gd
         const S0 = stock[kf]
@@ -576,11 +578,11 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         const pLocal = price[kt]
         // The buyer's merchants bid their forward price (not back toward where it comes from); the seller's hold out for theirs.
         let P = pLocal
-        const fb = g.fwdBid[kt]
-        if (fb > P && g.isMart[to] && g.fwdVia[kt] !== from) P = fb
+        const fb = fwdBid[kt]
+        if (fb > P && toMart && g.fwdVia[kt] !== from) P = fb
         let res = pf
-        const fsl = g.fwdBid[kf]
-        if (fsl > res && g.isMart[from]) res = fsl
+        const fsl = fwdBid[kf]
+        if (fsl > res && fromMart) res = fsl
         const minGap = TRADE.minGap * V[gd]
         const dw = wedge * pLocal
         if (!(P - res * (1 + mu) - minGap - dw > 0)) continue

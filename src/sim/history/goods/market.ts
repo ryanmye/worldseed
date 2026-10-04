@@ -24,7 +24,7 @@ import { CLASS, DEMAND, FLAGS, FURS, METAL, MIDDLE, SECRET, STOCK, TRADITION, WO
 import { SMUGGLE } from '../polity/params.ts'
 import type { PairPolicy } from '../polity/policy.ts'
 import type { GoodsState } from './state.ts'
-import { K, M, MIX_OF, Maker, density, ensureGoods, mixAdd, mixFlow, mixScale, newVariety, noteIncome, setVarSecret } from './state.ts'
+import { INCOME, K, M, MIX_OF, Maker, density, ensureGoods, mixAdd, mixFlow, mixScale, newVariety, setVarSecret } from './state.ts'
 
 const G = GOOD_COUNT
 const NC = CASH.length
@@ -41,11 +41,13 @@ const IN_INDEX: Int32Array = (() => { const a = new Int32Array(G).fill(-1); IN_C
 
 /** Per-settlement scratch of this year's market (grown): artisans, input demand per input class, tools and arms demand. */
 let ART = new Float64Array(0), INDEM = new Float64Array(0), DTOOLS = new Float64Array(0), DARMS = new Float64Array(0)
+/** Per settlement and recipe: workshop output at full use of its inputs (set by goodsStock where it has artisans). */
+let WN = new Float64Array(0)
 function scratch(n: number): void {
   if (ART.length >= n) return
   let m = Math.max(256, ART.length)
   while (m < n) m *= 2
-  ART = new Float64Array(m); INDEM = new Float64Array(m * 4); DTOOLS = new Float64Array(m); DARMS = new Float64Array(m)
+  ART = new Float64Array(m); INDEM = new Float64Array(m * 4); DTOOLS = new Float64Array(m); DARMS = new Float64Array(m); WN = new Float64Array(m * 3)
 }
 
 /** Crop variety of species x grown by people p (created the first time that people brings it to market). */
@@ -227,6 +229,8 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
   let sum = 0
   for (let r = 0; r < 3; r++) {
     const f = tech[to + X2.field[r]]
+    const gt = smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
+    GATE[r] = gt
     const out = X2.out[r]
     let cost = X2.need1[r] * price[o + X2.in1[r]]
     if (X2.in2[r] >= 0) cost += X2.need2[r] * price[o + X2.in2[r]]
@@ -234,7 +238,7 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
     const Dd = demand[o + out] > 1e-9 ? demand[o + out] : 1e-9
     const pOut = (worth[o + out] * (1 + STOCK.k)) / (STOCK.k + stock[o + out] / Dd)
     const margin = pOut - cost
-    let want = smoothstep(0, 1, margin / (W[out] * X2.marginRef)) * smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
+    let want = smoothstep(0, 1, margin / (W[out] * X2.marginRef)) * gt
     if (r === 1 && want > 0 && !(dyeIn(g, id) > 0)) want = 0 // (no dye in stock)
     TGT[r] = want
     sum += want
@@ -244,14 +248,15 @@ export function goodsStock(s: HistoryState, ts: TradeState, g: GoodsState, id: n
     const sh = g.wShare[id * 3 + r] + X2.rate * (TGT[r] * norm - g.wShare[id * 3 + r])
     g.wShare[id * 3 + r] = sh < 1e-4 && TGT[r] === 0 ? 0 : sh
     const f = tech[to + X2.field[r]]
-    const outN = g.wShare[id * 3 + r] * art * X2.prod[r] * f * smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
+    const outN = g.wShare[id * 3 + r] * art * X2.prod[r] * f * GATE[r]
+    WN[id * 3 + r] = outN // (goodsSettle's workshop output at full use: the same product)
     if (!(outN > 0)) continue
     INDEM[io + IN_INDEX[X2.in1[r]]] += X2.need1[r] * outN
     if (X2.in2[r] >= 0) INDEM[io + IN_INDEX[X2.in2[r]]] += X2.need2[r] * outN
   }
   for (let j = 0; j < 4; j++) if (INDEM[io + j] > 0) demand[o + IN_CLASSES[j]] += INDEM[io + j]
 }
-const TGT = new Float64Array(3)
+const TGT = new Float64Array(3), GATE = new Float64Array(3)
 
 /** Dye in trader id's Luxury stock (named dye varieties). */
 function dyeIn(g: GoodsState, id: number): number {
@@ -326,9 +331,11 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   const pa = price[oa], pb = price[ob]
   // Buying and reservation prices: a mart's merchants bid their forward price (not to the mart it comes through) and hold
   // out for it when selling, so goods move only up the merchants' expectations (no cycles); elsewhere the local price.
-  const ma = g.isMart[a] === 1, mb = g.isMart[b] === 1
-  const Pa = ma ? buyPrice(s, ts, g, a, gd, b) : pa, Pb = mb ? buyPrice(s, ts, g, b, gd, a) : pb
-  const ra = ma ? sellPrice(s, ts, g, a, gd) : pa, rb = mb ? sellPrice(s, ts, g, b, gd) : pb
+  // (buyPrice and sellPrice inline: the forward bid when it is higher.)
+  const isMart = g.isMart
+  let Pa = pa, Pb = pb, ra = pa, rb = pb
+  if (isMart[a] === 1) { const f = g.fwdBid[oa]; if (f > pa) { ra = f; if (g.fwdVia[oa] !== b) Pa = f } }
+  if (isMart[b] === 1) { const f = g.fwdBid[ob]; if (f > pb) { rb = f; if (g.fwdVia[ob] !== a) Pb = f } }
   const mu = g.pairMu[pi]
   const tu = CLASS.transport[gd] * c
   const minGap = TRADE.minGap * GOODS.value[gd]
@@ -337,9 +344,11 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   const dA = wA * pb, dB = wB * pa
   // (A coarse test first, at the densest value a mix can have, then the sender's density.)
   let nAB = Pb - ra - mu * pa - minGap - dA, nBA = Pa - rb - mu * pb - minGap - dB
+  const t4 = 0.25 * tu
+  if (!(nAB > t4 && sa > 0) && !(nBA > t4 && sb > 0)) return false // (neither way beats the coarse test)
   let dnA = 1, dnB = 1
-  if (nAB > 0.25 * tu && sa > 0) { dnA = m >= 0 ? density(g, a, m, sa) : 1; nAB -= tu * dnA } else nAB = -1
-  if (nBA > 0.25 * tu && sb > 0) { dnB = m >= 0 ? density(g, b, m, sb) : 1; nBA -= tu * dnB } else nBA = -1
+  if (nAB > t4 && sa > 0) { dnA = m >= 0 ? density(g, a, m, sa) : 1; nAB -= tu * dnA } else nAB = -1
+  if (nBA > t4 && sb > 0) { dnB = m >= 0 ? density(g, b, m, sb) : 1; nBA -= tu * dnB } else nBA = -1
   let from: number, to: number, net: number, dir: number
   if (nAB > 0 && nAB >= nBA) { from = a; to = b; net = nAB + minGap; dir = 0 }
   else if (nBA > 0) { from = b; to = a; net = nBA + minGap; dir = 1 }
@@ -364,16 +373,28 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   stock[kt] += q
   if (m >= 0) mixFlow(g, from, to, m, q, before)
   if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, q, before, price[kt])
-  const cap1 = STOCK.incomeGap * ts.worth[kt]
+  const worth = ts.worth
+  const cap1 = STOCK.incomeGap * worth[kt]
   const gain = real > 0 ? (real < cap1 ? real : cap1) : 0
   const earn = q * (0.5 * gain + STOCK.hvMargin * TRADE.margin * GOODS.value[gd])
   ts.income[from] += earn
-  noteIncome(s, g, gd, earn)
+  INCOME[gd] += earn // (noteIncome)
   ts.pairFlow[(pi * G + gd) * 2 + dir] += q
   g.pairHv[pi] += q * pFrom
   HVR.dir = dir; HVR.q = q; HVR.net = gain; HVR.pt = price[kt] // (the smugglers' cut, too, is on the realised gap)
-  hvPrice(ts, kf, ts.demand[kf])
-  hvPrice(ts, kt, ts.demand[kt])
+  // (hvPrice at both ends, inline)
+  const demand = ts.demand
+  const kk = STOCK.k, k1 = 1 + kk
+  let D = demand[kf] > 1e-9 ? demand[kf] : 1e-9
+  let den = kk + stock[kf] / D
+  let pr = (worth[kf] * k1) / den
+  price[kf] = pr
+  deriv[kf] = pr / den / D
+  D = demand[kt] > 1e-9 ? demand[kt] : 1e-9
+  den = kk + stock[kt] / D
+  pr = (worth[kt] * k1) / den
+  price[kt] = pr
+  deriv[kt] = pr / den / D
   return true
 }
 
@@ -582,9 +603,9 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
       g.wOut[id * 3 + r] = 0
       const sh = g.wShare[id * 3 + r]
       if (!(art > 0) || !(sh > 0)) continue
-      const f = tech[to + X2.field[r]]
-      const n = sh * art * X2.prod[r] * f * smoothstep(X2.gate[r] - 0.4, X2.gate[r] + 0.2, f)
+      const n = WN[id * 3 + r] // (sh * art * prod * f * gate, as goodsStock reckoned it this year)
       if (!(n > 0)) continue
+      const f = tech[to + X2.field[r]]
       const i1 = o + X2.in1[r]
       let use = stock[i1] / (X2.need1[r] * n)
       let dye = 0
