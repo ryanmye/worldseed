@@ -226,11 +226,15 @@ export function siteFactor(s: HistoryState, ps: PolityState, c: number, from: nu
   return (1 - DANGER.site * z * (1 - D)) * (1 + DANGER.refuge * z * D)
 }
 
-/** Join score factor of a group from `from` joining `occ`: the threatened crowd into walled towns; dangerous towns repel. */
+/**
+ * Join score factor of a group from `from` joining `occ`: the threatened crowd into walled towns and towns on
+ * defensible sites, * (1 + z_from * (wall + refugeJoin * D)); dangerous towns repel, * (1 - site * z_occ * (1 - D)).
+ */
 export function joinFactor(s: HistoryState, ps: PolityState, from: number, occ: number): number {
   if (occ >= ps.seen || from >= ps.seen) return 1
   const wall = ps.walls[occ] > 0 ? POLITY.wall : 0
-  return (1 + ps.danger[from] * wall) * (1 - DANGER.site * ps.danger[occ] * (1 - ps.defenseD[s.cell[occ]]))
+  const D = ps.defenseD[s.cell[occ]]
+  return (1 + ps.danger[from] * (wall + DANGER.refugeJoin * D)) * (1 - DANGER.site * ps.danger[occ] * (1 - D))
 }
 
 /** True when a group from `from` may not join `occ`: their polities are at war. */

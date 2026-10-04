@@ -176,8 +176,9 @@ function strike(s: HistoryState, ps: PolityState, p: number, q: number, u: numbe
   strikeA = projAt(ps, p, d) / (1 + 0.5 * ps.ravage[u])
   const cap = isCapital(ps, v)
   // (walls shelter the town's own defenders, already in Local; the realm's field army fights on the ground's terms)
-  void cap
-  strikeD = projAt(ps, q, ps.dist[v]) * ps.defense[s.cell[v]] * (WAR.fieldWall ? wallFactor(ps, v, isCapital(ps, v)) : 1) + localOf(s, ps, v)
+  // (at its capital a realm's field army counts at capitalField: the rest holds the provinces and garrisons, so a
+  // stronger attacker can take a peer's capital; the citadel and walls are in Local)
+  strikeD = projAt(ps, q, ps.dist[v]) * (cap ? WAR.capitalField : 1) * ps.defense[s.cell[v]] * (WAR.fieldWall ? wallFactor(ps, v, cap) : 1) + localOf(s, ps, v)
   return strikeA / (strikeD + 1e-9)
 }
 

@@ -137,6 +137,8 @@ export const WAR = {
   sackDanger: 0.9,
   /** Walls also multiply the realm's field army defending the town (design 6.3); off: walls shelter only the town's own defenders. */
   fieldWall: false,
+  /** At its own capital the defender's field army counts at this share (1: the whole realm's mass defends it). */
+  capitalField: 1,
   /** A failed year of siege makes the next year's odds this much better for the besiegers. */
   siegeAttrition: 1.15,
   /** After its capital falls, the defender's members submit to the conqueror at this alpha (shock); a rump survives only with rumpShare of the realm's people (and POLITY.minState). */
@@ -205,7 +207,9 @@ export const DANGER = {
   /** Site and join scores: * (1 - site * zCell * (1 - D)), D = defensibility 0..1; walled towns pull the threatened: * (1 + z_from * wall). */
   site: 1.0,
   /** Refuge: in danger, defensible sites are sought after: * (1 + refuge * z * D). */
-  refuge: 2,
+  refuge: 6,
+  /** The threatened also prefer to join towns on defensible sites: join * (1 + z_from * refugeJoin * D). */
+  refugeJoin: 3,
   /** A group's own danger counts this much toward the danger of the sites it weighs. */
   fear: 1.0,
 }
@@ -270,4 +274,27 @@ export const UNREST = {
   /** Capital move (b): a member with moveRatio times the capital's people for moveYears and lower smoothed danger. */
   moveRatio: 1.6,
   moveYears: 30,
+}
+
+/** Static defensibility of cells (defense.ts): feature weights of the raw score, and its rank-based mapping to D. */
+export const DEFENSE = {
+  /** Relief relative to the cells within two hops: full hill weight from the hillHigh quantile (among habitable cells), none below hillLow. */
+  hill: 1,
+  hillLow: 0.7,
+  hillHigh: 0.97,
+  island: 0.8,
+  /** Sea share within two hops: smoothstep(penLow, penHigh). */
+  peninsula: 0.6,
+  penLow: 0.4,
+  penHigh: 0.7,
+  bend: 0.5,
+  confluence: 0.4,
+  pass: 0.4,
+  passRise: 0.08,
+  marsh: 0.3,
+  mountain: 0.2,
+  river: 0.05,
+  /** Share of the habitable cells with any defensibility (D > 0), and with full D = 1. */
+  share: 0.2,
+  fullShare: 0.03,
 }
