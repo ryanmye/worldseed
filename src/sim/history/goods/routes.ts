@@ -262,7 +262,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
     const p = polityOf(s, h)
     if (ps !== null && p >= 0) {
       const cap = ps.pCapital[p]
-      if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1) >= Tier.Kingdom && s.wealth[cap] >= X.polityMul * cost) payer = cap
+      if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom && s.wealth[cap] >= X.polityMul * cost) payer = cap
     }
   }
   if (payer < 0) { g.urge[h] = 1; if (ck >= 0) g.urgeChart[h] = ck + 1; return }

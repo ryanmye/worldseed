@@ -244,7 +244,7 @@ export function allianceStep(s: HistoryState, ps: PolityState): void {
       if (overlordOf(ps, x) === y || overlordOf(ps, y) === x || !inContact(s, ps.pPeople[x], ps.pPeople[y])) continue
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
-      if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1) < Tier.Kingdom) continue
+      if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
       if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= X.chance) continue
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }

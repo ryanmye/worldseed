@@ -296,7 +296,7 @@ function leaks(s: HistoryState, g: GoodsState, k: number, tk: TechState, big: In
       r[LeakChannel.Contact] = X.contact * (kind === SecretKind.Craft ? X.craftContact : 1) * (v / (v + X.contactHalf)) * (1 - X.protect * pi) * cr
       // Espionage: a kingdom or empire paying much for it.
       const qp = polityOf(s, big[q])
-      if (ps !== null && qp >= 0 && tierOf(ps.pPop[qp], ps.pMembers[qp], ps.pMulti[qp] === 1) >= Tier.Kingdom) {
+      if (ps !== null && qp >= 0 && tierOf(ps.pPop[qp], ps.pMembers[qp], ps.pMulti[qp] === 1, ps.worldPop) >= Tier.Kingdom) {
         const x = smoothstep(X.spyLow, X.spyHigh, bill / income)
         if (x > 0) {
           r[LeakChannel.Espionage] = X.espionage * x * (1 - X.protect * pi) * cr

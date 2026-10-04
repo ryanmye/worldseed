@@ -156,7 +156,7 @@ export function crisisOpened(s: HistoryState, ps: PolityState, ts: TradeState, p
   const members = membersOf(s, ps, p)
   const r = rivalCentre(s, ps, p, members)
   if (r >= 0 && rng.next() < CIVIL.crisis * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)) { civilWar(s, ps, ts, p, r, members); return }
-  if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1) >= Tier.Kingdom && rng.next() < CIVIL.partition) partition(s, ps, p, members)
+  if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom && rng.next() < CIVIL.partition) partition(s, ps, p, members)
 }
 
 /** Every step: a realm whose cohesion is low may fall into civil war without a crisis. */

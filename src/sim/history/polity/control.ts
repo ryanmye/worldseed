@@ -93,7 +93,9 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
 /** Power of every living settlement, member lists, distances from capitals, reach, cohesion and mass of every polity. */
 export function controlPass(s: HistoryState, ps: PolityState, heap: Heap): void {
   const living = s.living
-  for (let t = 0; t < living.length; t++) { const id = living[t]; ps.str[id] = powerOf(s, id) }
+  let world = 0
+  for (let t = 0; t < living.length; t++) { const id = living[t]; ps.str[id] = powerOf(s, id); if (!s.outpost[id]) world += s.pop[id] }
+  ps.worldPop = world
   rebuildMembers(s, ps)
   for (const p of ps.alive) controlOf(s, ps, p, heap, ps.memList, ps.memOff[p], ps.memOff[p + 1])
 }

@@ -79,7 +79,7 @@ function newSettlements(s: HistoryState, ps: PolityState): void {
     if (par < 0) continue
     const pp = ps.polity[par]
     if (seaborne) {
-      if (pp >= 0 && s.port[par] >= 0 && tierOf(ps.pPop[pp], ps.pMembers[pp], ps.pMulti[pp] === 1) >= Tier.Kingdom) setPolity(s, ps, id, pp, ps.dist[par] + ps.linkCost[links])
+      if (pp >= 0 && s.port[par] >= 0 && tierOf(ps.pPop[pp], ps.pMembers[pp], ps.pMulti[pp] === 1, ps.worldPop) >= Tier.Kingdom) setPolity(s, ps, id, pp, ps.dist[par] + ps.linkCost[links])
       continue
     }
     const c = s.cell[id]

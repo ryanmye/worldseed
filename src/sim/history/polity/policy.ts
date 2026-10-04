@@ -142,7 +142,7 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
   }
   const k = step * X.rate < 1 ? step * X.rate : 1
   for (const p of ps.alive) {
-    const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1)
+    const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
     const w = s.wealth[ps.pCapital[p]] / (X.needRef * ps.pMass[p] + 1e-9)
     let mr = maxR[p]
     if (mr > 1) mr = 1

@@ -255,6 +255,8 @@ export interface PolityState {
   lossRoutes: number[]
   /** Coastal settlements near each route's sea cells (map pass): CSR over route ids [0, nearRoutes). */
   nearRoutes: number
+  /** People of the world at the last control pass (living settlements, outposts excepted), for tierOf. */
+  worldPop: number
   /** goods: the long-haul legs' legal and smuggled loads, plunder by pirates and by bandits since the last flush (outlaw.ts flushAccounts). */
   legAcc: Float64Array
   nearOff: Int32Array
@@ -364,7 +366,7 @@ export function createPolityState(s: HistoryState): PolityState {
     pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
     bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
-    nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4),
+    nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
   }
   return Object.assign(base, v2) as PolityState
@@ -677,10 +679,16 @@ export function endPolity(s: HistoryState, ps: PolityState, p: number, cause: Po
 /** Tiers (derived, never stored; design 1.1). */
 export const Tier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
 
-/** Tier of a polity of `pop` people in `members` settlements; `multi` when two peoples each hold >= multiShare of its people. */
-export function tierOf(pop: number, members: number, multi: boolean): number {
-  if (pop >= POLITY.empirePop || (multi && members >= POLITY.multiMembers)) return Tier.Empire
-  if (members >= POLITY.kingdomMembers && pop >= POLITY.kingdomPop) return Tier.Kingdom
+/**
+ * Tier of a polity of `pop` people in `members` settlements in a world of `world` people (living settlements, outposts
+ * excepted: PolityState.worldPop); `multi` when two peoples each hold >= multiShare of its people.
+ */
+export function tierOf(pop: number, members: number, multi: boolean, world: number): number {
+  const X = POLITY
+  const e = X.empireShare * world
+  if (pop >= (e > X.empirePop ? e : X.empirePop) || (multi && members >= X.multiMembers)) return Tier.Empire
+  const k = X.kingdomShare * world
+  if (members >= X.kingdomMembers && pop >= (k > X.kingdomPop ? k : X.kingdomPop)) return Tier.Kingdom
   return Tier.Chiefdom
 }
 

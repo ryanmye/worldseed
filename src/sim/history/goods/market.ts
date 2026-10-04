@@ -74,7 +74,7 @@ function courtOf(s: HistoryState, id: number): number {
   if (ps === null || id >= ps.seen) return 1
   const p = ps.polity[id]
   if (p < 0 || ps.pCapital[p] !== id) return 1
-  const t = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1)
+  const t = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
   return 1 + DEMAND.courtK * (t === Tier.Empire ? 2 : t === Tier.Kingdom ? 1 : 0)
 }
 

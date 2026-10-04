@@ -164,7 +164,7 @@ export function wallStep(s: HistoryState, ps: PolityState): void {
     if (ps.fort[id] >= 0 && p < FORT.keep) loseFort(s, ps, id)
     else if (ps.fort[id] < 0 && mark[id] === ps.run && p >= FORT.minPop && ps.dangerAvg[id] >= FORT.danger) {
       const q = ps.polity[id]
-      if (q >= 0 && tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1) >= Tier.Kingdom && rng.next() < FORT.step * FORT.chance * buildSkill(s, id)) {
+      if (q >= 0 && tierOf(ps.pPop[q], ps.pMembers[q], ps.pMulti[q] === 1, ps.worldPop) >= Tier.Kingdom && rng.next() < FORT.step * FORT.chance * buildSkill(s, id)) {
         const sid = s.structures.length
         s.structures.push({ id: sid, type: StructureType.Fort, cell: site[id], settlement: id, builtYear: s.year, lostYear: -1 })
         logEvent(s, EventType.Built, id, sid, StructureType.Fort)

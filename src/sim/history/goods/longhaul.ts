@@ -138,7 +138,7 @@ export function rebuildMarts(s: HistoryState, ts: TradeState, g: GoodsState): vo
     let sc = s.through[id] + (s.port[id] >= 0 ? MART.port * ref : 0)
     if (ps !== null && id < ps.seen) {
       const p = ps.polity[id]
-      if (p >= 0 && ps.pCapital[p] === id && tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1) >= Tier.Kingdom) sc += MART.capital * ref
+      if (p >= 0 && ps.pCapital[p] === id && tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom) sc += MART.capital * ref
     }
     cand.push(id); score.push(sc)
   }

@@ -563,8 +563,10 @@ export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3 }
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
- * Tier is derived, not stored (see polityTier in the sim): Empire at >= 60,000 people (or two peoples each >= 15% of
- * its people with >= 25 members), Kingdom at >= 6 members and >= 5,000 people, else Chiefdom.
+ * Tier is derived, not stored (see tierOf in the sim), relative to the world's people W at the same time: the sum of
+ * History.population over living settlements that are not outposts. Empire at >= max(20,000, 0.08 W) people (or two
+ * peoples each >= 15% of its people with >= 25 members), Kingdom at >= 6 members and >= max(2,000, 0.008 W) people, else
+ * Chiefdom. A polity's people and members are those of its living member settlements (History.polity).
  */
 export interface Polity {
   /** Index into History.polities; ids in founding order. */
