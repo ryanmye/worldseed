@@ -649,12 +649,14 @@ function foundStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
   if (bar > X.pop) bar = X.pop
   const deg = new Int32Array(s.count)
   for (const r of ts.openList) { deg[ts.rA[r]]++; deg[ts.rB[r]]++ }
+  const holyHere = new Uint8Array(s.count) // (a holy city does not found a second faith)
+  for (let f = 0; f < F; f++) if (rel.holy[f] >= 0) holyHere[rel.holy[f]] = 1
   const cand: number[] = [], wt: number[] = []
   let sum = 0, woeSum = 0, popSum = 0
   const year = s.year
   for (let t = 0; t < living.length; t++) {
     const i = living[t]
-    if (i >= rel.seen || s.pop[i] < bar || deg[i] < X.routes) continue
+    if (i >= rel.seen || s.pop[i] < bar || deg[i] < X.routes || holyHere[i]) continue
     if (s.tech[s.people[i] * TECH_FIELD_COUNT + 3] < X.crafts) continue
     const woe = year - s.lastFamine[i] <= X.woeYears || year - rel.woe[i] <= X.woeYears
     const w = s.pop[i] * (woe ? 1 + X.crisis : 1)
