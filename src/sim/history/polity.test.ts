@@ -15,17 +15,24 @@ function fnv(h: number, a: ArrayBufferView): number {
 function hashBase(hi: History): string {
   let h = 0x811c9dc5
   for (const a of [hi.population, hi.food, hi.capacity, hi.landUse, hi.degradation, hi.road, hi.wealth, hi.tradeVolume, hi.knownYear, hi.contactYear, hi.technology, hi.speciesYear, hi.speciesSource, hi.crop, hi.herd]) h = fnv(h, a)
+  for (const a of [hi.cash, hi.techniqueYear, hi.techniqueSource, hi.habit, hi.storable]) h = fnv(h, a) // species v2
   const t = hi.trade
   for (const a of [t.a, t.b, t.openedYear, t.goodAB, t.goodBA, t.pathOffsets, t.path]) h = fnv(h, a)
   const ints: number[] = [hi.years, hi.snapshotInterval, hi.snapshotCount, hi.landInterval, hi.landSnapshotCount, hi.tradeInterval, hi.tradeSnapshotCount, t.count]
   for (const s of hi.settlements) { ints.push(s.id, s.cell, s.foundedYear, s.parent, s.abandonedYear, s.people, s.outpost ? 1 : 0); for (let i = 0; i < s.name.length; i++) ints.push(s.name.charCodeAt(i)) }
   for (const p of hi.peoples) { ints.push(p.id, p.founder, p.cradle); for (let i = 0; i < p.name.length; i++) ints.push(p.name.charCodeAt(i)) }
   for (const s of hi.structures) ints.push(s.id, s.type, s.cell, s.settlement, s.builtYear, s.lostYear)
-  for (const x of hi.species) { ints.push(x.id, x.category, Math.round(x.yield * 1e6), ...x.origins); for (const str of [x.archetype, x.name]) for (let i = 0; i < str.length; i++) ints.push(str.charCodeAt(i)) }
+  for (const x of hi.species) {
+    ints.push(x.id, x.category, Math.round(x.yield * 1e6), ...x.origins)
+    ints.push(Math.round((x.value ?? -1) * 1e6), Math.round((x.habit ?? -1) * 1e6), Math.round((x.harm ?? -1) * 1e6), x.clonal === undefined ? -1 : x.clonal ? 1 : 0, Math.round((x.storability ?? -1) * 1e6))
+    for (const str of [x.archetype, x.name]) for (let i = 0; i < str.length; i++) ints.push(str.charCodeAt(i))
+  }
+  for (const x of hi.techniques) { ints.push(x.id, x.species); for (const str of [x.archetype, x.name]) for (let i = 0; i < str.length; i++) ints.push(str.charCodeAt(i)) }
+  ints.push(...hi.stimulants)
   for (const f of hi.features) { ints.push(f.id, f.kind, f.namedYear, f.namedBy, f.anchorCell, f.size, ...f.spine); for (let i = 0; i < f.name.length; i++) ints.push(f.name.charCodeAt(i)) }
   h = fnv(h, Int32Array.from(ints))
-  const ev = new Float64Array(hi.events.length * 5)
-  hi.events.forEach((e, i) => ev.set([e.year, e.type, e.settlement, e.other, e.value], i * 5))
+  const ev = new Float64Array(hi.events.length * 6)
+  hi.events.forEach((e, i) => ev.set([e.year, e.type, e.settlement, e.other, e.value, e.extra ?? -1], i * 6))
   h = fnv(h, ev)
   const j = hi.journeys
   for (const a of [j.departYear, j.arriveYear, j.from, j.to, j.size, j.kind, j.pathOffsets, j.path]) h = fnv(h, a)
@@ -34,14 +41,15 @@ function hashBase(hi: History): string {
 
 /**
  * Pre-polity histories: hashBase of simulateHistory with polities off must stay equal to the history without the
- * polity system. Recorded on the merge of main (species v1) and frontier, before polities were merged (b41d41c);
- * the merged code with polities off was checked field by field against it. (A later merge or retune that changes
- * the simulation outside the polity system must regenerate these from its own pre-polity state.)
+ * polity system. Recorded on main with species version 2 (e6816c1) plus the frontier changes only (main and the
+ * frontier merge b41d41c's own diff on species v1), before polities were merged; the merged code with polities off was
+ * checked field by field (every History field) against it. (A later merge or retune that changes the simulation
+ * outside the polity system must regenerate these from its own pre-polity state.)
  */
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, 'e4b1897a'],
-  [3, 600, undefined, 'd1edc8ac'],
-  [9, 800, 24, 'c0a24841'],
+  [42, 2000, undefined, '9748af3a'],
+  [3, 600, undefined, '3d922e42'],
+  [9, 800, 24, '81a0f279'],
 ]
 
 /** Hash of the polity fields. */
@@ -249,7 +257,8 @@ describe('polities', () => {
       expect(h.polities.length).toBe(0)
       expect(h.polity.length + h.landCells.length + h.territory.length + h.danger.length + h.wars.count + h.raids.count).toBe(0)
       expect(h.structures.some((x) => x.type === StructureType.Walls)).toBe(false)
-      expect(h.events.some((e) => e.type >= EventType.PolityFounded)).toBe(false)
+      // (Polity events are 20-34, in the range 20-43 reserved for them; species v2's are 44 and up.)
+      expect(h.events.some((e) => e.type >= EventType.PolityFounded && e.type <= EventType.SuccessionCrisis)).toBe(false)
     }
   }, 60_000)
 
