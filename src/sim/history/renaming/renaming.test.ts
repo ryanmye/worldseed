@@ -31,9 +31,9 @@ const isOurs = (t: number): boolean => t >= 110 && t <= 119
 export function hashPreRenaming(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => x !== 'renamings').sort()) {
+  for (const k of Object.keys(r).filter((x) => x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions').sort()) { // (ideas: later than renaming)
     h = fnvBytes(h, enc.encode(k))
-    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type)) : r[k])
+    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 120 || e.type > 129)) : r[k])
   }
   return (h >>> 0).toString(16)
 }
@@ -205,7 +205,7 @@ describe('renaming', () => {
   it('switched off, the history is the one from before the renaming system, with the renamings empty', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...opts, renaming: false })
+      const h = simulateHistory(w, { years, ...opts, renaming: false, ideas: false }) // (ideas: later, off here too)
       expect(hashPreRenaming(h)).toBe(hash)
       expect(h.renamings.count + h.renamings.name.length + h.renamings.settlement.length).toBe(0)
       expect(h.events.some((e) => isOurs(e.type))).toBe(false)
@@ -213,11 +213,12 @@ describe('renaming', () => {
   }, 300_000)
 
   it('is a pure consequence layer: switched on, every other field is the same', () => {
-    expect(hashPreRenaming(history(42))).toBe(GOLDEN[0][4])
-    const h = simulateHistory(world(3), { years: 600 })
+    // (ideas off: the golden histories are those before the ideas system)
+    expect(hashPreRenaming(simulateHistory(world(42), { years: 2000, ideas: false }))).toBe(GOLDEN[0][4])
+    const h = simulateHistory(world(3), { years: 600, ideas: false })
     expect(hashPreRenaming(h)).toBe(GOLDEN[1][4])
     const w = generateWorld(9, { subdivisions: 24 })
-    expect(hashPreRenaming(simulateHistory(w, { years: 800 }))).toBe(GOLDEN[4][4])
+    expect(hashPreRenaming(simulateHistory(w, { years: 800, ideas: false }))).toBe(GOLDEN[4][4])
   }, 300_000)
 
   it('every history satisfies the renaming invariants', () => {
@@ -228,9 +229,9 @@ describe('renaming', () => {
       checkRenamings(h)
       total += h.renamings.count
       for (let i = 0; i < h.renamings.count; i++) causes.add(h.renamings.cause[i])
-      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size.
+      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (ideas: up to 50 since, more wars in some worlds)
       expect(h.renamings.count).toBeGreaterThanOrEqual(3)
-      expect(h.renamings.count).toBeLessThanOrEqual(40)
+      expect(h.renamings.count).toBeLessThanOrEqual(50)
     }
     expect(total).toBeGreaterThanOrEqual(30)
     for (const c of [RenameCause.Conquest, RenameCause.Cession, RenameCause.Capital, RenameCause.Refounded, RenameCause.Restored]) expect(causes.has(c)).toBe(true)

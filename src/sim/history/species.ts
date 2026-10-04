@@ -68,6 +68,7 @@ import { logEvent } from './state.ts'
 import type { CradlePlan } from './peoples.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
 import { cashPrice, crossFactor, mayAdopt } from './goods/hooks.ts' // goods:
+import { ideaTechnique } from './ideas/hooks.ts' // ideas:
 
 /** species-v2: migration.ts prosperity, inlined (no import cycle through the trade system). */
 export function prosperityOf(s: HistoryState, id: number): number {
@@ -1379,6 +1380,7 @@ export function gainItem(s: HistoryState, id: number, x: number, from: number): 
   } else {
     // species-v2: techniques are in the contract now (first per people).
     sp.techLog.push(s.year, p, x - S_COUNT, id)
+    if (s.ideas !== null) ideaTechnique(s, s.ideas, id, x - S_COUNT, from) // ideas: the techniques that are ideas
     if (sp.firstTech[x - S_COUNT] < 0) sp.firstTech[x - S_COUNT] = id
     if (srcPeople >= 0) logEvent(s, EventType.TechniqueAdopted, id, from, x - S_COUNT)
     else logEvent(s, EventType.TechniqueFound, id, -1, x - S_COUNT)

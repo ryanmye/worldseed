@@ -25,6 +25,7 @@ import { SMUGGLE } from '../polity/params.ts'
 import type { PairPolicy } from '../polity/policy.ts'
 import type { GoodsState } from './state.ts'
 import { INCOME, K, M, MIX_OF, Maker, density, ensureGoods, mixAdd, mixFlow, mixScale, newVariety, setVarSecret } from './state.ts'
+import { ideaCraft } from '../ideas/hooks.ts' // ideas:
 
 const G = GOOD_COUNT
 const NC = CASH.length
@@ -642,6 +643,7 @@ export function goodsSettle(s: HistoryState, ts: TradeState, g: GoodsState): voi
         workAct[people] += units
         if (SEAT.v > 0) { v = SEAT.v; named = units; g.tOut[g.seatOf[id * 4 + craft]] += units }
       }
+      if (s.ideas !== null) { const k = ideaCraft(s.ideas, people); units *= k; named *= k } // ideas: the wheel at the kiln, looms, glass, paper, printing
       g.wOut[id * 3 + r] = units
       OUTBUF[r] = units
       OUTV[r] = v

@@ -29,6 +29,7 @@ import { foodBase } from './migration.ts'
 import { stored } from './storage.ts' // species-v2
 import { harvestLeft } from './polity/system.ts' // polities:
 import { toolFarm } from './goods/hooks.ts' // goods:
+import { ideaFarm } from './ideas/hooks.ts' // ideas:
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -107,7 +108,8 @@ export function foodSystem(s: HistoryState): void {
     // fish = (1 + port bonus) * sea / farm - 1 (exact).
     const to = peopleOf[id] * TECH_FIELD_COUNT
     const cm = cropMul[id] * sp.keep[id] // species-v2: fields under cash crops, pellagra, habit harm
-    const farmT = s.goods !== null ? tech[to + TechField.Farming] * cm * toolFarm(s.goods, id) : tech[to + TechField.Farming] * cm // goods: iron tools
+    let farmT = s.goods !== null ? tech[to + TechField.Farming] * cm * toolFarm(s.goods, id) : tech[to + TechField.Farming] * cm // goods: iron tools
+    if (s.ideas !== null) farmT *= ideaFarm(s.ideas, id) // ideas: irrigation on dry river land
     const fish = ((s.port[id] >= 0 ? 1 + portFish : 1) * tech[to + TechField.Seafaring]) / farmT - 1
     const st = claimStrength(p)
     const mul = farmT * s.econ[id]

@@ -18,6 +18,7 @@ import type { DiseaseState } from './disease/state.ts' // disease:
 import type { RulerState } from './rulers/state.ts' // rulers:
 import type { ReligionState } from './religion/state.ts' // religion:
 import type { TourismState } from './tourism/state.ts' // tourism:
+import type { IdeasState } from './ideas/state.ts' // ideas:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -160,6 +161,8 @@ export interface HistoryState {
   rel: ReligionState | null
   // tourism: the tourism system's state (tourism/state.ts), or null when it is switched off (every hook is then a no-op).
   tz: TourismState | null
+  // ideas: the ideas system's state (ideas/state.ts), or null when it is switched off (every hook is then a no-op).
+  ideas: IdeasState | null
 }
 
 /**
@@ -257,6 +260,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     rul: null, // rulers: (set by index.ts when the system is on)
     rel: null, // religion: (set by index.ts when the system is on)
     tz: null, // tourism: (set by index.ts when the system is on)
+    ideas: null, // ideas: (set by index.ts when the system is on)
   }
 }
 

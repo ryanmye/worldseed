@@ -39,6 +39,7 @@ import type { TradeState } from './trade.ts'
 import { empireLinks } from './polity/system.ts' // polities:
 import { capGain, goodsTechActivity } from './goods/system.ts' // goods:
 import { faithLinks } from './religion/system.ts' // religion:
+import { ideaGain, ideaGrowth } from './ideas/hooks.ts' // ideas:
 
 const F = TECH_FIELD_COUNT
 
@@ -205,6 +206,7 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
 
   // Growth from each people's own activity and part of that of the peoples it is linked with.
   const tech = s.tech
+  const ix = s.ideas // ideas: the level follows the caps of the ideas held
   const soft = 1 / X.soft
   const pool = X.pool / linkMax
   for (let p = 0; p < P; p++) {
@@ -219,7 +221,8 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
       const L = tech[o + f]
       const u = (L - 1) * soft
       const u2 = u * u
-      const inc = (dt * X.rate[f] * Math.sqrt(a + X.base[f]) * rich) / ((1 + X.slow * (L - 1)) * (1 + u2 * u2))
+      let inc = (dt * X.rate[f] * Math.sqrt(a + X.base[f]) * rich) / ((1 + X.slow * (L - 1)) * (1 + u2 * u2))
+      if (ix !== null) inc = ideaGrowth(ix, o + f, L, inc, dt) // ideas: slowed above the cap, falling back well above it
       tech[o + f] = L + inc
       if (gx !== null) gx.own[o + f] += inc // goods: own level (growth without diffusion)
     }
@@ -248,6 +251,7 @@ export function technologySystem(s: HistoryState, ts: TradeState, tk: TechState)
     }
   }
   if (gx !== null) for (let i = 0; i < P * F; i++) gain[i] = capGain(gx, tech, i, gain[i]) // goods: at most own level + DIFFUSION.cap
+  if (ix !== null) for (let i = 0; i < P * F; i++) gain[i] = ideaGain(ix, tech, i, gain[i]) // ideas: at most the cap + IDEA.slack
   for (let i = 0; i < P * F; i++) tech[i] += gain[i]
 
   // TechAdvance: each new whole level, at the people's largest settlement.

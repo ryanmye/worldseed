@@ -147,6 +147,11 @@ import { RENAMING_ON } from './renaming/params.ts'
 import { createRenaming, renamingYear } from './renaming/system.ts'
 import type { RenamingDiag } from './renaming/state.ts'
 import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming/assemble.ts'
+// ideas: inventions and practices, carried by trade (ideas/).
+import { IDEAS_ON } from './ideas/params.ts'
+import { createIdeasSystem, ideasYear } from './ideas/system.ts'
+import type { IdeasDiag } from './ideas/state.ts'
+import { assembleIdeas, emptyIdeasHistory } from './ideas/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -211,6 +216,8 @@ export interface HistoryDiagnostics {
   tourism?: TourismDiag
   /** renaming: the renaming system's counters (absent when it is off). */
   renaming?: RenamingDiag
+  /** ideas: the ideas system's counters (absent when it is off). */
+  ideas?: IdeasDiag
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -397,6 +404,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   s.tz = tz
   // renaming: places renamed by history (a pure consequence layer, read-only on the rest), unless switched off.
   const rn = (options?.renaming ?? RENAMING_ON) ? createRenaming(s) : null
+  // ideas: inventions and practices (they set the technology caps), unless switched off.
+  const ix = (options?.ideas ?? IDEAS_ON) ? createIdeasSystem(s) : null
+  s.ideas = ix
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -515,6 +525,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     }
     milestoneSystem(s)
     explorationSystem(s, explore)
+    if (ix) ideasYear(s, ix, trade, techState) // ideas: pulses of the year; every IDEA.step years conception, learning, loss, caps
     technologySystem(s, trade, techState)
     knowledgeSystem(s)
     knowledgeSpreadSystem(s, techState) // gradual-knowledge: fronts of knowledge between peoples in contact
@@ -579,6 +590,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const rulHist = rul ? assembleRulers(world, rul, pol ? pol.P : 0, naming) : emptyRulerHistory()
     const relHist = rel ? assembleReligion(world, rel, naming, peoples.map((p) => p.name), snapshotCount, S, pol ? pol.P : 0) : emptyReligionHistory()
     const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
+    const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     return {
       history: {
@@ -602,6 +614,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...relHist, // religion:
         ...tourismHist, // tourism:
         renamings: renHist.renamings, // renaming:
+        ...ideasHist, // ideas:
       },
       terrain,
       diag: {
@@ -623,6 +636,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
+        ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
       },
     }
   }
