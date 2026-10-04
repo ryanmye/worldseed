@@ -123,7 +123,9 @@ export function extinctClaim(s: HistoryState, ps: PolityState, R: RulerState, p:
   if (best < 0) return false
   const q = R.mA[best] === p ? R.mB[best] : R.mA[best]
   const rng = R.rng
-  const can = R.union[q] < 0 && ps.pSub[q] < 0 && !atWar(ps, p, q) && ps.pOrigin[p] !== PolityOrigin.League && !isSenior(R, p) && inContact(s, ps.pPeople[p], ps.pPeople[q])
+  let subjects = false // (a realm with vassals of its own does not pass into a union: they would pass to the senior)
+  for (const k of ps.activeBonds) if (ps.bKind[k] !== BondKind.Alliance && ps.bB[k] === p) subjects = true
+  const can = !subjects && R.union[q] < 0 && ps.pSub[q] < 0 && !atWar(ps, p, q) && ps.pOrigin[p] !== PolityOrigin.League && !isSenior(R, p) && inContact(s, ps.pPeople[p], ps.pPeople[q])
   if (can && rng.next() < MARRIAGE.union * bc) { formUnion(s, ps, R, q, p); return true }
   // Passed over: the great men raise a house of their own; the claimant may fight for the throne.
   R.diag.passedOver++
