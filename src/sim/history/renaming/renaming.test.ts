@@ -31,9 +31,9 @@ const isOurs = (t: number): boolean => t >= 110 && t <= 119
 export function hashPreRenaming(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => x !== 'renamings').sort()) {
+  for (const k of Object.keys(r).filter((x) => x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions').sort()) { // (ideas: later than renaming)
     h = fnvBytes(h, enc.encode(k))
-    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type)) : r[k])
+    h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 120 || e.type > 129)) : r[k])
   }
   return (h >>> 0).toString(16)
 }
@@ -52,11 +52,15 @@ function hashRenaming(hi: History): string {
 // (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
 // polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
 // hashes take in); fixed-field hashes of runs with polities off keep their values.)
+// (Re-recorded at the merge of the ideas: the merged tree with the ideas off checked on every field, on every golden
+// configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
+// overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
+// is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'ad65f44e'],
+  [42, 2000, undefined, {}, 'd7eda781'],
   [3, 600, undefined, {}, 'ada67609'],
   [7, 900, undefined, { polities: false, goods: false }, '7ea4d902'],
-  [1, 1500, undefined, { disease: false }, 'bed9a0c6'],
+  [1, 1500, undefined, { disease: false }, '5d5b8c17'],
   [9, 800, 24, {}, '3896bb1d'],
 ]
 
@@ -205,7 +209,7 @@ describe('renaming', () => {
   it('switched off, the history is the one from before the renaming system, with the renamings empty', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...opts, renaming: false })
+      const h = simulateHistory(w, { years, ...opts, renaming: false, ideas: false }) // (ideas: later, off here too)
       expect(hashPreRenaming(h)).toBe(hash)
       expect(h.renamings.count + h.renamings.name.length + h.renamings.settlement.length).toBe(0)
       expect(h.events.some((e) => isOurs(e.type))).toBe(false)
@@ -213,11 +217,12 @@ describe('renaming', () => {
   }, 300_000)
 
   it('is a pure consequence layer: switched on, every other field is the same', () => {
-    expect(hashPreRenaming(history(42))).toBe(GOLDEN[0][4])
-    const h = simulateHistory(world(3), { years: 600 })
+    // (ideas off: the golden histories are those before the ideas system)
+    expect(hashPreRenaming(simulateHistory(world(42), { years: 2000, ideas: false }))).toBe(GOLDEN[0][4])
+    const h = simulateHistory(world(3), { years: 600, ideas: false })
     expect(hashPreRenaming(h)).toBe(GOLDEN[1][4])
     const w = generateWorld(9, { subdivisions: 24 })
-    expect(hashPreRenaming(simulateHistory(w, { years: 800 }))).toBe(GOLDEN[4][4])
+    expect(hashPreRenaming(simulateHistory(w, { years: 800, ideas: false }))).toBe(GOLDEN[4][4])
   }, 300_000)
 
   it('every history satisfies the renaming invariants', () => {
@@ -228,8 +233,9 @@ describe('renaming', () => {
       checkRenamings(h)
       total += h.renamings.count
       for (let i = 0; i < h.renamings.count; i++) causes.add(h.renamings.cause[i])
-      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size.
-      expect(h.renamings.count).toBeGreaterThanOrEqual(3)
+      // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (At least 2, not 3, since the merge of
+      // the ideas: seed 12345 has 2, as it has with the ideas off and the species fix.)
+      expect(h.renamings.count).toBeGreaterThanOrEqual(2)
       expect(h.renamings.count).toBeLessThanOrEqual(40)
     }
     expect(total).toBeGreaterThanOrEqual(30)

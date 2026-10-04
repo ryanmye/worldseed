@@ -68,6 +68,7 @@ import { logEvent } from './state.ts'
 import type { CradlePlan } from './peoples.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
 import { cashPrice, crossFactor, mayAdopt } from './goods/hooks.ts' // goods:
+import { ideaTechnique } from './ideas/hooks.ts' // ideas:
 
 /** species-v2: migration.ts prosperity, inlined (no import cycle through the trade system). */
 export function prosperityOf(s: HistoryState, id: number): number {
@@ -1379,6 +1380,7 @@ export function gainItem(s: HistoryState, id: number, x: number, from: number): 
   } else {
     // species-v2: techniques are in the contract now (first per people).
     sp.techLog.push(s.year, p, x - S_COUNT, id)
+    if (s.ideas !== null) ideaTechnique(s, s.ideas, id, x - S_COUNT, from) // ideas: the techniques that are ideas
     if (sp.firstTech[x - S_COUNT] < 0) sp.firstTech[x - S_COUNT] = id
     if (srcPeople >= 0) logEvent(s, EventType.TechniqueAdopted, id, from, x - S_COUNT)
     else logEvent(s, EventType.TechniqueFound, id, -1, x - S_COUNT)
@@ -1505,7 +1507,12 @@ function benefitOf(s: HistoryState, id: number, x: number): number {
   const m0 = sp.m0[id], m1 = sp.m1[id]
   const n0 = b < 32 ? (m0 | (1 << b)) >>> 0 : m0
   const n1 = b < 32 ? m1 : (m1 | (1 << (b - 32))) >>> 0
-  let gain = (cropOf(s, id, n0, n1, false) - now) / now
+  const nv = cropOf(s, id, n0, n1, false)
+  // A technique of no use to what the settlement grows and herds (early rice without paddy, the heavy plough without cattle) is of
+  // no benefit: the gain below is reckoned against the stored crop multiplier, which is refreshed only now and then, so a stale
+  // one made such a technique look worth having.
+  if (x >= S_COUNT && nv === cropOf(s, id, m0, m1, false)) { sp.ben[key] = 0; return 0 }
+  let gain = (nv - now) / now
   if (x < S_COUNT && SPECIES_TABLE[x].category === SpeciesCategory.Livestock) {
     const c = s.cell[id]
     if (x === SP.horse) gain += 0.06

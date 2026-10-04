@@ -53,7 +53,7 @@ export const SCENERY = {
 
 /**
  * Leisure class (system.ts): travellers a year from a living settlement of at least minPop people:
- *   L = rate * pop * smoothstep(wLo, wHi, wealth per head) * smoothstep(cLo, cHi, Crafts) * home
+ *   L = rate * pop * smoothstep(wLo, wHi, wealth per head) * smoothstep(cLo, cHi, Crafts) * home   (cLoIdeas for cLo with the ideas on)
  * home: war (warMul), unrest (1 - unrest), an epidemic (epidemicMul), hunger (food), and roads or a port (roadMin + (1 - roadMin) * max(road, port)).
  * The capital of a kingdom or empire travels earlier: its Crafts gate eased by capitalEase, its reach capitalReach of the cost scale (villa coasts).
  */
@@ -63,6 +63,8 @@ export const LEISURE = {
   wLo: 2,
   wHi: 16,
   cLo: 3.6, // (3.3 before the merge with rulers, religion and the disease retune: their worlds reach Crafts and wealth sooner)
+  /** cLo while the ideas are on (HistoryOptions.ideas): their worlds spread wider, the slowest reaching Crafts 3.5 only by 2000. */
+  cLoIdeas: 3.4,
   cHi: 6.0,
   capitalEase: 0.5,
   capitalReach: 0.5,

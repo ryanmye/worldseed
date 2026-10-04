@@ -37,8 +37,12 @@ export function hashBaseFields(h: History): string {
 // (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
 // polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
 // hashes take in); fixed-field hashes of runs with polities off keep their values.)
+// (Re-recorded at the merge of the ideas: the merged tree with the ideas off checked on every field, on every golden
+// configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
+// overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
+// is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, 'fc1bad4e'],
+  [42, 2000, undefined, {}, '8d3f28a4'],
   [3, 600, undefined, {}, '50ad524'],
   [9, 800, 24, {}, 'daac5dea'],
   [7, 900, undefined, { polities: false }, 'eb61ff8f'],
@@ -205,7 +209,7 @@ describe('rulers', () => {
   it('switched off (rulers and religion), every field of the history is the one without them, and the new fields are empty', () => {
     for (const [seed, years, n, o, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false, tourism: false, renaming: false }) // (tourism, renaming: later, off here too)
+      const h = simulateHistory(w, { years, ...o, rulers: false, religion: false, tourism: false, renaming: false, ideas: false }) // (tourism, renaming, ideas: later, off here too)
       expect(hashBaseFields(h)).toBe(hash)
       expect(h.rulers.length + h.dynasties.length + h.reignIds.length + h.marriages.count + h.unions.count + h.successionWars.length).toBe(0)
       expect(h.faiths.length + h.faith.length + h.faithShare.length + h.stateFaith.length + h.holyWars.length).toBe(0)

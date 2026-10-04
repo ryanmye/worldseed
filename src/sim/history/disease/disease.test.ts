@@ -8,7 +8,7 @@ import { runHistory } from '../index.ts'
 import { DZ, FEVER } from './params.ts'
 
 const DISEASE_KEYS = new Set(['diseases', 'epidemics', 'outbreaks', 'fever', 'feverTolerance', 'endemic', 'quarantines'])
-const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows', 'renamings']) // tourism, renaming: (later than the disease system; the golden runs have them off)
+const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows', 'renamings', 'ideas', 'ideaAdoptions']) // tourism, renaming, ideas: (later than the disease system; the golden runs have them off)
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -51,8 +51,12 @@ function hashDisease(hi: History): string {
 // (Re-recorded with the polities' claims (polity/claims.ts; nothing outside polity/ changed but the contract): runs with
 // polities off checked on every field against 1375ac5 (equal but for the new, empty History.claimed, which every-key
 // hashes take in); fixed-field hashes of runs with polities off keep their values.)
+// (Re-recorded at the merge of the ideas: the merged tree with the ideas off checked on every field, on every golden
+// configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
+// overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
+// is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, '4c54d0a8'],
+  [42, 2000, undefined, true, true, 'b9d5db6c'],
   [3, 600, undefined, true, true, 'e151da6a'],
   [7, 900, undefined, false, false, '947ffbea'],
   [1, 1500, undefined, true, false, '85353069'],
@@ -168,6 +172,12 @@ function checkDisease(w: World, h: History): void {
       if (!ok) throw new Error(`row ${i}: no journey between ${src} and ${id} in ${y} (via ${via})`)
     } else if (via === DiseaseVia.Contact) {
       expect(h.events.some((ev) => ev.type === EventType.FirstContact && ev.year === y && ((ev.settlement === src && ev.other === id) || (ev.settlement === id && ev.other === src)))).toBe(true)
+    } else if (via === DiseaseVia.Visitors) {
+      // (tourism: leisure travellers between their home town and the place they visited)
+      const F = h.visitorFlows
+      let ok = false
+      for (let k = 0; k < F.count && !ok; k++) if (F.firstYear[k] <= y && ((F.from[k] === src && F.to[k] === id) || (F.from[k] === id && F.to[k] === src))) ok = true
+      if (!ok) throw new Error(`row ${i}: no visitors between ${src} and ${id} by ${y}`)
     } else throw new Error(`row ${i}: via ${via}`)
   }
   // Epidemics agree with their rows.
@@ -236,7 +246,7 @@ describe('disease', () => {
   it('switched off, the history is the one from before the disease system, with the disease fields empty', () => {
     for (const [seed, years, n, pol, goods, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
-      const h = simulateHistory(w, { years, polities: pol, goods, disease: false, tourism: false, renaming: false })
+      const h = simulateHistory(w, { years, polities: pol, goods, disease: false, tourism: false, renaming: false, ideas: false }) // (ideas: later, off here too)
       expect(hashPre(h)).toBe(hash)
       expect(h.diseases.length + h.epidemics.length + h.outbreaks.count + h.quarantines.count + h.fever.length + h.feverTolerance.length + h.endemic.length).toBe(0)
       expect(h.events.some((e) => e.type >= 66 && e.type <= 79)).toBe(false)
@@ -331,9 +341,10 @@ describe('disease', () => {
     expect(endemic / n).toBeGreaterThan(3)
     expect(stricken / n).toBeGreaterThan(5)
     expect(withQuarantine).toBeGreaterThanOrEqual(2)
-    // Against the same worlds without the system: the fever belt thinner, the world not much smaller.
+    // Against the same worlds without the system: the fever belt thinner, the world not much smaller (ideas off in both: the disease
+    // system's own effect, not the different paths ideas would take in the two worlds).
     for (const seed of [42, 1]) {
-      const on = history(seed), off = simulateHistory(world(seed), { disease: false })
+      const on = simulateHistory(world(seed), { ideas: false }), off = simulateHistory(world(seed), { disease: false, ideas: false })
       const fev = on.fever
       const at = (h: History, ground: boolean) => {
         const S = h.settlements.length, q = Math.floor(1500 / h.snapshotInterval)

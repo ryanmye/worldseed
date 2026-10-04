@@ -64,6 +64,7 @@ import { prosperity } from './migration.ts'
 import { reachOf } from './population.ts'
 import type { HistoryState } from './state.ts'
 import { logEvent, techOf } from './state.ts'
+import { ideaLand, ideaSea } from './ideas/hooks.ts' // ideas:
 import { ContactVia, learnPath, meet } from './knowledge.ts'
 import { moveMuls, packOf } from './species.ts'
 import { marketGoods, stimFlow } from './cashCrops.ts' // species-v2
@@ -306,7 +307,8 @@ const ROUTE_MUL = new Float64Array(3)
 
 /** Deep-ocean cost of one cell for trade by settlement `id` this year (its people's Seafaring), with or without a port. */
 function oceanCost(s: HistoryState, id: number, port: boolean): number {
-  return ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(techOf(s, id, TechField.Seafaring))) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+  const c = ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(techOf(s, id, TechField.Seafaring))) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
+  return s.ideas !== null ? c / ideaSea(s.ideas, s.people[id]) : c // ideas: keels, rudders, the compass
 }
 
 /**
@@ -336,6 +338,7 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
   const P = s.know.P
   const oceanOf = new Float64Array(P)
   for (let q = 0; q < P; q++) oceanOf[q] = (MIGRATION.oceanCost * T.cellScale) / Math.sqrt(s.tech[q * TECH_FIELD_COUNT + TechField.Seafaring])
+  if (s.ideas !== null) for (let q = 0; q < P; q++) oceanOf[q] /= ideaSea(s.ideas, q) // ideas:
   const peopleOf = s.people
   const radius = TRADE.radius
   const radiusSea = TRADE.radius * TRADE.portSeaRadius
@@ -528,7 +531,8 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
   for (let t = 0; t < living.length; t++) {
     const src = living[t]
     if (!ts.trader[src] || src >= ts.adjCount) continue
-    const reach = TRADE.reach * (1 + GOODS.transportTech * (techOf(s, src, TechField.Crafts) - 1)) // (its people's Crafts)
+    let reach = TRADE.reach * (1 + GOODS.transportTech * (techOf(s, src, TechField.Crafts) - 1)) // (its people's Crafts)
+    if (s.ideas !== null) reach *= ideaLand(s.ideas, s.people[src]) // ideas: the wheel, roads, coinage, credit
     const reachSrc = s.port[src] >= 0 ? reach * TRADE.portReach : reach // shipping lines from ports
     if (kd) {
       // Shadow: the partners full knowledge would give.

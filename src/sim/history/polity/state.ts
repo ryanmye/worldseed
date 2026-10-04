@@ -18,6 +18,7 @@ import { hasHorse } from '../species.ts'
 import { buildDefense } from './defense.ts'
 import { COHESION, FORT, POLITY, UNREST } from './params.ts'
 import { armsQuality } from '../goods/hooks.ts' // goods:
+import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
 
 /** Never: a year long before any. */
@@ -553,8 +554,9 @@ export function horseOf(s: HistoryState, id: number): number {
 /** Military quality q from the settlement's people's Metalworking and Crafts (and horses). */
 export function qualityOf(s: HistoryState, id: number): number {
   const o = s.people[id] * TECH_FIELD_COUNT
-  if (s.goods !== null) return armsQuality(s.goods, s.tech, o, horseOf(s, id), s.pop[id], id) // goods: arms stocks carry part of Metalworking's weight
-  return 1 + POLITY.qMetal * (s.tech[o + TechField.Metalworking] - 1) + POLITY.qCrafts * (s.tech[o + TechField.Crafts] - 1) + 0.3 * horseOf(s, id)
+  const q = s.goods !== null ? armsQuality(s.goods, s.tech, o, horseOf(s, id), s.pop[id], id) // goods: arms stocks carry part of Metalworking's weight
+    : 1 + POLITY.qMetal * (s.tech[o + TechField.Metalworking] - 1) + POLITY.qCrafts * (s.tech[o + TechField.Crafts] - 1) + 0.3 * horseOf(s, id)
+  return s.ideas !== null ? q * ideaWar(s.ideas, s.people[id]) : q // ideas: bronze, iron, chariots, stirrups, gunpowder
 }
 
 /** Power b = pop * q * (1 + prosperityPower * prosperity). */
@@ -577,7 +579,8 @@ export function isCapital(ps: PolityState, id: number): boolean {
 
 /** Local_i = a * b * T * (1 + wall): what a settlement can raise to defend itself (from this step's b). */
 export function localOf(s: HistoryState, ps: PolityState, id: number): number {
-  const x = ps.asab[id] * ps.str[id] * ps.defense[s.cell[id]] * wallFactor(ps, id, isCapital(ps, id))
+  let x = ps.asab[id] * ps.str[id] * ps.defense[s.cell[id]] * wallFactor(ps, id, isCapital(ps, id))
+  if (s.ideas !== null && ps.walls[id] > 0) x *= ideaDefence(s.ideas, s.people[id]) // ideas: fortification
   return ps.fort[id] >= 0 ? x * (1 + FORT.bonus) : x // (v2: a fort on its border)
 }
 
@@ -585,7 +588,8 @@ export function localOf(s: HistoryState, ps: PolityState, id: number): number {
 export function reachOf(s: HistoryState, p: number, people: number, members: number): number {
   const crafts = s.tech[people * TECH_FIELD_COUNT + TechField.Crafts]
   void p
-  return (POLITY.lambda0 * s.terrain.cellScale * (1 + POLITY.reachCrafts * (crafts - 1))) / Math.sqrt(1 + members / POLITY.overload)
+  const r = (POLITY.lambda0 * s.terrain.cellScale * (1 + POLITY.reachCrafts * (crafts - 1))) / Math.sqrt(1 + members / POLITY.overload)
+  return s.ideas !== null ? r * ideaAdmin(s.ideas, people) : r // ideas: writing, law codes, roads, paper
 }
 
 /** True while polity p is in a succession crisis. */

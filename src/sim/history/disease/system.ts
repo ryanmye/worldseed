@@ -40,6 +40,7 @@ import { ensureDisease } from './state.ts'
 import { DZ, FEVER, QUARANTINE } from './params.ts'
 import { rulerPlague } from '../rulers/hooks.ts' // rulers:
 import { religionPlague } from '../religion/hooks.ts' // religion:
+import { ideaQuarantine, ideaToll } from '../ideas/hooks.ts' // ideas:
 import type { TourismState } from '../tourism/state.ts' // tourism:
 import { TRAVEL } from '../tourism/params.ts' // tourism:
 
@@ -131,6 +132,7 @@ function strike(s: HistoryState, dz: DiseaseState, j: number, d: number, epi: nu
   const food = s.food[j]
   if (food < 1) toll *= 1 + DZ.famine * (1 - food)
   toll *= hygieneOf(s, pj)
+  if (s.ideas !== null && dz.kind[d] === DiseaseKind.Crowd) toll *= ideaToll(s.ideas, pj) // ideas: inoculation
   if (toll > DZ.maxToll) toll = DZ.maxToll
   dz.sus[j * D + d] = (sig * (1 - attack) * 255 + 0.5) | 0
   dz.act[j] = d + 1
@@ -478,6 +480,7 @@ function expectedLoss(s: HistoryState, dz: DiseaseState, p: number, d: number): 
     const pop = s.pop[id]
     const attack = def.attack * (DZ.village + ((1 - DZ.village) * pop) / (pop + DZ.townHalf))
     let toll = def.mortality * attack * (dz.sus[id * D + d] / 255) * (dz.ever[p * D + d] === 0 ? DZ.virgin : 1) * hygieneOf(s, p)
+    if (s.ideas !== null && dz.kind[d] === DiseaseKind.Crowd) toll *= ideaToll(s.ideas, p) // ideas: inoculation
     if (toll > DZ.maxToll) toll = DZ.maxToll
     tot += pop
     dead += toll * pop
@@ -655,6 +658,7 @@ function quarantinePass(s: HistoryState, dz: DiseaseState): void {
     if (pol < 0) continue
     const p = s.people[id]
     if (s.tech[p * TECH_FIELD_COUNT + TechField.Crafts] < Q.crafts || year - dz.lastGreat[p] > Q.memory || ps.unrest[id] > Q.unrestMax) continue
+    if (s.ideas !== null && !ideaQuarantine(s.ideas, p)) continue // ideas: only peoples that hold quarantine
     if (s.wealth[id] < Q.wealthHead * s.pop[id]) continue
     if (dz.rng.next() >= Q.chance) continue
     dz.quar[id] = dz.qSettlement.length

@@ -107,6 +107,8 @@ export function subject(s: HistoryState, ps: PolityState, a: number, b: number, 
   for (const k of subjectsOf(ps, a)) {
     const x = ps.bA[k], kind = ps.bKind[k], until = ps.bUntil[k]
     endBond(s, ps, k, BondEnd.Ended)
+    // A subject whose people has not met the new overlord's goes free instead (it cannot bow to a ruler it never heard of).
+    if (s.know.contact[ps.pPeople[x] * s.know.P + ps.pPeople[b]] < 0) continue
     if (x !== b) newBond(s, ps, kind, x, b, until, -1)
   }
   // Allies of one another no more.
