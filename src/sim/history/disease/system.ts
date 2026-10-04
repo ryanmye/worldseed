@@ -35,6 +35,8 @@ import { SP } from '../species.ts'
 import type { DiseaseState } from './state.ts'
 import { ensureDisease } from './state.ts'
 import { DZ, FEVER, QUARANTINE } from './params.ts'
+import { rulerPlague } from '../rulers/hooks.ts' // rulers:
+import { religionPlague } from '../religion/hooks.ts' // religion:
 
 // (Set at the start of each yearly call: the year's per-people figures from the technology system.)
 let TK: TechState | null = null
@@ -164,7 +166,14 @@ function strike(s: HistoryState, dz: DiseaseState, j: number, d: number, epi: nu
   } else dz.lastGreat[pj] = s.year
   // Unrest among the members of a polity.
   const ps = s.pol
-  if (ps !== null && j < ps.polity.length && ps.polity[j] >= 0) ps.unrest[j] += DZ.unrest * toll
+  if (ps !== null && j < ps.polity.length && ps.polity[j] >= 0) {
+    ps.unrest[j] += DZ.unrest * toll
+    // rulers: an epidemic at a capital may take the ruler and the heirs (their deaths take effect at the next rulers' year).
+    const pj2 = ps.polity[j]
+    if (s.rul !== null && ps.pCapital[pj2] === j) rulerPlague(s, pj2, toll, DZ.court)
+  }
+  // religion: a town struck hard counts as a woe for the founding of faiths.
+  if (s.rel !== null && pop >= TOWN_POPULATION && toll >= DZ.woeToll) religionPlague(s, j)
   // Flight from a struck place: some flee to a neighbour of their people, and may bring the sickness.
   if (pop >= DZ.fleeMin && toll >= 0.08) {
     const t = neighbourOf(s, dz, j, true)

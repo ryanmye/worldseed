@@ -31,7 +31,6 @@ import { E, K, createReligion, ensureReligionPolities, ensureReligionSettlements
 import type { ReligionState } from './state.ts'
 import { TECH } from '../params.ts'
 import { FAR, grip } from '../polity/state.ts'
-import { milestoneSystem } from '../population.ts'
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -262,7 +261,7 @@ function scanEvents(s: HistoryState, rel: ReligionState): void {
 // --- The yearly system -------------------------------------------------------------------------------------
 
 /** System (end of year, before the snapshots): see the file comment. */
-export function religionYear(s: HistoryState, rel: ReligionState, ts: TradeState): void {
+export function religionYear(s: HistoryState, rel: ReligionState, ts: TradeState): boolean {
   catchUp(s, rel)
   scanEvents(s, rel)
   if (s.pol !== null) ensureReligionPolities(rel, s.pol.P)
@@ -276,9 +275,11 @@ export function religionYear(s: HistoryState, rel: ReligionState, ts: TradeState
     if (x > 0) s.wealth[h] += x
   }
   const y = s.year
-  if (y % RELIGION.step === 0) { spreadStep(s, rel, ts); if (s.pol !== null) flightStep(s, rel, ts) }
+  let fled = false
+  if (y % RELIGION.step === 0) { spreadStep(s, rel, ts); if (s.pol !== null) fled = flightStep(s, rel, ts) }
   if (y % RELIGION.slowStep === 0) { if (s.pol !== null) rulersStep(s, rel); foundStep(s, rel, ts) }
   if (y % RELIGION.schismStep === 0 && s.pol !== null) schismStep(s, rel)
+  return fled
 }
 
 /** Exposure of settlement i to faith f (weight v, from settlement src). */
@@ -545,14 +546,14 @@ function rulersStep(s: HistoryState, rel: ReligionState): void {
   }
 }
 
-/** Every step: minorities flee persecution along trade routes to tolerant places. */
-function flightStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
+/** Every step: minorities flee persecution along trade routes to tolerant places (true when any fled). */
+function flightStep(s: HistoryState, rel: ReligionState, ts: TradeState): boolean {
   const ps = s.pol
-  if (ps === null) return
+  if (ps === null) return false
   const year = s.year
   let any = false
   for (const p of ps.alive) if (p < rel.pcap && rel.persUntil[p] > year) { any = true; break }
-  if (!any) return
+  if (!any) return false
   // Open routes per settlement (CSR over the routes' ends).
   const n = s.count
   const off = new Int32Array(n + 1)
@@ -611,7 +612,7 @@ function flightStep(s: HistoryState, rel: ReligionState, ts: TradeState): void {
     rel.diag.fled += group
     fled = true
   }
-  if (fled) milestoneSystem(s) // (the refugees may make a town or a city of their refuge this year)
+  return fled // (the refugees may make a town or a city of their refuge this year: the year's last milestone pass, index.ts)
 }
 
 /** Refugees of another people carry their skills (as polities' refugees do, without the danger gate). */
@@ -822,11 +823,8 @@ export function faithLinks(rel: ReligionState, link: Float64Array, P: number): v
   }
 }
 
-/** disease (hook): a plague at settlement id counts as a woe (founding crises of faiths). */
-export function religionPlague(s: HistoryState, id: number): void {
-  const rel = s.rel
-  if (rel !== null && id < rel.cap) rel.woe[id] = s.year
-}
+// disease: religionPlague (a plague at a town is a woe) lives in hooks.ts, which the disease system imports without this module's.
+export { religionPlague } from './hooks.ts'
 
 /** tourism (hook): pilgrims' income a year at settlement id (0 unless it is a holy city). */
 export function pilgrimsAt(rel: ReligionState, id: number): number {

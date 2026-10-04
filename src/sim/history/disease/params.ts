@@ -114,6 +114,10 @@ export const DZ = {
   desert: 0.35,
   /** Unrest in a polity member: += unrest * toll. */
   unrest: 1.2,
+  /** rulers: an outbreak at a capital takes its ruler (and each heir) with chance toll * court (rulers/system.ts rulerPlague). */
+  court: 0.5,
+  /** religion: a town (TOWN_POPULATION) struck with a toll of at least woeToll counts as a woe (religion/system.ts religionPlague). */
+  woeToll: 0.04,
   /** Armies: exhaustion += armyExhaust * toll at a sick target; camp fever chance per campaign (twice at a siege) and its exhaustion. */
   armyExhaust: 2,
   camp: 0.03,

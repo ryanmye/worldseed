@@ -60,6 +60,9 @@
 // unions, from 'history-rulers' (names from 'names-house-<id>', 'names-ruler-<id>' and endings per language).
 // religion (religion/; HistoryOptions.religion): faiths, spread, conversion, churches, schism, persecution and holy war,
 // from 'history-religion', at the end of the year before the snapshots (names from 'names-faith-<id>').
+// The year's end runs goods, then disease, then religion, then one milestone pass (refugees from sickness and persecution).
+// Between them: a town struck hard by an epidemic is a woe for religion the same year; an epidemic at a capital may take
+// its ruler and heirs (disease/system.ts strike), which the rulers system (in politySystem) enacts the next year.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -488,8 +491,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
-    if (dz) { diseaseSystem(s, dz, trade, techState); milestoneSystem(s) } // disease: outbreaks spread and take their toll; endemic sickness, fever (refugees may lift a town over a milestone)
-    if (rel) religionYear(s, rel, trade) // religion: spread, conversion, churches, schism, persecution, pilgrims
+    if (dz) diseaseSystem(s, dz, trade, techState) // disease: outbreaks spread and take their toll; endemic sickness, fever
+    const fled = rel ? religionYear(s, rel, trade) : false // religion: spread, conversion, churches, schism, persecution, pilgrims, flight
+    if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
