@@ -330,7 +330,7 @@ export const LANE = {
   /** A source reached by this many open lanes (of others) draws no new venture. */
   rivals: 2,
   /** Weight of each class in the urge (spices, silk and fine cloth were what lanes were opened for; bullion followed). */
-  classWeight: [0, 0, 0, 0, 0, 0, 0, 1, 1, 0.5, 1, 0.4, 1],
+  classWeight: [0, 0, 0, 0, 0, 0, 0, 1, 1, 0.3, 1, 0.15, 1],
   /** The lane's urge only for varieties whose saving Pi exceeds minSave * worth, from a source at least minCells hops away (great circle). */
   minSave: 2,
   minCells: 25,
