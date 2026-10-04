@@ -328,13 +328,17 @@ export function grainShare(s: HistoryState, id: number): number {
 }
 
 /**
- * Storable share of settlement id's crop (0..1): species v2's mix (species.ts cropOf, storage.ts) of what of each
- * staple's harvest keeps, weighted by the staples' shares of its crop food (grains about 0.75-0.95, tubers 0.05-0.5,
- * minor crops SPECIES2.minorStore). History.storable is this times the crop part of the food (storableByte); the
- * grain share above applies its own farm part, so the crop part is not counted twice.
+ * Taxable share of settlement id's crop (0..1): storeFloor + (1 - storeFloor) * min(1, sto / storeRef), sto species
+ * v2's storable share of the crop (species.ts cropOf, storage.ts: what of each staple's harvest keeps, weighted by the
+ * staples' shares of its crop food; grains about 0.75-0.95, tubers 0.05-0.5, minor crops SPECIES2.minorStore). A
+ * harvest that keeps as well as storeRef counts in full; even one that does not keep is taxed in part (standing crops,
+ * labour, tribute in kind), so wheat 1, maize 0.94, minor crops 0.79, sweet potato 0.68, cassava 0.56.
+ * (History.storable is sto times the crop part of the food, storableByte; the grain share above applies its own
+ * farm part, so the crop part is not counted twice.)
  */
 export function storableOf(s: HistoryState, id: number): number {
-  return s.sp.sto[id]
+  const v = s.sp.sto[id] / POLITY.storeRef
+  return POLITY.storeFloor + (1 - POLITY.storeFloor) * (v < 1 ? v : 1)
 }
 
 /** Horses: 1 when settlement id keeps horses (species.ts), else 0 (military quality, steppe raiding). */

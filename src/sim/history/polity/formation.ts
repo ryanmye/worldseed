@@ -6,7 +6,8 @@
 // so grain-poor herders and fishers, defensible hill and marsh villages and distant places stay
 // out (non-state space by the rule itself).
 //
-// Formation (every step): a stateless settlement of POLITY.formPop people with a grain share of at
+// Formation (every step): a stateless settlement of formPopOf people (relative to the world's settlements, at most
+// POLITY.formPop) with a grain share of at
 // least formGrain, formRatio times as big as every stateless neighbour within reach, becomes a capital
 // when at least formDependents stateless neighbours would submit to it; they join. Larger centres are
 // tried first, so they win contested hinterlands.
@@ -30,14 +31,35 @@ export function atWar(ps: PolityState, p: number, q: number): boolean {
   return r !== undefined && ps.relWar[r] >= 0
 }
 
+const POPS = { a: new Float64Array(1024) }
+
+/**
+ * Population a founding capital needs: formQuant times the formTop-quantile of the living (non-outpost) settlements'
+ * people, within [formPopMin, formPop]. In a world of small villages the largest stand out sooner; in a rich one the
+ * bar stays at formPop.
+ */
+export function formPopOf(s: HistoryState): number {
+  const P = POLITY
+  const living = s.living
+  if (POPS.a.length < living.length) POPS.a = new Float64Array(living.length * 2)
+  const a = POPS.a
+  let n = 0
+  for (let t = 0; t < living.length; t++) { const id = living[t]; if (!s.outpost[id]) a[n++] = s.pop[id] }
+  if (n === 0) return P.formPop
+  const v = a.subarray(0, n).sort()
+  const x = P.formQuant * v[Math.min(n - 1, Math.floor(P.formTop * n))]
+  return x < P.formPopMin ? P.formPopMin : x > P.formPop ? P.formPop : x
+}
+
 /** System part (every step): new states form around dominant towns. */
 export function formation(s: HistoryState, ps: PolityState): void {
   const P = POLITY
   const living = s.living
   const cand: number[] = []
+  const formPop = formPopOf(s)
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
-    if (ps.polity[id] >= 0 || s.pop[id] < P.formPop || grainShare(s, id) < P.formGrain) continue
+    if (ps.polity[id] >= 0 || s.pop[id] < formPop || grainShare(s, id) < P.formGrain) continue
     cand.push(id)
   }
   if (cand.length === 0) return

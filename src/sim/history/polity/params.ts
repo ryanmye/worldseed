@@ -22,13 +22,23 @@ export const POLITY = {
   transit: 2,
   /** Armies cost more than freight on sea legs: sea edge cost = trade route cost * seaArmy. */
   seaArmy: 1.5,
-  /** Formation: a stateless settlement of formPop people, grain share >= formGrain, formRatio times its largest stateless neighbour, with formDependents neighbours that would submit. */
+  /**
+   * Formation: a stateless settlement of at least formQuant times the formTop-quantile of the living settlements' people,
+   * within [formPopMin, formPop] (formation.ts formPopOf), grain share >= formGrain, formRatio times its largest stateless
+   * neighbour, with formDependents neighbours that would submit.
+   */
   formPop: 1500,
+  formPopMin: 800,
+  formTop: 0.9,
+  formQuant: 4,
   formGrain: 0.4,
-  formRatio: 2,
+  formRatio: 1.5,
   formDependents: 2,
   /** Grain share gamma = (1 - fishFrac - liveWeight * liveFrac) * storable (the tax base; state.ts storableOf: species v2's per-settlement storable share of the crop). */
   liveWeight: 0.6,
+  /** Taxable share of the crop: storeFloor + (1 - storeFloor) * min(1, storable / storeRef), storable species v2's storable share of the crop (state.ts storableOf). */
+  storeFloor: 0.5,
+  storeRef: 0.85,
   /** Submission: Proj * (subBase + (1 - subBase) * gamma) >= submit * Local * (1 + foreign * [other people]). */
   submit: 2.8,
   subBase: 0.3,
