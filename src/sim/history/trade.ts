@@ -22,6 +22,8 @@
 // directly, along the chained path, and those settlements take a toll; so
 // does the trader whose region holds a shore where the goods change between
 // land and sea (transshipment), which makes ports, river mouths and straits hubs.
+// A port at the end of a route that goes by sea is a gateway: its own trade on
+// that route counts TRADE.portWeight (not ownWeight) toward its hub status.
 // Pairs that have never traded are only re-examined every TRADE.probeStep years.
 // Knowledge (knowledge.ts): a trader searches only through settlements whose
 // cells its people knows; a partner (or a settlement on the way) of a people
@@ -126,6 +128,8 @@ export interface TradeState {
   rOpened: number[]
   rPath: number[][]
   rTransit: number[][]
+  /** 1 when the route's way goes by sea (its port ends are gateways: TRADE.portWeight). */
+  rSea: Uint8Array
   rOpen: Uint8Array
   rIdle: Int32Array
   /** Loads this year. */
@@ -205,7 +209,7 @@ export function createTrade(cellCount: number): TradeState {
     routeCount: 0,
     routeIndex: new Map(),
     rA: [], rB: [], rOpened: [], rPath: [], rTransit: [],
-    rOpen: new Uint8Array(256),
+    rOpen: new Uint8Array(256), rSea: new Uint8Array(256),
     rIdle: new Int32Array(256),
     rVol: new Float64Array(256),
     rRoadAcc: new Float64Array(256),
@@ -285,6 +289,7 @@ function ensureRoutes(ts: TradeState, count: number): void {
   let size = ts.rOpen.length
   while (size < count) size *= 2
   ts.rOpen = growU(ts.rOpen, size)
+  ts.rSea = growU(ts.rSea, size)
   ts.rIdle = growI(ts.rIdle, size)
   ts.rVol = growF(ts.rVol, size)
   ts.rRoadAcc = growF(ts.rRoadAcc, size)
@@ -696,6 +701,9 @@ function createRoute(s: HistoryState, ts: TradeState, p: number): number {
     if (x !== a && x !== b && transit.indexOf(x) < 0) transit.push(x)
   }
   ts.rTransit.push(transit)
+  let bySea = 0
+  for (let k = 1; k < path.length; k++) if (T.sea[path[k]]) { bySea = 1; break }
+  ts.rSea[r] = bySea
   // The peoples at both ends learn the way.
   learnPath(s, a, path, false)
   if (s.people[b] !== s.people[a]) learnPath(s, b, path, false)
@@ -1003,8 +1011,10 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       ts.goodYear[g] += (ab + ba) * V[g]
     }
     if (pc !== null) { pc.route[p] = r; const l = pc.loss[p]; if (l > 0) pc.lossV[p] += l * vol } // polities: (v2) cargo lost to pirates and bandits (paid out by flushAccounts)
-    throughYear[a] += TRADE.ownWeight * vol
-    throughYear[b] += TRADE.ownWeight * vol
+    // (A port at the end of a way by sea is a gateway: goods change there between the ships and the land.)
+    const sw = ts.rSea[r] === 1 ? TRADE.portWeight : TRADE.ownWeight
+    throughYear[a] += (s.port[a] >= 0 ? sw : TRADE.ownWeight) * vol
+    throughYear[b] += (s.port[b] >= 0 ? sw : TRADE.ownWeight) * vol
     const transit = ts.rTransit[r]
     const hvv = gx !== null ? gx.pairHv[p] : 0
     const tollVol = gx !== null ? vol - hvl : vol // goods: high-value goods pay their cut instead (hvLoads)

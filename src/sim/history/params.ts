@@ -681,6 +681,8 @@ export const TRADE = {
   toll: 0.03,
   /** For hub status, a settlement's own trade counts this much per load; trade passing through it counts fully. */
   ownWeight: 0.5,
+  /** ... and a port's own trade on a route that goes by sea this much (a gateway between the ships and the land). */
+  portWeight: 0.8,
   /** Exporters keep half the price gap they close, plus this margin on the value moved. */
   margin: 0.04,
 }
