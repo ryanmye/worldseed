@@ -16,6 +16,7 @@
 // and its capitals. The people dot's colour comes from the peoples index (peoplesData.ts),
 // already built once per history by historyView.ts and handed in at commit().
 
+import { landmarksOf } from './landmarksData.ts'
 import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
 import { formatPopulation, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
@@ -238,7 +239,11 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
       row.state.hidden = true
     }
     if (row.sparkCtx) sparkline(row.sparkCtx, id, shownS0)
-    row.el.title = `${settlementName(history!, id)}: ${Math.round(pop)} people` + (polData && p >= 0 ? `, ${polData.names[p]}` : '')
+    // landmarks: its great buildings standing by the year (any state), in the tooltip
+    const ld = landmarksOf(history)
+    let great = 0
+    for (const i of ld?.bySettlement.get(id) ?? []) if (ld!.L.rank[i] === 0 && ld!.L.begunYear[i] <= year) great++
+    row.el.title = `${settlementName(history!, id)}: ${Math.round(pop)} people` + (polData && p >= 0 ? `, ${polData.names[p]}` : '') + (great ? ` · ${great} landmark${great > 1 ? 's' : ''}` : '')
     row.el.classList.toggle('selected', id === selectedId)
   }
 

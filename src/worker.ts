@@ -18,6 +18,7 @@
 
 import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, World, WorldOptions } from './contract.ts'
 import * as sim from './sim/index.ts'
+import { buffersOf, cacheKeys, hashValue, openHistoryCache, snapshot, type CacheKeys } from './historyCache.ts'
 
 const { generateWorld, simulateHistory } = sim
 /** The resumable run's constructor, when the simulation exports one (else every run starts from scratch). */
@@ -31,6 +32,11 @@ export type WorkerRequest =
       seed: number
       options?: WorldOptions
       historyOptions?: HistoryOptions
+      /** Cache (see the cache section below): skip reading (still write); compare a cached history with a fresh run. */
+      nocache?: boolean
+      cachecheck?: boolean
+      /** Without a cached history, first simulate (and post) only this many years when the requested run is longer; the UI then extends. */
+      firstYears?: number
     }
   | {
       /** Simulate the world of request `requestId` again, `years` long. */
@@ -39,11 +45,15 @@ export type WorkerRequest =
       years: number
       /** Debugging (perf=1 tools): fail as if the simulation had thrown. */
       fail?: boolean
+      /** Run at full speed even in a hidden tab (the run the page was opened for). */
+      full?: boolean
     }
+  /** The page was hidden or shown: background extensions run at a reduced duty cycle while hidden. */
+  | { type: 'throttle'; hidden: boolean }
 
 export type WorkerResponse =
   | { type: 'world'; requestId: number; world: World }
-  | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean }
+  | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean; cached?: boolean }
   | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend'; message: string }
   /** Progress of a run in chunks (resumable runs only, see `simulate`): `years` simulated so far of `target`. */
   | { type: 'progress'; requestId: number; years: number; target: number }
@@ -52,11 +62,17 @@ const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as un
 const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
 
 /** The world of the latest generate request, kept to simulate longer runs on, with its resumable run (null before the first run, without createHistoryRun, or after a failure). */
-interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null }
+interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null; keys: CacheKeys | null }
 let kept: Kept | null = null
 
 /** Progress is posted at least this often (simulated years) while a resumable run advances toward its target. */
 const PROGRESS_CHUNK_YEARS = 150
+/**
+ * Years of the next chunk from `year`: 150, growing to a tenth of the years so far, because every
+ * advanceTo assembles a whole History (about 25 ms at 2000 years, 80 ms at 6000): 150-year chunks
+ * all the way spent ~1.5 s of a 6000-year run on that.
+ */
+const chunkYears = (year: number) => Math.max(PROGRESS_CHUNK_YEARS, Math.floor(year / 10))
 
 /**
  * History `years` long (undefined: the requested default length) of the kept world: from its
@@ -64,18 +80,23 @@ const PROGRESS_CHUNK_YEARS = 150
  * each one short of the target, so the UI can show real progress for the simulation (the run
  * reaching the same target in one call or several costs the same, per its contract).
  */
-function simulate(k: Kept, years: number | undefined, requestId: number): History {
+async function simulate(k: Kept, years: number | undefined, requestId: number, background: boolean): Promise<History> {
   if (createHistoryRun && !k.run) k.run = createHistoryRun(k.world, k.historyOptions)
   const target = years ?? k.historyOptions?.years ?? 2000
   if (!k.run) return simulateHistory(k.world, years === undefined ? k.historyOptions : { ...k.historyOptions, years })
   try {
     const run = k.run
-    let upTo = Math.min(target, run.year + PROGRESS_CHUNK_YEARS)
+    let upTo = Math.min(target, run.year + chunkYears(run.year))
+    let t0 = performance.now()
     let h = run.advanceTo(upTo)
+    lastChunkMs = performance.now() - t0
     while (upTo < target) {
       post({ type: 'progress', requestId, years: h.years, target })
-      upTo = Math.min(target, run.year + PROGRESS_CHUNK_YEARS)
+      if (background) await breathe()
+      upTo = Math.min(target, run.year + chunkYears(run.year))
+      t0 = performance.now()
       h = run.advanceTo(upTo)
+      lastChunkMs = performance.now() - t0
     }
     return h
   } catch (err) {
@@ -84,10 +105,11 @@ function simulate(k: Kept, years: number | undefined, requestId: number): Histor
   }
 }
 
-function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean) {
+async function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean, background = false) {
   const t0 = performance.now()
-  const history = simulate(k, years, requestId)
+  const history = await simulate(k, years, requestId, background)
   const ms = performance.now() - t0
+  const stored = k.keys ? snapshot(history) : null // (before its arrays are transferred away)
   // A Set: the sim may pack several arrays into one buffer, and listing a buffer twice throws.
   const transfer = new Set<Transferable>([history.population.buffer, history.food.buffer, history.capacity.buffer] as ArrayBuffer[])
   const partial = history as Partial<History>
@@ -112,9 +134,9 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   for (const group of [partial.marriages, partial.unions] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   // disease: fever per cell, fever tolerance and endemic sickness per snapshot per people, outbreaks and quarantines
   for (const k of ['fever', 'feverTolerance', 'endemic']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows); renaming: the renamings table (its typed columns, fresh per run)
+  // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows); renaming: the renamings table (its typed columns, fresh per run); landmarks: the landmarks and their changes (likewise)
   for (const k of ['scenery', 'sceneryKind']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows, partial.renamings] as unknown as (Record<string, unknown> | undefined)[]) {
+  for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows, partial.renamings, partial.landmarks] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   }
@@ -122,35 +144,91 @@ function simulateAndPost(requestId: number, k: Kept, years: number | undefined, 
   if (partial.ideaAdoptions) for (const v of Object.values(partial.ideaAdoptions)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend }, [...transfer])
+  if (stored && k.keys) void cacheWrite(k.keys.history(stored.years), k.keys.group, stored.years, stored)
 }
 
-self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
-  const req = ev.data
-  if (req.type === 'extend') {
-    const { requestId, years } = req
-    if (!kept || kept.requestId !== requestId) return // superseded by a newer world
-    try {
-      if (req.fail) throw new Error('simulated extension failure (debug)')
-      simulateAndPost(requestId, kept, years, true)
-    } catch (err) {
-      post({ type: 'error', requestId, stage: 'extend', message: errorMessage(err) })
-    }
-    return
-  }
+// ---------- cache (historyCache.ts) and the background duty cycle ----------
+// Worlds and histories are cached in IndexedDB by code version, seed and options (written here
+// after each run, read on generate). Requests are handled one at a time, in order (`queue`); a
+// background extension yields between chunks, and while the page is hidden it sleeps twice
+// the last chunk's time after each (about a third of a core instead of a whole one).
+
+const cacheReady = openHistoryCache()
+let hidden = false
+let lastChunkMs = 0
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+const breathe = () => sleep(hidden ? Math.min(2000, 2 * lastChunkMs) : 0)
+let writes: Promise<void> = Promise.resolve()
+/** Writes run one after another (each compresses its arrays first), behind the requests. */
+function cacheWrite(key: string, group: string, years: number, value: unknown) {
+  writes = writes.then(async () => {
+    const t0 = performance.now()
+    if (await (await cacheReady)?.put(key, group, years, value)) console.info(`cache: ${years ? `${years}-year history` : 'world'} stored ${(performance.now() - t0).toFixed(0)} ms after the run (compressed in the background)`)
+  })
+}
+
+async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
   const { requestId, seed, options, historyOptions } = req
-  let world: World
+  const cache = await cacheReady
+  const keys = cache ? cacheKeys(cache.version, seed, options, historyOptions) : null
+  const target = historyOptions?.years ?? 2000
   kept = null
+  let world: World | null = null
   try {
-    world = generateWorld(seed, options)
+    const t0 = performance.now()
+    world = keys && !req.nocache ? await cache!.getWorld<World>(keys.world) : null
+    if (world) {
+      console.info(`cache: world read in ${(performance.now() - t0).toFixed(0)} ms`)
+      if (req.cachecheck) {
+        const a = hashValue(generateWorld(seed, options)), b = hashValue(world)
+        console[a === b ? 'info' : 'error'](`cache check (world): fresh ${a}, cached ${b}: ${a === b ? 'identical' : 'DIFFERENT'}`)
+      }
+    } else {
+      world = generateWorld(seed, options)
+      console.info(`world generated in ${(performance.now() - t0).toFixed(0)} ms`)
+      if (keys) cacheWrite(keys.world, '', 0, snapshot(world))
+    }
     post({ type: 'world', requestId, world }) // copied: the worker keeps `world`
   } catch (err) {
     post({ type: 'error', requestId, stage: 'world', message: errorMessage(err) })
     return
   }
-  kept = { requestId, world, historyOptions, run: null }
+  kept = { requestId, world, historyOptions, run: null, keys }
   try {
-    simulateAndPost(requestId, kept, undefined, false)
+    const t0 = performance.now()
+    const hit = keys && !req.nocache ? await cache!.getHistory<History>(keys, target) : null
+    if (hit) {
+      const ms = performance.now() - t0
+      console.info(`cache: ${hit.years}-year history read in ${ms.toFixed(0)} ms`)
+      if (req.cachecheck) {
+        const fresh = simulateHistory(world, { ...historyOptions, years: hit.years })
+        const a = hashValue(fresh), b = hashValue(hit.value)
+        console[a === b ? 'info' : 'error'](`cache check (${hit.years} years): fresh ${a}, cached ${b}: ${a === b ? 'identical' : 'DIFFERENT'}`)
+      }
+      post({ type: 'history', requestId, history: hit.value, ms, extend: false, cached: true }, buffersOf(hit.value))
+      return
+    }
+    const first = req.firstYears && req.firstYears < target ? req.firstYears : undefined
+    await simulateAndPost(requestId, kept, first, false)
   } catch (err) {
     post({ type: 'error', requestId, stage: 'history', message: errorMessage(err) })
   }
+}
+
+async function extend(req: Extract<WorkerRequest, { type: 'extend' }>) {
+  const { requestId, years } = req
+  if (!kept || kept.requestId !== requestId) return // superseded by a newer world
+  try {
+    if (req.fail) throw new Error('simulated extension failure (debug)')
+    await simulateAndPost(requestId, kept, years, true, !req.full)
+  } catch (err) {
+    post({ type: 'error', requestId, stage: 'extend', message: errorMessage(err) })
+  }
+}
+
+let queue: Promise<void> = Promise.resolve()
+self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
+  const req = ev.data
+  if (req.type === 'throttle') hidden = req.hidden
+  else queue = queue.then(() => (req.type === 'extend' ? extend(req) : generate(req)))
 }

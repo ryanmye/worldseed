@@ -80,8 +80,8 @@ export interface HistoryViewDeps {
   /** Called before flying to a settlement (stops the planet spinning). */
   onFly(): void
   setUrlParam(name: string, value: string | null): void
-  /** Ask for a longer run (`years` long) of the current world; answered by extendHistory or extendFailed. */
-  requestYears(years: number): void
+  /** Ask for a longer run (`years` long) of the current world; answered by extendHistory or extendFailed. `full`: the run the page was opened for (full speed). */
+  requestYears(years: number, full?: boolean): void
   /** Something changed outside a frame (a swapped-in history): wake the render loop. */
   wake(): void
   /** While a known world is shown the clouds are drawn over its mist (and back under the overlays after). */
@@ -90,6 +90,8 @@ export interface HistoryViewDeps {
   setViewModeAvailable?(mode: ViewMode, available: boolean): void
   /** Add a layer toggle (the Factions toggle appears with the first history that has factions). */
   addLayerToggle?(t: LayerToggle): HTMLInputElement
+  /** Compile the shaders of new objects (not yet in the scene) without blocking; resolves when they can be drawn without a stall. */
+  precompile?(objects: THREE.Object3D[]): Promise<unknown>
 }
 
 export interface InitialHistoryState {
@@ -126,7 +128,8 @@ export interface SwapStats {
 export interface HistoryView {
   /** A new world is showing; history is being simulated. */
   setWorld(world: World): void
-  setHistory(history: History): void
+  /** The first history of the world; `target`: the length asked for, when longer (it is then extended at once, see applyInitial). */
+  setHistory(history: History, target?: number): void
   setHistoryError(message: string): void
   /** Settlement under CSS pixel (x, y) relative to the canvas, or -1. */
   pickAt(x: number, y: number): number
@@ -279,8 +282,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let deferred: { h: History; ms: number } | null = null
   /** The staged rebuild in progress (cancel() drops it), or null. */
   let staging: { cancel(): void } | null = null
-  /** Timer of the deferred initial build (setHistory), 0 for none: lets "Drawing the map…" paint before the (synchronous) build runs. */
-  let initialBuildTimer = 0
+  /**
+   * The first history was shorter than the one asked for (year=6000: the default length is shown
+   * first): the initial state still to apply when the longer one is swapped in (see applyInitial).
+   */
+  let interim: { year: number | null; play: boolean; select: number | null; shownYear: number } | null = null
   /** Simulation milliseconds per simulated year (for the prefetch lead), from the last run. */
   let simMsPerYear = 0.6
   let lastSwap: SwapStats | null = null
@@ -626,25 +632,34 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
    * fills in `b`. Nothing here touches what is on screen: commit() swaps the result in.
    */
   function buildSteps(w: World, h: History, b: Built): { name: string; run(): void }[] {
+    // (the history index in three steps, each its own task: peoples, index, species)
+    let water: (c: number) => boolean = () => false
+    let pd: ReturnType<typeof buildPeoplesData> | null = null
+    let standIn = false
     return [
+      {
+        name: 'peoples',
+        run() {
+          const lake = lakeArray(w)
+          water = (c: number) => isWaterCell(w, lake, c)
+          pd = buildPeoplesData(w, h, water) // first: the dev stand-ins may add events
+          standIn = applySpeciesStandIn(w, h, pd)
+          if (standIn) console.info('species: using the dev stand-in data (speciesData.ts STAND_IN)')
+        },
+      },
       {
         name: 'index',
         run() {
-          const lake = lakeArray(w)
-          const water = (c: number) => isWaterCell(w, lake, c)
-          const pd = buildPeoplesData(w, h, water) // first: the dev stand-ins may add events
-          const standIn = applySpeciesStandIn(w, h, pd)
-          if (standIn) console.info('species: using the dev stand-in data (speciesData.ts STAND_IN)')
           b.index = buildHistoryIndex(h, water)
           b.index.peoples = pd
-          b.index.species = buildSpeciesData(w, h, pd, standIn)
-          b.index.expeditions = buildExpeditionData(w, h, b.index.journeys)
         },
       },
+      { name: 'species data', run: () => (b.index!.species = buildSpeciesData(w, h, pd, standIn)) },
       {
         name: 'expeditions',
         run() {
           const ix = b.index!
+          ix.expeditions = buildExpeditionData(w, h, ix.journeys)
           const ed = ix.expeditions!
           const pd = ix.peoples
           const rgb = (id: number) => (pd ? ([pd.rgb[pd.people[id] * 3], pd.rgb[pd.people[id] * 3 + 1], pd.rgb[pd.people[id] * 3 + 2]] as const) : null)
@@ -866,8 +881,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     cities.showSettlement(id)
   }
 
-  /** Build the longer history `h` step by step, one step per task, then commit it. */
-  function stage(h: History, ms: number) {
+  /**
+   * Build history `h` step by step, one step per task (the page stays responsive and the progress
+   * strip moves), then commit it: a longer run of the history shown, or with `first` the world's first
+   * (`target`: the length asked for, see applyInitial).
+   */
+  function stage(h: History, ms: number, first = false, target = 0) {
     const w = world!
     const b: Built = {}
     const steps = buildSteps(w, h, b)
@@ -877,6 +896,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     let timer = 0
     let total = 0
     let maxStep = 0
+    let compiled = !deps.precompile
     timeline.setProgress('Drawing the map…', 0)
     const cancel = () => {
       cancelled = true
@@ -894,7 +914,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         } catch (err) {
           staging = null
           disposeStaged(b)
-          api.extendFailed(`building the ${step.name} layer failed: ${err instanceof Error ? err.message : String(err)}`)
+          const why = `building the ${step.name} layer failed: ${err instanceof Error ? err.message : String(err)}`
+          if (first) api.setHistoryError(why)
+          else api.extendFailed(why)
           return
         }
         const dt = performance.now() - t0
@@ -905,11 +927,36 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         timer = window.setTimeout(next, 0)
         return
       }
+      if (!compiled) {
+        // the new layers' shaders compile off the main thread (else the first frame after the swap stalls on them)
+        compiled = true
+        // (every built layer's object or mesh, and those of the panels' layers: b.goods.layer, b.polities.outlaws, ...)
+        const objs = new Set<THREE.Object3D>()
+        const take = (x: unknown) => {
+          const o = x as { object?: unknown; mesh?: unknown } | null | undefined
+          if (o && typeof o === 'object') for (const c of [o.object, o.mesh]) if (c instanceof THREE.Object3D) objs.add(c)
+        }
+        for (const v of Object.values(b) as unknown[]) {
+          take(v)
+          if (v && typeof v === 'object') for (const k of ['layer', 'outlaws']) take((v as Record<string, unknown>)[k])
+        }
+        const t1 = performance.now()
+        deps.precompile!([...objs]).catch(() => {}).then(() => {
+          times.compileWait = performance.now() - t1
+          if (!cancelled) timer = window.setTimeout(next, 0)
+        })
+        return
+      }
       // all built: swap in, in one task
       staging = null
-      requested = 0
-      commit(w, h, b, true)
-      timeline.extendRange(h.years)
+      if (first) {
+        commit(w, h, b, false)
+        timeline.setRange(h.years, h.snapshotInterval)
+      } else {
+        requested = 0
+        commit(w, h, b, true)
+        timeline.extendRange(h.years)
+      }
       timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
       timeline.setProgress(null, null)
       syncPrefetchLead()
@@ -918,15 +965,63 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       total += commitMs
       lastSwap = { years: h.years, simMs: ms, totalMs: total, maxStepMs: Math.max(maxStep, commitMs), commitMs, steps: times }
       console.info(
-        `history extended to ${h.years} years: simulation ${ms.toFixed(0)} ms (worker); main thread ${total.toFixed(0)} ms in ${steps.length + 1} tasks, longest ${lastSwap.maxStepMs.toFixed(0)} ms (` +
+        `history ${first ? 'shown' : 'extended to'} ${h.years} years: simulation ${ms.toFixed(0)} ms (worker); main thread ${total.toFixed(0)} ms in ${steps.length + 1} tasks, longest ${lastSwap.maxStepMs.toFixed(0)} ms (` +
           Object.entries(times).map(([n, t]) => `${n} ${t.toFixed(1)}`).join(', ') +
           `); ${h.settlements.length} settlements, ${h.events.length} events`,
       )
+      if (first) applyInitial(h, target)
+      else if (interim) finishInterim(h)
       requestRender()
       deps.wake()
     }
     staging = { cancel }
     timer = window.setTimeout(next, 0)
+  }
+
+  /**
+   * After the first commit: the URL's initial state (year, play, selection, known world, species).
+   * When `target` is longer than `h` (year=6000 shows the default 2000 years first) the year and
+   * play state wait for the longer run, asked for here at full speed, unless the user moves the
+   * timeline meanwhile; a selection not yet founded waits too (finishInterim).
+   */
+  function applyInitial(h: History, target: number) {
+    shownS0 = shownS1 = -1
+    const init = pending
+    pending = null
+    const later = target > h.years
+    const holdYear = later && init !== null && init.year !== null && init.year > h.years
+    if (init && init.year !== null) timeline.setYear(Math.min(init.year, h.years))
+    // the initial animation stops at the end of the initial history (from there Play goes on)
+    if (!holdYear && (!init || init.play)) {
+      timeline.setSoftStop(later ? target : h.years)
+      timeline.play()
+    } else timeline.setSoftStop(null)
+    const sel = init?.select ?? null
+    const selNow = sel !== null && sel >= 0 && sel < (index?.count ?? 0)
+    if (selNow) api.select(sel, true)
+    if (init?.knownAll) peoples.select(ANYONE)
+    else if (init && typeof init.people === 'number') peoples.select(init.people)
+    if (init && typeof init.species === 'number') speciesView.select(init.species)
+    if (!later) return
+    interim = { year: holdYear ? init!.year : null, play: init?.play ?? true, select: selNow ? null : sel, shownYear: timeline.year }
+    requested = target
+    timeline.setMore(More.Pending)
+    timeline.setProgress(`Extending to year ${target}…`, null)
+    deps.requestYears(target, true)
+  }
+
+  /** The longer run asked for by applyInitial is in: the year and selection that waited for it. */
+  function finishInterim(h: History) {
+    const it = interim!
+    interim = null
+    if (it.year !== null && !timeline.playing && Math.abs(timeline.year - it.shownYear) < 1e-6) {
+      timeline.setYear(it.year)
+      if (it.play) {
+        timeline.setSoftStop(h.years)
+        timeline.play()
+      }
+    }
+    if (it.select !== null && it.select >= 0 && it.select < (index?.count ?? 0) && selected < 0) api.select(it.select, true)
   }
 
   /** Features of the history on (and, with `beside`, beside) a cell, named or not yet, via the detected regions. */
@@ -1085,8 +1180,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       deferred = null
       requested = 0
       failed = false
-      window.clearTimeout(initialBuildTimer)
-      initialBuildTimer = 0
+      interim = null
       clearLayer()
       selected = -1
       hovered = -1
@@ -1110,44 +1204,15 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       shownL0 = shownL1 = -1
       deps.canvas.style.cursor = ''
     },
-    setHistory(h: History) {
+    setHistory(h: History, target = 0) {
       if (!world) return
       staging?.cancel()
       staging = null
       deferred = null
       requested = 0
-      window.clearTimeout(initialBuildTimer)
-      const w = world
-      // one step per task, same as stage() (extending), would delay a fresh world's first paint by
-      // little and complicate the pending-URL-state handling below for no benefit; this build runs
-      // in one synchronous task, but is deferred by a task so "Drawing the map…" gets to paint first.
-      timeline.setProgress('Drawing the map…', null)
-      initialBuildTimer = window.setTimeout(() => {
-        initialBuildTimer = 0
-        if (world !== w) return // superseded by a new seed while this was pending
-        const b: Built = {}
-        for (const step of buildSteps(w, h, b)) step.run()
-        commit(w, h, b, false)
-        timeline.setRange(h.years, h.snapshotInterval)
-        timeline.setMore(h.years >= MAX_YEARS ? More.No : More.Yes, h.years >= MAX_YEARS ? capMessage() : '')
-        timeline.setProgress(null, null)
-        syncPrefetchLead()
-        shownS0 = shownS1 = -1
-        const init = pending
-        pending = null
-        if (init && init.year !== null) timeline.setYear(init.year)
-        // the initial animation stops at the end of the initial history (from there Play goes on)
-        if (!init || init.play) {
-          timeline.setSoftStop(h.years)
-          timeline.play()
-        } else timeline.setSoftStop(null)
-        if (init && init.select !== null && init.select >= 0 && init.select < (index?.count ?? 0)) api.select(init.select, true)
-        if (init?.knownAll) peoples.select(ANYONE)
-        else if (init && typeof init.people === 'number') peoples.select(init.people)
-        if (init && typeof init.species === 'number') speciesView.select(init.species)
-        requestRender()
-        deps.wake()
-      }, 0)
+      interim = null
+      // built one step per task like an extension (stage), then committed and the URL state applied (applyInitial)
+      stage(h, 0, true, target)
     },
     setHistoryError(message: string) {
       timeline.setRange(null, 1, 'history unavailable')
@@ -1162,7 +1227,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         return
       }
       simMsPerYear = ms / Math.max(1, h.years)
-      if (timeline.intro) deferred = { h, ms } // swapped in when the initial animation ends (tick)
+      // (the run asked for with the first history is swapped in at once)
+      if (timeline.intro && !interim) deferred = { h, ms } // swapped in when the initial animation ends (tick)
       else stage(h, ms)
     },
     setSimProgress(years: number, target: number) {
@@ -1171,6 +1237,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     extendFailed(message: string) {
       requested = 0
+      interim = null
       failed = true
       const end = index ? index.history.years : 0
       console.error('history extension failed (keeping the current history):', message)

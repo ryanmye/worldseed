@@ -58,6 +58,10 @@
 // from 'names-disease-<id>'. Switched off, the history is exactly the one without it.
 // rulers (rulers/; HistoryOptions.rulers, needs polities): named rulers, heirs, successions, houses, marriages and
 // unions, from 'history-rulers' (names from 'names-house-<id>', 'names-ruler-<id>' and endings per language).
+// landmarks (landmarks/; HistoryOptions.landmarks): castles, palaces, temples and the other great buildings, the towns'
+// temples and shrines, raised, neglected, ruined, restored and rededicated as a consequence of history, at the very end of
+// the year (after renaming), from 'history-landmarks' (faith traditions from 'landmarks-faith-<id>', names from
+// 'names-landmark-<id>'). A pure consequence layer: on or off, every other field is the same.
 // religion (religion/; HistoryOptions.religion): faiths, spread, conversion, churches, schism, persecution and holy war,
 // from 'history-religion', at the end of the year before the snapshots (names from 'names-faith-<id>').
 // tourism (tourism/; HistoryOptions.tourism): scenery, sights, leisure travel and resort towns, from
@@ -152,6 +156,11 @@ import { IDEAS_ON } from './ideas/params.ts'
 import { createIdeasSystem, ideasYear } from './ideas/system.ts'
 import type { IdeasDiag } from './ideas/state.ts'
 import { assembleIdeas, emptyIdeasHistory } from './ideas/assemble.ts'
+// landmarks: great buildings and houses of worship raised by history (landmarks/).
+import { LANDMARKS_ON } from './landmarks/params.ts'
+import { createLandmarks, landmarksYear } from './landmarks/system.ts'
+import type { LandmarksDiag } from './landmarks/state.ts'
+import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -218,6 +227,8 @@ export interface HistoryDiagnostics {
   renaming?: RenamingDiag
   /** ideas: the ideas system's counters (absent when it is off). */
   ideas?: IdeasDiag
+  /** landmarks: the landmarks system's counters (absent when it is off). */
+  landmarks?: LandmarksDiag
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -409,6 +420,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // ideas: inventions and practices (they set the technology caps), unless switched off.
   const ix = (options?.ideas ?? IDEAS_ON) ? createIdeasSystem(s) : null
   s.ideas = ix
+  // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
+  const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -539,6 +552,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const fled = rel ? religionYear(s, rel, trade) : false // religion: spread, conversion, churches, schism, persecution, pilgrims, flight
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
+    if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -597,10 +611,11 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
+    const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
-        events: weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), journeys, // (renaming: PlaceRenamed woven in)
+        events: weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), journeys, // (renaming: PlaceRenamed woven in; landmarks: theirs after it)
         structures: s.structures.map((x) => ({ ...x })), // (later years may still mark them lost)
         landInterval, landSnapshotCount,
         landUse: landUse.slice(0, landSnapshotCount * N), degradation: degradation.slice(0, landSnapshotCount * N), road: road.slice(0, landSnapshotCount * N),
@@ -620,6 +635,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...tourismHist, // tourism:
         renamings: renHist.renamings, // renaming:
         ...ideasHist, // ideas:
+        landmarks: lmHist.landmarks, // landmarks:
       },
       terrain,
       diag: {
@@ -642,6 +658,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
         ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
+        landmarks: lm ? { ...lm.diag } : undefined, // landmarks:
       },
     }
   }

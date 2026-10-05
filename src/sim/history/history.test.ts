@@ -366,6 +366,11 @@ function checkInvariants(w: World, h: History): void {
       case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted:
         expect(e.value >= 0 && e.value < h.ideas.length).toBe(true)
         break
+      // landmarks: great landmarks begun, finished, given up, neglected, ruined, restored, rededicated (checked against History.landmarks in landmarks/landmarks.test.ts).
+      case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
+      case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted:
+        expect(e.value >= 0 && e.value < h.landmarks.count).toBe(true)
+        break
       // claims: border disputes (checked against History.polities in claims.test.ts).
       case EventType.BorderDispute:
         break

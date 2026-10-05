@@ -17,6 +17,8 @@ import { describeOutpostSite } from './expeditionsData.ts'
 import { politiesOf, wallSlighted } from './politiesData.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { namesLine } from './renamingFormat.ts'
+import { landmarkLines } from './landmarksFormat.ts'
+
 
 export interface InspectorCallbacks {
   onSelect(id: number): void
@@ -100,6 +102,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       <div class="readout-row">Soil worn <span class="insp-deg"></span></div>
     </div>
     <div class="insp-structures hidden"></div>
+    <div class="insp-landmarks hidden"></div>
     <div class="insp-trade hidden"></div>
     <div class="insp-children hidden"></div>
     <div class="insp-migrants hidden"></div>
@@ -120,6 +123,9 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const cultEl = q<HTMLSpanElement>('.insp-cult')
   const degEl = q<HTMLSpanElement>('.insp-deg')
   const structuresEl = q<HTMLDivElement>('.insp-structures')
+  // landmarks: its great buildings and houses of worship, each with its state at the year (landmarksFormat.ts)
+  const landmarksEl = q<HTMLDivElement>('.insp-landmarks')
+  let shownLandmarks = ''
   const originEl = q<HTMLDivElement>('.insp-origin')
   const placesEl = q<HTMLDivElement>('.insp-places')
   // renaming: "Formerly Ilchanak (until 1202) · called Tiboi by the Leko" (renamingFormat.ts)
@@ -493,6 +499,28 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
           shown++
         }
         structuresEl.classList.toggle('hidden', shown === 0)
+      }
+
+      {
+        const lines = landmarkLines(h, selected, year)
+        const key = selected + ':' + lines.map((l) => l[0]).join('|')
+        if (key !== shownLandmarks) {
+          shownLandmarks = key
+          landmarksEl.replaceChildren()
+          if (lines.length) {
+            const t = document.createElement('div')
+            t.className = 'insp-landmarks-title'
+            t.textContent = lines.length === 1 ? 'Landmark' : `Landmarks (${lines.length})`
+            landmarksEl.appendChild(t)
+          }
+          for (const [text, cls] of lines) {
+            const item = document.createElement('div')
+            if (cls) item.className = cls
+            item.textContent = text
+            landmarksEl.appendChild(item)
+          }
+          landmarksEl.classList.toggle('hidden', lines.length === 0)
+        }
       }
 
       trade.update(year, s0)

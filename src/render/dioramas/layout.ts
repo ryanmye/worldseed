@@ -10,16 +10,20 @@
 // Settlement plans are expensive (hundreds of ground probes for a city), so they advance
 // under a time budget: settlement() returns what is ready and says whether it is done.
 
-import { Biome, CITY_POPULATION, EventType, RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION, type History, type World } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, LandmarkKind,
+ RIVER_FLOW_THRESHOLD, StructureType, TOWN_POPULATION, type History, type World } from '../../contract.ts'
 import { isWaterCell, lakeArray } from '../globe.ts'
 import { riverHalfWidthNear } from '../rivers.ts'
 import { cachedTerritories, CLUSTER_HOUSES, HOUSEHOLD, ruralHouses, ruralThreshold, territories, territorySteps, villageClusters, villageTarget, type Territories } from './census.ts'
 import { floraModel, HOUSE_WIDTH, KK, Model, MODEL_SPECS, styleKindOf, styleModel, type ModelLibrary } from './models.ts'
 import { Flora, hamletKind, houseFacade, isFarKind, isHouseKind, Kind, Style, type Style as StyleT } from './shapes.ts'
 import { cellRandX, createSurface, fbm, hash4, rand4, type Probe } from './surface.ts'
-import { floraOf, GROUND, GROUND_KINDS, kaykitFits, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
+import { floraOf, GROUND, GROUND_KINDS, kaykitFits, LANDMARK_STONE, roofSnow, ROOFS, srgbToLinear, styleOfCell, WALL_STONE, WALLS, WHITEWASH, windmillsFit } from './styles.ts'
 import { createOriginEnv, planOrigin } from './origin.ts'
-import { createTownPlan, GroundKind, Role, townExtent, Ward, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { createTownPlan, GroundKind, LANDMARK_CIVIC, LANDMARK_PACK, Role, townExtent, Ward, type GroundPiece, type PlanItem, type Site, type TownPlan } from './town.ts'
+import { CivicPiece, landmarkPieces, PackPiece, SacredPiece } from './landmarkShapes.ts'
+
+import { landmarkKindsOf, landmarksOf } from '../../ui/landmarksData.ts'
 import { RELIEF_NEAR, terrainOf } from '../terrainHeight.ts'
 import { politiesOf } from '../../ui/politiesData.ts'
 
@@ -180,6 +184,11 @@ export interface Layouts {
   townExtra(id: number, key: string, make: (plan: TownPlan) => PlanItem[] | null): SlotSet | null
   /** Goods: direction (radians in settlement id's plan frame) toward cell `cell` (a mine's deposit), 0 before its layout exists. */
   angleTo(id: number, cell: number): number
+  /**
+   * Landmarks data: the slot set of landmark `lm` (History.landmarks row) of settlement id at its place in the town's plan,
+   * its pieces chosen by kind, form and the town's style; thresholds are town.ts LandmarkPart. Null while the plan is not set up.
+   */
+  landmark(id: number, lm: number): SlotSet | null
 }
 
 /**
@@ -216,6 +225,10 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
   let N = settlements.length
 
   const footprint = (m: number) => lib.models[m]?.footprint ?? 0
+  /** A Role.Landmark kind's piece in its atlas, and the piece's sizes. */
+  const pieceIndex = (code: number) => (code >= LANDMARK_PACK ? code - LANDMARK_PACK : code >= LANDMARK_CIVIC ? code - LANDMARK_CIVIC : code)
+  const pieceInfo = (code: number) => (code >= LANDMARK_PACK ? lib.packPieces : code >= LANDMARK_CIVIC ? lib.civicPieces : lib.sacredPieces)[pieceIndex(code)]
+
   const heightOf = (m: number) => lib.models[m]?.height ?? 0
   const has = (m: number) => lib.models[m] != null
 
@@ -617,6 +630,10 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       site.walls = [...new Set(wallPopsOf(id).values())].sort((a, b) => a - b)
       site.palace = everCapital(id) && peak[id] >= TOWN_POPULATION * 0.8
     }
+    // landmarks data: the town's landmarks known now (room is kept for them)
+    const lmd = landmarksOf(hist)
+    if (lmd) site.landmarks = landmarkKindsOf(lmd, id)
+
     sf = { site, ox, oy, oz, ex, ey, ez, nx, ny, nz, segs, style, coastal }
     sites.set(id, sf)
     return sf
@@ -718,6 +735,10 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       case Role.Rubble: return has(Model.Rubble) ? Model.Rubble : -1
       case Role.Stockade: return styleModel(s, Kind.Fort)
       case Role.Boat: return it.kind === 1 && has(Model.FishingBoat) ? Model.FishingBoat : has(Model.Boat) ? Model.Boat : -1
+      case Role.Landmark: {
+        const m = it.kind >= LANDMARK_PACK ? Model.LandmarkPack : it.kind >= LANDMARK_CIVIC ? Model.LandmarkCivic : Model.LandmarkSacred
+        return has(m) ? m : -1
+      }
       case Role.Haystack: return has(Model.Haystack) ? Model.Haystack : -1
       case Role.Grove: {
         // a garden tree of the climate
@@ -750,6 +771,24 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       return
     }
     setColours(st, id, it, k)
+    if (it.role === Role.Landmark) {
+      // a landmark: one piece of its atlas (aInfo.x -(piece + 1), its eave for a ruin's break), in the town's stone
+      const civic = it.kind >= LANDMARK_CIVIC && it.kind < LANDMARK_PACK
+      const pi = pieceIndex(it.kind)
+      const pc = pieceInfo(it.kind)
+      if (!pc || pc.height <= 0) return
+      const timber = it.kind >= LANDMARK_PACK ? false : civic ? pi === CivicPiece.Stronghold || pi === CivicPiece.TimberHall || pi === CivicPiece.Scaffold : pi === SacredPiece.GreatStave || pi === SacredPiece.Stave
+      const g = lin(timber ? WALL_STONE[style] : LANDMARK_STONE[style], 0.96 + 0.1 * it.jitter)
+      wallTmp[0] = g[0]; wallTmp[1] = g[1]; wallTmp[2] = g[2]
+      const sc = MODEL_SPECS[model].scale
+      const rr = pc.footprint * sc * Math.max(it.sx, it.sz)
+      infoTmp[0] = -(pi + 1); infoTmp[1] = 0; infoTmp[2] = pc.eave; infoTmp[3] = Math.min(0.999, Math.max(0, it.jitter))
+      const sink = sinkFor(rr)
+      writeSlot(w, model, it.threshold, it.yaw, sink, it.sx, it.sy, it.sz, roofTmp, wallTmp, 0, (1.1 * pc.footprint * sc) / Math.max(1e-9, footprint(model)), infoTmp)
+      w.height[w.height.length - 1] = pc.height * sc * it.sy - sink
+      w.radius = Math.max(w.radius, Math.hypot(it.x, it.y) * KK + rr)
+      return
+    }
     if (it.role === Role.WallSeg || it.role === Role.WallTower || it.role === Role.Rubble) {
       const g = lin(WALL_STONE[style], 0.94 + 0.12 * it.jitter)
       wallTmp[0] = g[0]; wallTmp[1] = g[1]; wallTmp[2] = g[2]
@@ -1708,9 +1747,45 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       territoryGen = null
       computeFacts(next, keep)
       wallPops = new Map()
+      // landmarks data: a plan made while the history was shorter kept no room for the landmarks raised since; it is laid
+      // again (at the same size: its peak stays frozen) with room for them all. The extension comes within seconds of loading,
+      // so this happens once, early; later extensions of a finished run add no landmarks to a town already in view.
+      const lmd = landmarksOf(hist)
+      if (lmd) {
+        for (const [id, sf] of sites) {
+          const was = sf.site.landmarks ?? []
+          const now = landmarkKindsOf(lmd, id)
+          if (now.length === was.length && now.every((k, i) => k === was[i])) continue
+          states.delete(id)
+          sites.delete(id)
+          extents.delete(id)
+          for (const key of [...extras.keys()]) if (key.startsWith(`${id}:`)) extras.delete(key)
+        }
+      }
     },
     wallPop: (id, sid) => wallPopsOf(id).get(sid) ?? 0,
     townExtra,
+    landmark(id: number, lm: number) {
+      const d = landmarksOf(hist)
+      if (!d || lm < 0 || lm >= d.L.count) return null
+      const L = d.L
+      const pieces = landmarkPieces(L.kind[lm], L.form[lm], L.variant[lm], styleOf(id), lm)
+      const info = pieceInfo
+      const a = info(pieces.code), e = pieces.extra >= 0 ? info(pieces.extra) : null
+      if (!a) return null
+      // the KayKit pieces of landmarks.glb (empty when it did not load)
+      const pack = (p: number) => ((lib.packPieces[p]?.height ?? 0) > 0 ? LANDMARK_PACK + p : -1)
+      const great = L.rank[lm] === 0
+      const c = pieces.code - LANDMARK_CIVIC
+      return townExtra(id, `L${lm}`, (p) => p.landmark({
+        kind: L.kind[lm], ord: d.ord[lm], code: pieces.code, hx: a.hx, hz: a.hz, h: a.height, great,
+        extra: pieces.extra, ehx: e ? e.hx : 0, ehz: e ? e.hz : 0, scaffold: LANDMARK_CIVIC + CivicPiece.Scaffold,
+        yard: great ? pack(PackPiece.BuildYard) : -1,
+        outbuilding: great && L.kind[lm] !== LandmarkKind.Monument ? pack(PackPiece.RuinHouse) : -1,
+        tower: c === CivicPiece.Keep || c === CivicPiece.Stronghold ? pack(PackPiece.Watchtower) : c === CivicPiece.Citadel ? pack(PackPiece.RoundTower) : -1,
+      }))
+    },
+
     angleTo(id: number, cell: number) {
       const st = states.get(id)
       if (!st || cell < 0) return 0

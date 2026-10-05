@@ -46,6 +46,8 @@ import { loadPref, savePref } from './ui/panels.ts'
 // faith=<id> (select a faith in the Faiths panel), view=faiths (the majority faith of each place's land)
 // disease=0 (no epidemics, links or quarantine flags on the map), epidemic=<id>, sickness=<disease id> (the Sickness panel), view=fever
 // travel=0 (no travellers, visited places, resorts or sights on the map), view=scenery (when the history has scenery)
+// nocache=1 (simulate afresh instead of reading the world and history cache, and overwrite it; historyCache.ts),
+// cachecheck=1 (on a cache hit also simulate afresh and log whether the two are identical: slow, for checking)
 
 const params = new URLSearchParams(window.location.search)
 
@@ -301,8 +303,11 @@ let failNextExtension = false
 function createWorker(): Worker {
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
   w.onmessage = onWorkerMessage
+  if (document.hidden) w.postMessage({ type: 'throttle', hidden: true } satisfies WorkerRequest)
   return w
 }
+// background extensions run slower while the page is hidden (worker.ts)
+document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'throttle', hidden: document.hidden } satisfies WorkerRequest))
 
 function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
   const msg = ev.data
@@ -322,7 +327,7 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
     if (msg.extend) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
-    } else historyView.setHistory(msg.history)
+    } else historyView.setHistory(msg.history, historyYears) // (shorter than asked: shown at once, then extended to it)
   } else if (msg.stage === 'world') {
     overlay.setGenerating(false)
     console.error('world generation failed:', msg.message)
@@ -350,13 +355,23 @@ function requestWorld(seed: number) {
     worker = createWorker()
     extending = 0
   }
-  const req: WorkerRequest = { type: 'generate', requestId: ++requestId, seed, options: WORLD_OPTIONS, historyOptions: historyYears === 2000 ? undefined : { years: historyYears } }
+  const req: WorkerRequest = {
+    type: 'generate',
+    requestId: ++requestId,
+    seed,
+    options: WORLD_OPTIONS,
+    historyOptions: historyYears === 2000 ? undefined : { years: historyYears },
+    // a long first run (year=6000): show the default length first, then extend to it
+    firstYears: historyYears > 2000 ? 2000 : undefined,
+    nocache: params.get('nocache') === '1' || undefined,
+    cachecheck: params.get('cachecheck') === '1' || undefined,
+  }
   worker.postMessage(req)
 }
 
-function requestYears(years: number) {
+function requestYears(years: number, full = false) {
   extending = years
-  const req: WorkerRequest = { type: 'extend', requestId, years, fail: failNextExtension || undefined }
+  const req: WorkerRequest = { type: 'extend', requestId, years, fail: failNextExtension || undefined, full: full || undefined }
   failNextExtension = false
   worker.postMessage(req)
 }
@@ -488,6 +503,8 @@ const historyView = createHistoryView(
       requestRender()
     },
     setViewModeAvailable: (mode, available) => overlay.setViewModeAvailable(mode, available),
+    // (each object compiled in place, with the scene's lights: nothing is re-parented)
+    precompile: (objects) => Promise.all(objects.map((o) => renderer.compileAsync(o, camera, scene))),
     addLayerToggle: (t) => overlay.addLayerToggle(t),
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
