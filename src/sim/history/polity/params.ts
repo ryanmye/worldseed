@@ -356,6 +356,38 @@ export const TARIFF = {
   smooth: 0.1,
 }
 
+/**
+ * Danger on the way of trade (policy.ts, trade.ts, goods/longhaul.ts, goods/routes.ts). The merchants' risk of a cell (0..1):
+ * on land max((z - free) / (1 - free), outlaw danger) times (1 - peace * the owner state's enforcement there, a fort's town
+ * fortBonus more: the king's peace), z the cell's danger (territory.ts zCell: war, battles, sacks, raids, revolt; a rival's
+ * border, even its hostile edge (0.45), and the quiet frontier are free: merchants cross them), the outlaw danger outlaw.ts's
+ * (pirates on coasts, bandits on roads); at sea the pirates' reach (dangerZ * pi fading over dangerHops sea hops of a haven).
+ * Paths: the link search and the trade expeditions' searches price a cell at (1 + path * risk) of its travel cost (escorts,
+ * tolls, detours), so new routes bend round dangerous ground and
+ * merchants pick safer partners (the market then pays the way's own cost). Loss: a pair's way risk R is the worst cell
+ * risk on its way; a share loss * R of what it carries is lost on the way (on top of the pirates' and bandits' own share, at
+ * most maxLoss), and escorts raise its transport cost by escort * R: merchants price the loss as a share of the goods'
+ * worth at the buyer's and the escorts per unit carried, so cheap bulk leaves a dangerous way first and dear goods run it
+ * at a premium. A way that steps from one polity's land straight into its enemy's at war is closed to all but contraband
+ * (a war front; warFront false switches that off).
+ * Events: a route that carried at least majorLoads a year closing while its way risk is at least forsake (or across a war
+ * front) is TradeForsaken; when it opens again, TradeRestored.
+ */
+export const WAYRISK = {
+  /** false: the trade of before (no danger on the way; the polities' pirates, bandits, duties and embargoes as they were). */
+  on: true,
+  free: 0.45,
+  path: 2,
+  loss: 0.2,
+  escort: 0.3,
+  maxLoss: 0.6,
+  peace: 0.6,
+  fortBonus: 0.5,
+  forsake: 0.2,
+  majorLoads: 1000,
+  warFront: true,
+}
+
 /** Smuggling (policy.ts, trade.ts): a share of the flow held back by duties or embargo moves as contraband. */
 export const SMUGGLE = {
   /**

@@ -189,25 +189,28 @@ export function marketGoods(s: HistoryState, m: CashMarket, id: number, o: numbe
  * Market hook (trade.ts): q units of Luxury (g = 7) or Stimulant (g = 8) moved from settlement `from` (which had
  * `before` in stock) to `to`, at the buyer's price `price`. The buyer pays CASHCROP.pay of their value out of its
  * wealth (habit.ts habitYear: luxuries are a sink of wealth, and a habit's drain is real); for a stimulant the species
- * mix moves with it, and its value counts as bought and sold (habit.ts drain).
+ * mix moves with it, and its value counts as bought and sold (habit.ts drain). `arrive` (polities: less than q when the
+ * way took a share, policy.ts WAYRISK): what reaches the buyer, who pays for that; the rest leaves the sender all the same.
  */
-export function stimFlow(v: SpeciesV2, g: number, from: number, to: number, q: number, before: number, price: number): void {
+export function stimFlow(v: SpeciesV2, g: number, from: number, to: number, q: number, before: number, price: number, arrive = q): void {
   if (!(before > 0)) return
   if (!v.touchedMark[from]) { v.touchedMark[from] = 1; v.touched[v.touchedN++] = from }
   if (!v.touchedMark[to]) { v.touchedMark[to] = 1; v.touched[v.touchedN++] = to }
-  v.pay[to] += q * price
+  v.pay[to] += arrive * price
   if (g !== 8) return
   const f = q / before
   const NK = v.NK
   const a = from * NK, b = to * NK
   const amt = v.amt
+  const keep = arrive === q ? 1 : arrive / q
   for (let k = 0; k < NK; k++) {
     const x = amt[a + k]
     if (x === 0) continue
     const moved = x * f
     amt[a + k] = x - moved
-    amt[b + k] += moved
-    const val = moved * price
+    const got = keep === 1 ? moved : moved * keep
+    amt[b + k] += got
+    const val = got * price
     v.imp[b + k] += val
     v.exp[a + k] += val
   }

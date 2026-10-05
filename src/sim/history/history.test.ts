@@ -374,6 +374,25 @@ function checkInvariants(w: World, h: History): void {
       // claims: border disputes (checked against History.polities in claims.test.ts).
       case EventType.BorderDispute:
         break
+      // danger on the way of trade: a route forsaken right after it closed, restored right after it reopened.
+      case EventType.TradeForsaken: case EventType.TradeRestored: {
+        const r = e.value
+        expect(Number.isInteger(r) && r >= 0 && r < h.trade.count).toBe(true)
+        expect([h.trade.a[r], h.trade.b[r]]).toEqual([e.settlement, e.other])
+        let k = i - 1
+        while (k >= 0 && !((h.events[k].type === EventType.TradeOpened || h.events[k].type === EventType.TradeClosed) && h.events[k].value === r)) k--
+        expect(k).toBeGreaterThanOrEqual(0)
+        expect(h.events[k].year).toBe(e.year)
+        expect(h.events[k].type).toBe(e.type === EventType.TradeForsaken ? EventType.TradeClosed : EventType.TradeOpened)
+        if (e.type === EventType.TradeForsaken) expect([0, 1, 2]).toContain(e.extra)
+        else {
+          let f = k - 1
+          while (f >= 0 && !(h.events[f].type === EventType.TradeForsaken && h.events[f].value === r)) f--
+          expect(f).toBeGreaterThanOrEqual(0)
+          expect(e.extra).toBe(e.year - h.events[f].year)
+        }
+        break
+      }
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year
@@ -1135,6 +1154,20 @@ describe('simulateHistory', () => {
     for (const buf of buffers(b)) expect(seen.has(buf)).toBe(false)
     expect(a.events).not.toBe(b.events)
     expect(a.structures[0]).not.toBe(b.structures[0])
+  }, 300_000)
+
+  it('a resumable run stepped without assembling (simulateTo) gives the same history', () => {
+    const w = world(7)
+    const run = createHistoryRun(w)
+    for (let y = 150; y < 900; y += 150) expect(run.simulateTo(y)).toBe(y)
+    expect(run.simulateTo(300)).toBe(750) // (no going back: nothing happens)
+    const h = run.advanceTo(900)
+    expect(hashHistory(h)).toBe(hashHistory(simulateHistory(w, { years: 900 })))
+    // Assembling twice gives two histories with their own features (the feature detection is shared, its results are not).
+    const h2 = run.advanceTo(900)
+    expect(hashHistory(h2)).toBe(hashHistory(h))
+    expect(h2.features).not.toBe(h.features)
+    if (h.features.length > 0) expect(h2.features[0].spine).not.toBe(h.features[0].spine)
   }, 300_000)
 
   it('runs at other resolutions', () => {

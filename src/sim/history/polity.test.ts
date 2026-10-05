@@ -267,6 +267,7 @@ describe('polities', () => {
       expect(h.structures.some((x) => x.type === StructureType.Walls)).toBe(false)
       // (Polity events are 20-43; species v2's are 44 and up.)
       expect(h.events.some((e) => e.type >= EventType.PolityFounded && e.type <= EventType.Blockade)).toBe(false)
+      expect(h.events.some((e) => e.type === EventType.TradeForsaken || e.type === EventType.TradeRestored)).toBe(false) // (danger on the way of trade)
       // (v2 fields empty too.)
       expect(h.tariff.length + h.tariffRevenue.length + h.smuggleVolume.length + h.tradeLoss.length + h.contraband.length + h.piracy.length + h.bonds.count + h.embargoes.count).toBe(0)
       expect(h.structures.some((x) => x.type === StructureType.Fort)).toBe(false)

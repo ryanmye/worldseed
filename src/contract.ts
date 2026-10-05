@@ -222,6 +222,9 @@ export const EventType = {
   LandmarkRuined: 144, // landmark `value` fell into ruin (sacked, its town abandoned, or neglected for centuries); `other` the settlement of the army that sacked it, or -1
   LandmarkRestored: 145, // landmark `value` was restored and in use again; `other` the restoring polity's capital, or -1
   LandmarkConverted: 146, // landmark `value` (a house of worship) was rededicated to another faith (its change row says which); `other` the converting polity's capital, or -1
+  // danger on the way of trade (polities; 150-159; none when HistoryOptions.polities is false).
+  TradeForsaken: 150, // a major trade route (History.trade `value`, ends `settlement` and `other`) closed because its way had grown too dangerous; follows its TradeClosed; `extra` the cause: 0 danger on land (war, raids, bandits), 1 pirates at sea (a strait or coast closed by them), 2 a war front across the way
+  TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -379,7 +382,8 @@ export interface History {
   smuggleVolume: Float32Array
   /**
    * Share of each route's cargo lost a year to pirates, privateers, a blockade or bandits per trade snapshot, 0..255 for 0..1,
-   * same layout as `tradeVolume` (sea lanes struck by pirates, bandit roads). 0 while the route is not open.
+   * same layout as `tradeVolume` (sea lanes struck by pirates, bandit roads), and to the other dangers of its way (war, raids:
+   * the merchants' risk). 0 while the route is not open.
    */
   tradeLoss: Uint8Array
   /** Share of each settlement's income from smuggling per snapshot, 0..255 for 0..1, same layout as `population`: smugglers' hubs are high. */
@@ -1355,6 +1359,12 @@ export interface HistoryRun {
   /** Years simulated so far. */
   readonly year: number
   advanceTo(years: number): History
+  /**
+   * Simulates up to `years` without assembling a History (assembling copies and names the whole run, which costs more
+   * the longer it is), and returns `year`; years at or below `year` do nothing. For cheap progress steps: call it for
+   * each chunk short of the target, then advanceTo(target) once. Absent from older simulations.
+   */
+  simulateTo?(years: number): number
 }
 export type CreateHistoryRun = (world: World, options?: HistoryOptions) => HistoryRun
 

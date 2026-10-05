@@ -50,6 +50,12 @@
 // Roads. Route volume wears roads into the land cells of its path; roads fade
 // without traffic, and lower travel cost for trade and migration.
 //
+// Danger (polities: policy.ts WAYRISK): the link search prices each cell at (1 + path * the merchants' risk there), so
+// traders pick safer partners and new routes bend round dangerous ground (the market pays the way's own cost); a pair
+// loses a share of what it carries on a dangerous way (its pc.lost) and pays for escorts (pc.cost): merchants weigh the
+// loss against the goods' worth at the buyer's (bulk leaves first, dear goods pay the premium), and what they send
+// arrives short by it.
+//
 // Animals (species.ts): pack animals at either end make transport cheaper,
 // camels make desert legs cheap and llamas highland legs (in the link search
 // by the region's settlement, on a route by its two ends).
@@ -69,9 +75,9 @@ import { ContactVia, learnPath, meet } from './knowledge.ts'
 import { moveMuls, packOf } from './species.ts'
 import { marketGoods, stimFlow } from './cashCrops.ts' // species-v2
 import { perishOf } from './storage.ts' // species-v2
-import { incomeWatch, pairPolicy } from './polity/policy.ts' // polities: (v2) duties, embargo, smuggling, pirates and bandits
+import { incomeWatch, pairPolicy, refreshWayRisk, routeClosed, routeLoads, routeOpened } from './polity/policy.ts' // polities: (v2) duties, embargo, smuggling, pirates and bandits; danger on the way
 import type { PairPolicy } from './polity/policy.ts' // polities:
-import { SMUGGLE, TARIFF } from './polity/params.ts' // polities:
+import { SMUGGLE, TARIFF, WAYRISK } from './polity/params.ts' // polities:
 import { ACCOUNTS, flushAccounts } from './polity/outlaw.ts' // polities:
 // goods: high-value classes, stocks and merchants, middlemen, the long-haul layer (goods/*); contraband is polities v2's.
 import { HVR, cutOf, goodsSettle, goodsStock, hvMoved, hvPair, hvPrice, hvTransport, pairCuts } from './goods/market.ts'
@@ -102,6 +108,9 @@ export interface TradeState {
   edgeCost: number[]
   edgeCellA: number[]
   edgeCellB: number[]
+  /** polities: each edge's cost without the danger on the way (the same crossing), for the partner choice it changed (diagnostics); cost to each cell without it (scratch). */
+  edgeCost0: number[]
+  dist0: Float64Array
   /** CSR adjacency over settlement ids [0, adjCount). */
   adjCount: number
   adjOff: Int32Array
@@ -118,6 +127,8 @@ export interface TradeState {
   pairRoute: Int32Array
   /** Settlement chain from pairA to pairB through the link graph (for building the route path when it opens). */
   pairChain: number[][]
+  /** polities: the cell path of each pair (its route's, or the one it would open along), for the danger on the way. */
+  pairPath: number[][]
   /** Goods moved this year per pair: [(p * G + g) * 2 + dir], dir 0 = a to b. */
   pairFlow: Float64Array
 
@@ -194,7 +205,7 @@ export function createTrade(cellCount: number): TradeState {
     run: 0,
     heap: new Heap(1024),
     visited: new Int32Array(cellCount),
-    edgeA: [], edgeB: [], edgeCost: [], edgeCellA: [], edgeCellB: [],
+    edgeA: [], edgeB: [], edgeCost: [], edgeCellA: [], edgeCellB: [], edgeCost0: [], dist0: new Float64Array(cellCount),
     adjCount: 0,
     adjOff: new Int32Array(1),
     adjNode: new Int32Array(0),
@@ -206,6 +217,7 @@ export function createTrade(cellCount: number): TradeState {
     pairCost: new Float64Array(0),
     pairRoute: new Int32Array(0),
     pairChain: [],
+    pairPath: [],
     pairFlow: new Float64Array(0),
     routeCount: 0,
     routeIndex: new Map(),
@@ -324,12 +336,19 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
   const run = ++ts.run
   heap.size = 0
   const living = s.living
+  // polities: the merchants' risk per cell prices each step (WAYRISK.path); dist0 keeps the danger-free cost along the same search.
+  const ps = WAYRISK.on ? s.pol : null
+  if (ps !== null) refreshWayRisk(s, ps)
+  const rk = ps !== null ? ps.wayRisk : null
+  const kp = WAYRISK.path
+  const dist0 = ts.dist0
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
     if (!ts.trader[id]) continue
     const c = s.cell[id]
     stamp[c] = run
     dist[c] = 0
+    dist0[c] = 0
     label[c] = id
     prev[c] = -1
     heap.push(0, c)
@@ -358,18 +377,20 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
     if (a !== lastA) { moveMuls(s, a, tm); lastA = a } // (the region's settlement's camels and llamas)
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
-      const nd = d + (T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j] * tm[mcls[j]])
+      const st = T.deep[j] ? ocean : T.sea[j] ? T.moveCost[j] * seaMul : s.moveCost[j] * tm[mcls[j]]
+      const nd = rk === null ? d + st : d + st * (1 + kp * rk[j])
       if (nd > (port && T.sea[j] ? radiusSea : radius)) continue // ports' regions reach further over water
       if (stamp[j] === run && nd >= dist[j]) continue
       stamp[j] = run
       dist[j] = nd
+      if (rk !== null) dist0[j] = dist0[c] + st
       label[j] = a
       prev[j] = c
       heap.push(nd, j)
     }
   }
   // Region boundaries: one edge per touching pair, at its cheapest crossing.
-  const edgeA: number[] = [], edgeB: number[] = [], edgeCost: number[] = [], edgeCellA: number[] = [], edgeCellB: number[] = []
+  const edgeA: number[] = [], edgeB: number[] = [], edgeCost: number[] = [], edgeCellA: number[] = [], edgeCellB: number[] = [], edgeCost0: number[] = []
   const index = new Map<number, number>()
   for (let t = 0; t < nv; t++) {
     const c = visited[t]
@@ -385,12 +406,14 @@ function rebuildLinks(s: HistoryState, ts: TradeState): void {
       if (e === undefined) {
         index.set(key, edgeA.length)
         edgeA.push(la); edgeB.push(lb); edgeCost.push(cost); edgeCellA.push(c); edgeCellB.push(j)
+        if (rk !== null) edgeCost0.push(dist0[c] + dist0[j] + 0.5 * (s.moveCost[s.cell[la]] + s.moveCost[s.cell[lb]]))
       } else if (cost < edgeCost[e]) {
         edgeCost[e] = cost; edgeCellA[e] = c; edgeCellB[e] = j
+        if (rk !== null) edgeCost0[e] = dist0[c] + dist0[j] + 0.5 * (s.moveCost[s.cell[la]] + s.moveCost[s.cell[lb]])
       }
     }
   }
-  ts.edgeA = edgeA; ts.edgeB = edgeB; ts.edgeCost = edgeCost; ts.edgeCellA = edgeCellA; ts.edgeCellB = edgeCellB
+  ts.edgeA = edgeA; ts.edgeB = edgeB; ts.edgeCost = edgeCost; ts.edgeCellA = edgeCellA; ts.edgeCellB = edgeCellB; ts.edgeCost0 = edgeCost0
   // CSR adjacency.
   const S = s.count
   const adjOff = new Int32Array(S + 1)
@@ -528,17 +551,25 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
     pairChain.push(chain ?? [])
   }
   const kd = s.knowDiag
+  const pd = s.pol !== null && WAYRISK.on ? s.pol.diag : null // polities: (diag) the partners the danger on the way changed
+  const shadow: number[] = []
   for (let t = 0; t < living.length; t++) {
     const src = living[t]
     if (!ts.trader[src] || src >= ts.adjCount) continue
     let reach = TRADE.reach * (1 + GOODS.transportTech * (techOf(s, src, TechField.Crafts) - 1)) // (its people's Crafts)
     if (s.ideas !== null) reach *= ideaLand(s.ideas, s.people[src]) // ideas: the wheel, roads, coinage, credit
     const reachSrc = s.port[src] >= 0 ? reach * TRADE.portReach : reach // shipping lines from ports
+    if (pd !== null) {
+      // Shadow: the partners without the danger on the way (every edge at its danger-free cost).
+      partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen, ts.edgeCost0)
+      shadow.length = 0
+      for (const i of chosen) shadow.push(candId[i])
+    }
     if (kd) {
       // Shadow: the partners full knowledge would give.
-      partnerSearch(s, ts, src, reachSrc, false, candId, candCost, chosen)
+      partnerSearch(s, ts, src, reachSrc, false, candId, candCost, chosen, ts.edgeCost)
       const all = chosen.map((i) => candId[i])
-      partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen)
+      partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen, ts.edgeCost)
       kd.tradeSearches++
       kd.tradePartners += all.length
       for (const v of all) {
@@ -546,7 +577,11 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
         for (const i of chosen) if (candId[i] === v) hit = true
         if (!hit) kd.tradeLost++
       }
-    } else partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen)
+    } else partnerSearch(s, ts, src, reachSrc, true, candId, candCost, chosen, ts.edgeCost)
+    if (pd !== null) {
+      pd.wayPartnerSlots += chosen.length
+      for (const i of chosen) if (shadow.indexOf(candId[i]) < 0) pd.wayPartnersDiffer++
+    }
     for (const i of chosen) {
       const v = candId[i]
       const chain: number[] = []
@@ -555,7 +590,10 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
       // Strangers on the way or at the end: the route would link them, so they meet.
       const ps = s.people[src]
       for (let k = 1; k < chain.length; k++) if (s.people[chain[k]] !== ps) meet(s, src, chain[k], ContactVia.Trade)
-      addPair(src, v, candCost[i], chain, -1)
+      // polities: the partner was chosen by the danger-weighted cost; the market pays the way's own (danger-free) cost.
+      let cost = candCost[i]
+      if (pd !== null) { cost = 0; for (let k = 0; k + 1 < chain.length; k++) cost += ts.edgeCost0[findEdge(ts, chain[k], chain[k + 1])] }
+      addPair(src, v, cost, chain, -1)
     }
   }
   // Open routes stay candidates while both ends live.
@@ -584,6 +622,9 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
     ts.pairRoute[i] = pairRoute[p]
     ts.pairChain.push(pairChain[p])
   }
+  // polities: each pair's cell path (its route's, or the one it would open along), for the danger on the way (policy.ts wayOf).
+  ts.pairPath = []
+  if (s.pol !== null) for (let i = 0; i < P; i++) { const r = ts.pairRoute[i]; ts.pairPath.push(r >= 0 ? ts.rPath[r] : ts.pairChain[i].length > 0 ? chainPath(s, ts, ts.pairChain[i]) : []) }
   ts.pairFlow = new Float64Array(P * G * 2)
 }
 
@@ -591,10 +632,11 @@ function rebuildPairs(s: HistoryState, ts: TradeState): void {
  * Partner search from trader `src` over the link graph within `reachSrc`: candidates (traders, in
  * order of cost) into candId / candCost, the chosen ones (indices) into `chosen`: the nearest few,
  * then the strongest pulls (size / cost^2) among the rest. With `restrict`, only through settlements
- * whose cells src's people knows. Chains back to src are in ts.gPrev until the next search.
+ * whose cells src's people knows. Chains back to src are in ts.gPrev until the next search. `edgeCost`: the link edges' costs
+ * (ts.edgeCost; polities: ts.edgeCost0 for the danger-free shadow).
  */
-function partnerSearch(s: HistoryState, ts: TradeState, src: number, reachSrc: number, restrict: boolean, candId: number[], candCost: number[], chosen: number[]): void {
-  const { gDist, gPrev, gStamp, gHeap: heap, adjOff, adjNode, adjEdge, edgeCost } = ts
+function partnerSearch(s: HistoryState, ts: TradeState, src: number, reachSrc: number, restrict: boolean, candId: number[], candCost: number[], chosen: number[], edgeCost: number[]): void {
+  const { gDist, gPrev, gStamp, gHeap: heap, adjOff, adjNode, adjEdge } = ts
   const k = s.know
   const known = k.known
   const kBase = s.people[src] * k.N
@@ -933,6 +975,9 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       let c = pc !== null ? c0 * pc.cost[p] : c0 // polities: (v2) pirates, privateers, blockade, bandits on the way
       if (dzMul !== null) c *= dzMul[a] * dzMul[b] // disease: sick places and quarantined ports trade at a cost
       const oa = a * G, ob = b * G
+      // polities: the share of the cargo lost on the way (WAYRISK): merchants weigh it against the goods' worth at the buyer's.
+      const lv = pc !== null ? pc.lost[p] : 0
+      const keep = 1 - lv
       // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
       // what crosses for the accounts (duty, evasion, seizure: marketClosed); one under an embargo or at war takes blocked().
       let rp = false, wAB = 0, wBA = 0
@@ -950,22 +995,24 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (hvOff && g >= 7) break
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         if (gx !== null && g >= 7) { // goods: high-value classes (polities: under the duty's wedge, its flows summed for the accounts)
-          if (hvPair(s, ts, gx, p, a, b, g, c, wAB * hvDuty, wBA * hvDuty) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
+          if (hvPair(s, ts, gx, p, a, b, g, c, wAB * hvDuty, wBA * hvDuty, lv) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
           continue
         }
         const gap = price[ob + g] - price[oa + g]
         const tr = g === 0 ? tUnit[0] * c * (gap > 0 ? perish[a] : perish[b]) : tUnit[g] * c // species-v2: perishable grain
+        // (polities: what arrives of it, at the buyer's price: the gap each way)
+        const gAB = lv > 0 ? price[ob + g] * keep - price[oa + g] : gap, gBA = lv > 0 ? price[oa + g] * keep - price[ob + g] : -gap
         let from: number, to: number, net: number, dir: number
         if (rp) { // polities: (v2) the duty's wedge (food pays a lower duty)
           const fw = g < FOOD ? foodDuty : 1
           const dA = wAB * fw * price[ob + g], dB = wBA * fw * price[oa + g]
-          if (gap > tr + dA + minGap[g]) { from = a; to = b; net = gap - tr - dA; dir = 0 }
-          else if (-gap > tr + dB + minGap[g]) { from = b; to = a; net = -gap - tr - dB; dir = 1 }
+          if (gAB > tr + dA + minGap[g]) { from = a; to = b; net = gAB - tr - dA; dir = 0 }
+          else if (gBA > tr + dB + minGap[g]) { from = b; to = a; net = gBA - tr - dB; dir = 1 }
           else continue
         } else {
           const tm = tr + minGap[g]
-          if (gap > tm) { from = a; to = b; net = gap - tr; dir = 0 }
-          else if (-gap > tm) { from = b; to = a; net = -gap - tr; dir = 1 }
+          if (gAB > tm) { from = a; to = b; net = gAB - tr; dir = 0 }
+          else if (gBA > tm) { from = b; to = a; net = gBA - tr; dir = 1 }
           else continue
         }
         const kf = from * G + g, kt = to * G + g
@@ -974,8 +1021,8 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (q > cap) q = cap
         if (!(q > 1e-6)) continue
         stock[kf] -= q
-        stock[kt] += q
-        if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt]) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
+        stock[kt] += lv > 0 ? q * keep : q // (polities: short by what the way took)
+        if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt], lv > 0 ? q * keep : q) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
         income[from] += q * (0.5 * net + margin * V[g])
         pairFlow[(p * G + g) * 2 + dir] += q
         if (rp) dutyFlow(p, g, dir, q, net, price[kt]) // polities: (v2)
@@ -1004,8 +1051,10 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       ts.rIdle[r] = 0
       ts.openList.push(r)
       logEvent(s, EventType.TradeOpened, a, b, r)
+      if (pol !== null) routeOpened(s, pol, ts, r) // polities: a route forsaken for danger restored
     }
     ts.rVol[r] = vol
+    if (pol !== null) routeLoads(pol, r, vol) // polities: (its peak, for TradeForsaken)
     const og = r * G * 2
     for (let gi = 0; gi < nGoods; gi++) {
       const g = goods[gi]
@@ -1061,7 +1110,7 @@ function settle(s: HistoryState, ts: TradeState): void {
     ts.rRoadAcc[r] += ts.rVol[r]
     if (ts.rVol[r] < TRADE.closeMin) ts.rIdle[r]++
     else ts.rIdle[r] = 0
-    if (ts.rIdle[r] >= TRADE.closeYears) { closeRoute(s, ts, r); continue }
+    if (ts.rIdle[r] >= TRADE.closeYears) { closeRoute(s, ts, r); if (s.pol !== null) routeClosed(s, s.pol, ts, r); continue } // (polities: forsaken for danger?)
     list[w++] = r
   }
   list.length = w

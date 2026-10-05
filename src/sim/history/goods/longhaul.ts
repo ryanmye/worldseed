@@ -19,8 +19,8 @@ import { moveMuls } from '../species.ts'
 import { Heap } from '../heap.ts'
 import { Tier, tierOf } from '../polity/state.ts'
 import type { PolityState } from '../polity/state.ts'
-import { BANDIT, PIRACY, POLITY, SMUGGLE, TARIFF } from '../polity/params.ts'
-import { bound, embargoCode, enforcement as polEnforcement, privateers } from '../polity/policy.ts'
+import { BANDIT, PIRACY, POLITY, SMUGGLE, TARIFF, WAYRISK } from '../polity/params.ts'
+import { bound, embargoCode, enforcement as polEnforcement, privateers, refreshWayRisk } from '../polity/policy.ts'
 import { cut as hubCut } from '../polity/outlaw.ts'
 import { atWar } from '../polity/formation.ts'
 import { CLASS, FLAGS, LANE, MART, MIDDLE, STOCK } from './params.ts'
@@ -329,6 +329,8 @@ export interface LegPolicy {
   bandBy: Int32Array
   /** Loads carried this year (the lane traffic that draws pirates). */
   loads: Float64Array
+  /** Danger on the way (polities: policy.ts WAYRISK): the leg's worst cell risk (at the last full refresh). */
+  risk: Float64Array
   /** Coastal settlements near each leg's sea cells (laneMap), CSR over legs [0, nearN). */
   nearN: number
   nearOff: Int32Array
@@ -341,6 +343,7 @@ function makeLegPolicy(n: number): LegPolicy {
     pa: new Int32Array(n), pb: new Int32Array(n), block: new Uint8Array(n), hide: new Float64Array(n), ea: new Float64Array(n), eb: new Float64Array(n),
     hub: new Int32Array(n).fill(-1), hubE: new Float64Array(n), sea: new Int32Array(n).fill(-1), priv: new Int32Array(n).fill(-1),
     pir: new Float64Array(n), pirBy: new Int32Array(n).fill(-1), band: new Float64Array(n), bandBy: new Int32Array(n).fill(-1), loads: new Float64Array(n),
+    risk: new Float64Array(n),
     nearN: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0),
   }
 }
@@ -351,7 +354,7 @@ function growLegPolicy(lp: LegPolicy, n: number): LegPolicy {
   x.n = lp.n; x.epoch = lp.epoch; x.year = lp.year; x.order = lp.order
   x.pa.set(lp.pa); x.pb.set(lp.pb); x.block.set(lp.block); x.hide.set(lp.hide); x.ea.set(lp.ea); x.eb.set(lp.eb)
   x.hub.set(lp.hub); x.hubE.set(lp.hubE); x.sea.set(lp.sea); x.priv.set(lp.priv)
-  x.pir.set(lp.pir); x.pirBy.set(lp.pirBy); x.band.set(lp.band); x.bandBy.set(lp.bandBy); x.loads.set(lp.loads)
+  x.pir.set(lp.pir); x.pirBy.set(lp.pirBy); x.band.set(lp.band); x.bandBy.set(lp.bandBy); x.loads.set(lp.loads); x.risk.set(lp.risk)
   x.nearN = lp.nearN; x.nearOff = lp.nearOff; x.nearId = lp.nearId
   return x
 }
@@ -385,6 +388,15 @@ function legPolicy(s: HistoryState, ps: PolityState, g: GoodsState): LegPolicy {
     lp.order = order; lp.n = g.legCount; lp.year = s.year
     // (a lane's path is fixed; a relay leg's may change when it is found again)
     for (let i = 0; i < order.length; i++) lp.sea[order[i]] = -1
+    // Danger on the way (WAYRISK): each open leg's worst cell risk.
+    refreshWayRisk(s, ps)
+    const risk = ps.wayRisk
+    for (let i = 0; i < order.length; i++) {
+      const k = order[i]
+      let R = 0
+      if (g.legOpen[k]) { const path = g.legPath[k]; for (let j = 0; j < path.length; j++) if (risk[path[j]] > R) R = risk[path[j]] }
+      lp.risk[k] = R
+    }
   }
   const T = s.terrain
   const occ = s.occupant
@@ -535,12 +547,14 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
       }
       if (plund > 0.9) plund = 0.9
     }
-    const lost = loss + plund > 0.95 ? 0.95 : loss + plund
+    // (polities: the danger on the way, WAYRISK: a share of the cargo lost to war and raids, priced as the plunder is)
+    const wr = lp !== null && WAYRISK.on ? WAYRISK.loss * lp.risk[k] : 0
+    const lost = loss + plund + wr > 0.95 ? 0.95 : loss + plund + wr
     let capLeft = lane ? g.legCap[k] - g.legUse[k] : Infinity
     for (let dir = 0; dir < 2; dir++) {
       const from = dir === 0 ? a : b, to = dir === 0 ? b : a
       const mu0 = rOf(s, to) * MART.legYears + MART.risk + loss
-      const mu = mu0 + plund
+      const mu = wr > 0 ? mu0 + plund + wr : mu0 + plund
       // The border: the importer's duty (or an embargo: contraband only), the smuggled share, the collector and the hub.
       let duty = 0, sig = 0, enf = 0, coll = -1, collP = -1, hub = to, smug = false
       if (lp !== null && pa !== pb) {
