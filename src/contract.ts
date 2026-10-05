@@ -212,6 +212,9 @@ export const EventType = {
   IdeaResisted: 123, // the people of `settlement` (its capital or largest settlement) refused idea `value`, which had reached it from `other`; `extra` the cause (IdeaResist)
   // claims (polities): 130.
   BorderDispute: 130, // the claims of the polities ruled from `settlement` and `other` came to meet over a stretch of unsettled land (History.claimed), a cause of rivalry between them; `value` is the polity id of `other`'s polity; `extra` the number of land cells both claim. Logged when the dispute begins (again after it lapsed)
+  // danger on the way of trade (polities; 150-159; none when HistoryOptions.polities is false).
+  TradeForsaken: 150, // a major trade route (History.trade `value`, ends `settlement` and `other`) closed because its way had grown too dangerous; follows its TradeClosed; `extra` the cause: 0 danger on land (war, raids, bandits), 1 pirates at sea (a strait or coast closed by them), 2 a war front across the way
+  TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -369,7 +372,8 @@ export interface History {
   smuggleVolume: Float32Array
   /**
    * Share of each route's cargo lost a year to pirates, privateers, a blockade or bandits per trade snapshot, 0..255 for 0..1,
-   * same layout as `tradeVolume` (sea lanes struck by pirates, bandit roads). 0 while the route is not open.
+   * same layout as `tradeVolume` (sea lanes struck by pirates, bandit roads), and to the other dangers of its way (war, raids:
+   * the merchants' risk). 0 while the route is not open.
    */
   tradeLoss: Uint8Array
   /** Share of each settlement's income from smuggling per snapshot, 0..255 for 0..1, same layout as `population`: smugglers' hubs are high. */

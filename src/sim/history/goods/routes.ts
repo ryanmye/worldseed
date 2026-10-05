@@ -17,6 +17,8 @@
 // far land at a time, and a far land already served by LANE.farRivals lanes from overseas draws no new venture. Such a
 // venture sails for the source's own land by a search directed at it, its ships crossing open water as cheaply as the
 // coast (more cheaply with better ships), and a kingdom's capital may pay for it at its plain cost.
+// polities: both searches price each cell at (1 + WAYRISK.path * the merchants' risk there) of its step (policy.ts), so a
+// lane bends round pirate waters and war zones when it can.
 
 import { EventType, GOOD_COUNT, JourneyKind, LegKind, PostKind, SecretKind, StructureType, TECH_FIELD_COUNT, TechField, LeakChannel } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
@@ -33,6 +35,8 @@ import { prosperity } from '../migration.ts'
 import { hasHorse, speciesExpedition } from '../species.ts'
 import { Tier, tierOf } from '../polity/state.ts'
 import { atWar } from '../polity/formation.ts'
+import { WAYRISK } from '../polity/params.ts'
+import { refreshWayRisk } from '../polity/policy.ts'
 import { BYPASS, CLASS, LANE, MIDDLE, POST } from './params.ts'
 import type { GoodsState } from './state.ts'
 import { K, M, MIXED, MIX_OF, addPost, ensureGoods, logGoods, losePost } from './state.ts'
@@ -230,6 +234,11 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   const ocean = seaT >= X.oceanSea
   const range = X.rangeMul * rangeOf(s, h, sea, f) * rng.range(0.85, 1.15) * (sea ? EXPEDITION_COST.portRange : 1)
   const stepOf = sea ? es.stepSea : es.stepLand
+  // polities: the danger on the way prices each step (WAYRISK.path), in whole tenths.
+  const ps0 = WAYRISK.on ? s.pol : null
+  if (ps0 !== null) refreshWayRisk(s, ps0)
+  const rk = ps0 !== null ? ps0.wayRisk : null
+  const kp = WAYRISK.path
   // Targets.
   const tmark = TMARK.length >= T.cellCount ? TMARK : (TMARK = new Int32Array(T.cellCount))
   const trun = ++TRUN
@@ -289,7 +298,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
         const j = nb[k]
         const step = T.deep[j] ? deepStep : stepOf[j]
         if (step < 0) continue
-        const nd = cur + step
+        const nd = rk !== null && rk[j] > 0 ? cur + Math.floor(step * (1 + kp * rk[j]) + 0.5) : cur + step
         if (nd > rangeI || (stamp[j] === run && nd >= dist[j])) continue
         stamp[j] = run; dist[j] = nd; prev[j] = c; src[j] = -1
         H.push(nd + chord(s, j, srcCell) * hs, j)
@@ -324,7 +333,9 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
         const step = stepOf[j]
         if (step < 0) continue
         if (T.deep[j] && !ocean && ck < 0) continue // (no open-ocean lane before the Seafaring gate)
-        const nd = cur + step
+        let st = step
+        if (rk !== null && rk[j] > 0) { st = Math.floor(step * (1 + kp * rk[j]) + 0.5); if (st > B - 1) st = B - 1 } // (within the bucket ring)
+        const nd = cur + st
         if (nd > rangeI || (stamp[j] === run && nd >= dist[j])) continue
         stamp[j] = run; dist[j] = nd; prev[j] = c; src[j] = -1
         push(j, nd)

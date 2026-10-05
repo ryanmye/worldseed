@@ -26,7 +26,7 @@ import { logEvent } from '../state.ts'
 import { prosperity } from '../migration.ts'
 import type { TradeState } from '../trade.ts'
 import { distTo } from './control.ts'
-import { BANDIT, DANGER, PIRACY, POLITY, SMUGGLE, TARIFF } from './params.ts'
+import { BANDIT, DANGER, PIRACY, POLITY, SMUGGLE, TARIFF, WAYRISK } from './params.ts'
 import type { PairPolicy } from './policy.ts'
 import { enforcement, navyOf, routeSea, watch } from './policy.ts'
 import { FAR, ensureRoutesP, localOf, projAt } from './state.ts'
@@ -55,7 +55,7 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
   let legal = 0, smug = 0, pir = 0, band = 0
   for (let p = 0; p < pc.n; p++) {
     const code = pc.code[p], lv = pc.lossV[p]
-    if (code === 0 && !(lv > 0)) continue
+    if (code === 0 && !(lv > 0) && !(pc.lost[p] > 0)) continue // (pc.lost: 0 with WAYRISK off)
     let sm = pc.smug[p]
     if (code !== 0 && pc.block[p] === 0) {
       // (goods: contraband evading a secret's monopoly rent was summed as it moved, with the hubs' cuts)
@@ -115,11 +115,12 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
       pc.lossV[p] = 0
     }
     const r = pc.route[p]
-    if (r < 0 || (!(sm > 0) && !(pc.loss[p] > 0))) continue
+    const lostP = WAYRISK.on ? pc.lost[p] : pc.loss[p]
+    if (r < 0 || (!(sm > 0) && !(lostP > 0))) continue
     ensureRoutesP(ps, r + 1)
     if (ps.rLoss[r] === 0 && ps.rSmug[r] === 0) ps.lossRoutes.push(r)
     ps.rSmug[r] = sm / years
-    ps.rLoss[r] = pc.loss[p]
+    ps.rLoss[r] = lostP // (pirates', privateers', a blockade's and bandits' share, and the danger on the way: WAYRISK.loss)
   }
   // Revenue smoothed (per year), and the stats' sums over the years since the last flush.
   const k = 1 - Math.pow(1 - TARIFF.smooth, years)
@@ -354,6 +355,10 @@ function outlawCells(s: HistoryState, ps: PolityState, ts: TradeState): void {
     else if (z > exZ[k]) { exZ[k] = z; exBy[k] = h }
   }
   const occupant = s.occupant
+  // (and the pirates' reach over the sea cells, for the merchants' risk: policy.ts wayRisk)
+  const { seaZ, seaZCells } = ps
+  for (const c of seaZCells) seaZ[c] = 0
+  seaZCells.length = 0
   for (let t = 0; t < living.length; t++) {
     const h = living[t]
     const x = ps.pir[h]
@@ -367,6 +372,7 @@ function outlawCells(s: HistoryState, ps: PolityState, ts: TradeState): void {
       const z = X.dangerZ * x * (1 - (hop - 1) / H)
       next.length = 0
       for (const i of ring) {
+        if (z > seaZ[i]) { if (seaZ[i] === 0) seaZCells.push(i); seaZ[i] = z }
         for (let k = off[i]; k < off[i + 1]; k++) {
           const j = nb[k]
           if (mark[j] === run) continue

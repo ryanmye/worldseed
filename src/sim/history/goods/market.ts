@@ -322,9 +322,11 @@ export function hvTransport(g: GoodsState, id: number, gd: number, S0: number): 
  * (route cost with hurdle, pack animals and Crafts, and polities v2's pirates and bandits). Moves goods from cheap to dear
  * as the bulk rule does, at the buyers' bids, with value density, middlemen's cuts and the variety mix; buyers of Luxury,
  * Stimulant and Finery pay for them. wA, wB: the share of the importer's price a duty adds to the gap a flow must beat
- * (polities v2: TARIFF.wedge times b's and a's duty rate). Returns true when it moved something (the flow is in HVR).
+ * (polities v2: TARIFF.wedge times b's and a's duty rate). lv: the share of the cargo lost on the way (polities: policy.ts
+ * WAYRISK), weighed against the goods' worth at the buyer's; what arrives is short by it. Returns true when it moved
+ * something (the flow is in HVR).
  */
-export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: number, a: number, b: number, gd: number, c: number, wA: number, wB: number): boolean {
+export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: number, a: number, b: number, gd: number, c: number, wA: number, wB: number, lv: number): boolean {
   // (High-value goods keep in store: trade.ts calls this on each pair every other year, (year + pi) even.)
   const stock = ts.stock, price = ts.price, deriv = ts.deriv
   const oa = a * G + gd, ob = b * G + gd
@@ -345,6 +347,7 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   const dA = wA * pb, dB = wB * pa
   // (A coarse test first, at the densest value a mix can have, then the sender's density.)
   let nAB = Pb - ra - mu * pa - minGap - dA, nBA = Pa - rb - mu * pb - minGap - dB
+  if (lv > 0) { nAB -= lv * Pb; nBA -= lv * Pa } // (polities: the expected loss on the way, at the buyer's bid)
   const t4 = 0.25 * tu
   if (!(nAB > t4 && sa > 0) && !(nBA > t4 && sb > 0)) return false // (neither way beats the coarse test)
   let dnA = 1, dnB = 1
@@ -355,7 +358,8 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   else if (nBA > 0) { from = b; to = a; net = nBA + minGap; dir = 1 }
   else return false
   // Income on the realised gap (to the buyer's own price; a merchant's forward bid earns only when the goods sell on).
-  const real = dir === 0 ? pb - pa - tu * dnA - mu * pa - dA : pa - pb - tu * dnB - mu * pb - dB
+  let real = dir === 0 ? pb - pa - tu * dnA - mu * pa - dA : pa - pb - tu * dnB - mu * pb - dB
+  if (lv > 0) real -= lv * (dir === 0 ? pb : pa)
   const kf = from * G + gd, kt = to * G + gd
   // Monopoly rent on the secret varieties leaving their holders' state (smugglers evade part of it).
   let rent = 0
@@ -371,9 +375,17 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
   const pFrom = price[kf]
   if (m >= 0 && g.nSecretVars > 0) secretTrade(s, g, from, to, m, gd, q, before, pFrom, rent, pi, dir)
   stock[kf] = before - q
-  stock[kt] += q
-  if (m >= 0) mixFlow(g, from, to, m, q, before)
-  if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, q, before, price[kt])
+  if (lv > 0) {
+    // (polities: what the way took leaves the sender's names too, as on the long-haul legs)
+    const arrive = q * (1 - lv)
+    stock[kt] += arrive
+    if (m >= 0) { mixFlow(g, from, to, m, arrive, before); mixScale(g, from, m, (before - q) / (before - arrive)) }
+    if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, arrive, before, price[kt])
+  } else {
+    stock[kt] += q
+    if (m >= 0) mixFlow(g, from, to, m, q, before)
+    if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, q, before, price[kt])
+  }
   const worth = ts.worth
   const cap1 = STOCK.incomeGap * worth[kt]
   const gain = real > 0 ? (real < cap1 ? real : cap1) : 0

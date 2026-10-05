@@ -25,14 +25,23 @@
 // seized (its worth to the enforcing capital); the smugglers' cut goes to the hub: the least policed settlement on the
 // way (stateless ones first), or the importer. Its share of the hub's income is the hub's contraband share
 // (History.contraband). Duties, seizures, cuts and plunder are summed per pair and paid out every outlaw.ts ACCOUNTS years.
+//
+// Danger on the way (WAYRISK): the merchants' risk per cell (wayRisk: war, raids, a rival's hostile border, pirates, bandits,
+// lowered by the king's peace) prices the link search and routes' costs (trade.ts), and every pair's way risk R (its worst
+// cell) costs it a share WAYRISK.loss * R of what it carries (pc.lost, with the pirates' and bandits' own share) and escorts
+// (pc.cost * (1 + WAYRISK.escort * R)); a way across a war front (from one polity's land straight into its enemy's) is
+// closed to all but contraband, like a war between the ends.
+// A major route that closes for danger is TradeForsaken; when it opens again, TradeRestored.
 
-import { TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
+import { EventType, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
-import { BANDIT, PIRACY, POLITY, SMUGGLE, TARIFF } from './params.ts'
-import { FAR, grip, inCrisis, tierOf } from './state.ts'
+import { BANDIT, PIRACY, POLITY, SMUGGLE, TARIFF, WAYRISK } from './params.ts'
+import { FAR, ensureRoutesP, grip, inCrisis, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
+import { zCell } from './territory.ts'
+import { atWar } from './formation.ts'
 
 /** What the market reads per candidate pair this year (index = trade pair). Directions: AB = goods from a to b (b imports). */
 export interface PairPolicy {
@@ -93,6 +102,10 @@ export interface PairPolicy {
   epoch: number
   /** How hidden the way is (pairs under a duty or an embargo; goods: the smuggled share of a secret's monopoly rent). */
   hide: Float64Array
+  /** Danger on the way (WAYRISK): the way risk R (worst cell risk), the share of the cargo lost on the way (loss and WAYRISK.loss * R), 1 when the way crosses a war front. */
+  risk: Float64Array
+  lost: Float64Array
+  front: Uint8Array
 }
 
 export function makePolicy(n: number): PairPolicy {
@@ -104,7 +117,7 @@ export function makePolicy(n: number): PairPolicy {
     revAB: new Float64Array(n), revBA: new Float64Array(n), cutAB: new Float64Array(n), cutBA: new Float64Array(n), bestAB: new Float64Array(n), bestBA: new Float64Array(n),
     gAB: new Int32Array(n), gBA: new Int32Array(n), epoch: -1, route: new Int32Array(n).fill(-1), lossV: new Float64Array(n), legal: new Float64Array(n),
     vAB: new Float64Array(n), vBA: new Float64Array(n), pvAB: new Float64Array(n), pvBA: new Float64Array(n), dbAB: new Float64Array(n), dbBA: new Float64Array(n), nbAB: new Float64Array(n), nbBA: new Float64Array(n),
-    hide: new Float64Array(n),
+    hide: new Float64Array(n), risk: new Float64Array(n), lost: new Float64Array(n), front: new Uint8Array(n),
   }
 }
 
@@ -225,6 +238,7 @@ export function pairPolicy(s: HistoryState, ps: PolityState, ts: TradeState): Pa
   // (the accumulators below are emptied by flushAccounts, which runs before the pairs change)
   if (full) {
     // Every step (and when the pairs are rebuilt): the whole policy; the pairs between two polities are listed.
+    refreshWayRisk(s, ps)
     const priv = ps.scratchPol2
     privateers(s, ps, priv)
     const anyState = ps.alive.length > 0
@@ -238,18 +252,130 @@ export function pairPolicy(s: HistoryState, ps: PolityState, ts: TradeState): Pa
       if (x >= 0 && y >= 0 && x !== y) cross.push(i)
     }
   } else if (pc.epoch !== ps.warEpoch) {
-    // Between steps, after a war began or ended: the pairs whose embargo changed.
+    // Between steps, after a war began or ended: the pairs whose embargo changed, and those whose way a war front now
+    // closes or no longer does (WAYRISK).
     pc.epoch = ps.warEpoch
     const { pa, pb, block, cross } = pc
     let priv: Int32Array | null = null
+    const redo = REDO.length >= P ? REDO : (REDO = new Uint8Array(2 * P))
+    redo.fill(0, 0, P)
     for (let k = 0; k < cross.length; k++) {
       const i = cross[k]
-      if (embargoCode(ps, pa[i], pb[i]) === block[i]) continue
-      if (priv === null) { priv = ps.scratchPol2; privateers(s, ps, priv) }
+      if (embargoCode(ps, pa[i], pb[i]) !== block[i]) redo[i] = 1
+    }
+    for (let i = 0; i < P && WAYRISK.on; i++) {
+      if (redo[i] === 1) continue
+      wayOf(s, ps, ts, i)
+      if ((WAY.war && WAYRISK.warFront ? 1 : 0) !== pc.front[i]) redo[i] = 1
+    }
+    for (let i = 0; i < P; i++) {
+      if (redo[i] === 0) continue
+      if (priv === null) { priv = ps.scratchPol2; privateers(s, ps, priv); refreshWayRisk(s, ps) }
       pairOne(s, ps, ts, pc, i, priv, true)
     }
   }
   return pc
+}
+let REDO = new Uint8Array(0)
+
+/** Settlement scratch for refreshWayRisk: the king's peace of each member (stamped per call). */
+let PEACE_AT = new Int32Array(0), PEACE_F = new Float64Array(0), PEACE_RUN = 0
+
+/**
+ * The merchants' risk per cell into ps.wayRisk (WAYRISK; at most once a year): on land the danger above the free level
+ * or the outlaws' (pirates on the coasts, bandits on the roads), less the king's peace where a state holds the land; at sea
+ * the pirates' reach.
+ */
+export function refreshWayRisk(s: HistoryState, ps: PolityState): void {
+  if (ps.wayYear === s.year) return
+  ps.wayYear = s.year
+  const W = WAYRISK
+  const risk = ps.wayRisk
+  const seaList = ps.waySea
+  for (let k = 0; k < seaList.length; k++) risk[seaList[k]] = 0
+  seaList.length = 0
+  const { seaZ, seaZCells } = ps
+  for (let k = 0; k < seaZCells.length; k++) { const c = seaZCells[k]; const z = seaZ[c]; if (z > 0) { risk[c] = z > 1 ? 1 : z; seaList.push(c) } }
+  if (PEACE_AT.length < ps.seen) { PEACE_AT = new Int32Array(2 * ps.seen); PEACE_F = new Float64Array(2 * ps.seen) }
+  const run = ++PEACE_RUN
+  const cells = ps.landCells
+  const { tOwner, cellOut, polity, fort } = ps
+  const kf = 1 / (1 - W.free)
+  for (let t = 0; t < cells.length; t++) {
+    const c = cells[t]
+    const z = zCell(s, ps, c)
+    let r = z > W.free ? (z - W.free) * kf : 0
+    const o = cellOut[c]
+    if (o > r) r = o
+    if (r > 0) {
+      // The king's peace: a state's patrols, its law where it holds firm, a fort's garrison.
+      const w = tOwner[c]
+      if (w >= 0 && w < ps.seen && s.abandoned[w] < 0 && polity[w] >= 0) {
+        if (PEACE_AT[w] !== run) {
+          PEACE_AT[w] = run
+          let e = enforcement(s, ps, w, polity[w])
+          if (fort[w] >= 0) e *= 1 + W.fortBonus
+          PEACE_F[w] = 1 - W.peace * (e < 1 ? e : 1)
+        }
+        r *= PEACE_F[w]
+      }
+      if (r > 1) r = 1
+    }
+    risk[c] = r
+  }
+}
+
+/** The way of trade pair i: its worst cell risk, where (0 land, 1 sea), and whether it crosses a war front (from one polity's land straight into its enemy's). */
+export const WAY = { risk: 0, cause: 0, war: false }
+
+/** Sets WAY for trade pair i (its route's path, or the path it would take: trade.ts pairPath). */
+export function wayOf(s: HistoryState, ps: PolityState, ts: TradeState, i: number): void {
+  const r = ts.pairRoute[i]
+  const path = r >= 0 ? ts.rPath[r] : ts.pairPath[i]
+  const risk = ps.wayRisk, sea = s.terrain.sea
+  const { tOwner, polity } = ps
+  let R = 0, cause = 0, last = -1, war = false
+  if (path !== undefined) {
+    for (let k = 0; k < path.length; k++) {
+      const c = path[k]
+      const x = risk[c]
+      if (x > R) { R = x; cause = sea[c] ? 1 : 0 }
+      // (a war front: the way steps from the land of one polity straight into that of its enemy at war)
+      const w = tOwner[c]
+      const p = w >= 0 && w < ps.seen && s.abandoned[w] < 0 ? polity[w] : -1
+      if (p >= 0 && last >= 0 && p !== last && !war && atWar(ps, p, last)) war = true
+      last = p
+    }
+  }
+  WAY.risk = R
+  WAY.cause = cause
+  WAY.war = war
+}
+
+/** trade.ts, a route closed after idling: a major one closed while its way was dangerous (or across a war front) is TradeForsaken. */
+export function routeClosed(s: HistoryState, ps: PolityState, ts: TradeState, r: number): void {
+  if (r >= ps.rPeak.length || ps.rPeak[r] < WAYRISK.majorLoads) return
+  const cause = ps.rCause[r]
+  if (cause !== 2 && ps.rRisk[r] < WAYRISK.forsake) return
+  ps.rForsaken[r] = s.year
+  ps.diag.wayForsaken++
+  s.events.push({ year: s.year, type: EventType.TradeForsaken, settlement: ts.rA[r], other: ts.rB[r], value: r, extra: cause })
+}
+
+/** trade.ts, a route (re)opened: one forsaken for danger is TradeRestored. */
+export function routeOpened(s: HistoryState, ps: PolityState, ts: TradeState, r: number): void {
+  if (r >= ps.rForsaken.length) return
+  const y = ps.rForsaken[r]
+  if (y < 0) return
+  ps.rForsaken[r] = -1
+  ps.diag.wayRestored++
+  s.events.push({ year: s.year, type: EventType.TradeRestored, settlement: ts.rA[r], other: ts.rB[r], value: r, extra: s.year - y })
+}
+
+/** trade.ts, the market's routes: the peak loads a year of route r (for TradeForsaken). */
+export function routeLoads(ps: PolityState, r: number, vol: number): void {
+  ensureRoutesP(ps, r + 1)
+  if (vol > ps.rPeak[r]) ps.rPeak[r] = vol
 }
 
 /** The policy of trade pair i this year (see pairPolicy). */
@@ -288,12 +414,24 @@ function pairOne(s: HistoryState, ps: PolityState, ts: TradeState, pc: PairPolic
   pc.cost[i] = cost
   pc.loss[i] = loss > 0.9 ? 0.9 : loss
   pc.lossTo[i] = lossTo
-  if (pa === pb || (pa >= 0 && pb >= 0 && bound(ps, pa, pb))) return
-  // A border: duties and embargo (war: everything; rivalry short of war: all but food).
-  const emb = pa >= 0 && pb >= 0 ? embargoCode(ps, pa, pb) : 0
+  // Danger on the way (WAYRISK): the worst stretch costs a share of the cargo; a war front closes the way.
+  if (WAYRISK.on) wayOf(s, ps, ts, i)
+  else { WAY.risk = 0; WAY.cause = 0; WAY.war = false }
+  const R = WAY.risk
+  pc.risk[i] = R
+  if (R > 0) pc.cost[i] = cost * (1 + WAYRISK.escort * R) // (escorts, convoys and tolls: per unit carried)
+  const lost = pc.loss[i] + WAYRISK.loss * R
+  pc.lost[i] = !WAYRISK.on ? 0 : lost > WAYRISK.maxLoss ? WAYRISK.maxLoss : lost
+  const front = WAY.war && WAYRISK.warFront
+  pc.front[i] = front ? 1 : 0
+  if (r >= 0) { ensureRoutesP(ps, r + 1); ps.rRisk[r] = R; ps.rCause[r] = front ? 2 : WAY.cause }
+  if (!front && (pa === pb || (pa >= 0 && pb >= 0 && bound(ps, pa, pb)))) return
+  // A border: duties and embargo (war: everything; rivalry short of war: all but food); a war front on the way: everything.
+  let emb = pa >= 0 && pb >= 0 && pa !== pb ? embargoCode(ps, pa, pb) : 0
+  if (front && emb !== 1) { emb = 1; ps.diag.wayFrontPairs++ }
   pc.block[i] = emb
   const block = emb !== 0
-  const dAB = pb >= 0 ? ps.pTariff[pb] : 0, dBA = pa >= 0 ? ps.pTariff[pa] : 0
+  const dAB = pb >= 0 && pb !== pa ? ps.pTariff[pb] : 0, dBA = pa >= 0 && pa !== pb ? ps.pTariff[pa] : 0
   if (!block && !(dAB > 0) && !(dBA > 0)) return
   pc.code[i] = 1
   pc.dAB[i] = emb === 1 ? 0 : dAB
@@ -321,9 +459,10 @@ function pairOne(s: HistoryState, ps: PolityState, ts: TradeState, pc: PairPolic
     const sig = X.share * hide * (1 - e)
     pc.sAB[i] = sig > 0.9 ? 0.9 : sig; pc.sBA[i] = pc.sAB[i]
     pc.eAB[i] = e; pc.eBA[i] = e
-    const enforcer = ea > eb ? pa : pb
+    const enforcer = ea > eb ? pa : pb >= 0 ? pb : pa // (a war front on a stateless trader's way: the other side's, if any)
+    const col = enforcer >= 0 ? ps.pCapital[enforcer] : -1
     pc.qAB[i] = enforcer; pc.qBA[i] = enforcer
-    pc.cAB[i] = ps.pCapital[enforcer]; pc.cBA[i] = ps.pCapital[enforcer]
+    pc.cAB[i] = col; pc.cBA[i] = col
   } else {
     const sab = dAB > 0 ? X.share * hide * (1 - eb) * (dAB / (dAB + X.tauHalf)) : 0
     const sba = dBA > 0 ? X.share * hide * (1 - ea) * (dBA / (dBA + X.tauHalf)) : 0

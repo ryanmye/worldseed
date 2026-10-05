@@ -295,6 +295,19 @@ export interface PolityState {
   exMark: Int32Array
   seaNearOff: Int32Array | null
   seaNearCell: Int32Array | null
+  // --- Danger on the way of trade (policy.ts, WAYRISK) ---
+  /** Merchants' risk per cell (0..1) as of wayYear (-1: never); the pirates' reach over sea cells (outlaw step) and the cells set. */
+  wayRisk: Float32Array
+  wayYear: number
+  /** Sea cells with a risk in wayRisk (to clear). */
+  waySea: number[]
+  seaZ: Float32Array
+  seaZCells: number[]
+  /** Per route (grown with the routes): way risk at the last policy refresh, the cause of its worst stretch (0 land, 1 sea, 2 a war front), peak loads a year, the year it was forsaken (-1). */
+  rRisk: Float64Array
+  rCause: Int8Array
+  rPeak: Float64Array
+  rForsaken: Int32Array
   /** Counters for the stats harness. */
   diag: PolityDiag
 }
@@ -351,6 +364,16 @@ export interface PolityDiag {
   /** People taken from the coasts by pirates; leagues formed. */
   pirCaptives: number
   leagues: number
+  /**
+   * Danger on the way of trade: partner slots chosen at the link rebuilds, and of them not chosen without the danger
+   * (the same regions, every edge at its danger-free cost); pair refreshes closed by a war front; routes forsaken and
+   * restored (events).
+   */
+  wayPartnerSlots: number
+  wayPartnersDiffer: number
+  wayFrontPairs: number
+  wayForsaken: number
+  wayRestored: number
 }
 
 function f64(n: number): Float64Array { return new Float64Array(n) }
@@ -393,7 +416,7 @@ export function createPolityState(s: HistoryState): PolityState {
     diag: {
       raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [],
       siteYear: [], siteZ: [], siteD: [], siteAltZ: [], siteAltD: [], siteAltN: [], siteSame: [], siteFromZ: [],
-      yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0,
+      yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0, wayPartnerSlots: 0, wayPartnersDiffer: 0, wayFrontPairs: 0, wayForsaken: 0, wayRestored: 0,
     },
   }
   const v2 = {
@@ -404,12 +427,13 @@ export function createPolityState(s: HistoryState): PolityState {
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
     nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
+    wayRisk: new Float32Array(N), wayYear: -1, waySea: [], seaZ: new Float32Array(N), seaZCells: [], rRisk: f64(256), rCause: new Int8Array(256), rPeak: f64(256), rForsaken: i32(256, -1),
     cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), cDisp: new Int32Array(N).fill(-1), relDispute: [], relDisputeOn: [], claimYear: -1,
   }
   return Object.assign(base, v2) as PolityState
 }
 
-function grow<T extends Int32Array | Float64Array | Float32Array | Uint8Array>(a: T, size: number, fill = 0): T {
+function grow<T extends Int32Array | Float64Array | Float32Array | Uint8Array | Int8Array>(a: T, size: number, fill = 0): T {
   const b = new (a.constructor as { new (n: number): T })(size)
   if (fill !== 0) b.fill(fill)
   b.set(a)
@@ -513,6 +537,10 @@ export function ensureRoutesP(ps: PolityState, need: number): void {
   ps.rSea = grow(ps.rSea, size, -1)
   ps.rSmug = grow(ps.rSmug, size)
   ps.rLoss = grow(ps.rLoss, size)
+  ps.rRisk = grow(ps.rRisk, size)
+  ps.rCause = grow(ps.rCause, size)
+  ps.rPeak = grow(ps.rPeak, size)
+  ps.rForsaken = grow(ps.rForsaken, size, -1)
 }
 
 // --- Power -------------------------------------------------------------------------------------
