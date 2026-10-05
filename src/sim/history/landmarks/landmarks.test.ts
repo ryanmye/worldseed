@@ -46,12 +46,15 @@ function hashLandmarks(hi: History): string {
  * 2ec370c, before it (every key of History; it has no `landmarks` and no events 140-149), recorded there by the same hash.
  * The system is a pure consequence layer, so with it on the same holds. A later change outside the system must regenerate these.
  */
+// (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
+// bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
+// renaming, ideas, landmarks, polities); only the entries with polities on changed.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'c2ced912'],
+  [42, 2000, undefined, {}, '44ed772a'],
   [3, 600, undefined, {}, 'c8a2aef7'],
   [7, 900, undefined, { polities: false, goods: false }, 'f7560730'],
-  [1, 1500, undefined, { disease: false }, '16287dce'],
-  [9, 800, 24, {}, 'ebd7e5e4'],
+  [1, 1500, undefined, { disease: false }, 'e58d9984'],
+  [9, 800, 24, {}, '53045334'],
 ]
 
 const worlds = new Map<number, World>()

@@ -53,12 +53,15 @@ function hashIdeas(hi: History): string {
  * technique is of no benefit however stale the crop multiplier; a resort is not given up the year new visitors came; a revived name's row).
  * A later change outside the ideas system must regenerate these.
  */
+// (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
+// bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
+// renaming, ideas, landmarks, polities); only the entries with polities on changed.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'a16be631'],
+  [42, 2000, undefined, {}, '11db75e9'],
   [3, 600, undefined, {}, '653dfcd5'],
   [7, 900, undefined, { polities: false, goods: false }, '88c2eb5e'],
-  [1, 1500, undefined, { disease: false }, '74e575ea'],
-  [9, 800, 24, {}, 'fce490'],
+  [1, 1500, undefined, { disease: false }, 'ca1bc2b6'],
+  [9, 800, 24, {}, '619ba098'],
 ]
 
 const worlds = new Map<number, World>()

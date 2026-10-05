@@ -41,10 +41,13 @@ export function hashBaseFields(h: History): string {
 // configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
 // overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
 // is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
+// (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
+// bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
+// renaming, ideas, landmarks, polities); only the entries with polities on changed.)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, '8d3f28a4'],
+  [42, 2000, undefined, {}, '98da4194'],
   [3, 600, undefined, {}, '50ad524'],
-  [9, 800, 24, {}, 'daac5dea'],
+  [9, 800, 24, {}, '532beac1'],
   [7, 900, undefined, { polities: false }, 'eb61ff8f'],
 ]
 
