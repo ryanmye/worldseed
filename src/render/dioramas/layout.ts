@@ -1747,6 +1747,21 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       territoryGen = null
       computeFacts(next, keep)
       wallPops = new Map()
+      // landmarks data: a plan made while the history was shorter kept no room for the landmarks raised since; it is laid
+      // again (at the same size: its peak stays frozen) with room for them all. The extension comes within seconds of loading,
+      // so this happens once, early; later extensions of a finished run add no landmarks to a town already in view.
+      const lmd = landmarksOf(hist)
+      if (lmd) {
+        for (const [id, sf] of sites) {
+          const was = sf.site.landmarks ?? []
+          const now = landmarkKindsOf(lmd, id)
+          if (now.length === was.length && now.every((k, i) => k === was[i])) continue
+          states.delete(id)
+          sites.delete(id)
+          extents.delete(id)
+          for (const key of [...extras.keys()]) if (key.startsWith(`${id}:`)) extras.delete(key)
+        }
+      }
     },
     wallPop: (id, sid) => wallPopsOf(id).get(sid) ?? 0,
     townExtra,

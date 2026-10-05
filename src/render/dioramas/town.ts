@@ -224,7 +224,7 @@ export interface Site {
 }
 
 /** (landmarks data) Radius (plan units) of the open ground round a great landmark in the patch the plan keeps for it, by LandmarkKind: several houses across. */
-const LM_CLEAR: Record<number, number> = { [LandmarkKind.Castle]: 2.6, [LandmarkKind.Palace]: 2.4, [LandmarkKind.GreatTemple]: 2.4, [LandmarkKind.MarketHall]: 1.7, [LandmarkKind.CouncilHouse]: 1.7, [LandmarkKind.Library]: 1.6, [LandmarkKind.Guildhall]: 1.4, [LandmarkKind.Baths]: 1.7 }
+const LM_CLEAR: Record<number, number> = { [LandmarkKind.Castle]: 2.6, [LandmarkKind.Palace]: 2.4, [LandmarkKind.GreatTemple]: 2.4, [LandmarkKind.MarketHall]: 1.7, [LandmarkKind.CouncilHouse]: 1.7, [LandmarkKind.Library]: 1.6, [LandmarkKind.Guildhall]: 1.4, [LandmarkKind.Baths]: 1.7, [LandmarkKind.Temple]: 1.15 }
 /** The open ground round it beyond the building's own reach (plan units): a bailey, a square, a precinct. */
 const LM_MARGIN = 1.0
 
@@ -1508,7 +1508,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
       lmSlot.set(k * 64 + ord, p)
       // a great building's open ground: a bailey, a square, a precinct round it, kept clear of houses
       const r = p < 0 ? 0 : LM_CLEAR[k] ?? 0
-      if (r > 0) { lmClearAt.set(k * 64 + ord, r); for (const l of lots) if (!l.empty && Math.hypot(l.cx - patches[p].cx, l.cy - patches[p].cy) < r + LM_MARGIN) l.empty = true }
+      if (r > 0) { lmClearAt.set(k * 64 + ord, r); for (const l of lots) if (!l.empty && Math.hypot(l.cx - patches[p].cx, l.cy - patches[p].cy) < r + (k === LK.Temple ? 0.45 : LM_MARGIN)) l.empty = true }
     }
   }
   interface Pending { item: PlanItem; key: number; minPop: number; r: number }
@@ -2405,40 +2405,47 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
       inPatch(patch, kind === LK.Castle ? 0.12 : 0.06)
       // a great one fills the open ground kept round it
       const r = lmClearAt.get(salt) ?? 0
-      if (r > 0) s = Math.max(s, Math.min(2.6, (r - 0.1) / Math.hypot(spec.hx, spec.hz)))
+      if (r > 0) s = Math.max(s, Math.min(spec.great ? 2.6 : 1.3, (r - 0.1) / Math.hypot(spec.hx, spec.hz)))
     }
-    else if (patch === -1) {
-      // a landmark the plan kept no room for: the empty lot it fits best near the plaza (village patches: one of the inner ones)
+    // a landmark the plan kept no room for (or whose place is wet): the empty lot it fits best near the plaza, each lot tried
+    // on dry clear ground (village patches: one of the inner ones)
+    const elsewhere = () => {
       if (!isTown) {
-        const k = Math.min(innerSet.length - 1, 1 + ((salt * 7) % Math.max(1, innerSet.length - 1)))
-        inPatch(innerSet[k], 0.1)
-      } else {
-        const fl = freeLotList()
-        let best = -1, bs = 0
-        const start = fl.length ? hash4(seed, id, 0x70, salt) % Math.min(6, fl.length) : 0
-        for (let t = 0; t < Math.min(24, fl.length); t++) {
-          const q = fl[(start + t) % fl.length]
-          const l = lots[q]
-          const yw = Math.atan2(l.uy, l.ux)
-          const sc = fitBox(l.poly, l.cx, l.cy, yw, spec.hx, spec.hz, smax, 0.02)
-          if (sc > bs * 1.25) { bs = sc; best = q }
-          if (sc >= smax * 0.6) break
+        for (let t = 0; t < innerSet.length; t++) {
+          const k = Math.min(innerSet.length - 1, 1 + ((salt * 7 + t) % Math.max(1, innerSet.length - 1)))
+          inPatch(innerSet[k], 0.1)
+          if (site.clear(x, y, 0.3) && !site.wet(x, y, 0.02)) return
         }
-        if (best >= 0) {
-          const l = lots[best]
-          x = l.cx; y = l.cy; yaw = Math.atan2(l.uy, l.ux); s = bs; ward = patches[l.patch].ward
-        } else inPatch(innerSet[Math.min(innerSet.length - 1, 1)], 0.1)
+        return
       }
+      const fl = freeLotList()
+      let best = -1, bs = 0
+      const start = fl.length ? hash4(seed, id, 0x70, salt) % Math.min(6, fl.length) : 0
+      for (let t = 0; t < Math.min(40, fl.length); t++) {
+        const q = fl[(start + t) % fl.length]
+        const l = lots[q]
+        if (!site.clear(l.cx, l.cy, 0.3) || site.wet(l.cx, l.cy, 0.02)) continue
+        const yw = Math.atan2(l.uy, l.ux)
+        const sc = fitBox(l.poly, l.cx, l.cy, yw, spec.hx, spec.hz, smax, 0.02)
+        if (sc > bs * 1.25) { bs = sc; best = q }
+        if (sc >= smax * 0.6) break
+      }
+      if (best >= 0) {
+        const l = lots[best]
+        x = l.cx; y = l.cy; yaw = Math.atan2(l.uy, l.ux); s = bs; ward = patches[l.patch].ward
+      } else inPatch(innerSet[Math.min(innerSet.length - 1, 1)], 0.1)
     }
+    if (patch === -1) elsewhere()
+    else if (site.wet(x, y, 0.02) || !site.clear(x, y, 0.3)) elsewhere()
     s = Math.max(spec.great ? 0.6 : 0.45, s)
     // (on wet ground or over a river: smaller, then where it may)
     for (let t = 0; t < 4 && !site.clear(x, y, Math.min(spec.hx, spec.hz) * s * 0.7); t++) s *= 0.85
     // its height: its own proportions, raised (at most by half) until it stands well over the roofs, twice a city's houses
     // (a great one; a temple half again, its tower or dome above them)
-    const minH = (spec.great ? 2.3 : 1.6) * (isCity ? 1.25 : 1)
+    const minH = (spec.great ? 2.3 : 2.0) * (isCity ? 1.25 : 1)
     // (a broad building, a temple on its podium, a ziggurat, a market hall, keeps its proportions: only towers and spires are raised)
     const tall = spec.h > 1.25 * Math.min(spec.hx, spec.hz) * 2
-    const lift = kind === LK.Monument || kind === LK.Shrine || !tall ? 1 : Math.min(1.5, Math.max(1, minH / Math.max(0.1, spec.h * s)))
+    const lift = kind === LK.Monument || kind === LK.Shrine || !tall ? 1 : Math.min(1.6, Math.max(1, minH / Math.max(0.1, spec.h * s)))
     out.push({ ...base, role: Role.Landmark, x, y, yaw, sx: s, sz: s, sy: s * lift, threshold: LandmarkPart.Building, ward })
     const ux = Math.cos(yaw), uy = Math.sin(yaw)
     // the plan's yaw is the model's x axis; its front (+z) faces (sin yaw, -cos yaw)
