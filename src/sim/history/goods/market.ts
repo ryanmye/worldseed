@@ -380,7 +380,7 @@ export function hvPair(s: HistoryState, ts: TradeState, g: GoodsState, pi: numbe
     const arrive = q * (1 - lv)
     stock[kt] += arrive
     if (m >= 0) { mixFlow(g, from, to, m, arrive, before); mixScale(g, from, m, (before - q) / (before - arrive)) }
-    if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, arrive, before, price[kt])
+    if (gd === Good.Luxury || gd === Good.Stimulant || (gd === Good.Finery && DEMAND.fineryPays)) stimFlow(s.sp.v2, gd, from, to, q, before, price[kt], arrive)
   } else {
     stock[kt] += q
     if (m >= 0) mixFlow(g, from, to, m, q, before)

@@ -1022,7 +1022,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (!(q > 1e-6)) continue
         stock[kf] -= q
         stock[kt] += lv > 0 ? q * keep : q // (polities: short by what the way took)
-        if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt]) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
+        if (g >= 7) stimFlow(v2, g, from, to, q, stock[kf] + q, price[kt], lv > 0 ? q * keep : q) // species-v2: buyers pay for luxuries and stimulants (and which stimulants moved)
         income[from] += q * (0.5 * net + margin * V[g])
         pairFlow[(p * G + g) * 2 + dir] += q
         if (rp) dutyFlow(p, g, dir, q, net, price[kt]) // polities: (v2)

@@ -374,6 +374,25 @@ function checkInvariants(w: World, h: History): void {
       // claims: border disputes (checked against History.polities in claims.test.ts).
       case EventType.BorderDispute:
         break
+      // danger on the way of trade: a route forsaken right after it closed, restored right after it reopened.
+      case EventType.TradeForsaken: case EventType.TradeRestored: {
+        const r = e.value
+        expect(Number.isInteger(r) && r >= 0 && r < h.trade.count).toBe(true)
+        expect([h.trade.a[r], h.trade.b[r]]).toEqual([e.settlement, e.other])
+        let k = i - 1
+        while (k >= 0 && !((h.events[k].type === EventType.TradeOpened || h.events[k].type === EventType.TradeClosed) && h.events[k].value === r)) k--
+        expect(k).toBeGreaterThanOrEqual(0)
+        expect(h.events[k].year).toBe(e.year)
+        expect(h.events[k].type).toBe(e.type === EventType.TradeForsaken ? EventType.TradeClosed : EventType.TradeOpened)
+        if (e.type === EventType.TradeForsaken) expect([0, 1, 2]).toContain(e.extra)
+        else {
+          let f = k - 1
+          while (f >= 0 && !(h.events[f].type === EventType.TradeForsaken && h.events[f].value === r)) f--
+          expect(f).toBeGreaterThanOrEqual(0)
+          expect(e.extra).toBe(e.year - h.events[f].year)
+        }
+        break
+      }
       case EventType.BecameCity:
         if (cityYear[e.settlement] >= 0) throw new Error(`settlement ${e.settlement} became a city twice`)
         cityYear[e.settlement] = e.year

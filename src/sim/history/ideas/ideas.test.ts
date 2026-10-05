@@ -213,7 +213,16 @@ describe('ideas', () => {
     expect(B.count).toBeGreaterThan(A.count)
     for (const k of ['idea', 'people', 'year', 'how', 'from', 'via', 'source'] as const) expect(Array.from(B[k].slice(0, A.count))).toEqual(Array.from(A[k]))
     for (let k = A.count; k < B.count; k++) expect(B.year[k]).toBeGreaterThan(a.years)
-    a.ideas.forEach((d, i) => { if (d.firstYear >= 0) expect(long.ideas[i]).toEqual(d); else expect(long.ideas[i].firstYear < 0 || long.ideas[i].firstYear > a.years).toBe(true) })
+    // (an idea's origins count the whole run's independent conceptions: the longer run may add later ones, IdeaConceived after a.years)
+    const conceivedBy = (h: History, i: number, y: number) => h.events.filter((e) => e.type === EventType.IdeaConceived && e.value === i && e.year <= y).length
+    a.ideas.forEach((d, i) => {
+      if (d.firstYear >= 0) {
+        expect({ ...long.ideas[i], origins: 0 }).toEqual({ ...d, origins: 0 })
+        expect(d.origins).toBe(conceivedBy(a, i, a.years))
+        expect(long.ideas[i].origins).toBe(conceivedBy(long, i, long.years))
+        expect(conceivedBy(long, i, a.years)).toBe(d.origins)
+      } else expect(long.ideas[i].firstYear < 0 || long.ideas[i].firstYear > a.years).toBe(true)
+    })
     const evA = a.events.filter((e) => isOurs(e.type)), evL = long.events.filter((e) => isOurs(e.type))
     expect(evL.slice(0, evA.length)).toEqual(evA)
     expect(Array.from(long.technology.slice(0, a.technology.length))).toEqual(Array.from(a.technology))
