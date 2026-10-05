@@ -1,0 +1,28 @@
+/* landmarks: chronicle dots for the great buildings, the inspector's list of a town's landmarks (landmarksFormat.ts, inspector.ts) */
+.ev-landmark .ev-text::before {
+  border-radius: 1px 1px 0 0;
+  background: #c9b79a;
+  box-shadow: inset 0 0 0 1.5px #5a4a33;
+}
+.insp-landmarks {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+.insp-landmarks .insp-landmarks-title {
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.insp-landmarks .worn {
+  opacity: 0.8;
+  font-style: italic;
+}
+.insp-landmarks .lost {
+  opacity: 0.65;
+  font-style: italic;
+}
+.insp-landmarks.hidden {
+  display: none;
+}

@@ -39,7 +39,11 @@ import { createShadows } from './shadows.ts'
 import { closeDetailUniforms, TOWN_MASK_MAX, townMaskUniforms } from './townMask.ts'
 import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, styleKindOf, type ModelLibrary } from './models.ts'
 import { createSurface, rand4, type Probe } from './surface.ts'
-import { FACADE_PACK, FACADE_SMOKE } from './material.ts'
+import { FACADE_PACK, FACADE_RISING, FACADE_SMOKE, FACADE_STEADY, FACADE_WORN } from './material.ts'
+import { LandmarkPart } from './town.ts'
+import { LANDMARK_NEVER, landmarkInUse, landmarkRuined, landmarksOf } from '../../ui/landmarksData.ts'
+import { faithsOf } from '../../ui/faithsData.ts'
+import { LandmarkKind, LandmarkState } from '../../contract.ts'
 import { isHouseKind } from './shapes.ts'
 import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type TownPolityState } from '../../ui/politiesData.ts'
 import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
@@ -164,7 +168,7 @@ for (let m = 0; m < MODEL_COUNT; m++) {
   if (sk && isHouseKind(sk[1])) HOUSE_MODEL[m] = 1
 }
 /** Vertex attributes a batch shares with its model. */
-const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace']
+const SHARED_ATTRIBUTES = ['position', 'normal', 'aColor', 'aFace', 'aPiece']
 
 /**
  * The ground of every settlement near the view in one triangle list (layout.ts GroundSet
@@ -584,6 +588,10 @@ interface Stats {
   /** Tourism: resort quarters drawn and their pieces. */
   resorts: number
   resortPieces: number
+  /** Landmarks: drawn (of them, in a settlement abandoned or empty in the window) and their instances. */
+  landmarks: number
+  landmarkRuins: number
+  landmarkPieces: number
 }
 
 export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
@@ -661,7 +669,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const byDist = (a: number, b: number) => visD[a] - visD[b]
   /** (perf=1) What kept the last rebuild pending. */
   const pendWhy = { vnull: 0, vgen: 0, snull: 0, sgen: 0, farm: 0, forest: 0 }
-  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, works: 0, workPieces: 0, burnt: 0, smoke: 0, resorts: 0, resortPieces: 0 }
+  const stats: Stats = { instances: 0, shadows: 0, batches: 0, triangles: 0, settlements: 0, farmCells: 0, pending: false, rebuildMs: 0, ships: 0, carts: 0, firstShip: [0, 0, 0], firstCart: [0, 0, 0], groundTriangles: 0, shadowRenders: 0, trees: 0, villages: 0, villageInstances: 0, farVillages: 0, walls: 0, ruins: 0, palaces: 0, camps: 0, works: 0, workPieces: 0, burnt: 0, smoke: 0, resorts: 0, resortPieces: 0, landmarks: 0, landmarkRuins: 0, landmarkPieces: 0 }
   const perfOn = typeof location !== 'undefined' && /[?&]perf=1/.test(location.search)
   // (perf=1: the history, for console expressions over it)
   if (perfOn) (globalThis as unknown as { __dioramaHistory: History }).__dioramaHistory = h
@@ -670,6 +678,35 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     ;(globalThis as unknown as { __dioramaPlans: object }).__dioramaPlans = {}
     ;(globalThis as unknown as { __dioramaPending: object }).__dioramaPending = pendWhy
     ;(globalThis as unknown as { __dioramaPierMoved: object }).__dioramaPierMoved = {}
+    // (perf=1: latitude and azimuth, as the URL takes them, of landmark lm of settlement id, once its plan is set up)
+    ;(globalThis as unknown as { __dioramaLandmarkAim: (id: number, lm: number) => number[] | null }).__dioramaLandmarkAim = (id, lm) => {
+      const set = layouts?.landmark(id, lm)
+      if (!set || set.n === 0) return null
+      const x = set.mat[12], y = set.mat[13], z = set.mat[14], l = Math.hypot(x, y, z)
+      return [+((Math.asin(y / l) * 180) / Math.PI).toFixed(4), +((Math.atan2(x / l, z / l) * 180) / Math.PI).toFixed(4)]
+    }
+    // (perf=1: landmark lm's slot set: per slot its model, part, info and axis lengths)
+    ;(globalThis as unknown as { __dioramaLandmarkSets: (id: number, lm: number) => unknown }).__dioramaLandmarkSets = (id, lm) => {
+      const set = layouts?.landmark(id, lm)
+      if (!set) return null
+      const out = []
+      for (let k = 0; k < set.n; k++) {
+        const m = set.mat, o = k * 16
+        out.push({ model: set.model[k], part: set.threshold[k], info: Array.from(set.info.subarray(k * 4, k * 4 + 4)), sx: +Math.hypot(m[o], m[o + 1], m[o + 2]).toExponential(3), sy: +Math.hypot(m[o + 4], m[o + 5], m[o + 6]).toExponential(3), sz: +Math.hypot(m[o + 8], m[o + 9], m[o + 10]).toExponential(3) })
+      }
+      return out
+    }
+    // (perf=1: where landmark lm of settlement id stands on screen, CSS px [x, y], or null off the view)
+
+    ;(globalThis as unknown as { __dioramaLandmarkScreen: (id: number, lm: number) => number[] | null }).__dioramaLandmarkScreen = (id, lm) => {
+      const set = layouts?.landmark(id, lm)
+      if (!set || set.n === 0) return null
+      const p = new THREE.Vector4(set.mat[12], set.mat[13], set.mat[14], 1).applyMatrix4(objToClip)
+      if (p.w <= 0) return null
+      return [((p.x / p.w + 1) / 2) * innerWidth, ((1 - p.y / p.w) / 2) * innerHeight]
+    }
+
+
   }
 
   // owner palette for travelling groups: the journey's origin is not exposed per group, so use a neutral team colour
@@ -905,6 +942,115 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   }
   const GUILD_GOLD = new Float32Array([0.95, 0.62, 0.12])
 
+  // ---------- landmarks (ui/landmarksData.ts): their state spans as instances ----------
+  /** Whether settlement id has a landmark begun by year y. */
+  const hasLandmarkBy = (d: NonNullable<ReturnType<typeof landmarksOf>>, id: number, y: number) => {
+    const ids = d.bySettlement.get(id)
+    return !!ids && d.L.begunYear[ids[0]] <= y
+  }
+  /** The year the first great palace of the history's was begun at settlement id (the polity data's palace gives way to it), else NEVER. */
+  const greatPalaceFrom = (d: NonNullable<ReturnType<typeof landmarksOf>>, id: number) => {
+    for (const i of d.bySettlement.get(id) ?? []) if (d.L.kind[i] === LandmarkKind.Palace) return d.L.begunYear[i]
+    return NEVER
+  }
+  const lmInfo = new Float32Array(4)
+  const lmTrim = new Float32Array(3)
+  /** A landmark's trim colour through a span (6 bits a channel, linear, as the material decodes it): its faith's, else its builder's realm's; 0 for none. */
+  const trimCode = (d: NonNullable<ReturnType<typeof landmarksOf>>, li: number, faith: number): number => {
+    const L = d.L
+    const k = L.kind[li]
+    const worship = k === LandmarkKind.GreatTemple || k === LandmarkKind.Monastery || k === LandmarkKind.Temple || k === LandmarkKind.Shrine
+    let rgb: ArrayLike<number> | null = null
+    if (worship && faith >= 0) {
+      const fd = faithsOf(h)
+      if (fd && faith < fd.F) {
+        for (let c = 0; c < 3; c++) { const v = fd.rgb[faith * 3 + c]; lmTrim[c] = v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }
+        rgb = lmTrim
+      }
+    } else if (!worship) rgb = polColour(L.polity[li]) ?? GUILD_GOLD
+    if (!rgb) return 0
+    const q = (v: number) => Math.max(0, Math.min(63, Math.round(Math.sqrt(Math.max(0, v)) * 63)))
+    // (stored as the square root: the material squares it back, for more steps in the darks)
+    return Math.max(1, q(rgb[0]) * 4096 + q(rgb[1]) * 64 + q(rgb[2]))
+  }
+  /**
+   * Pushes landmark li's slot set for the window: the building in each state span (rising, standing, worn, ruined; steady, so
+   * the spans join without a pop), the scaffold while it is building, the debris of a ruin, and the works (a citadel's wall)
+   * from its completion. Its contact shadow once, for its whole life.
+   */
+  function pushLandmark(d: NonNullable<ReturnType<typeof landmarksOf>>, li: number, set: SlotSet) {
+    const L = d.L
+    const o0 = d.spanOff[li], o1 = d.spanOff[li + 1]
+    const lo = (Math.floor(year / interval) - 1) * interval - 2, hi = (Math.floor(year / interval) + 1) * interval + interval
+    const begun = L.begunYear[li]
+    const done = L.completedYear[li]
+    for (let k = 0; k < set.n; k++) {
+      const part = set.threshold[k]
+      const model = set.model[k]
+      const b = batches[model]
+      if (!b) continue
+      if (part === LandmarkPart.Building || part === LandmarkPart.Scaffold) {
+        for (let o = o0; o < o1; o++) {
+          const from = d.spanFrom[o], to = d.spanTo[o], st = d.spanState[o]
+          if (to < lo || from > hi) continue
+          const building = st === LandmarkState.Building
+          if (part === LandmarkPart.Scaffold && !building) continue
+          lmInfo[0] = set.info[k * 4]; lmInfo[1] = 0; lmInfo[2] = set.info[k * 4 + 2]
+          let flags = FACADE_STEADY, ra = 0, rb = 0
+          if (part === LandmarkPart.Building) {
+            if (building) {
+              flags |= FACADE_RISING
+              ra = from; rb = to
+              const end = done >= 0 ? done : o + 1 < o1 ? d.spanFrom[o + 1] : begun + 25
+              lmInfo[1] = Math.max(1, end - begun)
+            } else if (landmarkRuined(st)) { ra = from; rb = to }
+            else {
+              if (st === LandmarkState.Neglected) flags |= FACADE_WORN
+              lmInfo[1] = trimCode(d, li, d.spanFaith[o])
+            }
+          }
+          lmInfo[3] = flags + set.info[k * 4 + 3]
+          const lit = landmarkInUse(d.spanState[o]) ? 1 : 0
+          b.push(set.mat, k * 16, from, to, 0, lit, set.roof, k * 4, set.wall, k * 3, lmInfo, 0, ra, rb)
+          stats.landmarkPieces++
+        }
+        if (part === LandmarkPart.Building) shadows?.push(set.blob, k * 16, begun, LANDMARK_NEVER, set.height[k], 0)
+      } else if (part === LandmarkPart.Outbuilding) {
+        // a roofless outbuilding of its neglect (and of its ruin)
+        for (let o = o0; o < o1; o++) {
+          const from = d.spanFrom[o], to = d.spanTo[o], st = d.spanState[o]
+          if ((st !== LandmarkState.Neglected && st !== LandmarkState.Ruined) || to < lo || from > hi) continue
+          lmInfo[0] = set.info[k * 4]; lmInfo[1] = 0; lmInfo[2] = set.info[k * 4 + 2]; lmInfo[3] = FACADE_STEADY + set.info[k * 4 + 3]
+          b.push(set.mat, k * 16, from, to, 0, 0, set.roof, k * 4, set.wall, k * 3, lmInfo, 0, 0, 0)
+          stats.landmarkPieces++
+        }
+      } else if (part === LandmarkPart.Debris) {
+
+        for (let o = o0; o < o1; o++) {
+          const from = d.spanFrom[o], to = d.spanTo[o]
+          if (!landmarkRuined(d.spanState[o]) || to < lo || from > hi) continue
+          pushSlots(set, k, from + 2, to, 0, false)
+          stats.landmarkPieces++
+        }
+      } else {
+        // the works (a citadel's wall, a tower) stand from the completion until the building first falls into ruin (its own
+        // broken walls and the rubble stand for them then), and again once it is restored
+        if (done < 0 || done > hi) continue
+        let from = done
+        for (let o = o0; o < o1; o++) {
+          const st = d.spanState[o]
+          if (d.spanFrom[o] < done) continue
+          if (landmarkRuined(st)) {
+            if (from >= 0 && d.spanFrom[o] > from && !(d.spanFrom[o] < lo || from > hi)) { pushSlots(set, k, from, d.spanFrom[o]); stats.landmarkPieces++ }
+            from = -1
+          } else if (from < 0 && landmarkInUse(st)) from = d.spanFrom[o]
+        }
+        if (from >= 0 && from <= hi) { pushSlots(set, k, from, LANDMARK_NEVER); stats.landmarkPieces++ }
+      }
+    }
+  }
+
+
   const smokeMat = new Float32Array(16)
   const sackY = new Float64Array(2), sackShare = new Float64Array(2), sackA = new Float64Array(6)
   const ringIds: number[] = []
@@ -931,6 +1077,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     stats.villageInstances = 0
     stats.farVillages = 0
     stats.walls = stats.ruins = stats.palaces = stats.camps = stats.burnt = stats.smoke = stats.works = stats.workPieces = stats.resorts = stats.resortPieces = 0
+    stats.landmarks = stats.landmarkRuins = stats.landmarkPieces = 0
+    const lmd = landmarksOf(h)
     const alt = camObj.length() - 1
     if (visible && alt < DIORAMA_FAR) {
       const s0 = snapOf(year)
@@ -942,7 +1090,8 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       let nv = 0
       for (let id = 0; id < N; id++) {
         const pA = pop[s0 * N + id], pB = pop[s1 * N + id], pP = pop[sP * N + id]
-        if (pA <= 0 && pB <= 0 && pP <= 0) continue
+        // (an empty or abandoned site still shows its landmarks: the ruin alone in the landscape)
+        if (pA <= 0 && pB <= 0 && pP <= 0 && !(lmd && hasLandmarkBy(lmd, id, y1 + interval))) continue
         if ((h.settlements[id] as { outpost?: boolean }).outpost === true) continue // an expedition base is a camp (outposts.ts), not a town
         const c = h.settlements[id].cell
         if (knownCells && knownCells[c] > year) continue // unknown to the people whose world is shown
@@ -1152,10 +1301,13 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             }
             if (S.builtYear <= y1 && lost > y1 && pop > outerPop) { outer = sid; outerPop = pop }
           }
-          // a capital's palace, from the year it became one (an old palace once the capital moves)
+          // a capital's palace, from the year it became one (an old palace once the capital moves), until a great palace
+          // of the history's (landmarks data) is begun in its ward
           const pal = palaceOf(id)
+          const palEnd = lmd ? greatPalaceFrom(lmd, id) : NEVER
           for (let q = 0; q < pal.length; q += 2) {
-            const from = pal[q], to = q + 2 < pal.length ? pal[q + 2] : NEVER
+            const from = pal[q], to = Math.min(palEnd, q + 2 < pal.length ? pal[q + 2] : NEVER)
+            if (from >= to) continue
             if (from > y1 + interval || to < yP - 2) continue
             const tier = pal[q + 1]
             tl = performance.now()
@@ -1201,6 +1353,21 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           for (let k = 0; k < set.n; k++) {
             if (set.model[k] === Model.Banner) pushSlots(set, k, from, to, 0, false, 0, 0, wk.rgb ?? GUILD_GOLD)
             else pushSlots(set, k, from, to)
+          }
+        }
+        // ---- landmarks (ui/landmarksData.ts): each at its place, in its state over the years; it outlives the town's fortunes ----
+        if (lmd) {
+          const ids = lmd.bySettlement.get(id)
+          if (ids) for (const li of ids) {
+            const L = lmd.L
+            if (L.begunYear[li] > y1 + interval) break
+            tl = performance.now()
+            const set = layouts.landmark(id, li)
+            spent += performance.now() - tl
+            if (!set) { pending = true; continue }
+            stats.landmarks++
+            if (pA <= 0 && pB <= 0) stats.landmarkRuins++
+            pushLandmark(lmd, li, set)
           }
         }
         // ---- tourism (resort.ts): a resort quarter from the year it became one; its boats out while visitors come ----

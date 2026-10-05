@@ -17,6 +17,8 @@ import { describeRulersGroup, isRulersEntryHeadline, isRulersOrFaithEvent, ruler
 import { addShortcut } from './shortcuts.ts'
 import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
+import { isLandmarkHeadline } from './landmarksFormat.ts'
+
 import { describeIdeasGroup, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
 
 const ROWS = 40
@@ -330,6 +332,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     else if (kind === EntryKind.BorderDisputes && [...ix.notableMembers.subarray(lo, lo + m)].some((i) => isDisputeHeadline(h, h.events[i]))) r.li.className = `ev-${ek} notable headline`
     // renaming: a capital or a city renamed
     else if (kind === EntryKind.Single && isRenamingHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
+    // landmarks: a castle, palace or great temple finished, or a great work finished in a city or a capital
+    else if (kind === EntryKind.Single && isLandmarkHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
     // rulers, religion: contested and dynastic successions, unions, wars of succession, faiths founded, schisms, holy wars, holy cities fallen
