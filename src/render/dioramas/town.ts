@@ -2445,7 +2445,7 @@ function* planStages(site: Site, items: PlanItem[], ground: GroundPiece[], hScal
     const minH = (spec.great ? 2.3 : 2.0) * (isCity ? 1.25 : 1)
     // (a broad building, a temple on its podium, a ziggurat, a market hall, keeps its proportions: only towers and spires are raised)
     const tall = spec.h > 1.25 * Math.min(spec.hx, spec.hz) * 2
-    const lift = kind === LK.Monument || kind === LK.Shrine || !tall ? 1 : Math.min(1.6, Math.max(1, minH / Math.max(0.1, spec.h * s)))
+    const lift = kind === LK.Monument || kind === LK.Shrine || (spec.great && !tall) ? 1 : Math.min(1.6, Math.max(1, minH / Math.max(0.1, spec.h * s)))
     out.push({ ...base, role: Role.Landmark, x, y, yaw, sx: s, sz: s, sy: s * lift, threshold: LandmarkPart.Building, ward })
     const ux = Math.cos(yaw), uy = Math.sin(yaw)
     // the plan's yaw is the model's x axis; its front (+z) faces (sin yaw, -cos yaw)
