@@ -224,6 +224,8 @@ export const EventType = {
   LandmarkConverted: 146, // landmark `value` (a house of worship) was rededicated to another faith (its change row says which); `other` the converting polity's capital, or -1
   // danger on the way of trade (polities; 150-159; none when HistoryOptions.polities is false).
   TradeForsaken: 150, // a major trade route (History.trade `value`, ends `settlement` and `other`) closed because its way had grown too dangerous; follows its TradeClosed; `extra` the cause: 0 danger on land (war, raids, bandits), 1 pirates at sea (a strait or coast closed by them), 2 a war front across the way
+  // goods: merchant capital (160-169).
+  MerchantsMoved: 160, // the merchant houses of the bypassed mart `settlement` began to leave for the ends of the lane that took its trade (`other` one of them, -1 if both are gone); `value` their capital then
   TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
@@ -272,7 +274,10 @@ export interface History {
   degradation: Uint8Array
   /** Roads worn by overland trade, 0 (none) to 255 (major highway), same layout as `landUse`. Fades when traffic stops. */
   road: Uint8Array
-  /** Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. */
+  /**
+   * Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. The town's own;
+   * its merchant houses' capital is `merchantWealth` (goods): a town's wealth a head is (wealth + merchantWealth) / population.
+   */
   wealth: Float32Array
   trade: TradeRoutes
   /** Named geographic features, in order of naming. */
@@ -433,6 +438,12 @@ export interface History {
   secretGuard: Uint8Array
   /** Trading posts in order of founding (TradingPost.id is the index). */
   posts: TradingPost[]
+  /**
+   * Merchant capital per snapshot per settlement (the merchant houses of the marts, from the long-haul trade; kept apart from
+   * the town's `wealth`, which it feeds), same layout as `population`. High at an entrepot where legs meet; it leaves a
+   * bypassed mart for the ends of the lane that took its trade (MerchantsMoved). Empty when goods are off.
+   */
+  merchantWealth: Float32Array
 
   // disease: epidemics, endemic sickness and fever (all empty when HistoryOptions.disease is false).
   /** The diseases of this world (DiseaseInfo.id is the index); one that never appeared by the end of the run has firstYear -1 and no name. */

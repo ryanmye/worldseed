@@ -25,6 +25,7 @@ import { postConquered, postSupply, postYear, relayYear, routePass } from './rou
 import { carryCraft, seatAbandoned, traditionPass } from './traditions.ts'
 import { conquestAt, domesticated, initSpeciesSecrets, pushAt, secretPass } from './secrets.ts'
 import { VarietyKind } from '../../../contract.ts'
+import { merchantYear } from './merchants.ts'
 
 const G = GOOD_COUNT
 
@@ -135,6 +136,7 @@ export function goodsYear(s: HistoryState, g: GoodsState, ts: TradeState, tk: Te
   laneYear(s, g, ts)
   postYear(s, g, ts)
   relayYear(s, g)
+  merchantYear(s, g) // (merchant capital: pay, wear, flight; merchants.ts)
   const phase = s.year % 10
   if (phase === 1) {
     if (ts.adjCount > 0) rebuildMarts(s, ts, g)

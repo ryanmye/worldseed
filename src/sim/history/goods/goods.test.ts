@@ -51,7 +51,7 @@ function hashPre(hi: History): string {
 /** Hash of the goods fields. */
 function hashGoods(hi: History): string {
   let h = 0x811c9dc5
-  for (const a of [hi.depositOutput, hi.traditionQuality, hi.industry, hi.metal, hi.longHaulVolume, hi.priceIndex, hi.mart, hi.secretGuard]) h = fnv(h, a)
+  for (const a of [hi.depositOutput, hi.traditionQuality, hi.industry, hi.metal, hi.longHaulVolume, hi.priceIndex, hi.mart, hi.secretGuard, hi.merchantWealth]) h = fnv(h, a)
   const L = hi.longHaul
   for (const a of [L.a, L.b, L.kind, L.openedYear, L.closedYear, L.chart, L.goodAB, L.goodBA, L.pathOffsets, L.path]) h = fnv(h, a)
   const H = hi.secretHolds
@@ -125,6 +125,16 @@ function checkGoods(w: World, h: History): void {
   for (const a of [h.depositOutput, h.traditionQuality, h.industry, h.metal, h.longHaulVolume, h.priceIndex, h.mart, h.secretGuard]) { expect(a.byteOffset).toBe(0); expect(a.buffer.byteLength).toBe(a.byteLength) }
   for (let i = 0; i < h.depositOutput.length; i++) if (!(h.depositOutput[i] >= 0)) throw new Error(`deposit output ${h.depositOutput[i]}`)
   for (let i = 0; i < h.longHaulVolume.length; i++) if (!(h.longHaulVolume[i] >= 0)) throw new Error(`leg volume ${h.longHaulVolume[i]}`)
+  // Merchant capital (merchants.ts): population layout, finite and >= 0, none in a settlement not alive, about at most 120
+  // a head (bounded in the goods year; the year's sickness after it may take people).
+  expect(h.merchantWealth.length).toBe(h.snapshotCount * S)
+  expect(h.merchantWealth.buffer.byteLength).toBe(h.merchantWealth.byteLength)
+  for (let i = 0; i < h.merchantWealth.length; i++) {
+    const x = h.merchantWealth[i]
+    if (!(x >= 0) || !Number.isFinite(x)) throw new Error(`merchant capital ${x} at ${i}`)
+    if (x > 0 && !(h.population[i] > 0)) throw new Error(`merchant capital ${x} where nobody lives at ${i}`)
+    if (x > 150 * h.population[i]) throw new Error(`merchant capital ${x} over the bound at ${i}`)
+  }
   // Varieties reference valid makers.
   expect(h.varieties[0].kind).toBe(0)
   for (const v of h.varieties.slice(1)) {
@@ -254,6 +264,15 @@ function checkGoods(w: World, h: History): void {
     if (e.type === EventType.DirectRoute || e.type === EventType.Bypassed || e.type === EventType.FleetLost) expect(e.value).toBeLessThan(L.count)
     if (e.type === EventType.PostFounded || e.type === EventType.PostLost) expect(e.value).toBeLessThan(h.posts.length)
   }
+  // Merchants leave only a bypassed mart, once, after it was bypassed.
+  const bypassedAt = new Map<number, number>() // (lookup only)
+  for (const e of ev) {
+    if (e.type === EventType.Bypassed && !bypassedAt.has(e.settlement)) bypassedAt.set(e.settlement, e.year)
+    if (e.type !== EventType.MerchantsMoved) continue
+    expect(bypassedAt.get(e.settlement) ?? Infinity).toBeLessThanOrEqual(e.year)
+    expect(e.value).toBeGreaterThan(0)
+  }
+  expect(new Set(ev.filter((e) => e.type === EventType.MerchantsMoved).map((e) => e.settlement)).size).toBe(ev.filter((e) => e.type === EventType.MerchantsMoved).length)
   // Mines: structures on worked deposits' cells.
   for (const st of h.structures) if (st.type === StructureType.Mine) expect(h.deposits.some((d) => d.cell === st.cell && d.foundYear >= 0 && d.foundYear <= st.builtYear)).toBe(true)
 }
@@ -265,7 +284,7 @@ describe('goods', () => {
       const h = simulateHistory(w, { years, polities: pol, goods: false, disease: false, rulers: false, religion: false, tourism: false, renaming: false, ideas: false, landmarks: false }) // (disease, rulers, religion, tourism, renaming, ideas, landmarks: the pre-goods history has none of them)
       expect(hashPre(h)).toBe(hash)
       expect(h.varieties.length + h.deposits.length + h.traditions.length + h.secrets.length + h.posts.length + h.longHaul.count + h.secretHolds.count).toBe(0)
-      expect(h.depositOutput.length + h.traditionQuality.length + h.industry.length + h.metal.length + h.priceIndex.length + h.mart.length + h.longHaulVolume.length + h.secretGuard.length).toBe(0)
+      expect(h.depositOutput.length + h.traditionQuality.length + h.industry.length + h.metal.length + h.priceIndex.length + h.mart.length + h.longHaulVolume.length + h.secretGuard.length + h.merchantWealth.length).toBe(0)
       expect(h.events.some((e) => e.type >= 50 && e.type <= 65)).toBe(false)
       expect(h.structures.some((x) => x.type === StructureType.Mine || x.type === StructureType.Factory)).toBe(false)
       expect(h.settlements.some((s) => s.post)).toBe(false)
@@ -286,6 +305,7 @@ describe('goods', () => {
     const long = simulateHistory(w, { years: 1800 })
     const S0 = short.settlements.length, S1 = long.settlements.length
     const Q0 = short.tradeSnapshotCount
+    for (let q = 0; q < short.snapshotCount; q++) for (let i = 0; i < S0; i++) if (short.merchantWealth[q * S0 + i] !== long.merchantWealth[q * S1 + i]) throw new Error(`merchant capital differs at ${q}, ${i}`)
     for (let q = 0; q < Q0; q++) for (let i = 0; i < S0; i++) {
       if (short.industry[q * S0 + i] !== long.industry[q * S1 + i] || short.mart[q * S0 + i] !== long.mart[q * S1 + i]) throw new Error(`industry or mart differs at ${q}, ${i}`)
       for (let k = 0; k < 2; k++) if (short.metal[(q * S0 + i) * 2 + k] !== long.metal[(q * S1 + i) * 2 + k]) throw new Error(`metal differs at ${q}, ${i}`)

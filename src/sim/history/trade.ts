@@ -84,6 +84,7 @@ import { HVR, cutOf, goodsSettle, goodsStock, hvMoved, hvPair, hvPrice, hvTransp
 import { forwardPrices, longHaulSweep } from './goods/longhaul.ts'
 import { noteIncome } from './goods/state.ts'
 import { STOCK } from './goods/params.ts'
+import { merchantEcon } from './goods/merchants.ts' // goods: merchant capital
 import { diseaseTradeMul } from './disease/system.ts' // disease:
 import { tourismDemand } from './tourism/system.ts' // tourism:
 
@@ -1093,6 +1094,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
   }
   if (gx !== null) goodsSettle(s, ts, gx) // goods: workshops, consumption, tools and arms, stocks carried over
   settle(s, ts)
+  if (gx !== null) merchantEcon(s, gx) // goods: merchant capital a head raises the economy (goods/merchants.ts)
 }
 
 /** Hub size x = sqrt(t / hubRef) of settlement `id`, t = smoothed loads passing through it plus ownWeight times those on its own routes. */

@@ -13,6 +13,8 @@ import type { HistoryState } from '../state.ts'
 import { CLASS, MIX } from './params.ts'
 import type { LegHistory } from './legHistory.ts'
 import { createLegHistory } from './legHistory.ts'
+import type { MerchantState } from './merchants.ts'
+import { createMerchants } from './merchants.ts'
 
 const G = GOOD_COUNT
 /** Mixed classes (Luxury, Metalware, Finery, Treasure) and the mix index of each class (-1 unmixed). */
@@ -224,6 +226,8 @@ export interface GoodsState {
   lanes: number[]
   /** The legs' records as History.longHaul shows them (legHistory.ts; bookkeeping only). */
   legHist: LegHistory
+  /** Merchant capital of the marts, apart from the towns' wealth (merchants.ts). */
+  merch: MerchantState
 
   // --- Secrets ---
   sCount: number
@@ -355,7 +359,7 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     dWorker: i32(0), dCamp: i32(0), dMine: i32(0), dSink: i32(0), dRing: [], dNear: i32(0), wsum: f64(N, -1), rush: f64(N, 1), rushUntil: i32(0), boomLogged: new Uint8Array(0), treasureOut: 0,
     tCount: 0, tCraft: [], tPeople: [], tVar: [], tQ: [], tBorn: [], tBornAt: [], tEnd: [], tParent: [], tSeats: [], tSeatFrom: [], tSeatTo: [], tRenowned: [], tOut: [],
     legCount: 0, legA: [], legB: [], legKind: [], legOpened: [], legClosed: [], legChart: [], legPath: [], legCost: [], legT: [], legOpen: [], legIndex: new Map(), legOrder: [],
-    legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], legPol: null, lanes: [], legHist: createLegHistory(),
+    legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], legPol: null, lanes: [], legHist: createLegHistory(), merch: createMerchants(cap),
   }
   const more = {
     sCount: 0, sKind: [], sSubject: [], sFound: [], sFoundAt: [], sLost: [], sHeld: [], sPsi: [], sOrig: [], sBroken: [], sGuardLogged: [],

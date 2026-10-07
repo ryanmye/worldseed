@@ -28,7 +28,8 @@ import type { GoodsState } from './state.ts'
 import { K, M, MIX_OF, density, ensureLegs, logGoods, mixFlow, mixScale, noteIncome } from './state.ts'
 import { hvPrice, moveAmt, secretSmuggled, theta } from './market.ts'
 import { ideaLand, ideaSea } from '../ideas/hooks.ts' // ideas:
-import { legRecord, legRecordEnd, legRecordOpen } from './legHistory.ts' // (History.longHaul's prefix-stable leg records)
+import { legRecord, legRecordEnd, legRecordOpen } from './legHistory.ts'
+import { merchantResale, merchantTake, merchantTurnover } from './merchants.ts' // (merchant capital) // (History.longHaul's prefix-stable leg records)
 
 const G = GOOD_COUNT
 const KEY = 1 << 20
@@ -668,8 +669,10 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         }
         const carrier = q * (mu0 * (pf + tc) + MART.carrier * real)
         const gap = real
-        income[to] += carrier
-        income[from] += q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * V[gd])
+        income[to] += merchantTake(g, to, carrier) // (merchants.ts: the merchant houses keep their share as capital)
+        income[from] += merchantTake(g, from, q * (1 - MART.carrier) * gap) + q * STOCK.hvMargin * TRADE.margin * V[gd]
+        merchantTurnover(g, from, to, q * pf) // (and their houses' turnover on the cargo)
+        if (gd !== 9 && gd !== 11) merchantResale(g, from, q * pf) // (luxuries, stimulants, finery sent on: the merchants' stock, not the town's purchase)
         g.relayYear[to] += carrier
         if (!g.relayIn[to]) { g.relayIn[to] = 1; g.relayList.push(to) }
         noteIncome(s, g, 13, carrier + q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * V[gd]))
