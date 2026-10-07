@@ -65,12 +65,18 @@ function hashTourism(hi: History): string {
 // (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
 // bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
 // renaming, ideas, landmarks, polities); only the entries with polities on changed.)
+// (Re-recorded with the danger-trade and landmark fixes (re-paths round danger, the sea risk's scale, escorts for dear goods,
+// the minimum forsaken spell, bandits living off the traffic; the landmarks' crowding, rededication on conquest, revival,
+// templates and sights): with every new switch off (WAYRISK.reroute false, escortValue 0, minForsaken 0, seaScale false;
+// BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
+// e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
+// configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '6f4b4e41'],
-  [3, 600, undefined, {}, '3acd23f4'],
-  [7, 900, undefined, { polities: false, goods: false }, '9e5b88b5'],
-  [1, 1500, undefined, { disease: false }, '6f65992b'],
-  [9, 800, 24, {}, 'd0cc74bb'],
+  [42, 2000, undefined, {}, 'd7e13f55'],
+  [3, 600, undefined, {}, '759503cd'],
+  [7, 900, undefined, { polities: false, goods: false }, 'ab2cdba5'],
+  [1, 1500, undefined, { disease: false }, '53483dbd'],
+  [9, 800, 24, {}, '24272f33'],
 ]
 
 const worlds = new Map<number, World>()
