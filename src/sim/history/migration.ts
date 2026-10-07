@@ -41,7 +41,8 @@ import type { FrontierState } from './frontier.ts'
 import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteAlt, siteAltReset, siteChosen, siteFactor } from './polity/system.ts' // polities:
 import { rushAt } from './goods/hooks.ts' // goods:
 import { feverSite } from './disease/system.ts' // disease:
-import { settleBias, settleReach, settleUrge } from './orders/hooks.ts' // orders:
+import { settleBias, settleJoin, settleUrge, settleUrged } from './orders/hooks.ts' // orders:
+import { ORDERS } from './orders/params.ts' // orders:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -291,6 +292,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
             if (!leap) { const dd = 1 + d * invHalf; score *= (1 + FR.contigBonus) / (dd * dd) } // frontier: (a settlement is settled land)
             if (s.pol !== null) score *= joinFactor(s, s.pol, from, occ) // polities: crowding into walled towns
             if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
+            if (s.orders !== null) score *= settleJoin(s, s.orders, from) // orders: settlers urged toward a place seldom settle for a town instead
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
@@ -379,7 +381,8 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const voyage = rng.next() < (hasPort ? PORT.voyageChance : M.voyageChance)
   let budget = M.budget * (1 + M.budgetTech * (techOf(s, from, TechField.Crafts) - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
   if (hasHorse(s, from)) budget *= 1 + SPECIES.horseBudget
-  if (s.orders !== null) budget *= settleReach(s, s.orders, from) // orders: settlers urged toward a far place go further
+  const urged = s.orders !== null && settleUrged(s, s.orders, from) // orders: settlers urged toward a place go further, and on past the towns
+  if (urged) budget *= ORDERS.settleReach
   let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(techOf(s, from, TechField.Seafaring))
   if (voyage) { budget *= M.voyageBudget; ocean *= M.voyageOcean }
   // frontier: a few groups go far (long voyages, and leapChance of the rest: from the frontier stream).
@@ -411,7 +414,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
 
   // frontier: bound for a new site, the group may stop at a settlement it passes that takes it in.
   let joinPath: number[] | null = null
-  if (bestCell >= 0 && !leap) {
+  if (bestCell >= 0 && !leap && !urged) {
     const way = reconstructPath(prev, origin, bestCell)
     const stop = passJoin(s, fr, from, g, way, foodBase, prosperity)
     if (stop.join >= 0) {

@@ -346,7 +346,7 @@ function blocker(s: HistoryState, ox: OrdersState, k: number): number {
   const ps = s.pol
   switch (kd) {
     case OrderKind.Explore: return ox.refused[k] ? R.OutOfReach : R.NoExpedition
-    case OrderKind.Settle: return s.know.known[a * s.terrain.cellCount + t] >= 0 ? R.Refused : R.Unknown
+    case OrderKind.Settle: return R.NoRoom
     case OrderKind.Crop: return R.NoSource
     case OrderKind.Idea: return ox.refused[k] ? R.Refused : R.NoSource
     case OrderKind.War: {

@@ -65,10 +65,15 @@ export function settleBias(s: HistoryState, ox: OrdersState, from: number, c: nu
   return w > ORDERS.settleMax ? ORDERS.settleMax : w
 }
 
-/** Settle: the travel budget factor of a group from settlement `from` (1 when its people is not ordered or it is not near the target). */
-export function settleReach(s: HistoryState, ox: OrdersState, from: number): number {
+/** Settle: true when a group from settlement `from` goes under an order (its people ordered, the town near the target). */
+export function settleUrged(s: HistoryState, ox: OrdersState, from: number): boolean {
   const k = ox.seOrder[s.people[from]]
-  return k >= 0 && nearTarget(s, ox, k, from) ? ORDERS.settleReach : 1
+  return k >= 0 && nearTarget(s, ox, k, from)
+}
+
+/** Settle: factor on the score of joining a town for a group from `from` (settleJoinMul when it goes under an order, else 1). */
+export function settleJoin(s: HistoryState, ox: OrdersState, from: number): number {
+  return settleUrged(s, ox, from) ? ORDERS.settleJoinMul : 1
 }
 
 /** Crop: the species `people` is ordered to take up, or -1. */

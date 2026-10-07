@@ -125,20 +125,20 @@ export function pickOrders(w: World, h: History, y: number, set: 'A' | 'B'): Ord
       }
     }
   } else {
-    // Settle: the second people toward the best known, empty land 4-10 cells from its nearest town.
+    // Settle: the second people toward the best known, free land (no settlement within 2.5 cells) 4-12 cells from its nearest town.
     if (mid !== undefined) {
       const hs = homes(mid)
-      const taken = new Uint8Array(N)
-      for (const x of h.settlements) if (aliveAt(h, x.id, y)) taken[x.cell] = 1
+      const towns = h.settlements.filter((x) => aliveAt(h, x.id, y)).map((x) => x.cell)
       let best = -1, bv = 0
       for (let c = 0; c < N; c++) {
-        if (!(h.capacity[c] > 0) || taken[c]) continue
+        if (!(h.capacity[c] > 0)) continue
         const k = h.knownYear[mid * N + c]
         if (k < 0 || k > y) continue
         let d = Infinity
         for (const a of hs) { const x = chord(w, a, c); if (x < d) d = x }
-        if (d < 4 * hop || d > 10 * hop) continue
-        if (h.capacity[c] > bv) { bv = h.capacity[c]; best = c }
+        if (d < 4 * hop || d > 12 * hop || !(h.capacity[c] > bv)) continue
+        if (towns.some((a) => chord(w, a, c) < 2.5 * hop)) continue // (free land: no settlement within 2.5 cells)
+        bv = h.capacity[c]; best = c
       }
       if (best >= 0) add({ year: y, kind: OrderKind.Settle, actor: mid, target: best })
     }

@@ -20,8 +20,10 @@ export const ORDERS = {
   settleMax: 6,
   // (the towns near the target, as for Explore, send settlers with settleChance a year at least)
   settleChance: 0.06,
-  // (and their groups' travel budget is settleReach times larger)
+  // (and their groups' travel budget is settleReach times larger; they do not stop at a town on the way: frontier.ts passJoin)
   settleReach: 1.6,
+  // (joining a town instead scores settleJoinMul of its usual)
+  settleJoinMul: 0.02,
   settleHops: 4,
   // Crop: the species' adoption and domestication chances times cropMul at the people's settlements; a species that would not
   // raise the yield there (benefit <= 0) is still taken up, at cropMinBen of the chance.

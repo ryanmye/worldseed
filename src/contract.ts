@@ -1888,6 +1888,7 @@ export const OrderReason = {
   Done: 22, // fulfilled by the systems' own rules
   Busy: 23, // War: already at as many wars as it can fight
   OutOfReach: 24, // Explore: its expeditions found nothing unknown within reach that way
+  NoRoom: 25, // Settle: its settlers found no free land within reach that way (or joined towns instead)
 } as const
 export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
 
