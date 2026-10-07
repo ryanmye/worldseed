@@ -395,6 +395,8 @@ export const WAYRISK = {
   rerouteGain: 0.15,
   rerouteGap: 20,
   rerouteVisits: 6000,
+  /** A route forsaken for danger that opens again within minForsaken years is not TradeRestored (nor forsaken any longer). */
+  minForsaken: 5,
 }
 
 /** Smuggling (policy.ts, trade.ts): a share of the flow held back by duties or embargo moves as contraband. */

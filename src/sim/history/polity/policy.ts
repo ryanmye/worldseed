@@ -365,12 +365,13 @@ export function routeClosed(s: HistoryState, ps: PolityState, ts: TradeState, r:
   s.events.push({ year: s.year, type: EventType.TradeForsaken, settlement: ts.rA[r], other: ts.rB[r], value: r, extra: cause })
 }
 
-/** trade.ts, a route (re)opened: one forsaken for danger is TradeRestored. */
+/** trade.ts, a route (re)opened: one forsaken for danger at least WAYRISK.minForsaken years ago is TradeRestored. */
 export function routeOpened(s: HistoryState, ps: PolityState, ts: TradeState, r: number): void {
   if (r >= ps.rForsaken.length) return
   const y = ps.rForsaken[r]
   if (y < 0) return
   ps.rForsaken[r] = -1
+  if (s.year - y < WAYRISK.minForsaken) return // (open again within the spell: it was never really forsaken, and nothing is restored)
   ps.diag.wayRestored++
   s.events.push({ year: s.year, type: EventType.TradeRestored, settlement: ts.rA[r], other: ts.rB[r], value: r, extra: s.year - y })
 }
