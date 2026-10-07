@@ -24,8 +24,8 @@ export const OCEAN = {
   on: true,
   /** Ocean gap (cells at n = 48) a people's ships venture out to without the seafaring ideas, and what each adds. */
   base: 2,
-  keel: 0.25,
-  compass: 0.25,
+  keel: 0.5,
+  compass: 0.5,
   navigation: 0,
   /** With navigation, each Seafaring level above seaFree adds perSea (the open ocean of great ships). */
   seaFree: 4.1,
