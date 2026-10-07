@@ -175,6 +175,10 @@ export function buildNudgeLayer(world: World, marks: readonly NudgeMark[]): Nudg
     mesh,
     setTime(year: number) {
       uniforms.uYear.value = year
+      // (no draw call in the years when nothing is in force)
+      let on = false
+      for (const m of marks) if (year >= m.y0 && year < m.y1) { on = true; break }
+      mesh.visible = on
     },
     update(camera: THREE.PerspectiveCamera, drawSize: THREE.Vector2, pixelRatio: number) {
       mesh.updateWorldMatrix(true, false)
