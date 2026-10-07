@@ -52,10 +52,14 @@ function hashBase(hi: History): string {
 // configuration of every system, against main e1d2ae5 plus the fixes the merge made unconditional (a vassal passed to an
 // overlord its people never met goes free; a useless technique is of no benefit however stale the crop multiplier; a resort
 // is not given up the year new visitors came; a revived name's row); only the 42:2000 and 1:1500 histories changed.)
+// (Re-recorded with the oceans, merchant capital and journeys in order of arrival: with OCEAN.on and MERCHANT.on false the
+// tree was checked bit-identical to main 06f352d on every History field (journeys compared in main's order; goods-on runs
+// but for the leg-record ids of goods/legHistory.ts) in every off configuration: all on, all off, and each of polities,
+// goods, disease, rulers, religion, tourism, renaming, ideas and landmarks off, at 42:1200, 3:600 and 9:800 (n = 24).)
 const GOLDEN: [number, number, number | undefined, string][] = [
-  [42, 2000, undefined, '10ade64'],
-  [3, 600, undefined, '65b6ea87'],
-  [9, 800, 24, '32f53d06'],
+  [42, 2000, undefined, 'e616fa7c'],
+  [3, 600, undefined, 'bfbbe471'],
+  [9, 800, 24, 'f5c9fe17'],
 ]
 
 /** Hash of the polity fields. */

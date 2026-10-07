@@ -50,11 +50,15 @@ export function hashBaseFields(h: History): string {
 // BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
 // e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
 // configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
+// (Re-recorded with the oceans, merchant capital and journeys in order of arrival: with OCEAN.on and MERCHANT.on false the
+// tree was checked bit-identical to main 06f352d on every History field (journeys compared in main's order; goods-on runs
+// but for the leg-record ids of goods/legHistory.ts) in every off configuration: all on, all off, and each of polities,
+// goods, disease, rulers, religion, tourism, renaming, ideas and landmarks off, at 42:1200, 3:600 and 9:800 (n = 24).)
 const GOLDEN: [number, number, number | undefined, { polities?: boolean }, string][] = [
-  [42, 2000, undefined, {}, '70944989'],
-  [3, 600, undefined, {}, '4d66a7ec'],
-  [9, 800, 24, {}, '36c21f7b'],
-  [7, 900, undefined, { polities: false }, '82874c83'],
+  [42, 2000, undefined, {}, '4075ef11'],
+  [3, 600, undefined, {}, '964dd552'],
+  [9, 800, 24, {}, '448063af'],
+  [7, 900, undefined, { polities: false }, '7fbddbe9'],
 ]
 
 function hashRulers(h: History): string {

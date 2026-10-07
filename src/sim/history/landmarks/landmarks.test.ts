@@ -56,13 +56,17 @@ function hashLandmarks(hi: History): string {
 // e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
 // configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
 /** hashPreLandmarks with the landmarks on (their sights draw visitors), per GOLDEN seed. */
-const GOLDEN_SIGHTS: Record<number, string> = { 42: '7a1b088f', 3: '487b1e48', 7: '37cdaf60', 1: '796171e', 9: '3b217f94' }
+// (Re-recorded with the oceans, merchant capital and journeys in order of arrival: with OCEAN.on and MERCHANT.on false the
+// tree was checked bit-identical to main 06f352d on every History field (journeys compared in main's order; goods-on runs
+// but for the leg-record ids of goods/legHistory.ts) in every off configuration: all on, all off, and each of polities,
+// goods, disease, rulers, religion, tourism, renaming, ideas and landmarks off, at 42:1200, 3:600 and 9:800 (n = 24).)
+const GOLDEN_SIGHTS: Record<number, string> = { 42: 'a366dd98', 3: '26849c0', 7: 'aeaec95e', 1: 'd0357887', 9: 'b6f266c7' }
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '7ee13e52'],
-  [3, 600, undefined, {}, '487b1e48'],
-  [7, 900, undefined, { polities: false, goods: false }, '37cdaf60'],
-  [1, 1500, undefined, { disease: false }, 'dd37f0db'],
-  [9, 800, 24, {}, '858ee66'],
+  [42, 2000, undefined, {}, 'ae40fc00'],
+  [3, 600, undefined, {}, '26849c0'],
+  [7, 900, undefined, { polities: false, goods: false }, 'aeaec95e'],
+  [1, 1500, undefined, { disease: false }, '71cdb714'],
+  [9, 800, 24, {}, '7905f10f'],
 ]
 
 const worlds = new Map<number, World>()

@@ -64,12 +64,16 @@ function hashDisease(hi: History): string {
 // BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
 // e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
 // configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
+// (Re-recorded with the oceans, merchant capital and journeys in order of arrival: with OCEAN.on and MERCHANT.on false the
+// tree was checked bit-identical to main 06f352d on every History field (journeys compared in main's order; goods-on runs
+// but for the leg-record ids of goods/legHistory.ts) in every off configuration: all on, all off, and each of polities,
+// goods, disease, rulers, religion, tourism, renaming, ideas and landmarks off, at 42:1200, 3:600 and 9:800 (n = 24).)
 const GOLDEN: [number, number, number | undefined, boolean, boolean, string][] = [
-  [42, 2000, undefined, true, true, '2121914f'],
-  [3, 600, undefined, true, true, 'e7d9247e'],
-  [7, 900, undefined, false, false, 'a4cace18'],
-  [1, 1500, undefined, true, false, '2294f24c'],
-  [9, 800, 24, true, true, '9871c6dd'],
+  [42, 2000, undefined, true, true, 'ff18418'],
+  [3, 600, undefined, true, true, '2eaca487'],
+  [7, 900, undefined, false, false, '1526d590'],
+  [1, 1500, undefined, true, false, 'ef339259'],
+  [9, 800, 24, true, true, '2df3cb6c'],
 ]
 
 const worlds = new Map<number, World>()
