@@ -1,0 +1,186 @@
+/* Sagas panel: prose histories told from the records (sagasPanel.ts, ui/sagas/) */
+
+.sagas {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 1 auto !important;
+  max-height: max(180px, min(620px, 60vh));
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sagas.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.sagas.collapsed .gp-body {
+  display: none;
+}
+.side-column.right > .sagas:not(.collapsed) {
+  min-height: 220px;
+}
+.sg-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.sg-controls {
+  display: flex;
+  gap: 6px;
+}
+.sg-controls .sg-kind {
+  flex: 0 0 auto;
+  max-width: 42%;
+}
+.sg-controls .sg-subject[hidden] {
+  display: none;
+}
+.sg-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sg-register {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-right: auto;
+}
+.sg-register button,
+.sg-btn {
+  background: var(--ctl-bg);
+  border: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 7px;
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+}
+.sg-register button + button {
+  border-left: 1px solid var(--ctl-border);
+}
+.sg-register button.on {
+  background: rgba(95, 184, 217, 0.28);
+  color: #f4f6fb;
+}
+.sg-btn {
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+}
+.sg-register button:hover,
+.sg-btn:hover {
+  background-color: var(--ctl-bg-hover);
+}
+.sg-told {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.sg-retell[hidden] {
+  display: none;
+}
+.sg-text {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding-right: 6px;
+  font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.sg-text p {
+  margin: 0 0 0.75em;
+}
+.sg-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 2px 0 4px;
+  line-height: 1.3;
+}
+.sg-epigraph,
+.sg-closing {
+  font-style: italic;
+  color: var(--text-dim);
+}
+.sg-head {
+  margin: 0.9em 0 0.25em;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  font-family: inherit;
+}
+
+/* the wider reading view over the map */
+.sg-reader {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 6vh 16px 6vh;
+  background: rgba(5, 8, 14, 0.55);
+  backdrop-filter: blur(2px);
+}
+.sg-reader.hidden {
+  display: none;
+}
+.sg-reader-text {
+  position: relative;
+  width: min(680px, 100%);
+  max-height: 100%;
+  box-sizing: border-box;
+  padding: 26px 34px 22px;
+  background: rgba(13, 17, 27, 0.94);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text);
+}
+.sg-reader-text .sg-title {
+  font-size: 22px;
+  margin-bottom: 6px;
+}
+.sg-reader-text .sg-head {
+  font-size: 12px;
+}
+.sg-reader-close {
+  position: absolute;
+  top: calc(6vh + 8px);
+  right: calc(50% - min(680px, 100% - 32px) / 2 + 10px);
+  z-index: 1;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.sg-reader-close:hover {
+  color: var(--text);
+}
+
+/* the inspector's links */
+.sg-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 2px 0 4px;
+  font-size: 11px;
+}
+.sg-links.hidden {
+  display: none;
+}
+.sg-links [hidden] {
+  display: none;
+}

@@ -65,6 +65,7 @@ import { createFaithsView, type FaithsBuilt } from './faithsPanel.ts'
 import { createDiseaseView, type DiseaseBuilt } from './diseasePanel.ts'
 import { createTourismView, type TourismBuilt } from './tourismPanel.ts'
 import { createCitiesView, type CitiesBuilt } from './citiesPanel.ts'
+import { createSagasView, sagaParamsFrom } from './sagasPanel.ts'
 import { createIdeasView, type IdeasBuilt } from './ideasPanel.ts'
 import type { LayerToggle } from './overlay.ts'
 
@@ -449,6 +450,18 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     right: deps.right,
     onSelectSettlement: (id) => api.select(id, true),
   })
+  // sagas: prose histories from the records (right column; owns no 3D layer; the inspector's "Read its legend" links)
+  const sagas = createSagasView({
+    right: deps.right,
+    overlayHost: deps.canvas.parentElement ?? document.body,
+    setUrlParam: deps.setUrlParam,
+    selection: () => ({ settlement: selected, polity: polities.selected ?? -1, people: typeof peoples.selection === 'number' && peoples.selection >= 0 ? peoples.selection : -1 }),
+    year: () => timeline.year,
+    playing: () => timeline.playing,
+    onSelectSettlement: (id) => api.select(id, true),
+    initial: sagaParamsFrom(new URLSearchParams(window.location.search)),
+  })
+  inspector.peopleSlot.before(sagas.inspectorLinks)
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -628,6 +641,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     tourism.commit(null, false)
     ideas.commit(null, false, null)
     cities.commit(null, null, null)
+    sagas.commit(null, null, false)
     timeline.setSparkline(null, 1)
     polityLayer = null
     geo = null
@@ -838,6 +852,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     tourism.commit(b.tourism ?? null, extend)
     ideas.commit(b.ideas ?? null, extend, index.peoples ?? null)
     cities.commit(b.cities ?? null, h, index.peoples)
+    sagas.commit(h, w, extend)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     polityLayer = b.polities?.layer ?? null
@@ -890,6 +905,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     tourism.showSettlement(id)
     ideas.showSettlement(id)
     cities.showSettlement(id)
+    sagas.showSettlement(id)
   }
 
   /**
@@ -1296,6 +1312,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       tourism.showSettlement(selected)
       ideas.showSettlement(selected)
       cities.showSettlement(selected)
+      sagas.showSettlement(selected)
       if (selected < 0) {
         inspector.hide()
         return
@@ -1533,6 +1550,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       tourism.tick(year, fx, deps.camera, drawSize, pixelRatio)
       ideas.tick(year, pos.s0, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       cities.tick(year)
+      sagas.tick(year)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()
