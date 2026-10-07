@@ -8,13 +8,18 @@ import { SUN_COLOR, SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { createCubeBake, type CubeBake } from './surfaceBake.ts'
 import { RELIEF_GLSL } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
+import { CITY_SKY_GLSL, lowAmount } from './citySky.ts'
 
 const ATMOSPHERE_RADIUS = PLANET_RADIUS * 1.06
 const SCALE_HEIGHT = 0.011
+/** Radius of the cloud deck. */
+export const CLOUD_DECK_RADIUS = PLANET_RADIUS * 1.012
 
 export interface Atmosphere {
   mesh: THREE.Mesh
   setStrength(s: number): void
+  /** The rendered ground's radius under the camera (per drawn frame). */
+  setGroundRadius(r: number): void
   /** Ray-march steps (quality setting; rebuilds the shader when it changes). */
   setSteps(n: number): void
   dispose(): void
@@ -35,6 +40,8 @@ export function buildAtmosphere(): Atmosphere {
     // low camera (the city view, the closest zoom): 0 from space .. 1 near the ground, and the horizon's distance
     uLow: { value: 0 },
     uHorizon: { value: 0.15 },
+    // the rendered ground's radius under the camera (low down the haze meets the ground there, not at sea level)
+    uGround: { value: PLANET_RADIUS },
   }
   // one material per step count (switching quality never recompiles back and forth)
   const materials = new Map<number, THREE.ShaderMaterial>()
@@ -64,10 +71,12 @@ export function buildAtmosphere(): Atmosphere {
       uniform float uStrength;
       uniform float uLow;
       uniform float uHorizon;
+      uniform float uGround;
       varying vec3 vWorld;
 
       const float RP = ${PLANET_RADIUS.toFixed(4)};
       const float RA = ${ATMOSPHERE_RADIUS.toFixed(4)};
+      ${CITY_SKY_GLSL}
       const float H = ${SCALE_HEIGHT.toFixed(4)};
       // Rayleigh-like extinction per unit length at sea level (blue scatters most).
       const vec3 BETA = vec3(1.0, 2.4, 5.8);
@@ -94,7 +103,7 @@ export function buildAtmosphere(): Atmosphere {
         if (ta.y <= 0.0) discard;
         float t0 = max(ta.x, 0.0);
         float t1 = ta.y;
-        vec2 tp = raySphere(ro, rd, RP);
+        vec2 tp = raySphere(ro, rd, mix(RP, clamp(uGround, RP, length(ro) - 1e-4), uLow));
         bool hitPlanet = tp.x > 0.0 && tp.x < t1;
         if (hitPlanet) t1 = tp.x;
 
@@ -125,35 +134,29 @@ export function buildAtmosphere(): Atmosphere {
         float t = dot(transmit, vec3(0.3, 0.4, 0.3));
 
         // Near the ground the shell alone leaves a black, starry sky over a sharply curved
-        // horizon: add a sky gradient (by the view's elevation above the local horizontal and
-        // the sun's height there) and a distance haze over the ground in the horizon's colour,
-        // thickening toward the horizon, so the land fades into the sky instead of ending at a rim.
+        // horizon. There the sky dome (citySky.ts) draws the sky behind everything: the shell
+        // lets it through (and the 3D towns rising above the horizon), and lays a distance haze
+        // over the ground in the sky's own colour at the horizon (the same model), thickening
+        // toward the horizon, so the land fades into the sky instead of ending at a rim.
+        vec3 hazeAdd = vec3(0.0);
         if (uLow > 0.001) {
           vec3 upC = normalize(ro);
-          float sunH = dot(upC, uSun);
-          float day = smoothstep(-0.12, 0.2, sunH);
-          float warm = 1.0 - smoothstep(0.02, 0.35, sunH);
-          vec3 horizonC = mix(vec3(0.46, 0.6, 0.82), vec3(0.9, 0.6, 0.38), warm * 0.7);
-          vec3 zenithC = mix(vec3(0.1, 0.24, 0.6), vec3(0.16, 0.2, 0.42), warm * 0.5);
-          // toward the sun the horizon glows a little
-          float toward = pow(max(dot(normalize(rd - upC * dot(rd, upC)), normalize(uSun - upC * sunH)), 0.0), 4.0);
-          horizonC *= 1.0 + 0.35 * toward * day;
-          float lowK = uLow * (0.04 + 0.96 * day);
           if (!hitPlanet) {
-            float e = max(dot(rd, upC), 0.0);
-            vec3 skyC = mix(horizonC, zenithC, pow(e, 0.55)) * day * 0.9;
-            inscatter = mix(inscatter, skyC + inscatter * 0.3, uLow);
-            t = mix(t, 0.0, uLow * day);
+            inscatter *= 1.0 - uLow;
+            t = mix(t, 1.0, uLow);
           } else {
             float d = tp.x / max(uHorizon, 1e-3);
-            float fog = min(0.92, 1.0 - exp(-1.6 * d * d)) * lowK;
-            inscatter = inscatter * (1.0 - fog) + horizonC * day * 0.9 * fog;
+            float fog = min(0.92, 1.0 - exp(-1.6 * d * d)) * uLow;
+            // (the haze is display-referred like the dome: added after the tone mapping)
+            hazeAdd = citySkyHorizon(rd, upC, uSun) * fog;
+            inscatter *= 1.0 - fog;
             t *= 1.0 - fog;
           }
         }
 
         gl_FragColor = vec4(inscatter, 1.0);
         #include <tonemapping_fragment>
+        gl_FragColor.rgb += hazeAdd;
         #include <colorspace_fragment>
         gl_FragColor.a = t;
       }
@@ -176,8 +179,7 @@ export function buildAtmosphere(): Atmosphere {
     else uniforms.uSun.value.copy(SUN_DIRECTION)
     // the sky and the haze near the ground (see the shader)
     const alt = Math.max(1e-4, camera.getWorldPosition(camW).length() - PLANET_RADIUS)
-    const k = Math.min(1, Math.max(0, (0.1 - alt) / (0.1 - 0.035)))
-    uniforms.uLow.value = k * k * (3 - 2 * k)
+    uniforms.uLow.value = lowAmount(alt)
     uniforms.uHorizon.value = Math.max(0.1, Math.sqrt(2 * alt * PLANET_RADIUS) * 0.85 + 0.01)
   }
   return {
@@ -187,6 +189,9 @@ export function buildAtmosphere(): Atmosphere {
     },
     setSteps(n: number) {
       mesh.material = materialFor(n)
+    },
+    setGroundRadius(r: number) {
+      uniforms.uGround.value = r
     },
     dispose() {
       geometry.dispose()
@@ -335,8 +340,20 @@ const CLOUD_FRAG = /* glsl */ `
   uniform vec3 uOffset;
   uniform vec3 uCamObj;
   uniform float uDaylight;
+  uniform float uLow;
+  uniform sampler2D uPuffs;
   varying vec3 vObjPos;
   ${SEAM_FRAG_GLSL}
+  ${CITY_SKY_GLSL}
+  // small fair-weather clouds (below the globe's resolution): the puff texture laid over the
+  // deck in object space (three planar projections blended by the normal: no seams, no swimming)
+  float puffs(vec3 p, vec3 n) {
+    vec3 w = pow(abs(n), vec3(8.0));
+    w /= w.x + w.y + w.z;
+    float a = texture2D(uPuffs, p.yz * 9.0).r * w.x + texture2D(uPuffs, p.zx * 9.0).r * w.y + texture2D(uPuffs, p.xy * 9.0).r * w.z;
+    float b = texture2D(uPuffs, p.yz * 23.0 + 0.37).r * w.x + texture2D(uPuffs, p.zx * 23.0 + 0.37).r * w.y + texture2D(uPuffs, p.xy * 23.0 + 0.37).r * w.z;
+    return a * 0.68 + b * 0.32;
+  }
 #ifdef CLOUD_BAKED
   uniform samplerCube uCover;
 #else
@@ -352,7 +369,7 @@ const CLOUD_FRAG = /* glsl */ `
 #else
     float c = cloudCover(p, length(fwidth(vObjPos)));
 #endif
-    if (c < 0.004) discard;
+    if (c < 0.004 && uLow < 0.001) discard;
     vec3 L = normalize(uSunObj);
     float mu = uDaylight > 0.5 ? 0.9 : dot(p, L);
     float day = smoothstep(-0.15, 0.15, mu);
@@ -361,6 +378,37 @@ const CLOUD_FRAG = /* glsl */ `
     vec3 col = vec3(0.95) * (uSunColor * max(mu * 0.8 + 0.2, 0.0) * day + vec3(0.015, 0.02, 0.035));
     gl_FragColor = vec4(col, c * mix(0.6, 1.0, limb));
     #include <tonemapping_fragment>
+    if (uLow > 0.001) {
+      // seen from below (the city view): the deck's underside, coloured with the sky (citySky.ts):
+      // white-grey by day, warm toward a low sun and blue-grey away from it at sunset, a dark
+      // silhouette against the night sky; thinning into the horizon haze. Display-referred like the dome.
+      vec3 up = normalize(uCamObj);
+      vec3 rd = normalize(vObjPos - uCamObj);
+      float e = dot(rd, up);
+      if (uDaylight > 0.5) L = up;
+      float sunH = dot(up, L);
+      vec3 rh = rd - up * e, sh = L - up * sunH;
+      float tw = 0.5 + 0.5 * dot(rh, sh) * inversesqrt(max(dot(rh, rh) * dot(sh, sh), 1e-8));
+      float cosT = dot(rd, L);
+      // the deck's cover, with small clouds added (more of them near the large ones)
+      float n = puffs(vObjPos, p);
+      c = max(c, 0.8 * smoothstep(0.6 - 0.3 * c, 0.76 - 0.25 * c, n));
+      float thick = smoothstep(0.1, 0.8, c);
+      vec3 dayC = vec3(0.74, 0.76, 0.8) * mix(1.0, 0.62, thick);
+      // the sun behind thin cloud: a bright, silvery edge
+      dayC += vec3(0.6, 0.56, 0.48) * pow(max(cosT, 0.0), 10.0) * (1.0 - thick);
+      vec3 warmC = mix(vec3(0.3, 0.3, 0.44), mix(vec3(0.95, 0.4, 0.36), vec3(1.0, 0.48, 0.14), smoothstep(0.7, 1.0, tw)), smoothstep(0.15, 0.8, tw)) * mix(1.0, 0.75, thick);
+      float E = sunElevDeg(sunH);
+      float warm = rampWarm(E) * rampDusk(E);
+      // still lit from below a little after sunset (the cloud is higher than the town), then dark
+      float lit = rampLamps(E);
+      vec3 sky = citySkyColor(rd, up, L);
+      vec3 under = mix(sky * 0.55, mix(dayC, warmC, warm), lit);
+      under = mix(under, citySkyHorizon(rd, up, L), 0.5 * exp(-max(e, 0.0) / 0.035));
+      float a = smoothstep(0.03, 0.4, c) * 0.94 * smoothstep(0.0, 0.03, e);
+      if (a < 0.003) discard;
+      gl_FragColor = mix(gl_FragColor, vec4(under, a), uLow);
+    }
     #include <colorspace_fragment>
   }
 `
@@ -375,9 +423,46 @@ const CLOUD_BAKE_FRAG = /* glsl */ `
   }
 `
 
+/**
+ * A tileable fractal value-noise texture (256 x 256, one byte), made once per world from its
+ * seed: the small clouds seen from below the deck in the city view (CLOUD_FRAG's puffs()).
+ */
+function puffTexture(rand: () => number): THREE.DataTexture {
+  const N = 256
+  const out = new Float32Array(N * N)
+  let amp = 1, total = 0
+  for (let cells = 8; cells <= 64; cells *= 2) {
+    const g = new Float32Array(cells * cells)
+    for (let i = 0; i < g.length; i++) g[i] = rand()
+    const k = cells / N
+    for (let y = 0; y < N; y++) {
+      const fy = y * k, y0 = Math.floor(fy), ty = fy - y0, sy = ty * ty * (3 - 2 * ty)
+      const r0 = (y0 % cells) * cells, r1 = ((y0 + 1) % cells) * cells
+      for (let x = 0; x < N; x++) {
+        const fx = x * k, x0 = Math.floor(fx), tx = fx - x0, sx = tx * tx * (3 - 2 * tx)
+        const c0 = x0 % cells, c1 = (x0 + 1) % cells
+        const a = g[r0 + c0] + (g[r0 + c1] - g[r0 + c0]) * sx
+        const b = g[r1 + c0] + (g[r1 + c1] - g[r1 + c0]) * sx
+        out[y * N + x] += amp * (a + (b - a) * sy)
+      }
+    }
+    total += amp
+    amp *= 0.5
+  }
+  const data = new Uint8Array(N * N)
+  for (let i = 0; i < data.length; i++) data[i] = Math.round((out[i] / total) * 255)
+  const tex = new THREE.DataTexture(data, N, N, THREE.RedFormat, THREE.UnsignedByteType)
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.magFilter = THREE.LinearFilter
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.generateMipmaps = true
+  tex.needsUpdate = true
+  return tex
+}
+
 /** Procedural cloud deck on a slightly larger sphere, drifting slowly over the surface. */
 export function buildClouds(seed: number): Clouds {
-  const geometry = new THREE.SphereGeometry(PLANET_RADIUS * 1.012, 160, 120)
+  const geometry = new THREE.SphereGeometry(CLOUD_DECK_RADIUS, 160, 120)
   const rand = mulberry32(seed ^ 0xc10d)
   const offset = new THREE.Vector3(rand() * 100, rand() * 100, rand() * 100)
   const uniforms = {
@@ -386,6 +471,8 @@ export function buildClouds(seed: number): Clouds {
     uOffset: { value: offset },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uDaylight: sunUniforms.uDaylight,
+    uLow: { value: 0 },
+    uPuffs: { value: puffTexture(rand) },
     ...flatUniforms,
     uCloudTurn: { value: new THREE.Matrix3() },
   }
@@ -408,6 +495,10 @@ export function buildClouds(seed: number): Clouds {
     uniforms.uSunObj.value.copy(SUN_DIRECTION).applyQuaternion(tmpQ)
     camera.getWorldPosition(tmpCam)
     uniforms.uCamObj.value.copy(mesh.worldToLocal(tmpCam))
+    // from below the deck (the city view, the closest zoom) its inside faces show, shaded as seen from under it
+    const below = uniforms.uCamObj.value.length() < CLOUD_DECK_RADIUS
+    ;(mesh.material as THREE.ShaderMaterial).side = below ? THREE.BackSide : THREE.FrontSide
+    uniforms.uLow.value = below ? lowAmount(tmpCam.length() - PLANET_RADIUS) : 0
     const c = Math.cos(mesh.rotation.y), s = Math.sin(mesh.rotation.y)
     uniforms.uCloudTurn.value.set(c, 0, s, 0, 1, 0, -s, 0, c)
   }
@@ -460,6 +551,7 @@ export function buildClouds(seed: number): Clouds {
       disposeBake()
       geometry.dispose()
       material.dispose()
+      uniforms.uPuffs.value.dispose()
     },
   }
 }
