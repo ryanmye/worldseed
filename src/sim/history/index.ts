@@ -396,7 +396,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     s.sp.v2 = createSpeciesV2(s, createRng(seed, 'history-species-hazard'), createRng(seed, 'history-species-techniques')) // species-v2
     // disease: the world's diseases, before the tribes meet (unless switched off).
     if (options?.disease ?? DISEASE_ON) s.dz = createDisease(world, terrain, weather.region, weather.regionCount, plan.cells.length, createRng(seed, 'history-disease-pool'), createRng(seed, 'history-disease'))
-  })
+  }, options?.cradles) // cradle wishes: the player's wished start cells, if any
   const dz = s.dz // disease:
   const voyages = createVoyages(s, createRng(seed, 'history-voyages'))
   const trade = createTrade(N)
@@ -649,6 +649,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
+        ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
       terrain,
       diag: {

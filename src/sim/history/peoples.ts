@@ -17,6 +17,9 @@
 // so settlement and feature names are unchanged).
 
 import type { People, World } from '../../contract.ts'
+import { EventType } from '../../contract.ts'
+import type { CradleWishResult } from './cradleWish.ts'
+import { applyCradleWishes, hasCradleWish } from './cradleWish.ts'
 import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
 import type { SettlementNaming } from '../names/index.ts'
@@ -32,7 +35,12 @@ export interface CradlePlan {
   cradle: number[]
   /** Centre cell of each cradle. */
   centres: number[]
+  /** cradle wishes: what became of the player's wished start cells (cradleWish.ts), when there was any wish. */
+  wish?: CradleWishResult
 }
+
+/** What the planner reads: the world and its terrain. */
+export type PlanInput = Pick<HistoryState, 'world' | 'terrain'>
 
 function chord2(P: Float32Array, a: number, b: number): number {
   const dx = P[a * 3] - P[b * 3], dy = P[a * 3 + 1] - P[b * 3 + 1], dz = P[a * 3 + 2] - P[b * 3 + 2]
@@ -42,7 +50,7 @@ function chord2(P: Float32Array, a: number, b: number): number {
 let regionQueue = new Int32Array(0)
 
 /** Habitable cells within `hops` plain hops over land of `c` (BFS order, c first). */
-function region(s: HistoryState, c: number, hops: number, stamp: Int32Array, depth: Int32Array, run: number, out: number[]): void {
+function region(s: PlanInput, c: number, hops: number, stamp: Int32Array, depth: Int32Array, run: number, out: number[]): void {
   const T = s.terrain
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
   out.length = 0
@@ -66,7 +74,7 @@ function region(s: HistoryState, c: number, hops: number, stamp: Int32Array, dep
 }
 
 /** Plans the cradles and the tribes in them (does not found anything). */
-export function planCradles(s: HistoryState, rng: Rng): CradlePlan {
+export function planCradles(s: PlanInput, rng: Rng): CradlePlan {
   const C = CRADLE
   const T = s.terrain
   const N = T.cellCount
@@ -191,12 +199,22 @@ export function planCradles(s: HistoryState, rng: Rng): CradlePlan {
   return plan
 }
 
-/** Places the founding tribes ('history-cradles' stream); returns the plan. `beforeFounding` runs once the plan and the peoples are set, before the tribes are founded. */
-export function seedPeoples(s: HistoryState, rng: Rng, beforeFounding?: (plan: CradlePlan) => void): CradlePlan {
+/**
+ * Places the founding tribes ('history-cradles' stream); returns the plan. `beforeFounding` runs once the plan and the peoples are set, before the tribes are founded.
+ * cradle wishes: with `cradles` (HistoryOptions.cradles) holding a wish for one of the peoples, the plan is drawn as ever and then
+ * the wishes applied to it (cradleWish.ts, drawing only from 'history-cradles-wish'); each wished people's first settlement is
+ * followed by a CradlePlaced event. Without a wish nothing differs, not even a draw.
+ */
+export function seedPeoples(s: HistoryState, rng: Rng, beforeFounding?: (plan: CradlePlan) => void, cradles?: readonly number[]): CradlePlan {
   const plan = planCradles(s, rng)
+  if (hasCradleWish(cradles, plan.cells.length)) plan.wish = applyCradleWishes(s, plan, cradles!, createRng(s.world.seed, 'history-cradles-wish'))
   setPeoples(s, plan.cells.length)
   if (beforeFounding) beforeFounding(plan)
-  for (let t = 0; t < plan.cells.length; t++) found(s, plan.cells[t], plan.pops[t], -1)
+  const w = plan.wish
+  for (let t = 0; t < plan.cells.length; t++) {
+    const id = found(s, plan.cells[t], plan.pops[t], -1)
+    if (w && w.wish[t] !== -1) s.events.push({ year: s.year, type: EventType.CradlePlaced, settlement: id, other: -1, value: t, extra: w.placed[t] })
+  }
   return plan
 }
 
