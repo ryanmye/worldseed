@@ -43,6 +43,9 @@ import { religionPlague } from '../religion/hooks.ts' // religion:
 import { ideaQuarantine, ideaToll } from '../ideas/hooks.ts' // ideas:
 import type { TourismState } from '../tourism/state.ts' // tourism:
 import { TRAVEL } from '../tourism/params.ts' // tourism:
+import { OrderKind } from '../../../contract.ts' // orders:
+import { townUrged } from '../orders/hooks.ts' // orders:
+import { ORDERS } from '../orders/params.ts' // orders:
 
 // (Set at the start of each yearly call: the year's per-people figures from the technology system.)
 let TK: TechState | null = null
@@ -657,10 +660,11 @@ function quarantinePass(s: HistoryState, dz: DiseaseState): void {
     const pol = ps.polity[id]
     if (pol < 0) continue
     const p = s.people[id]
-    if (s.tech[p * TECH_FIELD_COUNT + TechField.Crafts] < Q.crafts || year - dz.lastGreat[p] > Q.memory || ps.unrest[id] > Q.unrestMax) continue
+    const qo = s.orders !== null && townUrged(s.orders, OrderKind.Quarantine, id) // orders: urged to quarantine (no memory needed, less wealth)
+    if (s.tech[p * TECH_FIELD_COUNT + TechField.Crafts] < Q.crafts || (!qo && year - dz.lastGreat[p] > Q.memory) || ps.unrest[id] > Q.unrestMax) continue
     if (s.ideas !== null && !ideaQuarantine(s.ideas, p)) continue // ideas: only peoples that hold quarantine
-    if (s.wealth[id] < Q.wealthHead * s.pop[id]) continue
-    if (dz.rng.next() >= Q.chance) continue
+    if (s.wealth[id] < Q.wealthHead * s.pop[id] * (qo ? ORDERS.quarWealth : 1)) continue
+    if (dz.rng.next() >= (qo ? ORDERS.quarChance : Q.chance)) continue
     dz.quar[id] = dz.qSettlement.length
     dz.qSettlement.push(id); dz.qFrom.push(year); dz.qTo.push(-1)
     logEvent(s, EventType.Quarantine, id, ps.pCapital[pol], pol)

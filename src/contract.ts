@@ -1887,6 +1887,7 @@ export const OrderReason = {
   NoExpedition: 21, // Explore: no town of the people was able to send one (too poor, too hungry, nothing unknown near)
   Done: 22, // fulfilled by the systems' own rules
   Busy: 23, // War: already at as many wars as it can fight
+  OutOfReach: 24, // Explore: its expeditions found nothing unknown within reach that way
 } as const
 export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
 
@@ -2056,6 +2057,12 @@ export function orderFeasible(h: History, order: Order, year: number): OrderReas
       if (!port) return OrderReason.NotPort
       const Q = h.quarantines
       for (let i = 0; i < Q.settlement.length; i++) if (Q.settlement[i] === a && Q.from[i] <= y && (Q.to[i] < 0 || Q.to[i] > y)) return OrderReason.AlreadyDone
+      // (its people must hold the idea of quarantine, and Crafts 3: disease/params.ts QUARANTINE.crafts)
+      const p = h.settlements[a].people
+      const qi = h.ideas.findIndex((x) => x.key === 'quarantine')
+      if (qi >= 0 && ideasHeldAt(h, p, y).indexOf(qi) < 0) return OrderReason.Unskilled
+      const sq = Math.min(h.snapshotCount - 1, Math.floor(y / h.snapshotInterval))
+      if (h.technology[(sq * h.peoples.length + p) * TECH_FIELD_COUNT + TechField.Crafts] < 3) return OrderReason.Unskilled
       return OrderReason.None
     }
   }

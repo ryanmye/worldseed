@@ -69,6 +69,7 @@ import type { CradlePlan } from './peoples.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
 import { cashPrice, crossFactor, mayAdopt } from './goods/hooks.ts' // goods:
 import { ideaTechnique } from './ideas/hooks.ts' // ideas:
+import { cropBen, cropMul, cropTarget } from './orders/hooks.ts' // orders:
 
 /** species-v2: migration.ts prosperity, inlined (no import cycle through the trade system). */
 export function prosperityOf(s: HistoryState, id: number): number {
@@ -1662,6 +1663,7 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
   const skip0 = sp.m0[id] | sp.unfit0[c] | sp.dull0[id], skip1 = sp.m1[id] | sp.unfit1[c] | sp.dull1[id]
   const pop = s.pop[id]
   const push = s.year - s.lastFamine[id] <= SPECIES.pushYears ? SPECIES.push : 1
+  const cx = s.orders !== null ? cropTarget(s.orders, p) : -1 // orders: urged to take up species cx (cropMul, cropBen below)
   // Domestication: wild ranges the fields touch.
   const w0 = sp.catchRange0[c] & ~skip0, w1 = sp.catchRange1[c] & ~skip1
   if (w0 !== 0 || w1 !== 0) {
@@ -1674,10 +1676,11 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
         if (hasBit(sp.m0[id], sp.m1[id], x)) continue
         // species-v2: the draw first, the benefit (a crop multiplier reckoning) only when the draw could succeed.
         const u = rng.next()
-        if (u >= base) continue
-        const ben = benefitOf(s, id, x)
+        const bx = base * cropMul(cx, x)
+        if (u >= bx) continue
+        const ben = cropBen(cx, x, benefitOf(s, id, x))
         if (ben <= 0) { dull(sp, id, x); continue }
-        if (u < base * ben) gainItem(s, id, x, -1)
+        if (u < bx * ben) gainItem(s, id, x, -1)
       }
     }
   }
@@ -1704,10 +1707,10 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
         const b = lowBit(m)
         const x = half === 0 ? b : b + 32 < TECH_BIT ? b + 32 : S_COUNT + b + 32 - TECH_BIT
         if (links[x] !== 0) continue
-        const pmax = x < S_COUNT ? pmaxS : pmaxT
+        const pmax = (x < S_COUNT ? pmaxS : pmaxT) * cropMul(cx, x)
         const u = rng.next() // (species-v2: draw first)
         if (u >= pmax) continue
-        const ben = benefitOf(s, id, x)
+        const ben = cropBen(cx, x, benefitOf(s, id, x))
         if (ben <= 0) { dull(sp, id, x); continue }
         if (u < pmax * ben) gainItem(s, id, x, -1)
       }
@@ -1733,10 +1736,10 @@ function spreadAt(s: HistoryState, sp: SpeciesState, id: number): void {
     // More neighbours who have it, more chances (the best link counts fully, each further one half, at most `links` in all).
     let n = 1 + 0.5 * (n0 - 1)
     if (n > SPECIES.links) n = SPECIES.links
-    const pmax = rate * DECADES * br * push * n
+    const pmax = rate * DECADES * br * push * n * cropMul(cx, x)
     const u = rng.next() // (species-v2: draw first)
     if (u >= pmax) continue
-    const ben = benefitOf(s, id, x)
+    const ben = cropBen(cx, x, benefitOf(s, id, x))
     if (ben <= 0) { dull(sp, id, x); continue }
     if (u < pmax * ben) gainItem(s, id, x, k)
   }

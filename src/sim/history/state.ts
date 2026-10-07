@@ -2,6 +2,7 @@
 // every system uses (found, abandon, log). Systems are plain functions over
 // this state, run in a fixed order each year (see index.ts).
 
+import type { OrdersState } from './orders/state.ts' // orders:
 import type { EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
 import { EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
@@ -163,6 +164,8 @@ export interface HistoryState {
   tz: TourismState | null
   // ideas: the ideas system's state (ideas/state.ts), or null when it is switched off (every hook is then a no-op).
   ideas: IdeasState | null
+  // orders: the player's nudges (orders/state.ts), or null without orders (every hook is then a no-op).
+  orders: OrdersState | null
 }
 
 /**
@@ -261,6 +264,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     rel: null, // religion: (set by index.ts when the system is on)
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
+    orders: null, // orders: (set by index.ts when there are orders)
   }
 }
 

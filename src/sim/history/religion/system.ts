@@ -31,6 +31,8 @@ import { E, K, createReligion, ensureReligionPolities, ensureReligionSettlements
 import type { ReligionState } from './state.ts'
 import { TECH } from '../params.ts'
 import { FAR, grip } from '../polity/state.ts'
+import { faithTarget } from '../orders/hooks.ts' // orders:
+import { ORDERS } from '../orders/params.ts' // orders:
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -511,15 +513,16 @@ function rulersStep(s: HistoryState, rel: ReligionState): void {
       const r = R.cur[p]
       if (r >= 0 && R.rEnd[r] < 0) {
         let bf = -1, bx = 0
+        const fo = s.orders !== null ? faithTarget(s.orders, p) : -1 // orders: the ruler urged toward faith fo
         for (let f = 0; f < F; f++) {
           if (f === rf || rel.kind[f] !== FaithKind.Universal || rel.endYear[f] >= 0) continue
-          const x = C.capital * shareOf(rel, c, f) + C.realm * tot[p * F + f] / ppop[p]
+          const x = (C.capital * shareOf(rel, c, f) + C.realm * tot[p * F + f] / ppop[p]) * (f === fo ? ORDERS.faithPull : 1)
           // (from one universal faith to another only when the capital has turned)
           if (rf >= 0 && rel.kind[rf] === FaithKind.Universal && shareOf(rel, c, f) <= shareOf(rel, c, rf)) continue
           if (x > bx) { bx = x; bf = f }
         }
         if (bf >= 0) {
-          const chance = C.convert * smoothstep(C.low, C.high, bx) * (C.pietyBase + R.rPiety[r]) * (rf >= 0 && rel.kind[rf] === FaithKind.Universal ? C.switch : 1)
+          const chance = C.convert * smoothstep(C.low, C.high, bx) * (C.pietyBase + R.rPiety[r]) * (rf >= 0 && rel.kind[rf] === FaithKind.Universal ? C.switch : 1) * (bf === fo ? ORDERS.faithMul : 1)
           if (chance > 0 && rng.next() < chance) {
             const person = R.rPerson[r]
             for (const p2 of ps.alive) if (p2 < R.pcap && R.cur[p2] >= 0 && R.rPerson[R.cur[p2]] === person) R.rFaith[R.cur[p2]] = bf // (both thrones of a union)

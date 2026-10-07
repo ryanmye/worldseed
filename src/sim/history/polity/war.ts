@@ -43,6 +43,8 @@ import { atWar } from './formation.ts'
 import type { PolityState } from './state.ts'
 import { rulerCapitalFell, rulerWar } from '../rulers/system.ts' // rulers:
 import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
+import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
+import { ORDERS } from '../orders/params.ts' // orders:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -69,7 +71,8 @@ export function declarations(s: HistoryState, ps: PolityState): void {
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0 || s.year < ps.relTruce[r]) continue
-    const rv = smoothstep(WAR.rLow, WAR.rHigh, ps.relR[r])
+    const wo = s.orders !== null ? warOrders(s.orders, a, b) : 0 // orders: a side urged to war (rivalry read higher, warMul below)
+    const rv = smoothstep(WAR.rLow, WAR.rHigh, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r])
     if (rv <= 0 || ps.relEdges[r].length === 0) continue
     if (bound(ps, a, b)) continue // (v2: a vassal and its overlord never fight)
     for (let dir = 0; dir < 2; dir++) {
@@ -82,7 +85,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = (s.rul !== null ? rulerWar(s.rul, p) : 1) * (s.rel !== null ? holyDrive(s, s.rel, p, q) : 1) // rulers: a warlike ruler; religion: holy war
+      const mul = (s.rul !== null ? rulerWar(s.rul, p) : 1) * (s.rel !== null ? holyDrive(s, s.rel, p, q) : 1) * ((wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1) // rulers: a warlike ruler; religion: holy war; orders:
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       const w0 = ps.wKind.length
       declare(s, ps, r, p, q)
@@ -407,7 +410,7 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     if (ps.wTaken[w] > takenBefore) ps.wLastGain[w] = s.year
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
-    const tired = s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < WAR.peaceChance
+    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < WAR.peaceChance) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
     if (spent || tired) {
       const t = ps.wTaken[w], b = ps.wRetaken[w]
       closeWar(s, ps, w, t > b ? WarOutcome.AttackerGains : b > t ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)
