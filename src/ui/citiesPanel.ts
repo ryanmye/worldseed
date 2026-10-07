@@ -24,6 +24,7 @@ import { assignPolityColors, polityAtYear, politiesOf, type PolitiesData } from 
 import type { PeoplesData } from './peoplesData.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
+import { requestFlyIn } from './flyIn.ts'
 import './cities.css'
 
 export interface CitiesBuilt {
@@ -160,7 +161,13 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
     spark.className = 'cp-spark'
     const sparkCtx = spark.getContext('2d')
     if (sparkCtx) sparkCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    el.append(rank, peopleDot, tier, name, state, pop, spark)
+    // (a span, not a button: the row itself is a button)
+    const flyIn = document.createElement('span')
+    flyIn.className = 'cp-fly'
+    flyIn.textContent = '↓'
+    flyIn.title = 'Fly in: look at the town from up close'
+    flyIn.setAttribute('aria-hidden', 'true')
+    el.append(rank, peopleDot, tier, name, state, pop, spark, flyIn)
     el.hidden = true
     list.appendChild(el)
     const row: Row = { el, rank, peopleDot, tier, name, state, stateDot, stateName, pop, spark, sparkCtx, id: -1 }
@@ -175,6 +182,7 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
     const b = (e.target as HTMLElement).closest('.cp-row') as HTMLElement | null
     if (!b) return
     const row = rows.find((r) => r.el === b)
+    if (row && row.id >= 0 && (e.target as HTMLElement).closest('.cp-fly')) return requestFlyIn(row.id)
     if (row && row.id >= 0) deps.onSelectSettlement(row.id)
   })
 

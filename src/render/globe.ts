@@ -116,6 +116,10 @@ export interface GlobeMesh {
   setYear(year: number): void
   /** Update per-frame uniforms (sun and camera in object space). */
   update(camera: THREE.Camera): void
+  /** City view (cityView.ts): plan the close-zoom detail tiles from this camera instead of the drawn one (a fly-in's destination); null: the drawn one. */
+  setDetailFocus(camera: THREE.PerspectiveCamera | null): void
+  /** Detail tiles planned or being built, not yet committed. */
+  readonly detailPending: boolean
   /**
    * Bake the static Terrain surface into cube maps of face size `size` (0: no bake, the
    * procedural shader draws every frame). The bake runs progressively in bakeStep().
@@ -309,6 +313,8 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
   geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), PLANET_RADIUS + RELIEF_NEAR * 1.6 + 1e-3)
 
   const patch = createDetailPatch(world, field, { seaIce: cellSeaIce, depth: cellDepth, seed: cellSeed })
+  let detailFocus: THREE.PerspectiveCamera | null = null
+  const focusPos = new THREE.Vector3()
   /** Grows every attribute (and the index) to hold `nv` vertices and `ni` indices; rebinds them. */
   const ensureCapacity = (nv: number, ni: number) => {
     if (nv <= cap && ni <= icap) return
@@ -708,10 +714,21 @@ export function buildGlobeMesh(world: World, mode: ViewMode): GlobeMesh {
         patch.invalidate()
       }
       // close-zoom detail tiles: plan when the view has moved enough (built in bakeStep)
-      camera.getWorldDirection(camDir).applyQuaternion(tmpQ)
-      const persp = camera as THREE.PerspectiveCamera
+      const planCam = detailFocus ?? camera
+      if (detailFocus) {
+        detailFocus.getWorldPosition(focusPos)
+        mesh.worldToLocal(focusPos)
+      } else focusPos.copy(cam)
+      planCam.getWorldDirection(camDir).applyQuaternion(tmpQ)
+      const persp = planCam as THREE.PerspectiveCamera
       const halfFov = persp.isPerspectiveCamera ? Math.atan(Math.tan(THREE.MathUtils.degToRad(persp.fov) / 2) * Math.hypot(1, persp.aspect)) : 0.6
-      patch.update(cam.x, cam.y, cam.z, camDir.x, camDir.y, camDir.z, halfFov)
+      patch.update(focusPos.x, focusPos.y, focusPos.z, camDir.x, camDir.y, camDir.z, halfFov)
+    },
+    setDetailFocus(camera: THREE.PerspectiveCamera | null) {
+      detailFocus = camera
+    },
+    get detailPending() {
+      return patch.pending
     },
     setBakeSize(size: number) {
       if (size === bakeSize && (bake || size <= 0)) return

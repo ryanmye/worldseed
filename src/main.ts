@@ -28,6 +28,11 @@ import { sunUniforms } from './render/sun.ts'
 import { trace, traceAdd } from './render/perfTrace.ts'
 import { createGpuTimer } from './render/gpuTimer.ts'
 import { loadPref, savePref } from './ui/panels.ts'
+import { CityState, createCityView } from './render/cityView.ts'
+import { createCityCard } from './ui/cityCard.ts'
+import { setFlyInHandler } from './ui/flyIn.ts'
+import { landmarkNameAt } from './contract.ts'
+import { activeDioramaLayer } from './render/dioramas/layer.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -46,6 +51,7 @@ import { loadPref, savePref } from './ui/panels.ts'
 // faith=<id> (select a faith in the Faiths panel), view=faiths (the majority faith of each place's land)
 // disease=0 (no epidemics, links or quarantine flags on the map), epidemic=<id>, sickness=<disease id> (the Sickness panel), view=fever
 // travel=0 (no travellers, visited places, resorts or sights on the map), view=scenery (when the history has scenery)
+// fly=<settlement id> (fly down into that town: the city view, render/cityView.ts),
 // nocache=1 (simulate afresh instead of reading the world and history cache, and overwrite it; historyCache.ts),
 // cachecheck=1 (on a cache hit also simulate afresh and log whether the two are identical: slow, for checking)
 
@@ -694,6 +700,115 @@ const pointerInput = attachPointer({
   },
 })
 
+// ---------- city view (render/cityView.ts): fly down into a town, orbit it, fly back ----------
+
+const cityCard = createCityCard(app, {
+  onBack: () => cityView.flyOut(),
+  onTurn: (rad) => cityView.turn(rad),
+  onRaise: (k) => cityView.raise(k),
+  onZoom: (k) => cityView.zoom(k),
+})
+const cityView = createCityView({
+  camera,
+  canvas,
+  planetGroup,
+  getWorld: () => currentWorld,
+  getHistory: () => historyView.debug().history,
+  getGlobe: () => currentGlobe,
+  wake: () => wake(),
+  onState(state, id) {
+    if (state === CityState.Off) {
+      cityCard.hide()
+      setUrlParam('fly', null)
+      if (!mapOn) controls.enabled = true
+      historyView.setMarkersVisible(showMarkers)
+      historyView.setLabelsVisible(showLabels)
+    } else {
+      // at street level the flat markers and place names only clutter the town
+      if (state === CityState.Orbit) {
+        historyView.setMarkersVisible(false)
+        historyView.setLabelsVisible(false)
+      }
+      controls.enabled = false
+      spinning = false
+      fly.cancel()
+      cityCard.show(state !== CityState.Orbit)
+      if (state === CityState.Orbit) setUrlParam('fly', String(id))
+    }
+  },
+})
+/** Fly into settlement id: from the map, by way of the globe. */
+function flyIntoCity(id: number): boolean {
+  if (!showBuildings) return false
+  if (mapOn) setMapMode(false, false)
+  const ok = cityView.flyIn(id)
+  // (the card names the town: no selection ring and inspector over the view)
+  if (ok) historyView.select(-1, false)
+  return ok
+}
+setFlyInHandler((id) => {
+  flyIntoCity(id)
+})
+// fly=<id>: once the history and the models are in
+let pendingFly = intParam('fly') ?? -1
+// double-click a settlement marker (or a town's buildings) on the globe or the map
+// (what was under the first press: that click selects the town and the opening inspector moves the view)
+let downPick = -1
+let downPickTs = 0
+canvas.addEventListener('pointerdown', (e) => {
+  if (cityView.engaged || e.button !== 0) return
+  const rect = canvas.getBoundingClientRect()
+  if (performance.now() - downPickTs > 600 || downPick < 0) {
+    downPick = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+    downPickTs = performance.now()
+  }
+})
+canvas.addEventListener('dblclick', (e) => {
+  if (cityView.engaged) return
+  const rect = canvas.getBoundingClientRect()
+  let id = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+  if (id < 0 && performance.now() - downPickTs < 800) id = downPick
+  downPick = -1
+  if (id >= 0) flyIntoCity(id)
+})
+// hovering a landmark in the city view names it
+canvas.addEventListener('pointermove', (e) => {
+  if (cityView.state !== CityState.Orbit || e.buttons) return cityCard.hover(null, 0, 0)
+  const rect = canvas.getBoundingClientRect()
+  const lm = cityView.landmarkAt(e.clientX - rect.left, e.clientY - rect.top)
+  const h = historyView.debug().history
+  const layer = activeDioramaLayer()
+  cityCard.hover(lm && h && layer ? landmarkNameAt(h, lm.lm, Math.floor(layer.year)) : null, e.clientX, e.clientY)
+})
+canvas.addEventListener('pointerleave', () => cityCard.hover(null, 0, 0))
+{
+  const inOrbit = () => cityView.state === CityState.Orbit
+  addShortcut({ keys: ['Escape'], label: 'Esc', description: 'City view: back to the globe', group: 'View', first: true, run: () => {
+    if (!cityView.engaged || cityView.state === CityState.Out) return false
+    // an open popup closes first
+    if (document.querySelector('.popover:not(.hidden)')) return false
+    cityView.flyOut()
+  } })
+  addShortcut({ keys: ['q', 'Q'], label: 'Q / E', description: 'City view: turn left / right', group: 'View', run: () => (inOrbit() ? cityView.turn(-0.3) : false) })
+  addShortcut({ keys: ['e', 'E'], label: 'Q / E', description: 'City view: turn left / right', group: 'View', run: () => (inOrbit() ? cityView.turn(0.3) : false) })
+  addShortcut({ keys: ['x', 'X', 'PageUp'], label: 'Z / X', description: 'City view: lower / raise the view', group: 'View', run: () => (inOrbit() ? cityView.raise(1.2) : false) })
+  addShortcut({ keys: ['z', 'Z', 'PageDown'], label: 'Z / X', description: 'City view: lower / raise the view', group: 'View', run: () => (inOrbit() ? cityView.raise(1 / 1.2) : false) })
+  addShortcut({ keys: ['+', '='], label: '+ / −', description: 'City view: closer / further', group: 'View', run: () => (inOrbit() ? cityView.zoom(0.8) : false) })
+  addShortcut({ keys: ['-', '_'], label: '+ / −', description: 'City view: closer / further', group: 'View', run: () => (inOrbit() ? cityView.zoom(1.25) : false) })
+  addShortcut({ keys: ['y', 'Y'], label: 'Y', description: 'Fly down into the selected town (double-click a town does too)', group: 'View', run: () => {
+    const id = historyView.debug().index ? selectedSettlement() : -1
+    if (cityView.engaged || id < 0) return false
+    return flyIntoCity(id)
+  } })
+}
+/** The inspector's settlement (-1 none), from the URL the selection keeps current. */
+function selectedSettlement(): number {
+  const v = new URLSearchParams(window.location.search).get('select')
+  const n = v === null ? NaN : Number.parseInt(v, 10)
+  return Number.isFinite(n) ? n : -1
+}
+let cityCardTs = 0
+
 // ---------- sun and quality panel ----------
 
 let sunUrlTimer = 0
@@ -955,7 +1070,7 @@ for (const type of ['pointerup', 'click', 'keydown', 'input', 'change'] as const
 
 const cloudsDrift = () => qs.cloudsAnimate !== 'never' && currentClouds !== null && currentClouds.mesh.visible
 /** Cloud drift alone keeps the page drawing (High quality only). */
-const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift()
+const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift() && !cityView.engaged
 
 /** Frames per second at which the auto-rotation / cloud drift moves the surface by ~0.6 CSS px per frame. */
 function ambientFps(): number {
@@ -1064,6 +1179,13 @@ function draw(ts: number) {
   const tt = performance.now()
   historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0
+  if (cityView.engaged && ts - cityCardTs > 200) {
+    // (the card: a few times a second at most, and only on frames drawn anyway)
+    cityCardTs = ts
+    const h = historyView.debug().history
+    const layer = activeDioramaLayer()
+    if (h && layer) cityCard.update(h, cityView.settlement, layer.year, cityView.focus, cityView.inView(), cityView.state !== CityState.Orbit)
+  }
   const t0 = performance.now()
   const rec = trace.cur
   const prNow = pixelRatio
@@ -1100,7 +1222,15 @@ function frameBody(ts: number) {
   tickTime += dt
 
   // camera: fly-to and controls (damping keeps it moving after a drag)
-  const flying = fly.active
+  // (a panel's fly-to takes the camera from the city view)
+  if (cityView.engaged && fly.active) cityView.abort()
+  // fly=<id>: once there is a history and the models are in
+  if (pendingFly >= 0 && currentWorld && historyView.debug().history && activeDioramaLayer()?.active) {
+    const id = pendingFly
+    pendingFly = -1
+    flyIntoCity(id)
+  }
+  const flying = fly.active || cityView.state === CityState.In || cityView.state === CityState.Out
   fly.update(Math.min(dt, 0.1))
   let moved: boolean
   // the morph between globe and map, and the map's own controls while either shows it
@@ -1115,6 +1245,8 @@ function frameBody(ts: number) {
     moved = mapControls.update(Math.min(dt, 0.1)) || morphing
     // the central meridian in the URL, a little after the view moved (one timer at a time)
     if (moved && mapOn && !morphing && !mapUrlTimer) mapUrlTimer = window.setTimeout(writeMapUrl, 400)
+  } else if (cityView.engaged) {
+    moved = cityView.update(Math.min(dt, 0.1))
   } else {
     // damping per unit of time, not per frame: the same glide (and settle time) at any frame rate
     controls.dampingFactor = 1 - Math.pow(1 - DAMPING_PER_60HZ_FRAME, Math.min(Math.max(dt * 60, 0.25), 6))
@@ -1232,6 +1364,35 @@ if (params.get('perf') === '1') {
     state: () => ({ map: mapOn, morph, t: flat.t, lon0: flat.lon0, lat0: flat.lat0, alt: camera.position.length() - 1, fit: mapControls.fitAltitude() }),
     /** The settlement under canvas pixel (x, y), as a click would pick it (-1: none). */
     pick: (x: number, y: number) => historyView.pickAt(x, y),
+  }
+  // city view: fly in / out, its state and the last flight's longest frame
+  ;(window as unknown as { __worldseedCity: unknown }).__worldseedCity = {
+    flyIn: (id: number) => flyIntoCity(id),
+    flyOut: () => cityView.flyOut(),
+    state: () => ({ state: cityView.state, id: cityView.settlement, focus: cityView.focus, flight: { ...cityView.lastFlight }, inView: cityView.inView(), cam: camera.position.toArray(), alt: camera.position.length() - 1 }),
+    turn: (r: number) => cityView.turn(r),
+    raise: (k: number) => cityView.raise(k),
+    zoom: (k: number) => cityView.zoom(k),
+    landmarkAt: (x: number, y: number) => cityView.landmarkAt(x, y),
+    /** Fixed sun `elev` degrees above settlement id's horizon, toward azimuth `az` (degrees from east, counter-clockwise). */
+    sunOver: (id: number, elev = 35, az = 200) => {
+      const h = historyView.debug().history
+      if (!h || !currentWorld) return false
+      const P = currentWorld.grid.positions, c = h.settlements[id].cell
+      const u = new THREE.Vector3(P[c * 3], P[c * 3 + 1], P[c * 3 + 2]).normalize()
+      const e = new THREE.Vector3(-u.z, 0, u.x).normalize(), n = new THREE.Vector3().crossVectors(u, e)
+      const E = THREE.MathUtils.degToRad(elev), A = THREE.MathUtils.degToRad(az)
+      const d = u.clone().multiplyScalar(Math.sin(E)).addScaledVector(e, Math.cos(E) * Math.cos(A)).addScaledVector(n, Math.cos(E) * Math.sin(A))
+      planetGroup.localToWorld(d.add(planetGroup.position)).normalize()
+      setSunToward(d)
+      syncSun()
+      return true
+    },
+    world: () => currentWorld,
+    aim: (id: number) => {
+      const l = activeDioramaLayer()
+      return l ? { aim: l.cityAim(id, l.year), pending: l.pending, detail: currentGlobe?.detailPending } : null
+    },
   }
   // motion resolution state
   ;(window as unknown as { __worldseedMotion: unknown }).__worldseedMotion = () => ({ pixelRatio, motionPr, motionAlt, motionWasOn, samples: [...motionSamples], gpu: gpuTimer.available, mode: motionResMode, lastMotionTs })

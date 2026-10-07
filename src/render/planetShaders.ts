@@ -223,6 +223,24 @@ vec3 farmland(vec3 alb, vec3 p, float lu, float dg, float clump, float footprint
       vec3 fc;
       vec2 F = ws_cellsc(p * fieldFreq, rnd, fc);
       float on = smoothstep(rnd.x - 0.06, rnd.x + 0.06, cover);
+      // Up close (the city view) a field of the patchwork is as wide as a town quarter: it
+      // splits into plots a few times smaller, each with its own crop, rows and hedge. The
+      // plots take over halfway through their fade-in (their average is the field's).
+      float sub = ws_lod(fieldFreq * 3.5, footprint) * uFieldDetail;
+      float freqS = fieldFreq;
+      float subHedge = 0.0;
+      if (sub > 0.0) {
+        vec3 r2;
+        vec3 c2;
+        vec2 F2 = ws_cellsc(p * fieldFreq * 3.5, r2, c2);
+        subHedge = (1.0 - smoothstep(0.0, max(0.08, footprint * fieldFreq * 3.5 * 1.5), F2.y - F2.x)) * smoothstep(0.3, 0.9, sub);
+        if (sub > 0.5) {
+          // the field's land (cultivated or not) stays its own; crop, tone and rows are the plot's
+          rnd = vec3(rnd.x, r2.y, r2.z);
+          fc = c2;
+          freqS = fieldFreq * 3.5;
+        }
+      }
       float pick = fract(rnd.y * 7.31 + rnd.z * 3.17);
       vec3 crop = rnd.y < 0.25 ? CROP_GRAIN : rnd.y < 0.5 ? CROP_GREEN : rnd.y < 0.75 ? CROP_HAY : CROP_SOIL;
       crop = mix(alb, crop, FIELD_STRENGTH * (0.55 + 0.9 * pick)) * (0.9 + 0.2 * rnd.z);
@@ -237,7 +255,7 @@ vec3 farmland(vec3 alb, vec3 p, float lu, float dg, float clump, float footprint
         vec3 north = cross(upn, east);
         float ang = rnd.z * 3.14159;
         // across the rows, from the field's own centre (object space)
-        float s = dot(p - fc / fieldFreq, east * cos(ang) + north * sin(ang));
+        float s = dot(p - fc / freqS, east * cos(ang) + north * sin(ang)) * (freqS / fieldFreq);
         bool pasture = rnd.y >= 0.25 && rnd.y < 0.5;
         if (!pasture) {
           float strip = floor(s * fieldFreq * 3.0 + rnd.y * 17.0);
@@ -256,7 +274,7 @@ vec3 farmland(vec3 alb, vec3 p, float lu, float dg, float clump, float footprint
         }
       }
       float edgeW = max(0.06, footprint * fieldFreq * 1.5);
-      float hedge = 1.0 - smoothstep(0.0, edgeW, F.y - F.x);
+      float hedge = max(1.0 - smoothstep(0.0, edgeW, F.y - F.x), subHedge * 0.3);
       // hedgerows (dark green) where it is green, earth tracks (pale) where it is dry
       float dry = smoothstep(0.9, 1.4, alb.r / max(alb.g, 1e-3));
       vec3 hedgeCol = mix(alb * vec3(0.62, 0.78, 0.6), alb * vec3(1.25, 1.12, 0.95), dry);

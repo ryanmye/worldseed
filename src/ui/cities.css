@@ -169,3 +169,29 @@
   border-radius: 2px;
   flex: none;
 }
+/* city view: fly down into the town (cityView.ts); over the sparkline while the row is hovered or selected */
+.cp-row {
+  position: relative;
+}
+.cp-fly {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  min-width: 18px;
+  padding: 0 4px;
+  color: var(--text);
+  font-size: 12px;
+  text-align: center;
+  border-radius: 4px;
+  background: rgba(30, 38, 54, 0.95);
+  cursor: pointer;
+}
+.cp-row:hover .cp-fly,
+.cp-row.selected .cp-fly {
+  display: block;
+}
+.cp-fly:hover {
+  background: rgba(70, 84, 110, 0.95);
+}

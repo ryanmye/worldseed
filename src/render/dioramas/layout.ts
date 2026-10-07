@@ -189,6 +189,12 @@ export interface Layouts {
    * its pieces chosen by kind, form and the town's style; thresholds are town.ts LandmarkPart. Null while the plan is not set up.
    */
   landmark(id: number, lm: number): SlotSet | null
+  /** City view: the centre of settlement id's plan (unit direction) and how far its town reaches at its peak (world units). Sets up its site (cheap; the peak freezes with it, as when it is first laid out). */
+  frame(id: number): { ox: number; oy: number; oz: number; extent: number }
+  /** Whether settlement id's plan is set up (landmark() and townExtra() answer). */
+  planned(id: number): boolean
+  /** Whether townExtra(id, key) (landmark(id, lm): key `L${lm}`) is already made (no work). */
+  hasExtra(id: number, key: string): boolean
 }
 
 /**
@@ -1794,6 +1800,12 @@ export function createLayouts(world: World, h: History, lib: ModelLibrary, reser
       return Math.atan2(ty, tx)
     },
     settlement: getSettlement,
+    frame(id: number) {
+      const o = originOf(id)
+      return { ox: o[0], oy: o[1], oz: o[2], extent: extentOf(id) }
+    },
+    planned: (id: number) => states.has(id),
+    hasExtra: (id: number, key: string) => extras.has(`${id}:${key}`),
     settlementReady(id, need) {
       const st = states.get(id)
       if (!st) return false

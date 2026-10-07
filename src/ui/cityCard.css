@@ -1,0 +1,96 @@
+/* City view heads-up card and the landmark label by the pointer (cityCard.ts) */
+
+.city-card {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  min-width: 260px;
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 10px 14px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  pointer-events: auto;
+  text-align: center;
+}
+.city-card.hidden,
+.city-tip.hidden {
+  display: none;
+}
+.city-card .cc-name {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.city-card .cc-sub,
+.city-card .cc-pop {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.city-card .cc-focus,
+.city-card .cc-lm {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.city-card .cc-ctl {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 7px;
+}
+.city-card .cc-ctl button {
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--ctl-border);
+  background: var(--ctl-bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.city-card .cc-ctl button:hover {
+  background: var(--ctl-bg-hover);
+}
+.city-card .cc-ctl .cc-back {
+  margin-left: 6px;
+  padding: 0 10px;
+}
+.city-card .cc-ctl button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+/* while the camera flies only the name and the way back */
+.city-card.flying .cc-ctl button:not(.cc-back),
+.city-card.flying .cc-lm,
+.city-card.flying .cc-focus {
+  display: none;
+}
+.city-tip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 7;
+  pointer-events: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(13, 17, 27, 0.88);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  font-size: 12px;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .city-card {
+    top: 56px;
+    min-width: 0;
+    width: calc(100vw - 32px);
+  }
+}

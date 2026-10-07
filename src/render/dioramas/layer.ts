@@ -41,7 +41,7 @@ import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, styleKindOf, t
 import { createSurface, rand4, type Probe } from './surface.ts'
 import { FACADE_PACK, FACADE_RISING, FACADE_SMOKE, FACADE_STEADY, FACADE_WORN } from './material.ts'
 import { LandmarkPart } from './town.ts'
-import { LANDMARK_NEVER, landmarkInUse, landmarkRuined, landmarksOf } from '../../ui/landmarksData.ts'
+import { LANDMARK_NEVER, landmarkInUse, landmarkRuined, landmarkSpanAt, landmarksOf } from '../../ui/landmarksData.ts'
 import { faithsOf } from '../../ui/faithsData.ts'
 import { LandmarkKind, LandmarkState } from '../../contract.ts'
 import { isHouseKind } from './shapes.ts'
@@ -49,7 +49,20 @@ import { politiesOf, SACK_YEARS, tierAt, townPolityState, wallSlighted, type Tow
 import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
 import { WorksKind } from './town.ts'
 import { resortQuarters } from './resort.ts'
-import { traceAdd } from '../perfTrace.ts'
+import { trace, traceAdd } from '../perfTrace.ts'
+
+/** perf=1 traces: layout ms by kind, and the longest single layout call (lay.max, lay.maxKind). */
+const LAY_KINDS = ['vill', 'town', 'farm', 'forest', 'lm', 'extra']
+function layTrace(kind: string, t0: number) {
+  const r = trace.cur
+  if (!r) return
+  const d = performance.now() - t0
+  r['lay.' + kind] = (r['lay.' + kind] ?? 0) + d
+  if (d > (r['lay.max'] ?? 0)) {
+    r['lay.max'] = d
+    r['lay.maxKind'] = LAY_KINDS.indexOf(kind)
+  }
+}
 
 /**
  * Camera distance (to each instance) at which models are full size, and where they are
@@ -145,7 +158,56 @@ export interface DioramaLayer {
    * null shows all. Applied when the instance set is rebuilt (at least every snapshot).
    */
   setKnownMask(cellYear: Float32Array | null): void
+  /**
+   * City view (cityView.ts): plan the instance set from this camera instead of the drawn one (the destination of a
+   * fly-in, so its town, villages and fields are laid out while the flight is still high up); null plans from the drawn camera.
+   */
+  setFocus(camera: THREE.PerspectiveCamera | null): void
+  /** Layout work is planned or left over (the instance set is not final for the planning camera). */
+  readonly pending: boolean
+  /** The year last set (setTime). */
+  readonly year: number
+  /** City view: where settlement id's town stands and what is worth looking at in it at `year` (null before the models load). */
+  cityAim(id: number, year: number): CityAim | null
+  /**
+   * City view: the landmarks standing (begun by `year`) within `reach` (world units) of object-space point (x, y, z),
+   * once their town's plan is set up: per landmark its id, town and position (object space, on the ground) and height.
+   */
+  landmarksNear(x: number, y: number, z: number, reach: number, year: number): LandmarkSpot[]
   dispose(): void
+}
+
+/** City view: a town's centre and extent, and the point the camera should look across it toward. */
+export interface CityAim {
+  /** Plan centre (object space, on the ground). */
+  cx: number
+  cy: number
+  cz: number
+  /** How far the town reaches at its peak (world units). */
+  extent: number
+  /** Point of interest (object space, on the ground): the castle, the harbour, the great temple, else the centre. */
+  fx: number
+  fy: number
+  fz: number
+  /** What the point of interest is, for the card ('' for the centre). */
+  focus: string
+  /** Whether the plan was set up (else the aim is from the cell and the port alone and may still change). */
+  final: boolean
+}
+
+export interface LandmarkSpot {
+  lm: number
+  town: number
+  x: number
+  y: number
+  z: number
+  height: number
+}
+
+let activeLayer: DioramaLayer | null = null
+/** The diorama layer in the scene (the city view asks it about towns), or null. */
+export function activeDioramaLayer(): DioramaLayer | null {
+  return activeLayer
 }
 
 const ZERO4 = new Float32Array(4)
@@ -232,6 +294,12 @@ class TownGround {
   private reserve(n: number) {
     const S = TownGround.STRIDE
     if ((this.count + n) * S <= this.data.length) return
+    // holes enough to make room: close them up rather than grow (a larger buffer uploads all of it again)
+    if ((this.live + n) * S <= this.data.length && this.count - this.live > n) {
+      traceAdd('tg.compact', 1)
+      this.compact()
+      return
+    }
     let cap = this.data.length / S
     while (cap < this.count + n) cap *= 2
     const d = new Float32Array(cap * S)
@@ -304,7 +372,7 @@ class TownGround {
     this.pass++
   }
   /** Settlement id's ground for this rebuild: kept where the buffer already holds it (its life years rewritten for a new window), else appended. */
-  appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0): number {
+  appendFor(id: number, g: GroundSet, life: (threshold: number) => Float64Array | null, cx: number, cy: number, cz: number, scorchYear = 0, scorch = 0, growing = false): number {
     const sc = scorchYear * 4 + scorch
     const e = this.entries.get(id)
     if (e && e.n === g.n && e.sc === sc) {
@@ -330,8 +398,12 @@ class TownGround {
       return e.gr
     }
     traceAdd(e ? 'tg.moved' : 'tg.new', 1)
-    if (e) this.free(e)
-    const len = n + 3 * Math.floor((n * TownGround.SLACK) / 3)
+    if (e) {
+      this.free(e)
+      this.entries.delete(id)
+    }
+    // (a set still being laid out grows again soon: room to double, so it moves a few times, not at every step)
+    const len = n + 3 * Math.floor((n * (growing ? 1 : TownGround.SLACK)) / 3)
     this.reserve(len)
     const off = this.count
     this.count += len
@@ -1060,7 +1132,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     const t0 = performance.now()
     // the layout budget counts layout work only (not the instance and ground writes between)
     let spent = 0
-    const budget = () => performance.now() + Math.max(0, LAYOUT_BUDGET_MS - spent)
+    // (spent: a past deadline, so nothing new starts; the browser's coarse clock can read the same
+    // instant twice, and a deadline of exactly now would let a call through)
+    // a plan's extra pieces (palace, garrison, works, landmarks) are laid in one go: none started past the budget
+    const extraIn = (id: number, key: string, make: Parameters<Layouts['townExtra']>[2]) => (spent < LAYOUT_BUDGET_MS || layouts!.hasExtra(id, key) ? layouts!.townExtra(id, key, make) : null)
+    const budget = () => (spent < LAYOUT_BUDGET_MS ? performance.now() + LAYOUT_BUDGET_MS - spent : -1)
     let tl = 0
     let pending = false
     pendWhy.vnull = pendWhy.vgen = pendWhy.snull = pendWhy.sgen = pendWhy.farm = pendWhy.forest = 0
@@ -1115,6 +1191,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         tl = performance.now()
         const vg = layouts.villages(id, budget())
         spent += performance.now() - tl
+        layTrace('vill', tl)
         if (!vg) { pending = true; pendWhy.vnull++ } else {
           if (!vg.done) { pending = true; pendWhy.vgen++ }
           const V = vg.set
@@ -1147,6 +1224,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         tl = performance.now()
         const got = layouts.settlement(id, Math.max(pA, pB, pP), budget())
         spent += performance.now() - tl
+        layTrace('town', tl)
         if (!got) {
           { pending = true; pendWhy.snull++ }
           continue
@@ -1244,7 +1322,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             cross[0] = Math.max(cross[0], s.foundedYear)
             cross[1] = Math.min(cross[1], end)
             return cross[0] < cross[1] ? cross : null
-          }, slots.cx * r, slots.cy * r, slots.cz * r, nSack > 0 ? sackY[nSack - 1] : 0, nSack > 0 ? Math.min(1, sackShare[nSack - 1] * 2.2) : 0)
+          }, slots.cx * r, slots.cy * r, slots.cz * r, nSack > 0 ? sackY[nSack - 1] : 0, nSack > 0 ? Math.min(1, sackShare[nSack - 1] * 2.2) : 0, !got.done)
           if (gr > 0 && masks < TOWN_MASK_MAX) {
             townMaskUniforms.uTowns.value[masks].set(slots.cx * r, slots.cy * r, slots.cz * r, gr * 0.95)
             masks++
@@ -1286,6 +1364,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             tl = performance.now()
             const ring = layouts.townExtra(id, `w${sid}:${Math.round(pop)}`, (p) => p.wallRing(pop, budget()))
             spent += performance.now() - tl
+            layTrace('extra', tl)
             if (!ring) { pending = true; continue }
             if (lost > yP - 2) {
               for (let k = 0; k < ring.n; k++) push(ring, k, S.builtYear + ring.threshold[k] * BUILD_YEARS, lost)
@@ -1295,6 +1374,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
               tl = performance.now()
               const ruin = layouts.townExtra(id, `r${sid}:${Math.round(pop)}`, (p) => p.ruinRing(pop, budget()))
               spent += performance.now() - tl
+              layTrace('extra', tl)
               if (!ruin) { pending = true; continue }
               for (let k = 0; k < ruin.n; k++) push(ruin, k, lost, lost + RUIN_YEARS * (0.2 + 0.8 * ruin.threshold[k]))
               stats.ruins++
@@ -1311,8 +1391,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             if (from > y1 + interval || to < yP - 2) continue
             const tier = pal[q + 1]
             tl = performance.now()
-            const set = layouts.townExtra(id, `p${tier}`, (p) => p.palace(tier))
+            const set = extraIn(id, `p${tier}`, (p) => p.palace(tier))
             spent += performance.now() - tl
+            layTrace('extra', tl)
             if (!set) { pending = true; continue }
             for (let k = 0; k < set.n; k++) push(set, k, from, to)
             stats.palaces++
@@ -1321,8 +1402,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           const gP = stP ? stP.garrison : 0, g0 = st0 ? st0.garrison : 0, g1 = st1.garrison
           if (Math.max(gP, g0, g1) >= CAMP_MEN[0]) {
             tl = performance.now()
-            const set = layouts.townExtra(id, `c${outer}:${Math.round(outerPop)}`, (p) => p.camp(outerPop, CAMP_MEN.length))
+            const set = extraIn(id, `c${outer}:${Math.round(outerPop)}`, (p) => p.camp(outerPop, CAMP_MEN.length))
             spent += performance.now() - tl
+            layTrace('extra', tl)
             if (!set) pending = true
             else {
               // (a village staging an army keeps it in a quarter or two by the road)
@@ -1345,8 +1427,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           if (from >= to || from > y1 + interval || to < yP - 2) continue
           const angle = wk.cell >= 0 ? layouts.angleTo(id, wk.cell) : 0
           tl = performance.now()
-          const set = layouts.townExtra(id, `g${wk.kind}:${kinds}:${Math.round(wk.pop / 250)}:${wk.n}:${wk.cell >= 0 ? Math.round(angle * 20) : 0}`, (p) => p.works(wk.kind, wk.pop, wk.n, angle, kinds))
+          const set = extraIn(id, `g${wk.kind}:${kinds}:${Math.round(wk.pop / 250)}:${wk.n}:${wk.cell >= 0 ? Math.round(angle * 20) : 0}`, (p) => p.works(wk.kind, wk.pop, wk.n, angle, kinds))
           spent += performance.now() - tl
+          layTrace('extra', tl)
           if (!set) { pending = true; continue }
           stats.works++
           stats.workPieces += set.n
@@ -1362,8 +1445,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
             const L = lmd.L
             if (L.begunYear[li] > y1 + interval) break
             tl = performance.now()
-            const set = layouts.landmark(id, li)
+            const set = spent < LAYOUT_BUDGET_MS || layouts.hasExtra(id, `L${li}`) ? layouts.landmark(id, li) : null
             spent += performance.now() - tl
+            layTrace('lm', tl)
             if (!set) { pending = true; continue }
             stats.landmarks++
             if (pA <= 0 && pB <= 0) stats.landmarkRuins++
@@ -1377,6 +1461,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           tl = performance.now()
           const set = layouts.townExtra(id, `t${Math.round(rq.pop / 250)}:${rq.lodges}:${rq.villas}:${rq.boats}:${rq.bath ? 1 : 0}${rq.shore ? 1 : 0}:${kinds}`, (p) => p.resort(rq.pop, rq, kinds, budget()))
           spent += performance.now() - tl
+          layTrace('extra', tl)
           if (!set) pending = true
           else {
             stats.resorts++
@@ -1422,6 +1507,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           tl = performance.now()
           const slots = layouts.farm(c, budget())
           spent += performance.now() - tl
+          layTrace('farm', tl)
           if (!slots) {
             { pending = true; pendWhy.farm++ }
             continue
@@ -1443,6 +1529,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
           tl = performance.now()
           const slots = layouts.forest(c, budget())
           spent += performance.now() - tl
+          layTrace('forest', tl)
           if (!slots) {
             { pending = true; pendWhy.forest++ }
             continue
@@ -1638,10 +1725,88 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     }
   }
 
-  return {
+  // ---------- city view (cityView.ts) ----------
+  /** Kinds worth looking toward, best first (the lesser temples and shrines come after a harbour). */
+  const AIM_ORDER: readonly number[] = [LandmarkKind.Castle, LandmarkKind.Palace, LandmarkKind.GreatTemple, LandmarkKind.Lighthouse, LandmarkKind.MarketHall, LandmarkKind.CouncilHouse, LandmarkKind.Library, LandmarkKind.Guildhall, LandmarkKind.Mausoleum, LandmarkKind.Monument, LandmarkKind.Baths, LandmarkKind.Monastery]
+  const AIM_WORDS: Record<number, string> = { [LandmarkKind.Castle]: 'castle', [LandmarkKind.Palace]: 'palace', [LandmarkKind.GreatTemple]: 'great temple', [LandmarkKind.Lighthouse]: 'lighthouse', [LandmarkKind.MarketHall]: 'market hall', [LandmarkKind.CouncilHouse]: 'council house', [LandmarkKind.Library]: 'library', [LandmarkKind.Guildhall]: 'guildhall', [LandmarkKind.Mausoleum]: 'mausoleum', [LandmarkKind.Monument]: 'monument', [LandmarkKind.Baths]: 'baths', [LandmarkKind.Monastery]: 'monastery', [LandmarkKind.Temple]: 'temple' }
+  const aimProbe: Probe = { radius: 1, nx: 0, ny: 1, nz: 0, elev: 0, lake: 0, cell: 0 }
+  let focusCam: THREE.PerspectiveCamera | null = null
+
+  activeLayer = null
+  const layer: DioramaLayer = {
     object,
     get active() {
       return lib !== null && visible
+    },
+    setFocus(camera: THREE.PerspectiveCamera | null) {
+      if (camera === focusCam) return
+      focusCam = camera
+      requestRender()
+    },
+    get pending() {
+      return !lib || !layouts || dirty || stats.pending
+    },
+    get year() {
+      return year
+    },
+    cityAim(id: number, y: number): CityAim | null {
+      if (!layouts || id < 0 || id >= N) return null
+      const f = layouts.frame(id)
+      const c = h.settlements[id].cell
+      surface.probe(f.ox, f.oy, f.oz, c, aimProbe)
+      const r = aimProbe.radius
+      const out: CityAim = { cx: f.ox * r, cy: f.oy * r, cz: f.oz * r, extent: f.extent, fx: f.ox * r, fy: f.oy * r, fz: f.oz * r, focus: '', final: layouts.planned(id) }
+      // the best landmark standing (begun) by the year, once the plan is set up
+      const d = landmarksOf(h)
+      let best = -1, bestRank = 1e9
+      if (d && out.final) {
+        for (const lm of d.bySettlement.get(id) ?? []) {
+          if (d.L.begunYear[lm] > y) continue
+          const k = d.L.kind[lm]
+          let rank = AIM_ORDER.indexOf(k)
+          if (rank < 0) rank = k === LandmarkKind.Temple ? 40 : 1e8
+          if (landmarkRuined(d.spanState[Math.max(d.spanOff[lm], landmarkSpanAt(d, lm, y))])) rank += 20
+          if (rank < bestRank) { bestRank = rank; best = lm }
+        }
+      }
+      let port = -1
+      if (structures) {
+        const { list } = structures
+        for (let k = 0; k < list.length; k++) if (list[k].type === StructureType.Port && list[k].settlement === id && list[k].builtYear <= y) { port = k; break }
+      }
+      const want = best >= 0 && (bestRank < 20 || port < 0)
+      const set = want ? layouts.landmark(id, best) : null
+      // (the landmark's place in the plan comes a few layout steps after the plan is set up)
+      if (want && !set) out.final = false
+      if (set && set.n > 0) {
+        out.fx = set.mat[12]; out.fy = set.mat[13]; out.fz = set.mat[14]
+        out.focus = AIM_WORDS[d!.L.kind[best]] ?? 'landmark'
+      } else if (port >= 0 && structures) {
+        out.fx = structures.pos[port * 3]; out.fy = structures.pos[port * 3 + 1]; out.fz = structures.pos[port * 3 + 2]
+        out.focus = 'harbour'
+      }
+      return out
+    },
+    landmarksNear(x: number, y: number, z: number, reach: number, yr: number): LandmarkSpot[] {
+      const out: LandmarkSpot[] = []
+      const d = landmarksOf(h)
+      if (!d || !layouts) return out
+      for (let lm = 0; lm < d.L.count; lm++) {
+        if (d.L.begunYear[lm] > yr) continue
+        const town = d.L.settlement[lm]
+        if (town < 0 || town >= N) continue
+        const c = h.settlements[town].cell
+        if (Math.hypot(P[c * 3] - x, P[c * 3 + 1] - y, P[c * 3 + 2] - z) > reach + 0.04) continue
+        if (!layouts.planned(town)) continue
+        const set = layouts.landmark(town, lm)
+        if (!set || set.n === 0) continue
+        const px = set.mat[12], py = set.mat[13], pz = set.mat[14]
+        if (Math.hypot(px - x, py - y, pz - z) > reach) continue
+        let hgt = 0
+        for (let k = 0; k < set.n; k++) hgt = Math.max(hgt, set.height[k])
+        out.push({ lm, town, x: px, y: py, z: pz, height: hgt })
+      }
+      return out
     },
     pick(camera: THREE.PerspectiveCamera, x: number, y: number, width: number, height: number) {
       if (!lib || !visible || pickCount === 0) return -1
@@ -1768,16 +1933,27 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       camera.getWorldPosition(camObj)
       object.worldToLocal(camObj)
       uniforms.uCamObj.value.copy(camObj)
-      const alt = Math.max(0.005, camObj.length() - 1)
+      // (the instance set is planned from the focus camera when there is one: a fly-in's destination)
+      const planCam = focusCam ?? camera
+      if (focusCam) {
+        focusCam.getWorldPosition(camObj)
+        object.worldToLocal(camObj)
+      }
+      const planAlt = Math.max(0.005, camObj.length() - 1)
       const wasNear = lastCam.length() - 1 < DIORAMA_FAR
-      const near = alt < DIORAMA_FAR
-      if (near || wasNear) {
-        if (camObj.distanceTo(lastCam) > 0.14 * alt) dirty = true
+      if (planAlt < DIORAMA_FAR || wasNear) {
+        if (camObj.distanceTo(lastCam) > 0.14 * planAlt) dirty = true
       }
       if (dirty) {
-        objToClip.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(object.matrixWorld)
+        objToClip.multiplyMatrices(planCam.projectionMatrix, planCam.matrixWorldInverse).multiply(object.matrixWorld)
         rebuild()
       }
+      if (focusCam) {
+        camera.getWorldPosition(camObj)
+        object.worldToLocal(camObj)
+      }
+      const alt = Math.max(0.005, camObj.length() - 1)
+      const near = alt < DIORAMA_FAR
       // sun shadows near the view: the globe mesh beside this layer receives them
       if (!shadowSys.hasGround && object.parent) {
         for (const o of object.parent.children) {
@@ -1813,6 +1989,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       townGround.dispose()
       townGroundMaterial.dispose()
       shadowSys.dispose()
+      if (activeLayer === layer) activeLayer = null
     },
   }
+  activeLayer = layer
+  return layer
 }

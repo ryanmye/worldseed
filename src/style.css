@@ -815,6 +815,22 @@ kbd {
   color: #f4f6fb;
   background: rgba(255, 255, 255, 0.08);
 }
+.insp-flyin {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--ctl-border);
+  background: var(--ctl-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.insp-flyin:hover {
+  background: var(--ctl-bg-hover);
+  color: var(--text);
+}
 .inspector.collapsed .insp-collapse .caret {
   transform: translate(-2px, 2px) rotate(-45deg);
 }

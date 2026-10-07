@@ -18,6 +18,7 @@ import { politiesOf, wallSlighted } from './politiesData.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { namesLine } from './renamingFormat.ts'
 import { landmarkLines } from './landmarksFormat.ts'
+import { requestFlyIn } from './flyIn.ts'
 
 
 export interface InspectorCallbacks {
@@ -73,6 +74,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   root.innerHTML = `
     <div class="insp-head">
       <div class="insp-name"><span class="insp-name-text"></span><span class="insp-tier hidden"></span></div>
+      <button type="button" class="insp-flyin" title="Fly in: look at the town from up close (Y, or double-click it)">Fly in</button>
       <button type="button" class="insp-collapse" title="Collapse" aria-label="Collapse the inspector" aria-expanded="true"><span class="caret" aria-hidden="true">▾</span></button>
       <button type="button" class="insp-close" title="Close (Esc)" aria-label="Close the inspector">×</button>
     </div>
@@ -150,6 +152,9 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   const childrenEl = q<HTMLDivElement>('.insp-children')
   const migrantsEl = q<HTMLDivElement>('.insp-migrants')
   q<HTMLButtonElement>('.insp-close').addEventListener('click', () => callbacks.onClose())
+  q<HTMLButtonElement>('.insp-flyin').addEventListener('click', () => {
+    if (selected >= 0) requestFlyIn(selected)
+  })
   const collapseBtn = q<HTMLButtonElement>('.insp-collapse')
   let collapsed = loadFlag('worldseed.inspector.collapsed', false)
   const syncCollapsed = () => {

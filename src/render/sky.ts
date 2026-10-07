@@ -32,6 +32,9 @@ export function buildAtmosphere(): Atmosphere {
     uSun: { value: SUN_DIRECTION.clone() },
     uSunColor: { value: SUN_COLOR.clone() },
     uStrength: { value: 1 },
+    // low camera (the city view, the closest zoom): 0 from space .. 1 near the ground, and the horizon's distance
+    uLow: { value: 0 },
+    uHorizon: { value: 0.15 },
   }
   // one material per step count (switching quality never recompiles back and forth)
   const materials = new Map<number, THREE.ShaderMaterial>()
@@ -59,6 +62,8 @@ export function buildAtmosphere(): Atmosphere {
       uniform vec3 uSun;
       uniform vec3 uSunColor;
       uniform float uStrength;
+      uniform float uLow;
+      uniform float uHorizon;
       varying vec3 vWorld;
 
       const float RP = ${PLANET_RADIUS.toFixed(4)};
@@ -119,6 +124,34 @@ export function buildAtmosphere(): Atmosphere {
         vec3 transmit = exp(-BETA * odView * 0.6 * uStrength);
         float t = dot(transmit, vec3(0.3, 0.4, 0.3));
 
+        // Near the ground the shell alone leaves a black, starry sky over a sharply curved
+        // horizon: add a sky gradient (by the view's elevation above the local horizontal and
+        // the sun's height there) and a distance haze over the ground in the horizon's colour,
+        // thickening toward the horizon, so the land fades into the sky instead of ending at a rim.
+        if (uLow > 0.001) {
+          vec3 upC = normalize(ro);
+          float sunH = dot(upC, uSun);
+          float day = smoothstep(-0.12, 0.2, sunH);
+          float warm = 1.0 - smoothstep(0.02, 0.35, sunH);
+          vec3 horizonC = mix(vec3(0.46, 0.6, 0.82), vec3(0.9, 0.6, 0.38), warm * 0.7);
+          vec3 zenithC = mix(vec3(0.1, 0.24, 0.6), vec3(0.16, 0.2, 0.42), warm * 0.5);
+          // toward the sun the horizon glows a little
+          float toward = pow(max(dot(normalize(rd - upC * dot(rd, upC)), normalize(uSun - upC * sunH)), 0.0), 4.0);
+          horizonC *= 1.0 + 0.35 * toward * day;
+          float lowK = uLow * (0.04 + 0.96 * day);
+          if (!hitPlanet) {
+            float e = max(dot(rd, upC), 0.0);
+            vec3 skyC = mix(horizonC, zenithC, pow(e, 0.55)) * day * 0.9;
+            inscatter = mix(inscatter, skyC + inscatter * 0.3, uLow);
+            t = mix(t, 0.0, uLow * day);
+          } else {
+            float d = tp.x / max(uHorizon, 1e-3);
+            float fog = min(0.92, 1.0 - exp(-1.6 * d * d)) * lowK;
+            inscatter = inscatter * (1.0 - fog) + horizonC * day * 0.9 * fog;
+            t *= 1.0 - fog;
+          }
+        }
+
         gl_FragColor = vec4(inscatter, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -137,9 +170,15 @@ export function buildAtmosphere(): Atmosphere {
   const mesh = new THREE.Mesh(geometry, materialFor(12))
   mesh.renderOrder = 10
   // daylight everywhere: scatter as if the sun were behind the viewer (an even limb glow)
+  const camW = new THREE.Vector3()
   mesh.onBeforeRender = (_r, _s, camera) => {
     if (sunUniforms.uDaylight.value > 0.5) camera.getWorldPosition(uniforms.uSun.value).normalize()
     else uniforms.uSun.value.copy(SUN_DIRECTION)
+    // the sky and the haze near the ground (see the shader)
+    const alt = Math.max(1e-4, camera.getWorldPosition(camW).length() - PLANET_RADIUS)
+    const k = Math.min(1, Math.max(0, (0.1 - alt) / (0.1 - 0.035)))
+    uniforms.uLow.value = k * k * (3 - 2 * k)
+    uniforms.uHorizon.value = Math.max(0.1, Math.sqrt(2 * alt * PLANET_RADIUS) * 0.85 + 0.01)
   }
   return {
     mesh,

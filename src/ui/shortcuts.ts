@@ -14,6 +14,8 @@ export interface Shortcut {
   group: 'Timeline' | 'View' | 'Panels'
   /** Return false when the key did not apply (the next matching shortcut gets it). */
   run(e: KeyboardEvent): boolean | void
+  /** Tried before the shortcuts registered earlier (the city view's Esc goes before the panels' own). */
+  first?: boolean
 }
 
 const shortcuts: Shortcut[] = []
@@ -57,7 +59,8 @@ function onKey(e: KeyboardEvent) {
 }
 
 export function addShortcut(s: Shortcut): void {
-  shortcuts.push(s)
+  if (s.first) shortcuts.unshift(s)
+  else shortcuts.push(s)
   if (!installed) {
     installed = true
     window.addEventListener('keydown', onKey)
