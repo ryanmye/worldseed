@@ -45,8 +45,12 @@ const T: PhraseTable = {
   ],
   oneSeat: [['It was ruled from {cap} all its days.', '{cap} was its capital throughout.'], ['From {cap} it was ruled all its days.']],
   houses: [
-    ['{n} reigned over it, of {houses}.', 'In all {n} sat on its throne, of {houses}.'],
-    ['{n} held its crown in turn, of {houses}.'],
+    ['Its throne passed through {n}, of {houses}.', 'In all {n} sat on its throne, of {houses}.'],
+    ['In all {n} held its crown in turn, of {houses}.'],
+  ],
+  housesNone: [
+    ['In all {n} were chosen to lead it, none of them founding a ruling house.'],
+    ['In all {n} were chosen to lead it, and none founded a line.'],
   ],
   houseLong: [
     ['House {name} held the throne longest, from {from} {to}, with {n}.', 'The longest-lived of its houses was House {name}, which gave it {n} from {from} {to}.'],
@@ -217,7 +221,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const houseIds = [...new Set(reigns.map((r) => rd.rulers[r].dynasty).filter((d) => d >= 0))]
     if (reigns.length >= 2) {
       const hs = houseIds.length === 1 ? `one house, House ${h.dynasties[houseIds[0]].name}` : houseIds.length <= 3 ? `${num(houseIds.length)} houses: ${list(houseIds.map((d) => h.dynasties[d].name))}` : `${num(houseIds.length)} houses`
-      p2.push(v.p('houses', { n: plural(reigns.length, 'ruler'), houses: hs }))
+      p2.push(houseIds.length ? v.p('houses', { n: plural(reigns.length, 'ruler'), houses: hs }) : v.p('housesNone', { n: plural(reigns.length, 'ruler') }))
       if (houseIds.length > 1) {
         const best = [...houseRuns].filter((r) => r.d >= 0).sort((a, b) => b.to - b.from - (a.to - a.from))[0]
         if (best && best.n >= 3) p2.push(v.p('houseLong', { name: h.dynasties[best.d].name, from: best.from, to: best.to >= Y && !h.dynasties[best.d] ? 'onward' : best.to >= Y ? 'to this day' : `to ${best.to}`, n: plural(best.n, 'ruler') }))

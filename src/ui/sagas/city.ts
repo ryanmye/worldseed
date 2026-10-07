@@ -192,8 +192,8 @@ const T: PhraseTable = {
   smugglers: [['In {year} it became a smugglers\' hub.'], ['In {year} it became a nest of smugglers.']],
   pirates: [['In {year} pirates made it their haven.'], ['In {year} sea-wolves made it their lair.']],
   rulers: [
-    ['{n} came to the throne here.', 'It saw {n} come to the throne.'],
-    ['{n} took the crown within its walls.'],
+    ['In all {n} came to the throne here.', 'It saw {n} come to the throne.'],
+    ['In all {n} took the crown within its walls.'],
   ],
   longReign: [
     ['The longest reign seated here was that of {ruler}, {years} years.', 'Of these {ruler} reigned longest, for {years} years.'],
