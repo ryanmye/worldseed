@@ -8,7 +8,7 @@ import { goodsOf } from '../goodsData.ts'
 import { Ctx, topBy } from './facts.ts'
 import { list, num, people, plural, shareWords, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
-import { OMEN_T, omenText, ordersWhere } from './omens.ts'
+import { DIVINE_T, divineSummary, OMEN_T, omenText, ordersWhere } from './omens.ts'
 import { Refs } from './refs.ts'
 import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 import { warName } from './wars.ts'
@@ -145,7 +145,7 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function worldSaga(c: Ctx, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, 'world', legend, T, SCENE_T, OMEN_T)
+  const v = new Voice(c.seed, 'world', legend, T, SCENE_T, OMEN_T, DIVINE_T)
   const Y = c.Y
   const P = h.peoples.length
   const book = new Book()
@@ -177,6 +177,9 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   const nth = ['one', 'another', 'a third', 'a fourth', 'a fifth', 'a sixth', 'a seventh', 'an eighth']
   const groups = [...cradles.values()].map((ps, i) => `the ${list(ps.map((p) => c.peopleName(p)))} in ${nth[i] ?? 'another'}`)
   let t1 = v.p('beginning', { n: num(P), k: plural(cradles.size, 'cradle'), groups: groups.length > 1 ? groups.join('; ') : groups[0] })
+  // (the hearths the player planted, as the Divine's: one sentence, omens.ts)
+  const dv = divineSummary(c, v, false)
+  if (dv) t1 += ' ' + dv
   const firstT = c.type(EventType.BecameTown)[0], firstC = c.type(EventType.BecameCity)[0]
   if (firstT !== undefined) {
     const e = c.ev(firstT)
