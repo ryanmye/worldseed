@@ -395,6 +395,12 @@ export const WAYRISK = {
   rerouteGain: 0.15,
   rerouteGap: 20,
   rerouteVisits: 6000,
+  /**
+   * Escorts for dear goods (the high-value classes, market.ts hvPair, and the long-haul legs): on a way of risk R they cost
+   * escortValue * R of the goods' worth at the buyer's, on top of the share lost, a cost the merchants pass on (so the goods
+   * are dearer on the far side of a dangerous way). (The bulk goods' escorts are escort * R of their transport.) 0: none.
+   */
+  escortValue: 0.15,
   /** A route forsaken for danger that opens again within minForsaken years is not TradeRestored (nor forsaken any longer). */
   minForsaken: 5,
 }

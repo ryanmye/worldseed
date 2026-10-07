@@ -549,12 +549,13 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
     }
     // (polities: the danger on the way, WAYRISK: a share of the cargo lost to war and raids, priced as the plunder is)
     const wr = lp !== null && WAYRISK.on ? WAYRISK.loss * lp.risk[k] : 0
+    const ev = lp !== null && WAYRISK.on ? WAYRISK.escortValue * lp.risk[k] : 0 // (and the escorts dear goods need there, a share of their worth)
     const lost = loss + plund + wr > 0.95 ? 0.95 : loss + plund + wr
     let capLeft = lane ? g.legCap[k] - g.legUse[k] : Infinity
     for (let dir = 0; dir < 2; dir++) {
       const from = dir === 0 ? a : b, to = dir === 0 ? b : a
       const mu0 = rOf(s, to) * MART.legYears + MART.risk + loss
-      const mu = wr > 0 ? mu0 + plund + wr : mu0 + plund
+      const mu = wr > 0 ? mu0 + plund + wr + ev : mu0 + plund
       // The border: the importer's duty (or an embargo: contraband only), the smuggled share, the collector and the hub.
       let duty = 0, sig = 0, enf = 0, coll = -1, collP = -1, hub = to, smug = false
       if (lp !== null && pa !== pb) {

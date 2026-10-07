@@ -982,7 +982,10 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       const oa = a * G, ob = b * G
       // polities: the share of the cargo lost on the way (WAYRISK): merchants weigh it against the goods' worth at the buyer's.
       const lv = pc !== null ? pc.lost[p] : 0
-      const keep = 1 - lv      // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
+      const keep = 1 - lv
+      // (and the escorts dear goods need there, a share of their worth: WAYRISK.escortValue)
+      const ev = pc !== null && WAYRISK.on ? WAYRISK.escortValue * pc.risk[p] : 0
+      // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
       // what crosses for the accounts (duty, evasion, seizure: marketClosed); one under an embargo or at war takes blocked().
       let rp = false, wAB = 0, wBA = 0
       if (pc !== null && pc.code[p] !== 0) {
@@ -999,7 +1002,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
         if (hvOff && g >= 7) break
         if (g >= 6 && !(stock[oa + g] > 0) && !(stock[ob + g] > 0)) continue // species-v2: nothing to move (same outcome, cheaper)
         if (gx !== null && g >= 7) { // goods: high-value classes (polities: under the duty's wedge, its flows summed for the accounts)
-          if (hvPair(s, ts, gx, p, a, b, g, c, wAB * hvDuty, wBA * hvDuty, lv) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
+          if (hvPair(s, ts, gx, p, a, b, g, c, wAB * hvDuty, wBA * hvDuty, lv, ev) && rp) dutyFlow(p, g, HVR.dir, HVR.q, HVR.net, HVR.pt)
           continue
         }
         const gap = price[ob + g] - price[oa + g]
