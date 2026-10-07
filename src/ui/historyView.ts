@@ -68,6 +68,8 @@ import { createCitiesView, type CitiesBuilt } from './citiesPanel.ts'
 import { createSagasView, sagaParamsFrom } from './sagasPanel.ts'
 import { createIdeasView, type IdeasBuilt } from './ideasPanel.ts'
 import type { LayerToggle } from './overlay.ts'
+import { createNudgeView } from './nudgePanel.ts'
+import type { Order } from '../contract.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -94,6 +96,9 @@ export interface HistoryViewDeps {
   addLayerToggle?(t: LayerToggle): HTMLInputElement
   /** Compile the shaders of new objects (not yet in the scene) without blocking; resolves when they can be drawn without a stall. */
   precompile?(objects: THREE.Object3D[]): Promise<unknown>
+  /** orders (the Nudge panel): re-simulate with this list, swapped in at `keepYear` (replaceHistory); the list shown or on its way. */
+  requestOrders?(orders: Order[], keepYear: number): void
+  getOrders?(): Order[]
 }
 
 export interface InitialHistoryState {
@@ -165,8 +170,12 @@ export interface HistoryView {
   extendHistory(history: History, ms: number): void
   /** The requested longer run failed: keep the current history and stop asking. */
   extendFailed(message: string): void
-  /** Progress of the history now simulating in the worker (the initial run or an extension): `years` simulated so far of `target`. */
-  setSimProgress(years: number, target: number): void
+  /** Progress of the history now simulating in the worker (the initial run or an extension): `years` simulated so far of `target`; `label` instead of the default words (null: hide the strip). */
+  setSimProgress(years: number, target: number, label?: string | null): void
+  /** A run of the same world with other orders: swapped in keeping the camera, the selection and the year (`year`, -1 the one shown), then played on. */
+  replaceHistory(history: History, ms: number, year?: number): void
+  /** A click on the map on cell `cell`: taken (true) while the Nudge panel picks a place. */
+  pickCell(cell: number): boolean
   /** Length of the current history in years (0 while there is none). */
   readonly years: number
   /** Timing of the last swap (null before the first). */
@@ -462,6 +471,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     initial: sagaParamsFrom(new URLSearchParams(window.location.search)),
   })
   inspector.peopleSlot.before(sagas.inspectorLinks)
+  // orders: the Nudge panel and its map marks (nudgePanel.ts, render/nudges.ts)
+  const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() } })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -548,6 +559,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     disease.setKnownMask(cells)
     tourism.setKnownMask(cells)
     ideas.setKnownMask(cells)
+    nudge.setKnownMask(cells)
     const on = cells !== null
     goods.setMasked(on)
     faiths.setMasked(on)
@@ -642,6 +654,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     ideas.commit(null, false, null)
     cities.commit(null, null, null)
     sagas.commit(null, null, false)
+    nudge.commit(null, null)
     timeline.setSparkline(null, 1)
     polityLayer = null
     geo = null
@@ -853,6 +866,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     ideas.commit(b.ideas ?? null, extend, index.peoples ?? null)
     cities.commit(b.cities ?? null, h, index.peoples)
     sagas.commit(h, w, extend)
+    nudge.commit(h, index)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     polityLayer = b.polities?.layer ?? null
@@ -913,7 +927,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
    * strip moves), then commit it: a longer run of the history shown, or with `first` the world's first
    * (`target`: the length asked for, see applyInitial).
    */
-  function stage(h: History, ms: number, first = false, target = 0) {
+  function stage(h: History, ms: number, first = false, target = 0, keep: { year: number; polity: number } | null = null) {
     const w = world!
     const b: Built = {}
     const steps = buildSteps(w, h, b)
@@ -996,7 +1010,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
           Object.entries(times).map(([n, t]) => `${n} ${t.toFixed(1)}`).join(', ') +
           `); ${h.settlements.length} settlements, ${h.events.length} events`,
       )
-      if (first) applyInitial(h, target)
+      if (keep) applyKept(h, keep)
+      else if (first) applyInitial(h, target)
       else if (interim) finishInterim(h)
       requestRender()
       deps.wake()
@@ -1035,6 +1050,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     timeline.setMore(More.Pending)
     timeline.setProgress(`Extending to year ${target}…`, null)
     deps.requestYears(target, true)
+  }
+
+  /** orders: a run with other orders is in (replaceHistory): back to the year, the selection and the faction, and play on. */
+  function applyKept(h: History, keep: { year: number; polity: number }) {
+    shownS0 = shownS1 = -1
+    pending = null
+    timeline.setYear(Math.min(keep.year, h.years))
+    if (selected >= 0 && index && selected < index.count) reselect(selected)
+    else if (selected >= 0) api.select(-1, false)
+    if (keep.polity >= 0) polities.select(keep.polity)
+    if (keep.year < h.years) timeline.play()
   }
 
   /** The longer run asked for by applyInitial is in: the year and selection that waited for it. */
@@ -1220,6 +1246,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       tourism.setWorld(w)
       ideas.setWorld(w)
       cities.setWorld(w)
+      nudge.setWorld(w)
       speciesView.setData(null, null, null, null, false)
       speciesView.showSettlement(-1, false)
       chronicle.setIndex(null)
@@ -1258,9 +1285,24 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (timeline.intro && !interim) deferred = { h, ms } // swapped in when the initial animation ends (tick)
       else stage(h, ms)
     },
-    setSimProgress(years: number, target: number) {
+    setSimProgress(years: number, target: number, label?: string | null) {
+      if (label === null) return timeline.setProgress(null, null)
       const frac = target > 0 ? Math.min(1, years / target) : null
-      timeline.setProgress(index ? `Extending to year ${target}…` : `Simulating ${formatInt(target)} years…`, frac)
+      timeline.setProgress(label ?? (index ? `Extending to year ${target}…` : `Simulating ${formatInt(target)} years…`), frac)
+    },
+    replaceHistory(h: History, ms: number, keepYear = -1) {
+      if (!world || !index) return api.setHistory(h)
+      staging?.cancel()
+      staging = null
+      deferred = null
+      requested = 0
+      interim = null
+      failed = false
+      simMsPerYear = ms > 0 ? ms / Math.max(1, h.years) : simMsPerYear
+      stage(h, ms, true, 0, { year: keepYear >= 0 ? keepYear : timeline.year, polity: polities.selected })
+    },
+    pickCell(cell: number) {
+      return nudge.pickCell(cell)
     },
     extendFailed(message: string) {
       requested = 0
@@ -1551,6 +1593,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       ideas.tick(year, pos.s0, pulseYears, fx, timeline.playing && !timeline.waiting, deps.camera, drawSize, pixelRatio)
       cities.tick(year)
       sagas.tick(year)
+      nudge.tick(year, timeline.playing, deps.camera, drawSize, pixelRatio)
       {
         // states and wars in the timeline's stats (wars start and end between snapshots)
         const ps = polities.stats()

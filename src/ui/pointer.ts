@@ -36,6 +36,8 @@ export interface PointerDeps {
    * layer or view is on; a no-op otherwise). Optional: without it, such clicks only deselect.
    */
   selectFactionAt?(cell: number): void
+  /** A place is being chosen (the Nudge panel's pick mode): the click on cell `cell` goes there instead; true if it took it. */
+  pickCell?(cell: number): boolean
   /** Sun drag: the world-space direction under the pointer (the sun goes overhead there). */
   dragSun?(dirWorld: THREE.Vector3): void
 }
@@ -243,6 +245,7 @@ export function attachPointer(deps: PointerDeps): PointerInput {
   canvas.addEventListener('click', (e) => {
     updateReadout(e.clientX, e.clientY)
     if (press.moved) return
+    if (shownCell >= 0 && deps.pickCell?.(shownCell)) return
     const [x, y] = local(e)
     const id = deps.pickSettlement(x, y)
     deps.selectSettlement(id)
