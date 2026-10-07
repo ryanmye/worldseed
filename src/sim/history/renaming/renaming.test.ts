@@ -59,12 +59,18 @@ function hashRenaming(hi: History): string {
 // (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
 // bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
 // renaming, ideas, landmarks, polities); only the entries with polities on changed.)
+// (Re-recorded with the danger-trade and landmark fixes (re-paths round danger, the sea risk's scale, escorts for dear goods,
+// the minimum forsaken spell, bandits living off the traffic; the landmarks' crowding, rededication on conquest, revival,
+// templates and sights): with every new switch off (WAYRISK.reroute false, escortValue 0, minForsaken 0, seaScale false;
+// BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
+// e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
+// configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, 'fb72afe1'],
-  [3, 600, undefined, {}, 'ada67609'],
-  [7, 900, undefined, { polities: false, goods: false }, '7ea4d902'],
-  [1, 1500, undefined, { disease: false }, 'aa3ec420'],
-  [9, 800, 24, {}, '3841dbed'],
+  [42, 2000, undefined, {}, '48c5c82c'],
+  [3, 600, undefined, {}, '8c043250'],
+  [7, 900, undefined, { polities: false, goods: false }, 'f4caba54'],
+  [1, 1500, undefined, { disease: false }, 'ece379ef'],
+  [9, 800, 24, {}, '3fde0153'],
 ]
 
 const worlds = new Map<number, World>()
@@ -221,11 +227,12 @@ describe('renaming', () => {
 
   it('is a pure consequence layer: switched on, every other field is the same', () => {
     // (ideas off: the golden histories are those before the ideas system)
-    expect(hashPreRenaming(simulateHistory(world(42), { years: 2000, ideas: false }))).toBe(GOLDEN[0][4])
-    const h = simulateHistory(world(3), { years: 600, ideas: false })
+    // (landmarks off too: their sights draw visitors, the one place they act on the rest)
+    expect(hashPreRenaming(simulateHistory(world(42), { years: 2000, ideas: false, landmarks: false }))).toBe(GOLDEN[0][4])
+    const h = simulateHistory(world(3), { years: 600, ideas: false, landmarks: false })
     expect(hashPreRenaming(h)).toBe(GOLDEN[1][4])
     const w = generateWorld(9, { subdivisions: 24 })
-    expect(hashPreRenaming(simulateHistory(w, { years: 800, ideas: false }))).toBe(GOLDEN[4][4])
+    expect(hashPreRenaming(simulateHistory(w, { years: 800, ideas: false, landmarks: false }))).toBe(GOLDEN[4][4])
   }, 300_000)
 
   it('every history satisfies the renaming invariants', () => {
@@ -237,11 +244,15 @@ describe('renaming', () => {
       total += h.renamings.count
       for (let i = 0; i < h.renamings.count; i++) causes.add(h.renamings.cause[i])
       // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (At least 2, not 3, since the merge of
-      // the ideas: seed 12345 had 2, as it had with the ideas off and the species fix. Since the oceans (oceans.ts), seed 12345's
-      // second continent lies across 9 cells of open ocean and is not met by 2000: a quieter world of fewer states and wars
-      // (11 wars, not 48), with none; at most 45, not 40: seed 9 has 42.)
-      if (seed !== 12345) expect(h.renamings.count).toBeGreaterThanOrEqual(2)
-      expect(h.renamings.count).toBeLessThanOrEqual(45)
+      // the ideas: seed 12345 has 2, as it has with the ideas off and the species fix.)
+      // (seed 12345 is a quiet world: 0 to 5 renamings by 2000 as the danger-on-the-way switches turn on or off, its histories
+      // parting ways early; it must have its handful by 3000 instead; since the oceans, oceans.ts, its second continent lies across
+      // 9 cells of open ocean, apart until after 2000)
+      if (seed === 12345) expect(simulateHistory(world(seed), { years: 3000 }).renamings.count).toBeGreaterThanOrEqual(5)
+      else expect(h.renamings.count).toBeGreaterThanOrEqual(2)
+      // (seed 9 is the crowded one, a few hundred wars by 2000: 24 renamings at main e06929d, 36 to 58 as the danger-on-the-way
+      // and landmark switches turn on, chance more than cause (main's own 40 stats worlds reach 49); at most 60 there)
+      expect(h.renamings.count).toBeLessThanOrEqual(seed === 9 ? 60 : 40)
     }
     expect(total).toBeGreaterThanOrEqual(30)
     for (const c of [RenameCause.Conquest, RenameCause.Cession, RenameCause.Capital, RenameCause.Refounded, RenameCause.Restored]) expect(causes.has(c)).toBe(true)

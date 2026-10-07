@@ -34,7 +34,7 @@ import { SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
-import { HALF_SAMPLES, type RouteNetwork } from './routeCurves.ts'
+import { PIECE_SAMPLES, type RouteNetwork } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { blockadesAt, HUB_CONTRABAND, type BlockadeMark, type PolitiesData } from '../ui/politiesData.ts'
 
@@ -368,38 +368,41 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     }
   }
 
-  const HS = HALF_SAMPLES
+  const HS = PIECE_SAMPLES
   const lanesGeom = new THREE.BufferGeometry()
   if (net && nSlots > 0) {
-    const V = nSlots * 2 * HS * 2
+    // every piece of the lanes' links (the curves the trade lines and merchants follow)
+    let nPieces = 0
+    for (let i = 0; i < nSlots; i++) nPieces += net.linkPieceOffsets[slotLink[i] + 1] - net.linkPieceOffsets[slotLink[i]]
+    const V = nPieces * HS * 2
     const vPos = new Float32Array(V * 3), vSide = new Float32Array(V * 4), vInfo = new Float32Array(V * 4)
     let v = 0
     for (let i = 0; i < nSlots; i++) {
       const l = slotLink[i]
-      for (let e = 0; e < 2; e++) {
-        const hh = 2 * l + e
-        const arcEnd = net.halfArc[hh * HS + HS - 1]
+      for (let pk = net.linkPieceOffsets[l]; pk < net.linkPieceOffsets[l + 1]; pk++) {
+        const hh = net.linkPieces[pk]
+        const arcEnd = net.pieceArc[hh * HS + HS - 1]
         for (let s = 0; s < HS; s++) {
           const k = hh * HS + s
-          const r = net.halfRadius[k] + LIFT
+          const r = net.pieceRadius[k] + LIFT
           for (let side = 0; side < 2; side++, v++) {
-            vPos[v * 3] = net.halfDir[k * 3] * r
-            vPos[v * 3 + 1] = net.halfDir[k * 3 + 1] * r
-            vPos[v * 3 + 2] = net.halfDir[k * 3 + 2] * r
-            vSide[v * 4] = net.halfSide[k * 3]
-            vSide[v * 4 + 1] = net.halfSide[k * 3 + 1]
-            vSide[v * 4 + 2] = net.halfSide[k * 3 + 2]
+            vPos[v * 3] = net.pieceDir[k * 3] * r
+            vPos[v * 3 + 1] = net.pieceDir[k * 3 + 1] * r
+            vPos[v * 3 + 2] = net.pieceDir[k * 3 + 2] * r
+            vSide[v * 4] = net.pieceSide[k * 3]
+            vSide[v * 4 + 1] = net.pieceSide[k * 3 + 1]
+            vSide[v * 4 + 2] = net.pieceSide[k * 3 + 2]
             vSide[v * 4 + 3] = side === 0 ? -1 : 1
             vInfo[v * 4] = i
-            vInfo[v * 4 + 1] = net.linkSea[l]
-            vInfo[v * 4 + 2] = arcEnd - net.halfArc[k]
+            vInfo[v * 4 + 1] = net.pieceSea[hh]
+            vInfo[v * 4 + 2] = arcEnd - net.pieceArc[k]
           }
         }
       }
     }
-    const idx = new Uint32Array(nSlots * 2 * (HS - 1) * 6)
+    const idx = new Uint32Array(nPieces * (HS - 1) * 6)
     let q = 0
-    for (let hh = 0; hh < nSlots * 2; hh++) {
+    for (let hh = 0; hh < nPieces; hh++) {
       for (let s = 0; s + 1 < HS; s++) {
         const b = (hh * HS + s) * 2
         idx[q++] = b; idx[q++] = b + 2; idx[q++] = b + 1
@@ -614,20 +617,48 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     upload(knownAttr, B0, hi)
   }
 
-  /** A point at fraction u (0 node A .. 1 node B) along link l, and the direction toward B, into tmp / dir. */
+  /** The first sea piece at end e of link l (the one the earliest route laid), or -1. */
+  function seaPiece(l: number, e: number) {
+    const n = net!
+    for (let k = n.linkPieceOffsets[l]; k < n.linkPieceOffsets[l + 1]; k++) {
+      const p = n.linkPieces[k]
+      if (n.pieceEnd[p] === e && n.pieceSea[p]) return p
+    }
+    return -1
+  }
+  /**
+   * A point at fraction u (0 node A .. 1 node B) along the sea part of link l (on a link to the
+   * shore, from the waterline out to the sea cell), and the direction toward B, into tmp / dir.
+   */
   function alongLink(l: number, u: number, dir: Float32Array, k: number) {
     const n = net!
-    const half = u < 0.5 ? 2 * l : 2 * l + 1
-    const f = (u < 0.5 ? u * 2 : (1 - u) * 2) * (HS - 1)
+    const pa = seaPiece(l, 0), pb = seaPiece(l, 1)
+    // the piece, the position along it (0 its node .. 1 the meeting point), and whether it runs toward B
+    let piece: number, f: number, sg: number
+    if (pa >= 0 && pb >= 0) {
+      piece = u < 0.5 ? pa : pb
+      f = u < 0.5 ? u * 2 : (1 - u) * 2
+      sg = u < 0.5 ? 1 : -1
+    } else if (pa >= 0) {
+      piece = pa
+      f = u
+      sg = 1
+    } else {
+      piece = pb
+      f = 1 - u
+      sg = -1
+    }
+    if (piece < 0) piece = n.linkPieces[n.linkPieceOffsets[l]]
+    f *= HS - 1
     const s = Math.min(HS - 2, Math.floor(f))
     const t = f - s
-    const i0 = half * HS + s, i1 = i0 + 1
-    const r = n.halfRadius[i0] + (n.halfRadius[i1] - n.halfRadius[i0]) * t + MARK_LIFT
-    tmp.set(n.halfDir[i0 * 3] + (n.halfDir[i1 * 3] - n.halfDir[i0 * 3]) * t, n.halfDir[i0 * 3 + 1] + (n.halfDir[i1 * 3 + 1] - n.halfDir[i0 * 3 + 1]) * t, n.halfDir[i0 * 3 + 2] + (n.halfDir[i1 * 3 + 2] - n.halfDir[i0 * 3 + 2]) * t)
+    const i0 = piece * HS + s, i1 = i0 + 1
+    const D = n.pieceDir
+    const r = n.pieceRadius[i0] + (n.pieceRadius[i1] - n.pieceRadius[i0]) * t + MARK_LIFT
+    tmp.set(D[i0 * 3] + (D[i1 * 3] - D[i0 * 3]) * t, D[i0 * 3 + 1] + (D[i1 * 3 + 1] - D[i0 * 3 + 1]) * t, D[i0 * 3 + 2] + (D[i1 * 3 + 2] - D[i0 * 3 + 2]) * t)
     tmp.normalize().multiplyScalar(r)
-    // toward node B: along the A half the samples run toward the midpoint, along the B half away from it
-    const sg = u < 0.5 ? 1 : -1
-    const dx = (n.halfDir[i1 * 3] - n.halfDir[i0 * 3]) * sg, dy = (n.halfDir[i1 * 3 + 1] - n.halfDir[i0 * 3 + 1]) * sg, dz = (n.halfDir[i1 * 3 + 2] - n.halfDir[i0 * 3 + 2]) * sg
+    // toward node B: along the A piece the samples run toward the meeting point, along the B piece away from it
+    const dx = (D[i1 * 3] - D[i0 * 3]) * sg, dy = (D[i1 * 3 + 1] - D[i0 * 3 + 1]) * sg, dz = (D[i1 * 3 + 2] - D[i0 * 3 + 2]) * sg
     const len = Math.hypot(dx, dy, dz) || 1
     dir[k * 3] = dx / len
     dir[k * 3 + 1] = dy / len

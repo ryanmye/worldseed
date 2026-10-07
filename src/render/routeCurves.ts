@@ -11,21 +11,29 @@
 //
 // routeNetwork: all trade paths at once, bundled. Smoothing every route separately draws
 // routes that share a corridor as a braid of near-parallel lines; instead the network is
-// the set of distinct cell-to-cell links the routes travel, each drawn (and travelled)
-// along one shared curve:
-//  - Nodes are the cells on some path. A node sits at its cell centre, except that a land
-//    node on a river (route ends included) moves to one bank, clear of the river ribbon, so a
-//    road along a valley runs beside its river instead of on top of it. The bank is the
-//    one most of the node's off-river links lead to; a run of nodes along the river keeps
-//    the bank of its neighbours. Chains of plain nodes (two links, not on a river, not at
-//    a route end or junction, not at the coast) are relaxed toward their neighbours a few
-//    times, within their own cell and its land or sea, which straightens the hex zigzag.
-//  - Each link is two half curves, one per end: a cubic from the node to the link's
-//    midpoint. Halves meet at the midpoint with the link's direction, and at a node with
-//    two links both halves follow the line through the neighbours, so a chain is smooth;
-//    at a junction a half carries on the straightest opposite link, or points straight in.
-//  - Per route, the ordered links (and their direction): merchants walk their route along
-//    the shared halves.
+// the set of distinct cell-to-cell links the routes travel, and every curve on a link is
+// made of pieces that depend only on the route's own cells around it, so a curve is the
+// same on the globe and the map, at every zoom, after the history is extended, and
+// whatever other routes exist:
+//  - Each link has one meeting point and direction, fixed by the link alone: the midpoint
+//    of its two cell centres; on a link between land and sea the drawn shoreline (the
+//    shader's noisy coast, terrainHeight.ts evalGround `land`) along the line between the
+//    centres, past the cells' boundary and at the water's surface, so a cart runs down to
+//    the quay and a ship leaves from the waterline; on a link along a river, beside it on
+//    the river's default bank.
+//  - A piece runs from a node point in a cell out to the meeting point on one of its
+//    links, keyed by the route's cells there (the cell before, this one and the next;
+//    `window` 2, for the long-haul lanes, two each side) and shared by every
+//    route with the same window. The node point is (p + 2a + b) / 4 of the window's cells
+//    (window 2: (p2 + 4p1 + 6a + 4b + b2) / 16), only where they are all land or all sea
+//    and the point stays on its medium; at a coast transition or a route's end it is the
+//    cell centre; on a river, the bank (a fixed default side, unless both neighbours lie
+//    off the river on one side), so a road along a valley runs beside its river. Both
+//    pieces at a node follow the line through the neighbours, so a route is smooth there.
+//  - A piece is checked against land and sea (a sea piece over water and, by a coast, the
+//    drawn sea); one that strays takes the straight chord within its cell instead.
+//  - Per route, the ordered links (and their direction) and the two pieces on each:
+//    merchants walk their route along the shared pieces.
 // The network depends on the world and the paths only; it is built once per history
 // (cached) and used by both the trade layer (flow lines, merchants) and the road layer
 // (roads, bridges), so a road and the land trade it carries are the same curve.
@@ -34,6 +42,7 @@ import * as THREE from 'three'
 import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius } from './globe.ts'
 import { riverHalfWidthNear } from './rivers.ts'
+import { evalGround, locate, located, newGroundSample, terrainOf } from './terrainHeight.ts'
 
 const KNOT_STRIDE = 3
 const SAMPLES_PER_CELL = 3
@@ -51,7 +60,7 @@ export interface PathSamples {
   arc: Float32Array
   /** arc / total length per sample. */
   frac: Float32Array
-  /** 1 where the sample lies over water. */
+  /** 1 where the sample lies over water (SHORE at a waterline meeting point of the route network: see segmentWater). */
   water: Uint8Array
   /** Total arc length per path. */
   length: Float32Array
@@ -229,8 +238,23 @@ export function smoothPaths(world: World, pathOffsets: Uint32Array, path: Uint32
 // ---------------------------------------------------------------------------
 // Bundled route network
 
-/** Samples per half link (node to link midpoint), both ends included. */
-export const HALF_SAMPLES = 6
+/** Samples per piece (node point to meeting point), both ends included. */
+export const PIECE_SAMPLES = 6
+
+/**
+ * PathSamples.water of a sample at a shoreline meeting point: the waterline where a land piece
+ * meets a sea piece (a cart arrives there, a ship leaves). A segment with one end there has the
+ * medium of its other end (segmentWater).
+ */
+export const SHORE = 2
+
+/** Medium of the stretch between samples lo and lo + 1 at u in [0, 1] along it (1 water, 0 land). */
+export function segmentWater(water: Uint8Array, lo: number, u: number): number {
+  const a = water[lo], b = water[lo + 1]
+  if (a === SHORE) return b === SHORE ? 1 : b
+  if (b === SHORE) return a
+  return u < 0.5 ? a : b
+}
 
 /** Half width of a river ribbon at flow f, close up (as rivers.ts draws it there; wider further out, where roads are a map line). */
 export function riverHalfWidth(f: number): number {
@@ -239,9 +263,15 @@ export function riverHalfWidth(f: number): number {
 
 /** Gap between a river's edge (close up) and the centre of a road on its bank: a road's half width and a little verge. */
 const BANK_CLEARANCE = 0.0013
+/** How far past the drawn shore a ship leaves, as a fraction of the line between the two cells. */
+const SHIP_ROOM = 0.1
+/** No neighbour in a piece's window (neighbour slots 0..6 index a cell's neighbour list). */
+const NONE = 7
 
 export interface RouteNetwork {
   world: World
+  /** Smoothing window: 1 (a node from its two neighbours), 2 (from two cells each side, for the long-haul legs). */
+  window: number
   /** Distinct links: cells linkA < linkB, their nodes, and 1 where either end is water (a sea lane). */
   linkCount: number
   linkA: Int32Array
@@ -261,33 +291,54 @@ export interface RouteNetwork {
   /** Node of each cell, or -1. */
   nodeOfCell: Int32Array
   /**
-   * Half h of link l is 2l (from linkA's node) or 2l + 1 (from linkB's node); its
-   * HALF_SAMPLES samples run from the node (first) to the link midpoint (last), shared
-   * with the other half there. Per sample: unit direction (3), ground radius, unit side
-   * vector (3, in the tangent plane, across the curve), arc length from the node.
+   * Pieces: the curve from a cell's node point out to the meeting point on one of its links, one
+   * per distinct window of cells a route has there (window 1: the route's cells before and after;
+   * window 2: two each side), shared by every route with that window. Its link, its end of the
+   * link (0 at linkA's cell, 1 at linkB's), its node, 1 where it lies at sea, and 1 where its node
+   * point is a route's end (nothing continues past it). PIECE_SAMPLES samples each, from the node
+   * point (first) to the meeting point (last): unit direction (3), ground radius, unit side vector
+   * (3, in the tangent plane, across the curve), arc length from the node point.
    */
-  halfDir: Float32Array
-  halfRadius: Float32Array
-  halfSide: Float32Array
-  halfArc: Float32Array
-  /** Per route: its links in travel order, and 1 where it travels the link from linkA to linkB. */
+  pieceCount: number
+  pieceLink: Int32Array
+  pieceEnd: Uint8Array
+  pieceNode: Int32Array
+  pieceSea: Uint8Array
+  pieceOpen: Uint8Array
+  pieceDir: Float32Array
+  pieceRadius: Float32Array
+  pieceSide: Float32Array
+  pieceArc: Float32Array
+  /** Pieces of each link, as CSR (linkPieces[linkPieceOffsets[l] ..)), in the order first used. */
+  linkPieceOffsets: Uint32Array
+  linkPieces: Int32Array
+  /**
+   * Per route: its links in travel order, 1 where it travels the link from linkA to linkB, and the
+   * pieces it travels on each (out from the link's first cell, in to its second).
+   */
   routeLinkOffsets: Uint32Array
   routeLinks: Int32Array
   routeForward: Uint8Array
+  routePieceFrom: Int32Array
+  routePieceTo: Int32Array
 }
 
 const networkCache = new WeakMap<Uint32Array, RouteNetwork>()
 
-/** The bundled network of the paths path[pathOffsets[r] .. pathOffsets[r + 1]) (cached per path array and world). */
-export function routeNetwork(world: World, pathOffsets: Uint32Array, path: Uint32Array, count: number): RouteNetwork {
+/**
+ * The bundled network of the paths path[pathOffsets[r] .. pathOffsets[r + 1]) (cached per path
+ * array, world and window). `window` 2 smooths over five cells instead of three (the
+ * long-haul lanes, which cross open sea in long straight runs).
+ */
+export function routeNetwork(world: World, pathOffsets: Uint32Array, path: Uint32Array, count: number, window = 1): RouteNetwork {
   const hit = networkCache.get(path)
-  if (hit && hit.world === world && hit.routeLinkOffsets.length === count + 1) return hit
-  const net = buildRouteNetwork(world, pathOffsets, path, count)
+  if (hit && hit.world === world && hit.window === window && hit.routeLinkOffsets.length === count + 1) return hit
+  const net = buildRouteNetwork(world, pathOffsets, path, count, window)
   networkCache.set(path, net)
   return net
 }
 
-function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32Array, count: number): RouteNetwork {
+function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32Array, count: number, window: number): RouteNetwork {
   const { grid, flow, riverTo } = world
   const P = grid.positions
   const N = grid.cellCount
@@ -297,15 +348,18 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
   const water = (c: number) => isWaterCell(world, lake, c)
   const isRiver = (c: number) => flow[c] >= RIVER_FLOW_THRESHOLD && riverTo[c] >= 0 && !water(c)
   const spacing = Math.sqrt((4 * Math.PI) / N)
+  const wide = window >= 2
 
   // drawn along shared sea lanes (see snapSeaLegs)
   ;({ offsets: pathOffsets, path } = snapSeaLegs(world, pathOffsets, path, count, water))
 
-  // ---------- links and nodes ----------
+  // ---------- links, nodes, and each route's cells (repeats dropped) ----------
   const linkIndex = new Map<number, number>()
   const la: number[] = [], lb: number[] = []
   const rl: number[] = [], rf: number[] = []
   const routeLinkOffsets = new Uint32Array(count + 1)
+  const cellsOf: number[] = [] // per route link k: the route's cell sequence, at seqStart[r] + (k - routeLinkOffsets[r])
+  const seqStart = new Int32Array(count + 1)
   const nodeOfCell = new Int32Array(N).fill(-1)
   const nodeCellList: number[] = []
   const endCell = new Uint8Array(N)
@@ -317,15 +371,18 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
   }
   for (let r = 0; r < count; r++) {
     routeLinkOffsets[r] = rl.length
+    seqStart[r] = cellsOf.length
     const p0 = pathOffsets[r], p1 = pathOffsets[r + 1]
     let ok = p1 - p0 >= 2
     for (let k = p0; k < p1 && ok; k++) if (path[k] >= N) ok = false
     if (!ok) continue
     endCell[path[p0]] = 1
     endCell[path[p1 - 1]] = 1
+    cellsOf.push(path[p0])
     for (let k = p0 + 1; k < p1; k++) {
       const c = path[k - 1], d = path[k]
       if (c === d) continue
+      cellsOf.push(d)
       const lo = Math.min(c, d), hi = Math.max(c, d)
       const key = lo * N + hi
       let id = linkIndex.get(key)
@@ -340,8 +397,11 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
       rl.push(id)
       rf.push(c === lo ? 1 : 0)
     }
+    // a route of one repeated cell has no links: drop its lone cell
+    if (rl.length === routeLinkOffsets[r]) cellsOf.length = seqStart[r]
   }
   routeLinkOffsets[count] = rl.length
+  seqStart[count] = cellsOf.length
   const L = la.length
   const linkA = Int32Array.from(la), linkB = Int32Array.from(lb)
   const routeLinks = Int32Array.from(rl), routeForward = Uint8Array.from(rf)
@@ -380,19 +440,12 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
   }
   const nodeEnd = new Uint8Array(nodeCount)
   for (let n = 0; n < nodeCount; n++) nodeEnd[n] = endCell[nodeCell[n]]
-  const otherNode = (l: number, n: number) => (linkNodeA[l] === n ? linkNodeB[l] : linkNodeA[l])
-  const degree = (n: number) => nodeLinkOffsets[n + 1] - nodeLinkOffsets[n]
 
-  // ---------- node positions (unit vectors) ----------
-  const pos = new Float32Array(nodeCount * 3)
-  for (let n = 0; n < nodeCount; n++) {
-    const c = nodeCell[n]
-    pos[n * 3] = P[c * 3]
-    pos[n * 3 + 1] = P[c * 3 + 1]
-    pos[n * 3 + 2] = P[c * 3 + 2]
+  // ---------- the ground: cells, rivers, the drawn shore ----------
+  const nbSlot = (c: number, x: number) => {
+    for (let k = nbOff[c]; k < nbOff[c + 1]; k++) if (nbList[k] === x) return Math.min(NONE, k - nbOff[c])
+    return NONE
   }
-  const fixed = new Uint8Array(nodeCount)
-
   /** Nearest cell to unit vector (x, y, z), walking greedily from `start`. */
   const nearestCell = (x: number, y: number, z: number, start: number) => {
     let cur = start
@@ -412,7 +465,68 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
     }
     return cur
   }
-  // river nodes move to one bank
+  // where the drawn shore (the shader's noisy coast contour) may differ from the cells: sea cells
+  // beside land (1) and land cells beside the sea (2); lakes are drawn by their cells
+  const coastal = new Uint8Array(N)
+  for (let i = 0; i < N; i++) {
+    if (lake && lake[i]) continue
+    const w = water(i)
+    for (let k = nbOff[i]; k < nbOff[i + 1]; k++) {
+      const j = nbList[k]
+      if (w ? !water(j) : water(j) && !(lake && lake[j])) coastal[i] = w ? 1 : 2
+    }
+  }
+  const field = terrainOf(world)
+  const ground = newGroundSample()
+  /** The drawn ground at unit vector (x, y, z) is land (the coast contour; lakes are drawn by their cells). */
+  const drawnLand = (x: number, y: number, z: number, start: number) => {
+    locate(world, x, y, z, start)
+    const { a, b, c, la: wa, lb: wb, lc: wc } = located
+    if (lake && ((lake[a] && wa > 0.5) || (lake[b] && wb > 0.5) || (lake[c] && wc > 0.5))) return false
+    evalGround(field, a, b, c, wa, wb, wc, 0, ground)
+    return ground.land > 0
+  }
+  /** (x, y, z) is fit for a sea piece: over a water cell and, by a coast, over the drawn sea. */
+  const seaOk = (x: number, y: number, z: number, start: number) => {
+    const c = nearestCell(x, y, z, start)
+    return water(c) && !(coastal[c] && drawnLand(x, y, z, c))
+  }
+  /**
+   * A cell's own point on its drawn medium, into out: its centre, or where the drawn coast puts
+   * the centre on the other side, the nearest point of the cell that it does not (rings outward);
+   * the centre if there is none. Once per cell.
+   */
+  const anchorPos = new Float32Array(N * 3)
+  const anchorDone = new Uint8Array(N)
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), aq = new THREE.Vector3()
+  const anchor = (a: number, out: THREE.Vector3) => {
+    if (!anchorDone[a]) {
+      anchorDone[a] = 1
+      out.set(P[a * 3], P[a * 3 + 1], P[a * 3 + 2])
+      const sea = water(a)
+      if (coastal[a] && drawnLand(out.x, out.y, out.z, a) === sea) {
+        e1.set(-out.y, out.x, 0)
+        if (e1.lengthSq() < 1e-6) e1.set(0, -out.z, out.y)
+        e1.normalize()
+        e2.crossVectors(out, e1)
+        search: for (let k = 1; k <= 5; k++) {
+          for (let j = 0; j < 12; j++) {
+            const ang = (j + (k & 1) * 0.5) * (Math.PI / 6), rr = k * 0.08 * spacing
+            aq.copy(out).addScaledVector(e1, Math.cos(ang) * rr).addScaledVector(e2, Math.sin(ang) * rr).normalize()
+            if (nearestCell(aq.x, aq.y, aq.z, a) === a && drawnLand(aq.x, aq.y, aq.z, a) !== sea) {
+              out.copy(aq)
+              break search
+            }
+          }
+        }
+      }
+      anchorPos[a * 3] = out.x
+      anchorPos[a * 3 + 1] = out.y
+      anchorPos[a * 3 + 2] = out.z
+    }
+    return out.set(anchorPos[a * 3], anchorPos[a * 3 + 1], anchorPos[a * 3 + 2])
+  }
+  // river courses: the main inflow of each river cell, and the side of its banks (cross of up and the flow)
   const main = new Int32Array(N).fill(-1)
   for (let i = 0; i < N; i++) {
     if (!isRiver(i)) continue
@@ -424,178 +538,348 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
     for (let k = nbOff[c]; k < nbOff[c + 1]; k++) if (riverTo[nbList[k]] === c && water(nbList[k])) return nbList[k] // lake outlet
     return -1
   }
-  const riverSide = new Float32Array(nodeCount * 3)
-  const bank = new Int8Array(nodeCount)
-  const onRiver = new Uint8Array(nodeCount)
-  const t3 = new THREE.Vector3(), u3 = new THREE.Vector3(), s3 = new THREE.Vector3(), d3 = new THREE.Vector3()
+  /** x is the next or previous cell along c's river. */
   const along = (c: number, x: number) => (riverTo[x] === c && isRiver(x)) || riverTo[c] === x
-  for (let n = 0; n < nodeCount; n++) {
-    const c = nodeCell[n]
-    if (!isRiver(c)) continue // route ends too: a riverside village's road starts on its bank
+  const t3 = new THREE.Vector3(), u3 = new THREE.Vector3(), s3 = new THREE.Vector3()
+  /** The default bank side of the river through c (unit, tangent), into s3; false where it has none. */
+  const riverSide = (c: number) => {
     const up = upOf(c), down = riverTo[c]
     u3.set(P[c * 3], P[c * 3 + 1], P[c * 3 + 2])
     const ux = up >= 0 ? up : c
     t3.set(P[down * 3] - P[ux * 3], P[down * 3 + 1] - P[ux * 3 + 1], P[down * 3 + 2] - P[ux * 3 + 2])
     t3.addScaledVector(u3, -t3.dot(u3))
-    if (t3.lengthSq() < 1e-12) continue
+    if (t3.lengthSq() < 1e-12) return false
     s3.crossVectors(u3, t3).normalize()
-    riverSide[n * 3] = s3.x
-    riverSide[n * 3 + 1] = s3.y
-    riverSide[n * 3 + 2] = s3.z
-    onRiver[n] = 1
-    let vote = 0
-    for (let k = nodeLinkOffsets[n]; k < nodeLinkOffsets[n + 1]; k++) {
-      const l = nodeLinks[k]
-      const x = nodeCell[otherNode(l, n)]
-      if (along(c, x)) continue
-      d3.set(P[x * 3] - u3.x, P[x * 3 + 1] - u3.y, P[x * 3 + 2] - u3.z)
-      vote += Math.sign(d3.dot(s3)) * linkRoutes[l]
-    }
-    bank[n] = Math.sign(vote)
+    return true
   }
-  // runs along the river keep the bank of their neighbours
-  for (let pass = 0; pass < 12; pass++) {
-    let changed = false
-    for (let n = 0; n < nodeCount; n++) {
-      if (!onRiver[n] || bank[n] !== 0) continue
-      let vote = 0
-      for (let k = nodeLinkOffsets[n]; k < nodeLinkOffsets[n + 1]; k++) {
-        const m = otherNode(nodeLinks[k], n)
-        if (onRiver[m] && bank[m] !== 0 && along(nodeCell[n], nodeCell[m])) vote += bank[m]
-      }
-      if (vote !== 0) {
-        bank[n] = Math.sign(vote)
-        changed = true
-      }
+  /** `out` moved from unit vector `at` by `off` along ±s3 (the given side first), onto land; false if neither side is. */
+  const toBank = (at: THREE.Vector3, side: number, off: number, start: number, out: THREE.Vector3) => {
+    for (const b of [side, -side]) {
+      out.copy(at).addScaledVector(s3, b * off).normalize()
+      if (!water(nearestCell(out.x, out.y, out.z, start))) return true
     }
-    if (!changed) break
-  }
-  for (let n = 0; n < nodeCount; n++) {
-    if (!onRiver[n]) continue
-    const c = nodeCell[n]
-    const off = riverHalfWidth(flow[c]) + BANK_CLEARANCE
-    // the chosen bank, else the other one if that would put the road in a lake
-    for (const b of bank[n] < 0 ? [-1, 1] : [1, -1]) {
-      u3.set(P[c * 3], P[c * 3 + 1], P[c * 3 + 2])
-      u3.x += riverSide[n * 3] * b * off
-      u3.y += riverSide[n * 3 + 1] * b * off
-      u3.z += riverSide[n * 3 + 2] * b * off
-      u3.normalize()
-      if (water(nearestCell(u3.x, u3.y, u3.z, c))) continue
-      pos[n * 3] = u3.x
-      pos[n * 3 + 1] = u3.y
-      pos[n * 3 + 2] = u3.z
-      break
-    }
-    fixed[n] = 1
+    return false
   }
 
-  // relax chains of plain nodes
-  const nbA = new Int32Array(nodeCount).fill(-1), nbB = new Int32Array(nodeCount).fill(-1)
-  const seaNode = new Uint8Array(nodeCount)
-  for (let n = 0; n < nodeCount; n++) {
-    seaNode[n] = water(nodeCell[n]) ? 1 : 0
-    if (fixed[n] || nodeEnd[n] || degree(n) !== 2) continue
-    const l0 = nodeLinks[nodeLinkOffsets[n]], l1 = nodeLinks[nodeLinkOffsets[n] + 1]
-    if (linkSea[l0] !== linkSea[l1]) continue
-    nbA[n] = otherNode(l0, n)
-    nbB[n] = otherNode(l1, n)
-  }
-  const next = new Float32Array(pos.length)
-  const maxShift = 0.42 * spacing
-  for (let iter = 0; iter < 8; iter++) {
-    next.set(pos)
-    for (let n = 0; n < nodeCount; n++) {
-      const a = nbA[n], b = nbB[n]
-      if (a < 0 || (iter >= 3 && !seaNode[n])) continue // land: a light touch; open sea: straighter
-      let x = pos[n * 3] + 0.25 * (pos[a * 3] + pos[b * 3] - 2 * pos[n * 3])
-      let y = pos[n * 3 + 1] + 0.25 * (pos[a * 3 + 1] + pos[b * 3 + 1] - 2 * pos[n * 3 + 1])
-      let z = pos[n * 3 + 2] + 0.25 * (pos[a * 3 + 2] + pos[b * 3 + 2] - 2 * pos[n * 3 + 2])
-      const len = Math.hypot(x, y, z) || 1
-      x /= len
-      y /= len
-      z /= len
-      const c = nodeCell[n]
-      if (Math.hypot(x - P[c * 3], y - P[c * 3 + 1], z - P[c * 3 + 2]) > maxShift) continue
-      const at = nearestCell(x, y, z, c)
-      if (seaNode[n] ? !water(at) : water(at) || isRiver(at)) continue
-      next[n * 3] = x
-      next[n * 3 + 1] = y
-      next[n * 3 + 2] = z
-    }
-    pos.set(next)
-  }
-
-  // ---------- half curves ----------
-  const H = 2 * L
-  const S = HALF_SAMPLES
-  const halfDir = new Float32Array(H * S * 3)
-  const halfRadius = new Float32Array(H * S)
-  const halfSide = new Float32Array(H * S * 3)
-  const halfArc = new Float32Array(H * S)
-  const pn = new THREE.Vector3(), pm = new THREE.Vector3(), py = new THREE.Vector3(), mid = new THREE.Vector3()
-  const tn = new THREE.Vector3(), dm = new THREE.Vector3(), b1 = new THREE.Vector3(), b2 = new THREE.Vector3()
-  const q = new THREE.Vector3(), prev = new THREE.Vector3(), tan = new THREE.Vector3()
-  const nodeVec = (n: number, out: THREE.Vector3) => out.set(pos[n * 3], pos[n * 3 + 1], pos[n * 3 + 2])
-  const tangentPlane = (v: THREE.Vector3, at: THREE.Vector3) => v.addScaledVector(at, -v.dot(at)).normalize()
-  for (let l = 0; l < L; l++) {
-    for (let e = 0; e < 2; e++) {
-      const n = e === 0 ? linkNodeA[l] : linkNodeB[l]
-      const m = e === 0 ? linkNodeB[l] : linkNodeA[l]
-      nodeVec(n, pn)
-      nodeVec(m, pm)
-      mid.copy(pn).add(pm).normalize()
-      dm.copy(pm).sub(pn)
-      tangentPlane(dm, mid)
-      // tangent at the node: along the line through the opposite neighbour
-      let bestCos = 2, y = -1
-      for (let k = nodeLinkOffsets[n]; k < nodeLinkOffsets[n + 1]; k++) {
-        const o = nodeLinks[k]
-        if (o === l) continue
-        const yy = otherNode(o, n)
-        nodeVec(yy, py)
-        const cos = (pm.x - pn.x) * (py.x - pn.x) + (pm.y - pn.y) * (py.y - pn.y) + (pm.z - pn.z) * (py.z - pn.z)
-        const norm = Math.hypot(pm.x - pn.x, pm.y - pn.y, pm.z - pn.z) * Math.hypot(py.x - pn.x, py.y - pn.y, py.z - pn.z) || 1
-        if (cos / norm < bestCos) {
-          bestCos = cos / norm
-          y = yy
+  // ---------- meeting points: fixed by the link alone ----------
+  // the midpoint of the two cell centres (between sea cells by a coast, moved along their boundary
+  // off the drawn land); on a link between land and sea just past the drawn shoreline on the line
+  // between them, at the water's surface; on a link along a river, beside it on the default bank
+  const meetDir = new Float32Array(L * 3)
+  const meetTan = new Float32Array(L * 3) // unit, toward linkB
+  const meetRadius = new Float32Array(L)
+  {
+    const pa = new THREE.Vector3(), pb = new THREE.Vector3(), m = new THREE.Vector3(), tn = new THREE.Vector3(), q = new THREE.Vector3()
+    for (let l = 0; l < L; l++) {
+      const A = linkA[l], B = linkB[l]
+      pa.set(P[A * 3], P[A * 3 + 1], P[A * 3 + 2])
+      pb.set(P[B * 3], P[B * 3 + 1], P[B * 3 + 2])
+      const wa = water(A), wb = water(B)
+      m.copy(pa).add(pb).normalize()
+      let r = (surfaceRadius(world, A) + surfaceRadius(world, B)) / 2
+      if (wa !== wb) {
+        // along the line between the two cells' points on their drawn medium (see anchor; the
+        // nodes of a coast transition), from the sea's toward the land's: the last drawn water
+        // before the shore, a little past it (a ship's length), so the ship leaves from the
+        // drawn waterline (wherever the drawn coast puts it, also short of the cells' boundary)
+        const land = wa ? B : A, sea = wa ? A : B
+        const pl = anchor(land, new THREE.Vector3()), ps = anchor(sea, new THREE.Vector3())
+        let tShore = 0
+        for (let s = 64; s >= 0; s--) {
+          const t = s / 64
+          q.copy(pl).lerp(ps, t).normalize()
+          if (drawnLand(q.x, q.y, q.z, t > 0.5 ? sea : land)) {
+            tShore = t
+            break
+          }
         }
+        // (halfway to the sea's point where the shore lies close to it)
+        const t = tShore + SHIP_ROOM <= 0.97 ? tShore + SHIP_ROOM : Math.min(0.985, (tShore + 1) / 2)
+        m.copy(pl).lerp(ps, t).normalize()
+        r = surfaceRadius(world, sea)
+        // the direction: along that line
+        if (wa) pa.copy(ps), pb.copy(pl)
+        else pa.copy(pl), pb.copy(ps)
+      } else if (wa) {
+        // between sea cells by a coast: off the drawn land, along the cells' boundary
+        if (coastal[A] || coastal[B]) {
+          if (!seaOk(m.x, m.y, m.z, A)) {
+            tn.copy(pb).sub(pa)
+            s3.crossVectors(m, tn).normalize()
+            let found = false
+            for (let k = 1; k <= 6 && !found; k++) {
+              for (const sg of [1, -1]) {
+                q.copy(m).addScaledVector(s3, sg * k * 0.06 * spacing).normalize()
+                const c = nearestCell(q.x, q.y, q.z, A)
+                if ((c === A || c === B) && !drawnLand(q.x, q.y, q.z, c)) {
+                  m.copy(q)
+                  found = true
+                  break
+                }
+              }
+            }
+          }
+        }
+      } else if (isRiver(A) && isRiver(B) && (riverTo[A] === B || riverTo[B] === A)) {
+        const up = riverTo[A] === B ? A : B, down = up === A ? B : A
+        tn.set(P[down * 3] - P[up * 3], P[down * 3 + 1] - P[up * 3 + 1], P[down * 3 + 2] - P[up * 3 + 2])
+        s3.crossVectors(m, tn).normalize()
+        const off = riverHalfWidth(Math.max(flow[A], flow[B])) + BANK_CLEARANCE
+        if (toBank(m, 1, off, A, q)) m.copy(q)
       }
-      if (y >= 0 && (degree(n) === 2 || bestCos < -0.55)) {
-        nodeVec(y, py)
-        tn.copy(pm).sub(py)
-      } else tn.copy(pm).sub(pn)
-      tangentPlane(tn, pn)
-      const h = pn.distanceTo(mid) * 0.42
-      b1.copy(pn).addScaledVector(tn, h)
-      b2.copy(mid).addScaledVector(dm, -h)
-      const rn = surfaceRadius(world, nodeCell[n])
-      const rmid = (rn + surfaceRadius(world, nodeCell[m])) / 2
-      const base = (2 * l + e) * S
-      let arc = 0
-      for (let s = 0; s < S; s++) {
-        const t = s / (S - 1), u = 1 - t
-        q.set(0, 0, 0).addScaledVector(pn, u * u * u).addScaledVector(b1, 3 * u * u * t).addScaledVector(b2, 3 * u * t * t).addScaledVector(mid, t * t * t)
-        tan.set(0, 0, 0).addScaledVector(b1.clone().sub(pn), 3 * u * u).addScaledVector(b2.clone().sub(b1), 6 * u * t).addScaledVector(mid.clone().sub(b2), 3 * t * t)
-        q.normalize()
-        if (s > 0) arc += q.distanceTo(prev)
-        prev.copy(q)
-        const i = base + s
-        halfDir[i * 3] = q.x
-        halfDir[i * 3 + 1] = q.y
-        halfDir[i * 3 + 2] = q.z
-        halfRadius[i] = rn + (rmid - rn) * t
-        halfArc[i] = arc
-        tan.crossVectors(q, tan).normalize()
-        halfSide[i * 3] = tan.x
-        halfSide[i * 3 + 1] = tan.y
-        halfSide[i * 3 + 2] = tan.z
+      meetDir[l * 3] = m.x
+      meetDir[l * 3 + 1] = m.y
+      meetDir[l * 3 + 2] = m.z
+      tn.copy(pb).sub(pa)
+      tn.addScaledVector(m, -tn.dot(m)).normalize()
+      meetTan[l * 3] = tn.x
+      meetTan[l * 3 + 1] = tn.y
+      meetTan[l * 3 + 2] = tn.z
+      meetRadius[l] = r
+    }
+  }
+  const linkOf = (c: number, d: number) => linkIndex.get(Math.min(c, d) * N + Math.max(c, d)) ?? -1
+
+  // ---------- node points and meeting points of a window ----------
+  const v1 = new THREE.Vector3()
+  /**
+   * The node point of cell a on a route through p, a, b (-1: none), into out: on a river, its
+   * bank (the default side, unless both neighbours lie off the river on one side); else, with
+   * p, a, b all land or all sea, (p + 2a + b) / 4 if that stays in a's cell (and, by a coast, on
+   * its side of the drawn shore); else a's centre (coast transitions, route ends; by a coast, the
+   * nearest point of the cell on its side of the drawn shore, see anchor).
+   */
+  const nodePoint1 = (p: number, a: number, b: number, out: THREE.Vector3) => {
+    out.set(P[a * 3], P[a * 3 + 1], P[a * 3 + 2])
+    const w = water(a)
+    if (!w && isRiver(a)) {
+      if (!riverSide(a)) return out
+      let side = 0, mixed = false, n = 0
+      for (const x of [p, b]) {
+        if (x < 0) continue
+        n++
+        if (along(a, x)) {
+          mixed = true
+          continue
+        }
+        const sg = Math.sign((P[x * 3] - out.x) * s3.x + (P[x * 3 + 1] - out.y) * s3.y + (P[x * 3 + 2] - out.z) * s3.z)
+        if (side === 0) side = sg
+        else if (sg !== side) mixed = true
+      }
+      const bank = !mixed && n > 0 && side !== 0 ? side : 1
+      u3.copy(out)
+      if (toBank(u3, bank, riverHalfWidth(flow[a]) + BANK_CLEARANCE, a, v1)) out.copy(v1)
+      return out
+    }
+    if (p < 0 || b < 0 || water(p) !== w || water(b) !== w) return anchor(a, out)
+    v1.set(P[p * 3] + 2 * P[a * 3] + P[b * 3], P[p * 3 + 1] + 2 * P[a * 3 + 1] + P[b * 3 + 1], P[p * 3 + 2] + 2 * P[a * 3 + 2] + P[b * 3 + 2]).normalize()
+    if (nearestCell(v1.x, v1.y, v1.z, a) !== a) return anchor(a, out)
+    if (coastal[a] && drawnLand(v1.x, v1.y, v1.z, a) === w) return anchor(a, out)
+    return out.copy(v1)
+  }
+  /** (x, y, z) lies on the medium of cell a: a cell of it and, by a coast, its side of the drawn shore. */
+  const onMedium = (x: number, y: number, z: number, a: number) => {
+    if (water(a)) return seaOk(x, y, z, a)
+    const c = nearestCell(x, y, z, a)
+    return !water(c) && !(coastal[c] && !drawnLand(x, y, z, c))
+  }
+  /** The cells (-1: none) are all there and all land or all sea. */
+  const sameMedium = (cs: readonly number[]) => {
+    const w = water(cs[0])
+    for (const c of cs) if (c < 0 || water(c) !== w) return false
+    return true
+  }
+  /** Window 2: a node among four neighbours of its medium at (p2 + 4 p1 + 6 a + 4 b + b2) / 16, if that lies on it; else as nodePoint1. */
+  const nodePoint2 = (p2: number, p1: number, a: number, b: number, b2: number, out: THREE.Vector3) => {
+    const cs = [a, p2, p1, b, b2]
+    if (sameMedium(cs)) {
+      out.set(0, 0, 0)
+      const wts = [6, 1, 4, 4, 1]
+      for (let i = 0; i < 5; i++) out.x += wts[i] * P[cs[i] * 3], out.y += wts[i] * P[cs[i] * 3 + 1], out.z += wts[i] * P[cs[i] * 3 + 2]
+      out.normalize()
+      if (onMedium(out.x, out.y, out.z, a)) return out
+    }
+    return nodePoint1(p1, a, b, out)
+  }
+  /**
+   * The meeting point on link a-b of a route through p1, a, b, b2 (direction, unit tangent toward b,
+   * radius): the link's own (window 1, or where the four are not all land or all sea); window 2,
+   * (p1 + 3a + 3b + b2) / 8 if that lies on their medium.
+   */
+  const meet = (p1: number, a: number, b: number, b2: number, dir: THREE.Vector3, tan: THREE.Vector3) => {
+    const l = linkOf(a, b)
+    const sg = a === linkA[l] ? 1 : -1
+    if (wide && sameMedium([a, p1, b, b2])) {
+      dir.set(
+        P[p1 * 3] + 3 * P[a * 3] + 3 * P[b * 3] + P[b2 * 3],
+        P[p1 * 3 + 1] + 3 * P[a * 3 + 1] + 3 * P[b * 3 + 1] + P[b2 * 3 + 1],
+        P[p1 * 3 + 2] + 3 * P[a * 3 + 2] + 3 * P[b * 3 + 2] + P[b2 * 3 + 2],
+      ).normalize()
+      if (onMedium(dir.x, dir.y, dir.z, a)) {
+        tan.set(P[b * 3] + P[b2 * 3] - P[p1 * 3] - P[a * 3], P[b * 3 + 1] + P[b2 * 3 + 1] - P[p1 * 3 + 1] - P[a * 3 + 1], P[b * 3 + 2] + P[b2 * 3 + 2] - P[p1 * 3 + 2] - P[a * 3 + 2])
+        tan.addScaledVector(dir, -tan.dot(dir)).normalize()
+        return meetRadius[l]
       }
     }
+    dir.set(meetDir[l * 3], meetDir[l * 3 + 1], meetDir[l * 3 + 2])
+    tan.set(meetTan[l * 3] * sg, meetTan[l * 3 + 1] * sg, meetTan[l * 3 + 2] * sg)
+    return meetRadius[l]
+  }
+
+  // ---------- pieces ----------
+  const S = PIECE_SAMPLES
+  const pieceIndex = new Map<number, number>()
+  const pLink: number[] = [], pEnd: number[] = [], pSea: number[] = [], pOpen: number[] = []
+  let pDir = new Float32Array(1024 * S * 3), pRad = new Float32Array(1024 * S), pSide = new Float32Array(1024 * S * 3), pArc = new Float32Array(1024 * S)
+  const grow = () => {
+    const cap = pDir.length / (S * 3) * 2
+    const g = (x: Float32Array, k: number) => {
+      const y = new Float32Array(cap * S * k)
+      y.set(x)
+      return y
+    }
+    pDir = g(pDir, 3)
+    pRad = g(pRad, 1)
+    pSide = g(pSide, 3)
+    pArc = g(pArc, 1)
+  }
+  const X = new THREE.Vector3(), T = new THREE.Vector3(), M = new THREE.Vector3(), D = new THREE.Vector3()
+  const m0 = new THREE.Vector3(), d0 = new THREE.Vector3()
+  const b1 = new THREE.Vector3(), b2v = new THREE.Vector3(), q = new THREE.Vector3(), prev = new THREE.Vector3(), tan = new THREE.Vector3()
+  const CHECK = 12
+  /** Point (into q) and derivative (into tan) of the cubic X, b1, b2v, M at t. */
+  const cubic = (t: number) => {
+    const u = 1 - t
+    q.set(0, 0, 0).addScaledVector(X, u * u * u).addScaledVector(b1, 3 * u * u * t).addScaledVector(b2v, 3 * u * t * t).addScaledVector(M, t * t * t)
+    tan.set(0, 0, 0)
+      .addScaledVector(X, -3 * u * u)
+      .addScaledVector(b1, 3 * u * u - 6 * u * t)
+      .addScaledVector(b2v, 6 * u * t - 3 * t * t)
+      .addScaledVector(M, 3 * t * t)
+    return q.normalize()
+  }
+  /** The piece at cell a toward b, for a route with p2, p1 before a and b2 after b (-1: none). */
+  const makePiece = (l: number, e: number, p2: number, p1: number, a: number, b: number, b2: number) => {
+    const id = pLink.length
+    if ((id + 1) * S * 3 > pDir.length) grow()
+    const sea = water(a)
+    if (wide) nodePoint2(p2, p1, a, b, b2, X)
+    else nodePoint1(p1, a, b, X)
+    const rM = meet(p1, a, b, b2, M, D)
+    // the tangent at the node: along the line from the previous meeting point to the next
+    if (p1 >= 0) {
+      if (wide) {
+        meet(b, a, p1, p2, m0, d0)
+        T.copy(M).sub(m0)
+      } else T.set(P[b * 3] - P[p1 * 3], P[b * 3 + 1] - P[p1 * 3 + 1], P[b * 3 + 2] - P[p1 * 3 + 2])
+    } else T.copy(M).sub(X)
+    T.addScaledVector(X, -T.dot(X))
+    if (T.lengthSq() < 1e-16) T.copy(M).sub(X)
+    T.normalize()
+    const h = X.distanceTo(M) * 0.42
+    b1.copy(X).addScaledVector(T, h)
+    b2v.copy(M).addScaledVector(D, -h)
+    // checked against its medium: a sea piece over water (and the drawn sea by a coast), a land piece
+    // over land (or, toward a shore, the link's own two cells); else the straight chord
+    const mixed = water(b) !== sea
+    /** How the current curve fits: 0 on its medium, 1 over the other side of the drawn shore, 2 over a cell of the other medium. */
+    const misfit = () => {
+      let worst = 0
+      for (let s = 1; s < CHECK && worst < 2; s++) {
+        cubic(s / CHECK)
+        const c = nearestCell(q.x, q.y, q.z, a)
+        if (sea) {
+          // (toward the shore it may run on into the land cell, over the drawn sea up to the waterline)
+          if (!water(c) && !(mixed && c === b)) worst = 2
+          else if ((coastal[c] || !water(c)) && drawnLand(q.x, q.y, q.z, c)) worst = Math.max(worst, !water(c) ? 2 : 1)
+        } else if (mixed) {
+          // toward the shore: the link's own cells (the end lies past the waterline)
+          if (c !== a && c !== b && water(c)) worst = 2
+        } else if (water(c)) worst = 2
+        else if (coastal[c] && !drawnLand(q.x, q.y, q.z, c)) worst = Math.max(worst, 1)
+      }
+      return worst
+    }
+    const bad = misfit()
+    if (bad > 0) {
+      const k1x = b1.x, k1y = b1.y, k1z = b1.z, k2x = b2v.x, k2y = b2v.y, k2z = b2v.z
+      b1.copy(X).lerp(M, 1 / 3)
+      b2v.copy(X).lerp(M, 2 / 3)
+      // the straight chord, unless it fits no better
+      if (misfit() >= bad) {
+        b1.set(k1x, k1y, k1z)
+        b2v.set(k2x, k2y, k2z)
+      }
+    }
+    const rn = surfaceRadius(world, a)
+    let arc = 0
+    for (let s = 0; s < S; s++) {
+      const t = s / (S - 1)
+      cubic(t)
+      if (s > 0) arc += q.distanceTo(prev)
+      prev.copy(q)
+      const i = id * S + s
+      pDir[i * 3] = q.x
+      pDir[i * 3 + 1] = q.y
+      pDir[i * 3 + 2] = q.z
+      pRad[i] = rn + (rM - rn) * t
+      pArc[i] = arc
+      tan.crossVectors(q, tan).normalize()
+      pSide[i * 3] = tan.x
+      pSide[i * 3 + 1] = tan.y
+      pSide[i * 3 + 2] = tan.z
+    }
+    pLink.push(l)
+    pEnd.push(e)
+    pSea.push(sea ? 1 : 0)
+    pOpen.push(p1 < 0 ? 1 : 0)
+    return id
+  }
+  /** The piece at cell a toward b (link l) for this window, made on first use. */
+  const pieceFor = (l: number, p2: number, p1: number, a: number, b: number, b2: number) => {
+    // the window as the geometry reads it: neighbours only, no doubling back
+    if (p1 >= 0 && (p1 === b || nbSlot(a, p1) === NONE)) p1 = -1
+    if (p1 < 0 || !wide || p2 === a || nbSlot(p1, p2) === NONE) p2 = -1
+    if (!wide || b2 === a || nbSlot(b, b2) === NONE) b2 = -1
+    const e = a === linkA[l] ? 0 : 1
+    const key = (((l * 2 + e) * 8 + (p1 < 0 ? NONE : nbSlot(a, p1))) * 8 + (p2 < 0 ? NONE : nbSlot(p1, p2))) * 8 + (b2 < 0 ? NONE : nbSlot(b, b2))
+    let id = pieceIndex.get(key)
+    if (id === undefined) {
+      id = makePiece(l, e, p2, p1, a, b, b2)
+      pieceIndex.set(key, id)
+    }
+    return id
+  }
+  const routePieceFrom = new Int32Array(routeLinks.length)
+  const routePieceTo = new Int32Array(routeLinks.length)
+  for (let r = 0; r < count; r++) {
+    const k0 = routeLinkOffsets[r], k1 = routeLinkOffsets[r + 1]
+    const s0 = seqStart[r], n = k1 - k0 + 1 // cells c_0 .. c_{n-1}
+    const cell = (i: number) => (i >= 0 && i < n ? cellsOf[s0 + i] : -1)
+    for (let k = k0; k < k1; k++) {
+      const i = k - k0, l = routeLinks[k]
+      const a = cell(i), b = cell(i + 1)
+      routePieceFrom[k] = pieceFor(l, cell(i - 2), cell(i - 1), a, b, cell(i + 2))
+      routePieceTo[k] = pieceFor(l, cell(i + 3), cell(i + 2), b, a, cell(i - 1))
+    }
+  }
+  const pieceCount = pLink.length
+  const pieceLink = Int32Array.from(pLink)
+  const pieceEnd = Uint8Array.from(pEnd)
+  const pieceNode = new Int32Array(pieceCount)
+  for (let i = 0; i < pieceCount; i++) pieceNode[i] = pieceEnd[i] ? linkNodeB[pieceLink[i]] : linkNodeA[pieceLink[i]]
+  const linkPieceOffsets = new Uint32Array(L + 1)
+  for (let i = 0; i < pieceCount; i++) linkPieceOffsets[pieceLink[i] + 1]++
+  for (let l = 0; l < L; l++) linkPieceOffsets[l + 1] += linkPieceOffsets[l]
+  const linkPieces = new Int32Array(pieceCount)
+  {
+    const cur = linkPieceOffsets.slice(0, L)
+    for (let i = 0; i < pieceCount; i++) linkPieces[cur[pieceLink[i]]++] = i
   }
 
   return {
     world,
+    window,
     linkCount: L,
     linkA,
     linkB,
@@ -609,16 +893,89 @@ function buildRouteNetwork(world: World, pathOffsets: Uint32Array, path: Uint32A
     nodeLinks,
     nodeEnd,
     nodeOfCell,
-    halfDir,
-    halfRadius,
-    halfSide,
-    halfArc,
+    pieceCount,
+    pieceLink,
+    pieceEnd,
+    pieceNode,
+    pieceSea: Uint8Array.from(pSea),
+    pieceOpen: Uint8Array.from(pOpen),
+    pieceDir: pDir.slice(0, pieceCount * S * 3),
+    pieceRadius: pRad.slice(0, pieceCount * S),
+    pieceSide: pSide.slice(0, pieceCount * S * 3),
+    pieceArc: pArc.slice(0, pieceCount * S),
+    linkPieceOffsets,
+    linkPieces,
     routeLinkOffsets,
     routeLinks,
     routeForward,
+    routePieceFrom,
+    routePieceTo,
   }
 }
 
+/** Every sample of a piece. */
+const ALL_SAMPLES: readonly number[] = Array.from({ length: PIECE_SAMPLES }, (_, i) => i)
+
+/**
+ * PathSamples of every route along the network (`lift` above the ground), plus the link of every
+ * sample. `keep`: which samples of each piece to use (the first and the last among them), the
+ * same for every piece, so routes sharing a piece share its samples.
+ */
+export function networkRouteSamples(net: RouteNetwork, count: number, lift: number, keep: readonly number[] = ALL_SAMPLES): PathSamples & { link: Int32Array } {
+  const S = PIECE_SAMPLES
+  const K = keep.length
+  let cap = 0
+  for (let r = 0; r < count; r++) {
+    const n = net.routeLinkOffsets[r + 1] - net.routeLinkOffsets[r]
+    if (n > 0) cap += n * 2 * (K - 1) + 1
+  }
+  const pos = new Float32Array(cap * 3)
+  const side = new Float32Array(cap * 3)
+  const arc = new Float32Array(cap)
+  const frac = new Float32Array(cap)
+  const water = new Uint8Array(cap)
+  const link = new Int32Array(cap)
+  const length = new Float32Array(count)
+  const offsets = new Uint32Array(count + 1)
+  let ns = 0
+  const put = (piece: number, s: number, w: number, l: number) => {
+    const i = piece * S + s
+    const r = net.pieceRadius[i] + lift
+    pos[ns * 3] = net.pieceDir[i * 3] * r
+    pos[ns * 3 + 1] = net.pieceDir[i * 3 + 1] * r
+    pos[ns * 3 + 2] = net.pieceDir[i * 3 + 2] * r
+    side[ns * 3] = net.pieceSide[i * 3]
+    side[ns * 3 + 1] = net.pieceSide[i * 3 + 1]
+    side[ns * 3 + 2] = net.pieceSide[i * 3 + 2]
+    water[ns] = w
+    link[ns] = l
+    ns++
+  }
+  for (let r = 0; r < count; r++) {
+    offsets[r] = ns
+    const k0 = net.routeLinkOffsets[r], k1 = net.routeLinkOffsets[r + 1]
+    if (k1 <= k0) continue
+    for (let k = k0; k < k1; k++) {
+      const l = net.routeLinks[k]
+      const pf = net.routePieceFrom[k], pt = net.routePieceTo[k]
+      const wf = net.pieceSea[pf], wt = net.pieceSea[pt]
+      // from the node out to the meeting point (the waterline where land meets sea), then in along the other piece
+      for (let j = k === k0 ? 0 : 1; j < K; j++) put(pf, keep[j], j === K - 1 ? (wf === wt ? wf : SHORE) : wf, l)
+      for (let j = K - 2; j >= 0; j--) put(pt, keep[j], wt, l)
+    }
+    const s0 = offsets[r]
+    let len = 0
+    arc[s0] = 0
+    for (let s = s0 + 1; s < ns; s++) {
+      len += Math.hypot(pos[s * 3] - pos[s * 3 - 3], pos[s * 3 + 1] - pos[s * 3 - 2], pos[s * 3 + 2] - pos[s * 3 - 1])
+      arc[s] = len
+    }
+    for (let s = s0; s < ns; s++) frac[s] = len > 0 ? arc[s] / len : (s - s0) / Math.max(1, ns - 1 - s0)
+    length[r] = len
+  }
+  offsets[count] = ns
+  return { count, offsets, pos, side, arc, frac, water, length, link }
+}
 /** Cells either side of a sea leg it may move to, and the cost of a step along a link an earlier route already uses. */
 const SNAP_RINGS = 2
 const SHARED_STEP = 0.55
@@ -765,60 +1122,4 @@ function snapSeaLegs(world: World, pathOffsets: Uint32Array, path: Uint32Array, 
   }
   offsets[count] = outPath.length
   return { offsets, path: Uint32Array.from(outPath) }
-}
-
-/** PathSamples of every route along the network (`lift` above the ground), plus the link of every sample. */
-export function networkRouteSamples(net: RouteNetwork, count: number, lift: number): PathSamples & { link: Int32Array } {
-  const S = HALF_SAMPLES
-  let cap = 0
-  for (let r = 0; r < count; r++) {
-    const n = net.routeLinkOffsets[r + 1] - net.routeLinkOffsets[r]
-    if (n > 0) cap += n * 2 * (S - 1) + 1
-  }
-  const pos = new Float32Array(cap * 3)
-  const side = new Float32Array(cap * 3)
-  const arc = new Float32Array(cap)
-  const frac = new Float32Array(cap)
-  const water = new Uint8Array(cap)
-  const link = new Int32Array(cap)
-  const length = new Float32Array(count)
-  const offsets = new Uint32Array(count + 1)
-  let ns = 0
-  const put = (h: number, s: number, l: number) => {
-    const i = h * S + s
-    const r = net.halfRadius[i] + lift
-    pos[ns * 3] = net.halfDir[i * 3] * r
-    pos[ns * 3 + 1] = net.halfDir[i * 3 + 1] * r
-    pos[ns * 3 + 2] = net.halfDir[i * 3 + 2] * r
-    side[ns * 3] = net.halfSide[i * 3]
-    side[ns * 3 + 1] = net.halfSide[i * 3 + 1]
-    side[ns * 3 + 2] = net.halfSide[i * 3 + 2]
-    water[ns] = net.linkSea[l]
-    link[ns] = l
-    ns++
-  }
-  for (let r = 0; r < count; r++) {
-    offsets[r] = ns
-    const k0 = net.routeLinkOffsets[r], k1 = net.routeLinkOffsets[r + 1]
-    if (k1 <= k0) continue
-    for (let k = k0; k < k1; k++) {
-      const l = net.routeLinks[k]
-      const fwd = net.routeForward[k] === 1
-      const hFrom = 2 * l + (fwd ? 0 : 1), hTo = 2 * l + (fwd ? 1 : 0)
-      // from the node out to the midpoint, then in along the other half to the next node
-      for (let s = k === k0 ? 0 : 1; s < S; s++) put(hFrom, s, l)
-      for (let s = S - 2; s >= 0; s--) put(hTo, s, l)
-    }
-    const s0 = offsets[r]
-    let len = 0
-    arc[s0] = 0
-    for (let s = s0 + 1; s < ns; s++) {
-      len += Math.hypot(pos[s * 3] - pos[s * 3 - 3], pos[s * 3 + 1] - pos[s * 3 - 2], pos[s * 3 + 2] - pos[s * 3 - 1])
-      arc[s] = len
-    }
-    for (let s = s0; s < ns; s++) frac[s] = len > 0 ? arc[s] / len : (s - s0) / Math.max(1, ns - 1 - s0)
-    length[r] = len
-  }
-  offsets[count] = ns
-  return { count, offsets, pos, side, arc, frac, water, length, link }
 }

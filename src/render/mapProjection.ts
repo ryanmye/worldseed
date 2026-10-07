@@ -395,6 +395,24 @@ vec3 ws_placeTri(vec3 pR, vec3 corners) {
 #endif
 `
 
+/**
+ * Fragment side (after SEAM_FRAG_GLSL, which declares uMapCentre): the map-plane position (Equal Earth, before the view's
+ * basis; map units are world units on the map) of a planet direction d, for a pattern that should keep a steady screen scale
+ * on the map (a pattern phased on the sphere is stretched by the projection there, and by a different amount everywhere).
+ */
+export const MAP_XY_FRAG_GLSL = /* glsl */ `
+vec2 ws_mapXY(vec3 d) {
+  d = normalize(d);
+  float l = (abs(d.x) + abs(d.z) < 1e-9 ? 0.0 : atan(d.x, d.z)) - uMapCentre.x;
+  l -= 6.28318531 * floor((l + 3.14159265) / 6.28318531);
+  float th = asin(${M.toFixed(7)} * clamp(d.y, -1.0, 1.0));
+  float t2 = th * th, t6 = t2 * t2 * t2;
+  float y = th * (${A1} + ${A2} * t2 + t6 * (${A3} + ${A4} * t2));
+  float x = ${XK.toFixed(7)} * l * cos(th) / (${A1} + ${(3 * A2).toFixed(6)} * t2 + t6 * (${(7 * A3).toFixed(6)} + ${(9 * A4).toFixed(6)} * t2));
+  return vec2(x, y);
+}
+`
+
 /** Fragment side of the seam for shaders that already include RELIEF_GLSL (the planet). */
 export const SEAM_FRAG_BODY_GLSL = /* glsl */ `
 varying vec4 ws_vSeam;

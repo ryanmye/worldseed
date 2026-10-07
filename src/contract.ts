@@ -648,6 +648,7 @@ export const SightKind = {
   MineTown: 4, // a mining boom town gone quiet
   FormerResort: 5, // a resort that went out of fashion long ago: quaint
   Holy: 6, // a holy city (pilgrimage; from the religion system)
+  Landmark: 7, // landmarks: a great landmark ruined, left unfinished, or centuries old (Sight.landmark is its row in History.landmarks: show landmarkNameAt)
 } as const
 export type SightKind = (typeof SightKind)[keyof typeof SightKind]
 
@@ -662,8 +663,10 @@ export interface Sight {
   fromYear: number
   /** How famous, 0..1 (the pull it adds to the place). */
   fame: number
-  /** Its settlement's name, or the name of the feature it is on (a summit's range), or ''. */
+  /** Its settlement's name, or the name of the feature it is on (a summit's range), or '' (a Landmark sight's too: its own name is landmarkNameAt(h, landmark, year)). */
   name: string
+  /** landmarks: a Landmark sight's row in History.landmarks (absent on the other kinds). */
+  landmark?: number
 }
 
 /**
@@ -1285,7 +1288,9 @@ export const GOOD_COUNT = 13
 /**
  * Trade routes between pairs of settlements, struct-of-arrays, in order of first opening.
  * A route keeps its id for the whole run; a pair that stops and later resumes trading reuses its route.
- * Route r follows cells path[pathOffsets[r] .. pathOffsets[r + 1]) from settlement a to settlement b.
+ * Route r opened along cells path[pathOffsets[r] .. pathOffsets[r + 1]) from settlement a to settlement b. With polities a route
+ * may later change its way round danger, and back once the danger falls (the re-paths below, in order); routePathAt gives its
+ * way at a year (draw that; `path` alone is the way it opened along).
  */
 export interface TradeRoutes {
   count: number
@@ -1300,6 +1305,30 @@ export interface TradeRoutes {
   pathOffsets: Uint32Array
   /** Cell ids along each route, a's cell first, b's cell last; consecutive cells are neighbours. May include water cells. */
   path: Uint32Array
+  /**
+   * polities: re-paths, in order of year (a longer run repeats a shorter one's rows): from year repathYear[k] (inclusive) route
+   * repathRoute[k] follows cells repathPath[repathOffsets[k] .. repathOffsets[k + 1]) (a's cell first, b's last, neighbours),
+   * until its next re-path. A route goes round newly dangerous ground (war, raids, a war front, pirates' waters, bandits) and
+   * back to the way it opened along when the danger there falls. Empty (repathCount 0) without polities. Its traffic in
+   * tradeVolume and History.road follows the way it had at the time.
+   */
+  repathCount: number
+  repathRoute: Int32Array
+  repathYear: Int16Array
+  repathOffsets: Uint32Array
+  repathPath: Uint32Array
+}
+
+/**
+ * The way trade route r followed at `year`: its cells are arr[from .. to). The way it opened along (`path`) unless it had
+ * re-pathed by then (its last re-path at or before `year`). For a trade snapshot q pass year q * tradeInterval.
+ */
+export function routePathAt(t: TradeRoutes, r: number, year: number): { arr: Uint32Array; from: number; to: number } {
+  let k = -1
+  const n = t.repathCount ?? 0
+  for (let i = 0; i < n && t.repathYear[i] <= year; i++) if (t.repathRoute[i] === r) k = i
+  if (k < 0) return { arr: t.path, from: t.pathOffsets[r], to: t.pathOffsets[r + 1] }
+  return { arr: t.repathPath, from: t.repathOffsets[k], to: t.repathOffsets[k + 1] }
 }
 
 /** Population at which a settlement counts as a town, and as a city. */
@@ -1684,8 +1713,13 @@ export interface Landmarks {
   faith: Int16Array
   /** The people whose language named it (the builders'). */
   people: Int16Array
-  /** Its name ("the Keep of Thesmu", "Unlafa's Great Temple at Rilko"); unique within the world. */
+  /** Its name ("the Keep of Thesmu", "Unlafa's Great Temple at Rilko"); unique within the world. The town's name in it is the one in use at its begun year. */
   name: string[]
+  /**
+   * The same with `{town}` where its town's name stands ("the Keep of {town}"; without a town part, the name itself): substitute
+   * the name its town bears at the year shown (landmarkNameAt), so a landmark follows its town's renamings.
+   */
+  nameTemplate: string[]
   /** State changes in chronological order (a year's in the order they happened): the landmark, the year, the new LandmarkState. */
   changeCount: number
   changeLandmark: Int32Array
@@ -1695,6 +1729,11 @@ export interface Landmarks {
   changeFaith: Int16Array
   /** The polity behind the change (the restorer, the converting state, the sacker), -1. */
   changePolity: Int16Array
+  /**
+   * The landmark's town after the change: `settlement` unless a town refounded on or beside its ruins (founded there after the
+   * old town was given up) restored it and took it over (a Restored change; landmarkTownAt).
+   */
+  changeSettlement: Int32Array
   /** Building tradition of each faith (LandmarkForm by faith id; 255 for a faith never seen), and its variant 0..3. */
   faithForm: Uint8Array
   faithVariant: Uint8Array
@@ -1722,14 +1761,17 @@ export function landmarksAt(h: Pick<History, 'landmarks'>, settlement: number, y
   const L = h.landmarks
   const out: LandmarkAt[] = []
   if (!L) return out
+  // (landmarks that passed to another town by the year: the town they belong to then)
+  const cs = L.changeSettlement
+  const moved = new Map<number, number>()
+  if (cs) for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) { const id = L.changeLandmark[k]; if (cs[k] >= 0 && (cs[k] !== L.settlement[id] || moved.has(id))) moved.set(id, cs[k]) }
   for (let i = 0; i < L.count && L.begunYear[i] <= year; i++) {
-    if (L.settlement[i] !== settlement) continue
+    if ((moved.get(i) ?? L.settlement[i]) !== settlement) continue
     out.push({ id: i, kind: L.kind[i] as LandmarkKind, rank: L.rank[i] as LandmarkRank, form: L.form[i] as LandmarkForm, state: LandmarkState.Building, since: L.begunYear[i], faith: L.faith[i] })
   }
   if (out.length === 0) return out
   for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) {
     const id = L.changeLandmark[k]
-    if (L.settlement[id] !== settlement) continue
     for (const x of out) {
       if (x.id !== id) continue
       x.state = L.changeState[k] as LandmarkState
@@ -1738,4 +1780,21 @@ export function landmarksAt(h: Pick<History, 'landmarks'>, settlement: number, y
     }
   }
   return out
+}
+
+/** The town landmark `id` belongs to at `year`: its `settlement`, or the town that restored its ruins and took it over (changeSettlement). */
+export function landmarkTownAt(h: Pick<History, 'landmarks'>, id: number, year: number): number {
+  const L = h.landmarks
+  let v = L.settlement[id]
+  const cs = L.changeSettlement
+  if (cs) for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) if (L.changeLandmark[k] === id && cs[k] >= 0) v = cs[k]
+  return v
+}
+
+/** Landmark `id`'s name at `year`: its nameTemplate with the name its town bears then (settlementNameAt), else its name. */
+export function landmarkNameAt(h: Pick<History, 'landmarks' | 'settlements' | 'renamings'>, id: number, year: number): string {
+  const L = h.landmarks
+  const t = L.nameTemplate ? L.nameTemplate[id] : undefined
+  if (!t || t.indexOf('{town}') < 0) return L.name[id]
+  return t.split('{town}').join(settlementNameAt(h, landmarkTownAt(h, id, year), year))
 }

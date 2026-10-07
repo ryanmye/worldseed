@@ -68,6 +68,8 @@ export interface PolityState {
   // income, pirate strength pi and lane traffic (havens), 1 once PiratesRise was logged (until suppressed), 1 once
   // SmugglingRing was logged, the fort in use (structure id, -1).
   lawless: Float64Array
+  /** Bandits (outlaw.ts bandits): their strength, which follows the lawlessness of the grip as far as rich traffic passes near (lawless is it). */
+  bandit: Float64Array
   corrupt: Float64Array
   smugYear: Float64Array
   smugSm: Float64Array
@@ -308,6 +310,14 @@ export interface PolityState {
   rCause: Int8Array
   rPeak: Float64Array
   rForsaken: Int32Array
+  /** Re-paths (reroute.ts): per route the year of its last re-path (-1 never) and the way it opened along once it re-pathed ([] before). */
+  rRe: Int32Array
+  /** The year of its last re-path search that found no better way (-1) and its way's cost then (reroute.ts). */
+  rTry: Int32Array
+  rTryCost: Float64Array
+  rOrig: number[][]
+  /** A route re-pathed since the lanes were mapped: outlawStep maps them again first. */
+  laneDirty: boolean
   /** Counters for the stats harness. */
   diag: PolityDiag
 }
@@ -374,6 +384,10 @@ export interface PolityDiag {
   wayFrontPairs: number
   wayForsaken: number
   wayRestored: number
+  wayRepaths: number
+  /** Re-path searches made and cells they visited (reroute.ts). */
+  waySearches: number
+  wayVisits: number
 }
 
 function f64(n: number): Float64Array { return new Float64Array(n) }
@@ -416,18 +430,18 @@ export function createPolityState(s: HistoryState): PolityState {
     diag: {
       raids: 0, raidsWon: 0, revolts: 0, revoltsWon: 0, fragmentations: 0, absorbed: 0, warDead: 0, sackDead: 0, raidDead: 0, foundYear: [], foundCellZ: [], foundT: [], foundFromZ: [], foundHome: [], foundCell: [],
       siteYear: [], siteZ: [], siteD: [], siteAltZ: [], siteAltD: [], siteAltN: [], siteSame: [], siteFromZ: [],
-      yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0, wayPartnerSlots: 0, wayPartnersDiffer: 0, wayFrontPairs: 0, wayForsaken: 0, wayRestored: 0,
+      yRev: [], yCapInc: [], yLegal: [], ySmug: [], yPir: [], yBand: [], yPirates: [], civilWars: 0, partitions: 0, reunified: 0, vassals: 0, tributes: 0, alliances: 0, forts: 0, refugeeTech: 0, pirCaptives: 0, leagues: 0, wayPartnerSlots: 0, wayPartnersDiffer: 0, wayFrontPairs: 0, wayForsaken: 0, wayRestored: 0, wayRepaths: 0, waySearches: 0, wayVisits: 0,
     },
   }
   const v2 = {
-    lawless: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
+    lawless: f64(cap), bandit: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
     hubBest: f64(cap), hubGood: i32(cap), hubPol: i32(cap, -1),
     pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
     bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
     nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
-    wayRisk: new Float32Array(N), wayYear: -1, waySea: [], seaZ: new Float32Array(N), seaZCells: [], rRisk: f64(256), rCause: new Int8Array(256), rPeak: f64(256), rForsaken: i32(256, -1),
+    wayRisk: new Float32Array(N), wayYear: -1, waySea: [], seaZ: new Float32Array(N), seaZCells: [], rRisk: f64(256), rCause: new Int8Array(256), rPeak: f64(256), rForsaken: i32(256, -1), rRe: i32(256, -1), rTry: i32(256, -1), rTryCost: f64(256), rOrig: [] as number[][], laneDirty: false,
     cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), cDisp: new Int32Array(N).fill(-1), relDispute: [], relDisputeOn: [], claimYear: -1,
   }
   return Object.assign(base, v2) as PolityState
@@ -464,6 +478,7 @@ export function ensureSettlements(ps: PolityState, need: number): void {
   ps.foundZ = grow(ps.foundZ, size)
   ps.taxIn = grow(ps.taxIn, size)
   ps.lawless = grow(ps.lawless, size)
+  ps.bandit = grow(ps.bandit, size)
   ps.corrupt = grow(ps.corrupt, size)
   ps.smugYear = grow(ps.smugYear, size)
   ps.smugSm = grow(ps.smugSm, size)
@@ -541,6 +556,9 @@ export function ensureRoutesP(ps: PolityState, need: number): void {
   ps.rCause = grow(ps.rCause, size)
   ps.rPeak = grow(ps.rPeak, size)
   ps.rForsaken = grow(ps.rForsaken, size, -1)
+  ps.rRe = grow(ps.rRe, size, -1)
+  ps.rTry = grow(ps.rTry, size, -1)
+  ps.rTryCost = grow(ps.rTryCost, size)
 }
 
 // --- Power -------------------------------------------------------------------------------------

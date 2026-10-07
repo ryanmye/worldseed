@@ -41,7 +41,7 @@ import { formatInt, formatPopulation, peopleName, settlementName } from './forma
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
-import { loadFlag, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import type { LayerToggle } from './overlay.ts'
 import './polities.css'
@@ -182,9 +182,11 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     collapsed = !collapsed
     saveFlag('worldseed.factions.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('factions', !collapsed)
     force()
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('factions', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
 
   // ---------- inspector section ----------
   const slot = deps.inspectorSlot

@@ -26,7 +26,7 @@ import {
 } from './goodsData.ts'
 import { politiesOf, polityAtYear } from './politiesData.ts'
 import { setPolityGoodsNote } from './politiesPanel.ts'
-import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { loadLayerPrefs, type LayerToggle } from './overlay.ts'
 import './goods.css'
@@ -124,9 +124,11 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     collapsed = !collapsed
     saveFlag('worldseed.goods.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('goods', !collapsed)
     force()
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('goods', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   const syncTabs = () => tabBtns.forEach((b, i) => {
     b.classList.toggle('active', i === tab)
     b.setAttribute('aria-selected', String(i === tab))

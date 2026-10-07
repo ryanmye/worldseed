@@ -206,8 +206,9 @@ export function describeIdeasEventFor(h: History, e: HistoryEvent, id: number): 
 }
 
 /**
- * Whether the chronicle (and the inspector's events) leave an ideas event out: the conception or adoption of an idea that is one
- * of the species system's farming techniques (terracing, the heavy plough, rotation, breeding), which its own lines already say.
+ * Whether an ideas event is the conception or adoption of an idea that is one of the species system's farming techniques
+ * (terracing, the heavy plough, rotation, breeding), which the species lines already say: the inspector's events and the
+ * chronicle's All view leave it out; the chronicle lists it under its Ideas filter only (chronicle.ts).
  */
 export function ideasHiddenInChronicle(h: History, e: HistoryEvent): boolean {
   const t = e.type as number
@@ -225,8 +226,9 @@ export const IDEAS_BUCKET_YEARS = 50
  */
 export function ideasGroupKey(h: History, e: HistoryEvent): number {
   const t = e.type as number
-  if (ideasHiddenInChronicle(h, e)) return -1
   const b = Math.floor(e.year / IDEAS_BUCKET_YEARS)
+  // a farming technique's: its own idea's groups only (never a network's first arrivals, which the All view shows)
+  if (ideasHiddenInChronicle(h, e)) return t === EventType.IdeaAdopted ? 1e9 + e.value * 1000 + b : -1
   if (t === EventType.IdeaAdopted) {
     const r = rowInfo(h, e)
     if (r && r.k >= 0 && r.dd.netFirst[r.k]) return 3e9 + (r.dd.netOf[r.k] + 1) * 1000 + b

@@ -100,7 +100,7 @@
 }
 .cp-row {
   display: grid;
-  grid-template-columns: 15px 9px 24px minmax(0, 1fr) auto auto 42px;
+  grid-template-columns: 15px 9px 30px minmax(0, 1fr) auto auto 42px;
   align-items: center;
   column-gap: 5px;
   width: 100%;
@@ -131,8 +131,7 @@
 }
 .cp-tier {
   flex: none;
-  margin-right: 2px;
-  padding: 0 4px;
+  padding: 0 3px;
   border-radius: 3px;
   font-size: 9.5px;
   font-weight: 700;

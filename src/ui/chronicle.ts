@@ -18,8 +18,9 @@ import { addShortcut } from './shortcuts.ts'
 import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
 import { isLandmarkHeadline } from './landmarksFormat.ts'
+import { describeTradeDangerGroup } from './tradeDangerFormat.ts'
 
-import { describeIdeasGroup, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
+import { describeIdeasGroup, ideasHiddenInChronicle, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
 
 const ROWS = 40
 
@@ -237,6 +238,27 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       text = describeTradeBurst(h, h.events[ev], m, h.events[ev].type === EventType.TradeOpened)
       yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
       r.target = h.events[ev].settlement
+    } else if (kind === EntryKind.TradeDanger && m > 1) {
+      // routes forsaken (or trodden again) in one decade: name the one between the largest pair of settlements
+      const N = ix.count
+      const weight = (i: number) => {
+        const e = h.events[i]
+        const s = Math.min(h.snapshotCount - 1, Math.max(0, Math.round(e.year / h.snapshotInterval)))
+        return (h.population[s * N + e.settlement] ?? 0) + (e.other >= 0 ? h.population[s * N + e.other] ?? 0 : 0)
+      }
+      let best = weight(ev)
+      for (let q = lo + 1; q < lo + m; q++) {
+        const w = weight(ix.notableMembers[q])
+        if (w > best) {
+          best = w
+          ev = ix.notableMembers[q]
+        }
+      }
+      const members = []
+      for (let q = lo; q < lo + m; q++) members.push(h.events[ix.notableMembers[q]])
+      text = describeTradeDangerGroup(h, h.events[ev], members)
+      yearText = `${Math.floor(h.events[ev].year / FOUNDING_BUCKET_YEARS) * FOUNDING_BUCKET_YEARS}s`
+      r.target = h.events[ev].settlement
     } else if (kind === EntryKind.Burst && m > 1) {
       // voyages lost, expeditions, technology advances in one decade: name the largest
       let people = 0
@@ -374,7 +396,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       const rulers = CHRONICLE_FILTERS.indexOf('Rulers')
       for (let k = 0; k < E; k++) {
         const m0 = ix.notableMembers[ix.notableOffsets[k]]
-        inAll[k] = cat[k] === rulers && m0 >= 0 && rulersHiddenInAll(ix.history, m0) ? 0 : 1
+        // (and a farming technique's ideas, which the species lines say there: under the Ideas filter only)
+        inAll[k] = m0 >= 0 && ((cat[k] === rulers && rulersHiddenInAll(ix.history, m0)) || ideasHiddenInChronicle(ix.history, ix.history.events[m0])) ? 0 : 1
         counts[0] += inAll[k]
       }
       for (let c = 0; c < CHRONICLE_FILTERS.length; c++) {

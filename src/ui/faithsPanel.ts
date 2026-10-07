@@ -22,7 +22,7 @@ import { namesEpoch } from './renamingData.ts'
 import { faithAt, faithLives, faithName, faithShareAt, faithSnap, faithsOf, stateFaithAt, type FaithsData } from './faithsData.ts'
 import { capitalAt, politiesOf, polityAtYear, polityLives, type PolitiesData } from './politiesData.ts'
 import { warOutcomeWords } from './polityFormat.ts'
-import { loadFlag, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import './faiths.css'
 
@@ -62,6 +62,17 @@ export interface FaithsView {
 /** Land of no settlement, and water, on the Faiths view (sRGB 0..255). */
 const UNCLAIMED = [52, 55, 54] as const
 const pct = (f: number) => (f > 0 && f < 0.005 ? '<1%' : `${Math.round(f * 100)}%`)
+/** A faith's world share at snapshot s: its followers' share of the world's people where the history records the majority's share in each place, else "majority in N places" ("N places" short). */
+function shareWords(dd: FaithsData, s: number, f: number, short = false): string {
+  if (dd.sharesKnown) return pct(dd.worldShare[s * dd.F + f])
+  const n = dd.places[s * dd.F + f]
+  return `${short ? '' : 'majority in '}${formatInt(n)} ${n === 1 ? 'place' : 'places'}`
+}
+function shareTitle(dd: FaithsData, s: number, f: number): string {
+  return dd.sharesKnown
+    ? `Share of the world's people who follow it, counted in the ${formatInt(dd.places[s * dd.F + f])} places where it is the majority faith (its minorities elsewhere are not recorded)`
+    : 'Places where it is the majority faith (the history does not record how many follow it there)'
+}
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 /** "zealous, well organised, a faith of the towns". */
@@ -112,9 +123,11 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
     collapsed = !collapsed
     saveFlag('worldseed.faiths.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('faiths', !collapsed)
     force()
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('faiths', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
 
   // ---------- legend of the Faiths view (under the map panel) ----------
   const legend = document.createElement('div')
@@ -315,7 +328,7 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
       n++
       if (top < 0 || dd.worldShare[s * dd.F + f] > dd.worldShare[s * dd.F + top]) top = f
     }
-    const c = n === 0 ? 'folk practice only' : `${n} ${n === 1 ? 'faith' : 'faiths'}` + (top >= 0 ? ` · ${dd.faiths[top].name} ${pct(dd.worldShare[s * dd.F + top])}` : '')
+    const c = n === 0 ? 'folk practice only' : `${n} ${n === 1 ? 'faith' : 'faiths'}` + (top >= 0 ? ` · ${dd.faiths[top].name} ${shareWords(dd, s, top)}` : '')
     if (c !== shownCount) {
       shownCount = c
       count.textContent = c
@@ -344,7 +357,7 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
       b.className = 'gp-row fa-row' + (f === sel ? ' selected' : '') + (alive ? '' : ' ended')
       b.dataset.faith = String(f)
       const sub = x.parent >= 0 ? `${x.foundedYear} · split from ${dd.faiths[x.parent]?.name ?? ''}` : `${x.foundedYear} · ${x.holyCity >= 0 ? sname(x.holyCity) : ''}`
-      b.append(dot(f), span('gp-name', x.name), span('gp-sub', sub), spark(f, s, 44, 14, max), span('gp-num', alive ? pct(dd.worldShare[s * dd.F + f]) : `died ${x.endedYear}`, alive ? "Share of the world's people (where it is the majority faith)" : ''))
+      b.append(dot(f), span('gp-name', x.name), span('gp-sub', sub), spark(f, s, 44, 14, max), span('gp-num', alive ? shareWords(dd, s, f, true) : `died ${x.endedYear}`, alive ? shareTitle(dd, s, f) : ''))
       b.title = `${cap(faithName(dd, f))}: founded ${x.foundedYear}${x.holyCity >= 0 ? ` at ${sname(x.holyCity)}` : ''}${x.parent >= 0 ? `, a schism of ${dd.faiths[x.parent]?.name}` : ''}. Click to select and go to its holy city.`
       pane.append(b)
     }
@@ -409,7 +422,10 @@ export function createFaithsView(deps: FaithsViewDeps): FaithsView {
     // share over time
     const share = dd.worldShare[s * dd.F + f]
     const places = dd.places[s * dd.F + f]
-    const shareLine = line(faithLives(dd, f, year) ? `${pct(share)} of the world's people by ${s * dd.interval}; the majority faith of ${formatInt(places)} ${places === 1 ? 'place' : 'places'}` : `Died out in ${x.endedYear}`)
+    const inPlaces = `${formatInt(places)} ${places === 1 ? 'place' : 'places'}, home to ${pct(dd.majorityPop[s * dd.F + f])} of the world`
+    const shareLine = line(!faithLives(dd, f, year) ? `Died out in ${x.endedYear}` : dd.sharesKnown
+      ? `${pct(share)} of the world's people by ${s * dd.interval}, where it is the majority faith (${inPlaces}; its minorities elsewhere are not recorded)`
+      : `By ${s * dd.interval} the majority faith of ${inPlaces}`)
     if (!faithLives(dd, f, year)) shareLine.classList.add('fa-dead')
     detail.append(el('div', 'fa-spark-row', spark(f, s, 220, 26, Math.max(1e-3, dd.peakShare[f]))))
     // states that hold it as their state religion now

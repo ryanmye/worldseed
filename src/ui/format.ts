@@ -10,6 +10,7 @@ import { describeRulersEvent, describeRulersEventFor, rulersEventKind } from './
 import { renamedName } from './renamingData.ts'
 import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
 import { describeLandmarkEvent, describeLandmarkEventFor, isLandmarkEvent } from './landmarksFormat.ts'
+import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEvent } from './tradeDangerFormat.ts'
 
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 
@@ -321,6 +322,8 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.StructureLost: return 'lost'
     case EventType.TradeOpened: return 'trade'
     case EventType.TradeClosed: return 'tradeEnd'
+    case EventType.TradeForsaken: return 'tradeEnd'
+    case EventType.TradeRestored: return 'trade'
     case PeoplesEvent.FirstContact: return 'contact'
     case PeoplesEvent.Landfall: return 'landfall'
     case PeoplesEvent.VoyageLost: return 'voyage'
@@ -395,6 +398,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEvent(h, e) ?? `${name} is renamed`
       if (isLandmarkEvent(e.type as number)) return describeLandmarkEvent(h, e) ?? `A great building at ${name}`
+      if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEvent(h, e) ?? `${name} and ${settlementName(h, e.other)} stop trading`
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
@@ -470,6 +474,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEventFor(h, e, id) ?? 'Renamed'
       if (isLandmarkEvent(e.type as number)) return describeLandmarkEventFor(h, e, id) ?? 'A great building'
+      if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEventFor(h, e, id) ?? 'Trade on a dangerous way'
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`

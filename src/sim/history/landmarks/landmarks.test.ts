@@ -1,7 +1,7 @@
 // landmarks: tests of the great buildings and houses of worship raised by history (src/sim/history/landmarks).
 
 import { describe, expect, it } from 'vitest'
-import { EventType, FaithKind, IdeaHow, LANDMARK_FORM_COUNT, LANDMARK_KIND_COUNT, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, landmarksAt, ReignEnd } from '../../../contract.ts'
+import { EventType, FaithKind, IdeaHow, LANDMARK_FORM_COUNT, LANDMARK_KIND_COUNT, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, landmarkNameAt, landmarksAt, landmarkTownAt, ReignEnd, SightKind, settlementNameAt } from '../../../contract.ts'
 import type { History, Polity, World } from '../../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts'
 import { LANDMARK } from './params.ts'
@@ -49,12 +49,20 @@ function hashLandmarks(hi: History): string {
 // (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
 // bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
 // renaming, ideas, landmarks, polities); only the entries with polities on changed.)
+// (Re-recorded with the danger-trade and landmark fixes (re-paths round danger, the sea risk's scale, escorts for dear goods,
+// the minimum forsaken spell, bandits living off the traffic; the landmarks' crowding, rededication on conquest, revival,
+// templates and sights): with every new switch off (WAYRISK.reroute false, escortValue 0, minForsaken 0, seaScale false;
+// BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
+// e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
+// configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
+/** hashPreLandmarks with the landmarks on (their sights draw visitors), per GOLDEN seed. */
+const GOLDEN_SIGHTS: Record<number, string> = { 42: '7a1b088f', 3: '487b1e48', 7: '37cdaf60', 1: '796171e', 9: '3b217f94' }
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '44ed772a'],
-  [3, 600, undefined, {}, 'c8a2aef7'],
-  [7, 900, undefined, { polities: false, goods: false }, 'f7560730'],
-  [1, 1500, undefined, { disease: false }, 'e58d9984'],
-  [9, 800, 24, {}, '53045334'],
+  [42, 2000, undefined, {}, '7ee13e52'],
+  [3, 600, undefined, {}, '487b1e48'],
+  [7, 900, undefined, { polities: false, goods: false }, '37cdaf60'],
+  [1, 1500, undefined, { disease: false }, 'dd37f0db'],
+  [9, 800, 24, {}, '858ee66'],
 ]
 
 const worlds = new Map<number, World>()
@@ -67,7 +75,7 @@ const histories = new Map<string, History>()
 function history(seed: number, years = 2000): History {
   const key = seed + ':' + years
   let h = histories.get(key)
-  if (!h) { h = simulateHistory(world(seed), { years }); histories.set(key, h) }
+  if (!h) { h = simulateHistory(world(seed), { years }); histories.set(key, h); W0.set(h, world(seed)) }
   return h
 }
 
@@ -109,6 +117,34 @@ function owned(a: ArrayBufferView): void {
   expect(a.buffer.byteLength).toBe(a.byteLength)
 }
 
+/** The world each checked history was run on (for the grid). */
+const W0 = new Map<History, World>()
+
+/** Landmark sights (SightKind.Landmark): a great landmark's, once, when ruined, unfinished or LANDMARK.sightAge years old, with its fame and name. */
+function checkLandmarkSights(h: History): void {
+  const L = h.landmarks
+  const seen = new Set<number>() // (lookup only)
+  for (const x of h.sights) {
+    if (x.kind !== SightKind.Landmark) { expect(x.landmark).toBeUndefined(); continue }
+    const id = x.landmark!
+    expect(id >= 0 && id < L.count).toBe(true)
+    expect(seen.has(id)).toBe(false)
+    seen.add(id)
+    expect(L.rank[id]).toBe(LandmarkRank.Great)
+    expect(x.name).toBe(h.settlements[x.settlement].name)
+    expect(x.fromYear % 10).toBe(0)
+    const town = landmarkTownAt(h, id, x.fromYear - 1)
+    expect(x.settlement).toBe(town)
+    expect(x.cell).toBe(h.settlements[town].cell)
+    // (judged on the landmark as it stood at the end of the year before: tourism runs before the landmarks each year)
+    const at = landmarksAt(h, town, x.fromYear - 1).find((y) => y.id === id)!
+    const ruin = at.state === ST.Ruined || at.state === ST.Unfinished
+    expect(at.state).not.toBe(ST.Building)
+    if (!ruin) expect(x.fromYear - L.begunYear[id]).toBeGreaterThanOrEqual(LANDMARK.sightAge)
+    expect(x.fame).toBeCloseTo(LANDMARK.sightFame[L.kind[id]] * (ruin ? LANDMARK.sightRuin : 1), 9)
+  }
+}
+
 /** Structural and historical invariants of History.landmarks and the landmark events. */
 function checkLandmarks(h: History): void {
   const L = h.landmarks
@@ -146,6 +182,12 @@ function checkLandmarks(h: History): void {
     const lc = nm.toLowerCase()
     if (names.has(lc)) throw new Error(`${at}: name ${nm} twice`)
     names.add(lc)
+    // The template: the name with {town} where its town's name of the begun year stood (landmarkNameAt gives the name back then).
+    const tp = L.nameTemplate[i]
+    expect(typeof tp).toBe('string')
+    expect(landmarkNameAt(h, i, y)).toBe(nm)
+    if (tp.includes('{town}')) expect(tp.split('{town}').join(settlementNameAt(h, v, y))).toBe(nm)
+    else expect(tp).toBe(nm)
     // The builder: a polity alive at the year, its ruler reigning, that ruler's house.
     const p = L.polity[i]
     if (p >= 0) {
@@ -214,6 +256,7 @@ function checkLandmarks(h: History): void {
   const state = new Int32Array(n).fill(-1)
   const cur = new Int32Array(n).fill(-1)
   const done = new Int32Array(n).fill(-1)
+  const townOf = Int32Array.from(L.settlement)
   for (let i = 0; i < n; i++) cur[i] = L.faith[i]
   for (let c = 0; c < C; c++) {
     const id = L.changeLandmark[c], y = L.changeYear[c], st = L.changeState[c]
@@ -238,6 +281,25 @@ function checkLandmarks(h: History): void {
       worshipOf[L.changeFaith[c]] = 1
     } else expect(L.changeFaith[c]).toBe(-1)
     expect(L.changePolity[c] >= -1 && L.changePolity[c] < h.polities.length).toBe(true)
+    // Its town: the one it was begun in, until a town founded on or beside the ruins of the abandoned one restores it and takes it over.
+    const town = L.changeSettlement[c], was = townOf[id]
+    if (town !== was) {
+      expect(st).toBe(ST.Restored)
+      expect(prev).toBe(ST.Ruined)
+      const old = h.settlements[was], heir = h.settlements[town]
+      expect(old.abandonedYear >= 0 && old.abandonedYear <= y).toBe(true)
+      expect(heir.foundedYear).toBeGreaterThanOrEqual(old.abandonedYear)
+      expect(heir.foundedYear + LANDMARK.reviveYears).toBeLessThanOrEqual(y)
+      expect(aliveAt(h, town, y)).toBe(true)
+      const wd = W0.get(h)
+      if (wd) {
+        const { neighborOffsets: off, neighbors: nb } = wd.grid
+        let near = heir.cell === old.cell
+        for (let k = off[old.cell]; k < off[old.cell + 1]; k++) if (nb[k] === heir.cell) near = true
+        expect(near).toBe(true)
+      }
+      townOf[id] = town
+    }
     state[id] = st
   }
   for (let i = 0; i < n; i++) {
@@ -247,9 +309,10 @@ function checkLandmarks(h: History): void {
   }
   // Abandoned towns: none of their landmarks stands or is still building after the abandonment.
   for (let i = 0; i < n; i++) {
-    const a = h.settlements[L.settlement[i]].abandonedYear
+    const t = landmarkTownAt(h, i, h.years)
+    const a = h.settlements[t].abandonedYear
     if (a < 0) continue
-    const after = landmarksAt(h, L.settlement[i], h.years).find((x) => x.id === i)!
+    const after = landmarksAt(h, t, h.years).find((x) => x.id === i)!
     expect(standing(after.state) || after.state === ST.Building || after.state === ST.Neglected).toBe(false)
   }
   // Events: one per change of a great landmark, none for the lesser, in order, with the right fields.
@@ -260,7 +323,7 @@ function checkLandmarks(h: History): void {
     if (L.rank[id] !== LandmarkRank.Great) continue
     const e = evs[j++]
     if (!e) throw new Error(`no event for change ${c}`)
-    expect([e.year, e.type, e.settlement, e.value, e.extra]).toEqual([L.changeYear[c], EVENT_OF_STATE[L.changeState[c]], L.settlement[id], id, L.kind[id]])
+    expect([e.year, e.type, e.settlement, e.value, e.extra]).toEqual([L.changeYear[c], EVENT_OF_STATE[L.changeState[c]], L.changeSettlement[c], id, L.kind[id]])
     const st = L.changeState[c]
     if (st === ST.Unfinished || st === ST.Neglected) expect(e.other).toBe(-1)
     if (st === ST.Building || st === ST.InUse) {
@@ -278,11 +341,13 @@ function checkLandmarks(h: History): void {
   for (let i = 1; i < h.events.length; i++) if (h.events[i].year < h.events[i - 1].year) throw new Error(`events out of order at ${i}`)
   // landmarksAt agrees with the table (at each change's year, for its town).
   for (let c = 0; c < C; c += 3) {
-    const v = L.settlement[L.changeLandmark[c]], y = L.changeYear[c]
+    const v = L.changeSettlement[c], y = L.changeYear[c]
     const got = landmarksAt(h, v, y)
     const want: { id: number; state: number; since: number; faith: number }[] = []
     for (let i = 0; i < n && L.begunYear[i] <= y; i++) {
-      if (L.settlement[i] !== v) continue
+      let town = L.settlement[i]
+      for (let k = 0; k < C && L.changeYear[k] <= y; k++) if (L.changeLandmark[k] === i) town = L.changeSettlement[k]
+      if (town !== v) continue
       let s = ST.Building as number, since = L.begunYear[i], f = L.faith[i]
       for (let k = 0; k < C && L.changeYear[k] <= y; k++) if (L.changeLandmark[k] === i) { s = L.changeState[k]; since = L.changeYear[k]; if (L.changeFaith[k] >= 0) f = L.changeFaith[k] }
       want.push({ id: i, state: s, since, faith: f })
@@ -331,13 +396,21 @@ describe('landmarks', () => {
     }
   }, 400_000)
 
-  it('is a pure consequence layer: switched on, every other field is the same', () => {
+  it('is a pure consequence layer but for the sights: switched on without them (or without tourism), every other field is the same', () => {
     for (const [seed, years, n, opts, hash] of GOLDEN) {
       const w = n ? generateWorld(seed, { subdivisions: n }) : world(seed)
+      // (the landmarks are sights of the tourism system, the one place they act on the rest: LANDMARK.sights; without it they are pure)
+      LANDMARK.sights = false
+      try { expect(hashPreLandmarks(simulateHistory(w, { years, ...opts }))).toBe(hash) } finally { LANDMARK.sights = true }
       const h = seed === 42 && years === 2000 && !n ? history(42) : simulateHistory(w, { years, ...opts })
-      expect(hashPreLandmarks(h)).toBe(hash)
+      W0.set(h, w)
       checkLandmarks(h)
+      checkLandmarkSights(h)
+      expect(hashPreLandmarks(h)).toBe(GOLDEN_SIGHTS[seed])
     }
+    // Without tourism (no sights), on or off, every other field is the same.
+    const a = simulateHistory(world(3), { years: 600, tourism: false }), b = simulateHistory(world(3), { years: 600, tourism: false, landmarks: false })
+    expect(hashPreLandmarks(a)).toBe(hashPreLandmarks(b))
   }, 400_000)
 
   it('every history satisfies the landmark invariants; counts in range; the capital cities have their castles', () => {
@@ -345,6 +418,7 @@ describe('landmarks', () => {
     for (const [seed, years] of [[42, 2000], [12345, 2000], [4, 2000], [9, 2000], [3, 3000]]) {
       const h = history(seed, years)
       checkLandmarks(h)
+      checkLandmarkSights(h)
       const L = h.landmarks
       let great = 0
       for (let i = 0; i < L.count; i++) { kinds.add(L.kind[i]); forms.add(L.form[i]); if (L.rank[i] === LandmarkRank.Great) great++ }
@@ -393,12 +467,13 @@ describe('landmarks', () => {
     for (let i = 0; i < A.count; i++) {
       for (const key of ['kind', 'rank', 'form', 'variant', 'settlement', 'cell', 'begunYear', 'polity', 'ruler', 'dynasty', 'faith', 'people'] as const) if (A[key][i] !== B[key][i]) throw new Error(`landmark ${i} ${key} differs`)
       expect(B.name[i]).toBe(A.name[i])
+      expect(B.nameTemplate[i]).toBe(A.nameTemplate[i])
       if (A.completedYear[i] >= 0) expect(B.completedYear[i]).toBe(A.completedYear[i])
       else if (B.completedYear[i] >= 0) expect(B.completedYear[i]).toBeGreaterThan(2000)
     }
     for (let i = A.count; i < B.count; i++) expect(B.begunYear[i]).toBeGreaterThan(2000)
     expect(B.changeCount).toBeGreaterThanOrEqual(A.changeCount)
-    for (const key of ['changeLandmark', 'changeYear', 'changeState', 'changeFaith', 'changePolity'] as const) expect(Array.from(B[key].slice(0, A.changeCount))).toEqual(Array.from(A[key]))
+    for (const key of ['changeLandmark', 'changeYear', 'changeState', 'changeFaith', 'changePolity', 'changeSettlement'] as const) expect(Array.from(B[key].slice(0, A.changeCount))).toEqual(Array.from(A[key]))
     for (let c = A.changeCount; c < B.changeCount; c++) expect(B.changeYear[c]).toBeGreaterThan(2000)
     expect(Array.from(B.faithForm.slice(0, A.faithForm.length))).toEqual(Array.from(A.faithForm))
     expect(Array.from(B.faithVariant.slice(0, A.faithVariant.length))).toEqual(Array.from(A.faithVariant))

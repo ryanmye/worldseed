@@ -32,6 +32,8 @@ export interface LandmarksState {
   /** Scratch: the faith whose holy city it is at this scan (-1); the scan year it was an end of an ocean lane. */
   holyAt: Int32Array
   laneMark: Int32Array
+  /** An abandoned town with landmarks: the first settlement founded on or beside its cell after it was given up (-1): its heir. */
+  heir: Int32Array
   // --- Per polity (capacity pcap) ---
   pcap: number
   /** The ruler who founded a monastery (one per reign), who raised a victory monument (one per reign). */
@@ -46,6 +48,8 @@ export interface LandmarksState {
   faithHot: number[]
   /** Holy cities marked at the last scan (to clear). */
   holyList: number[]
+  // --- Per cell: the abandoned town with landmarks there (-1), for a town founded on or beside its ruins ---
+  ruinAt: Int32Array
   // --- Per long-haul leg: deep-sea cells on its path (-1 not counted) ---
   legOcean: number[]
   // --- Landmarks, in begun order (History.landmarks rows) ---
@@ -53,7 +57,9 @@ export interface LandmarksState {
   lRank: number[]
   lForm: number[]
   lVariant: number[]
+  /** Its town now (lHome until a town refounded on or beside its ruin took it over), and the town it was begun in. */
   lSett: number[]
+  lHome: number[]
   lCell: number[]
   lBegun: number[]
   /** Year finished (-1). */
@@ -79,6 +85,10 @@ export interface LandmarksState {
   /** 1 for a seat of government (a capital's castle, a palace, a council house): neglected when its town stops being a capital. */
   lSeat: number[]
   lNext: number[]
+  /** The year a sack ruined it (-1; cleared when it is restored). */
+  lSack: number[]
+  /** 1 once it is a sight of the tourism system (sights.ts). */
+  lSight: number[]
   /** Works in progress (landmark ids, in begun order). */
   building: number[]
   // --- Changes, in order (History.landmarks change rows) ---
@@ -89,10 +99,14 @@ export interface LandmarksState {
   cPol: number[]
   /** The event's `other` (great landmarks). */
   cOther: number[]
+  /** The landmark's town after the change (its town then, or the heir that took it over). */
+  cTown: number[]
   /** Events already scanned. */
   evSeen: number
   /** Mean wealth per head of the world's towns at the last scan. */
   worldWpc: number
+  /** Great landmarks begun so far (the world's crowding: LANDMARK.crowdFrom, crowdTo). */
+  greatN: number
   /** Populations of the world's TOP_TOWNS largest living towns at the last scan, descending (0 where fewer). */
   top: Float64Array
   diag: LandmarksDiag
@@ -105,6 +119,9 @@ export interface LandmarksDiag {
   monkChances: number
   sackRolls: number
   stateConversions: number
+  conquestConversions: number
+  revived: number
+  sights: number
 }
 
 export function createLandmarksState(s: HistoryState): LandmarksState {
@@ -114,17 +131,18 @@ export function createLandmarksState(s: HistoryState): LandmarksState {
     cap, seen: 0,
     head: new Int32Array(cap).fill(-1), tail: new Int32Array(cap).fill(-1), has: new Int32Array(cap),
     bigSince: new Int32Array(cap).fill(-1), shrineSince: new Int32Array(cap).fill(-1), warYear: new Int32Array(cap).fill(NEVER), lastCap: new Int32Array(cap).fill(NEVER),
-    renowned: new Int32Array(cap).fill(-1), renownT: new Int32Array(cap).fill(-1), holyAt: new Int32Array(cap).fill(-1), laneMark: new Int32Array(cap).fill(NEVER),
+    renowned: new Int32Array(cap).fill(-1), renownT: new Int32Array(cap).fill(-1), holyAt: new Int32Array(cap).fill(-1), laneMark: new Int32Array(cap).fill(NEVER), heir: new Int32Array(cap).fill(-1),
+    ruinAt: new Int32Array(s.terrain.cellCount).fill(-1),
     pcap, monkRuler: new Int32Array(pcap).fill(-1), monuRuler: new Int32Array(pcap).fill(-1), tierP: new Int32Array(pcap), monkBest: new Int32Array(pcap).fill(-1),
     faithForm: [] as number[], faithVariant: [] as number[], faithHot: [] as number[], holyList: [] as number[],
     legOcean: [] as number[],
-    lKind: [] as number[], lRank: [] as number[], lForm: [] as number[], lVariant: [] as number[], lSett: [] as number[], lCell: [] as number[], lBegun: [] as number[], lDone: [] as number[],
+    lKind: [] as number[], lRank: [] as number[], lForm: [] as number[], lVariant: [] as number[], lSett: [] as number[], lHome: [] as number[], lCell: [] as number[], lBegun: [] as number[], lDone: [] as number[],
     lPol: [] as number[], lRuler: [] as number[], lDyn: [] as number[], lFaith: [] as number[], lPeople: [] as number[], lLang: [] as number[], lSubject: [] as number[],
-    lState: [] as number[], lSince: [] as number[], lCur: [] as number[], lRef: [] as number[], lLow: [] as number[], lDue: [] as number[], lSeat: [] as number[], lNext: [] as number[],
+    lState: [] as number[], lSince: [] as number[], lCur: [] as number[], lRef: [] as number[], lLow: [] as number[], lDue: [] as number[], lSeat: [] as number[], lNext: [] as number[], lSight: [] as number[], lSack: [] as number[],
     building: [] as number[],
-    cLm: [] as number[], cYear: [] as number[], cState: [] as number[], cFaith: [] as number[], cPol: [] as number[], cOther: [] as number[],
-    evSeen: 0, worldWpc: 0, top: new Float64Array(TOP_TOWNS),
-    diag: { scans: 0, forced: 0, fortTowns: 0, monkChances: 0, sackRolls: 0, stateConversions: 0 },
+    cLm: [] as number[], cYear: [] as number[], cState: [] as number[], cFaith: [] as number[], cPol: [] as number[], cOther: [] as number[], cTown: [] as number[],
+    evSeen: 0, greatN: 0, worldWpc: 0, top: new Float64Array(TOP_TOWNS),
+    diag: { scans: 0, forced: 0, fortTowns: 0, monkChances: 0, sackRolls: 0, stateConversions: 0, conquestConversions: 0, revived: 0, sights: 0 },
   }
   return st
 }
@@ -151,6 +169,7 @@ export function ensureLandmarkSettlements(lm: LandmarksState, need: number): voi
   lm.renownT = grow(lm.renownT, size, -1)
   lm.holyAt = grow(lm.holyAt, size, -1)
   lm.laneMark = grow(lm.laneMark, size, NEVER)
+  lm.heir = grow(lm.heir, size, -1)
   lm.cap = size
 }
 

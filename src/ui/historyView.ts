@@ -29,6 +29,7 @@ import { CITY_POPULATION, FeatureKind, TOWN_POPULATION, type GeoFeature, type Hi
 import { isWaterCell, lakeArray, surfaceRadius, type GlobeMesh } from '../render/globe.ts'
 import { ViewMode, densityRampCss } from '../render/palette.ts'
 import { buildSettlementLayer, MarkerStyle, type SettlementLayer } from '../render/settlements.ts'
+import { createViewLegends } from './viewLegends.ts'
 import type { CameraFly } from '../render/cameraFly.ts'
 import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
 import { buildStructureLayer, type StructureLayer } from '../render/structures.ts'
@@ -477,6 +478,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   /** Species view category of a map view: 0 Crops, 1 Herds, CASH_VIEW Cash crops, -1 others. */
   const speciesViewCategory = (m: ViewMode) => (m === ViewMode.Crops ? 0 : m === ViewMode.Herds ? 1 : m === ViewMode.Cash ? CASH_VIEW : -1)
 
+  // ---------- legends of the views without one of their own (viewLegends.ts) ----------
+  const viewLegends = createViewLegends(deps.right)
+
   // ---------- legend of the Population view ----------
   const popLegend = document.createElement('div')
   popLegend.className = 'panel sp-legend hidden'
@@ -836,6 +840,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     polityLayer = b.polities?.layer ?? null
     globe?.setCapacity(h.capacity)
+    {
+      let capMax = 0
+      if (h.capacity) for (let i = 0; i < h.capacity.length; i++) if (h.capacity[i] > capMax) capMax = h.capacity[i]
+      viewLegends.setCapacityMax(capMax)
+    }
     popDensity = b.population ?? null
     shownPopS0 = -1
     buildPopLegend(popDensity?.densityMax ?? 0)
@@ -1328,6 +1337,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesLayer?.setOriginCategory(speciesViewCategory(mode))
       shownSpeciesKey = shownGrownKey = -1
       popLegend.classList.toggle('hidden', mode !== ViewMode.Population || !popDensity)
+      viewLegends.setMode(mode)
       if (mode === ViewMode.Population) shownPopS0 = -1 // force a recompute on the next tick (the view was not kept live while inactive)
     },
     setMarkersVisible(show: boolean) {

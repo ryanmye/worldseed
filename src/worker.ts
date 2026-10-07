@@ -66,19 +66,21 @@ interface Kept { requestId: number; world: World; historyOptions?: HistoryOption
 let kept: Kept | null = null
 
 /** Progress is posted at least this often (simulated years) while a resumable run advances toward its target. */
-const PROGRESS_CHUNK_YEARS = 150
+const PROGRESS_CHUNK_YEARS = 50
 /**
- * Years of the next chunk from `year`: 150, growing to a tenth of the years so far, because every
- * advanceTo assembles a whole History (about 25 ms at 2000 years, 80 ms at 6000): 150-year chunks
- * all the way spent ~1.5 s of a 6000-year run on that.
+ * Years of the next chunk from `year`. With the run's simulateTo (steps without assembling a
+ * History) chunks stay small for a smooth progress strip; older runs only have advanceTo, which
+ * assembles a whole History per call (about 25 ms at 2000 years, 80 ms at 6000), so there chunks
+ * grow to a tenth of the years so far.
  */
-const chunkYears = (year: number) => Math.max(PROGRESS_CHUNK_YEARS, Math.floor(year / 10))
+const chunkYears = (run: HistoryRun) => (run.simulateTo ? PROGRESS_CHUNK_YEARS : Math.max(150, Math.floor(run.year / 10)))
 
 /**
  * History `years` long (undefined: the requested default length) of the kept world: from its
- * resumable run when there is one, advancing it in chunks and posting a 'progress' response after
- * each one short of the target, so the UI can show real progress for the simulation (the run
- * reaching the same target in one call or several costs the same, per its contract).
+ * resumable run when there is one, stepping it in chunks (simulateTo where the run has it, else
+ * advanceTo) and posting a 'progress' response after each one short of the target, then
+ * assembling the History once with advanceTo(target), so the UI can show real progress for the
+ * simulation (the run reaching the same target in one call or several costs the same, per its contract).
  */
 async function simulate(k: Kept, years: number | undefined, requestId: number, background: boolean): Promise<History> {
   if (createHistoryRun && !k.run) k.run = createHistoryRun(k.world, k.historyOptions)
@@ -86,18 +88,19 @@ async function simulate(k: Kept, years: number | undefined, requestId: number, b
   if (!k.run) return simulateHistory(k.world, years === undefined ? k.historyOptions : { ...k.historyOptions, years })
   try {
     const run = k.run
-    let upTo = Math.min(target, run.year + chunkYears(run.year))
-    let t0 = performance.now()
-    let h = run.advanceTo(upTo)
-    lastChunkMs = performance.now() - t0
+    let upTo = Math.min(target, run.year + chunkYears(run))
     while (upTo < target) {
-      post({ type: 'progress', requestId, years: h.years, target })
-      if (background) await breathe()
-      upTo = Math.min(target, run.year + chunkYears(run.year))
-      t0 = performance.now()
-      h = run.advanceTo(upTo)
+      const t0 = performance.now()
+      if (run.simulateTo) run.simulateTo(upTo)
+      else run.advanceTo(upTo)
       lastChunkMs = performance.now() - t0
+      post({ type: 'progress', requestId, years: run.year, target })
+      if (background) await breathe()
+      upTo = Math.min(target, run.year + chunkYears(run))
     }
+    const t0 = performance.now()
+    const h = run.advanceTo(target)
+    lastChunkMs = performance.now() - t0
     return h
   } catch (err) {
     k.run = null // its state is suspect: a later request starts from scratch
