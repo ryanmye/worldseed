@@ -36,6 +36,8 @@ import type { GoodsState } from './state.ts'
 
 /** Merchant capital (see the header). */
 export const MERCHANT = {
+  /** Off: no merchant capital (the goods system as before; the check that nothing else changed). */
+  on: true,
   /** Share of the long-haul merchant profit made at a settlement kept as merchant capital. */
   keep: 0.6,
   /** Share of the value of the cargo moved on a leg that each end's merchant houses gain (their turnover: commission, credit, freight). */
@@ -96,19 +98,19 @@ function grow(m: MerchantState, count: number): void {
   m.cap = n
 }
 
-/** Long-haul merchant profit x made at settlement id: keeps its merchants' share, returns the part left to the town's income. */
-export function merchantTake(g: GoodsState, id: number, x: number): number {
-  if (!(x > 0)) return x
+/** Long-haul merchant profit x made at settlement id: its merchants keep their share as capital; returns it (the town's income loses it). */
+export function merchantKeep(g: GoodsState, id: number, x: number): number {
+  if (!(x > 0) || !MERCHANT.on) return 0
   const m = g.merch
   if (id >= m.cap) grow(m, id + 1)
   const k = MERCHANT.keep * x
   m.mw[id] += k
-  return x - k
+  return k
 }
 
 /** Cargo worth `value` moved on a leg from mart a to mart b: the turnover of both ends' merchant houses. */
 export function merchantTurnover(g: GoodsState, a: number, b: number, value: number): void {
-  if (!(value > 0)) return
+  if (!(value > 0) || !MERCHANT.on) return
   const m = g.merch
   const hi = a > b ? a : b
   if (hi >= m.cap) grow(m, hi + 1)
@@ -119,7 +121,7 @@ export function merchantTurnover(g: GoodsState, a: number, b: number, value: num
 
 /** Goods a town pays for (luxuries, stimulants, finery) worth `value` at mart a's price sent on along a leg by its merchants. */
 export function merchantResale(g: GoodsState, a: number, value: number): void {
-  if (!(value > 0)) return
+  if (!(value > 0) || !MERCHANT.on) return
   const m = g.merch
   if (a >= m.cap) grow(m, a + 1)
   m.resale[a] += value

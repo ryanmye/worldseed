@@ -349,7 +349,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
         }
         if (biome[j] === Biome.Ice) continue
         if (T.deep[j] && gap[j] > reach) continue // oceans: not beyond the open ocean its ships dare (oceans.ts)
-        if (T.deep[j] && gap[j] > OCEAN.base && kn[kb + j] < 0) continue // oceans: settlers sail the open ocean only where it is charted (explorers find the way)
+        if (T.deep[j] && gap[j] > OCEAN.base && OCEAN.on && kn[kb + j] < 0) continue // oceans: settlers sail the open ocean only where it is charted (explorers find the way)
         const nd = cur + (T.deep[j] ? stepD : stepS)
         if (nd > rangeI) continue
         if (stamp[j] === run && nd >= dist[j]) continue

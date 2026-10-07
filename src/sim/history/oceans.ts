@@ -20,6 +20,8 @@ import type { Terrain } from './terrain.ts'
 import { IDEA_INDEX } from './ideas/state.ts'
 
 export const OCEAN = {
+  /** Off: any ocean is crossed as before (the check that nothing else changed). */
+  on: true,
   /** Ocean gap (cells at n = 48) a people's ships venture out to without the seafaring ideas, and what each adds. */
   base: 2,
   keel: 0.25,
@@ -61,6 +63,7 @@ const KEEL = IDEA_INDEX.get('keel') ?? -1, COMPASS = IDEA_INDEX.get('compass') ?
 /** Ocean gap people p's ships venture out to now (n = 48 cell units). */
 export function oceanReach(s: HistoryState, p: number): number {
   const X = OCEAN
+  if (!X.on) return Infinity
   const ix = s.ideas
   let keel: boolean, compass: boolean, nav: boolean
   if (ix !== null) {
