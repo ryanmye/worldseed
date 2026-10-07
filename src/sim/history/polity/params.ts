@@ -394,7 +394,7 @@ export const WAYRISK = {
   reroute: true,
   rerouteGain: 0.15,
   rerouteGap: 20,
-  rerouteVisits: 6000,
+  rerouteVisits: 3000,
   /**
    * Escorts for dear goods (the high-value classes, market.ts hvPair, and the long-haul legs): on a way of risk R they cost
    * escortValue * R of the goods' worth at the buyer's, on top of the share lost, a cost the merchants pass on (so the goods

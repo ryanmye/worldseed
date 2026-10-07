@@ -117,6 +117,7 @@ function search(s: HistoryState, ps: PolityState, ts: TradeState, r: number, bou
       out.reverse()
       return out
     }
+    ps.diag.wayVisits++
     if (++visits > maxV) return null
     for (let k = off[c]; k < off[c + 1]; k++) {
       const j = nb[k]
@@ -176,6 +177,7 @@ export function rerouteStep(s: HistoryState, ps: PolityState, ts: TradeState): v
   const P = ts.pairCount
   ensureRoutesP(ps, ts.routeCount + 1)
   const orig = ps.rOrig
+  const thr = gain / (W.path * (1 - gain))
   while (orig.length < ts.routeCount) orig.push(NONE)
   for (let i = 0; i < P; i++) {
     const r = ts.pairRoute[i]
@@ -183,6 +185,15 @@ export function rerouteStep(s: HistoryState, ps: PolityState, ts: TradeState): v
     const a = ts.rA[r], b = ts.rB[r]
     if (s.abandoned[a] >= 0 || s.abandoned[b] >= 0 || !ts.trader[a] || !ts.trader[b]) continue
     if (ps.rRe[r] >= 0 && s.year - ps.rRe[r] < W.rerouteGap) continue
+    const o = orig[r]
+    // (a way whose worst risk is below thr and that crossed no war front at the last refresh cannot be dear enough for its
+    // danger alone: (1 + path * risk) would need to average 1 / (1 - gain) over it)
+    if (o.length === 0 && ps.rCause[r] !== 2) {
+      const path = ts.rPath[r], risk = ps.wayRisk
+      let m = 0
+      for (let k = 1; k < path.length; k++) if (risk[path[k]] > m) m = risk[path[k]]
+      if (m < thr) continue
+    }
     const pa = a < ps.seen ? ps.polity[a] : -1, pb = b < ps.seen ? ps.polity[b] : -1
     if (embargoCode(ps, pa, pb) === 1) continue // (the ends at war: no way round that)
     setRoute(s, ts, r)
@@ -190,16 +201,17 @@ export function rerouteStep(s: HistoryState, ps: PolityState, ts: TradeState): v
     const cur = WC.risk, plain = WC.plain
     const bound = (1 - gain) * cur
     // Back on the way it opened along, once the danger there has fallen.
-    const o = orig[r]
     if (o.length > 0 && o !== ts.rPath[r]) {
       wayCost(s, ps, o)
       if (WC.risk < bound) { repath(s, ps, ts, r, i, o); continue }
     }
     if (cur - plain <= gain * cur) continue // (danger alone could not pay for another way)
+    // (a search that found nothing is not made again for rerouteGap years unless the way has grown rerouteGain dearer since)
+    if (ps.rTry[r] >= 0 && s.year - ps.rTry[r] < W.rerouteGap && cur < (1 + gain) * ps.rTryCost[r]) continue
+    ps.diag.waySearches++
     const path = search(s, ps, ts, r, bound)
-    if (path !== null) {
-      repath(s, ps, ts, r, i, path)
-    }
+    if (path !== null) repath(s, ps, ts, r, i, path)
+    else { ps.rTry[r] = s.year; ps.rTryCost[r] = cur }
   }
 }
 const NONE: number[] = []
