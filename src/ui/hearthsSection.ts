@@ -7,16 +7,14 @@
 // goes back to the year it was at.
 
 import type { History } from '../contract.ts'
-import { settlementNameAt } from '../contract.ts'
+import { canonicalCradles, CradleOutcome, encodeCradles, settlementNameAt } from '../contract.ts'
 import type { HearthPicker } from './hearthPicker.ts'
-import { canonicalCradles, cradlesOf, encodeCradles, Hearth } from './cradlesContract.ts'
+import { cradlesOf } from './cradlesData.ts'
 
 export interface HearthsSectionDeps {
   hearths: HearthPicker
   getCradles(): number[]
   requestCradles(cradles: number[], keepYear: number): void
-  /** How many peoples the world will have (the most hearths). */
-  cradleMax(): number
   year(): number
   setYear(year: number): void
   flyToCell(cell: number): void
@@ -84,15 +82,10 @@ export function createHearthsSection(deps: HearthsSectionDeps): HearthsSection {
       return
     }
     const rec = cradlesOf(h)
-    const simulated = 'cradlePlaced' in h
     const shown = rec ? canonicalCradles(Array.from(rec.wish)) : []
     const inSync = encodeCradles(shown) === encodeCradles(wish)
     if (n === 0 && !rec) {
       note.textContent = 'The first peoples began where the world would have them.'
-      return
-    }
-    if (!simulated) {
-      note.textContent = `${n} ${n === 1 ? 'hearth' : 'hearths'} planted; this simulation does not take them yet (they stay in the link).`
       return
     }
     if (!inSync) {
@@ -104,19 +97,19 @@ export function createHearthsSection(deps: HearthsSectionDeps): HearthsSection {
     const P = h.peoples.length
     for (let p = 0; p < P; p++) {
       const o = rec.placed[p]
-      if (o === Hearth.Chosen) continue
+      if (o === CradleOutcome.Chosen) continue
       const r = el('div', 'gp-row ng-row')
       const chip = el('span', `ng-chip ${OUTCOME_CLASS[o] ?? 'expired'}`, OUTCOME[o] ?? '?')
       chip.title = OUTCOME_TITLE[o] ?? ''
       const founder = h.peoples[p]?.founder ?? -1
-      const text = el('span', 'ng-text', `${p + 1} · the ${h.peoples[p]?.name ?? 'people'}${founder >= 0 && o !== Hearth.Rejected ? `, at ${settlementNameAt(h, founder, 0)}` : ''}`)
+      const text = el('span', 'ng-text', `${p + 1} · the ${h.peoples[p]?.name ?? 'people'}${founder >= 0 && o !== CradleOutcome.Rejected ? `, at ${settlementNameAt(h, founder, 0)}` : ''}`)
       r.title = OUTCOME_TITLE[o] ?? ''
       const links = el('span', 'ng-links')
       const wished = rec.wish[p]
-      if (wished >= 0) links.appendChild(link(o === Hearth.Placed ? 'the place' : 'the place chosen', () => deps.flyToCell(wished)))
+      if (wished >= 0) links.appendChild(link(o === CradleOutcome.Placed ? 'the place' : 'the place chosen', () => deps.flyToCell(wished)))
       if (founder >= 0) {
         if (links.childNodes.length) links.append(' · ')
-        links.appendChild(link(o === Hearth.Rejected ? 'where they began' : 'their first town', () => deps.onSelectSettlement(founder)))
+        links.appendChild(link(o === CradleOutcome.Rejected ? 'where they began' : 'their first town', () => deps.onSelectSettlement(founder)))
       }
       r.append(chip, text, links)
       list.appendChild(r)
@@ -139,7 +132,7 @@ export function createHearthsSection(deps: HearthsSectionDeps): HearthsSection {
     deps.setYear(0)
     const before = canonicalCradles(deps.getCradles())
     deps.hearths.start({
-      max: deps.cradleMax() || history.peoples.length,
+      max: history.peoples.length,
       cells: before,
       onDone(cells) {
         if (encodeCradles(cells) !== encodeCradles(before)) deps.requestCradles(cells, 0)

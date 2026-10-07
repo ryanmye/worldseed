@@ -46,11 +46,10 @@ export interface NudgeViewDeps {
   onSelectPolity(p: number): void
   flyToCell(cell: number): void
   setYear(year: number): void
-  /** The hearths (HistoryOptions.cradles): the picker, the list shown or on its way, re-simulating with a new one, the most there can be. */
+  /** The hearths (HistoryOptions.cradles): the picker, the list shown or on its way, re-simulating with a new one. */
   hearths?: HearthPicker
   getCradles?(): number[]
   requestCradles?(cradles: number[], keepYear: number): void
-  cradleMax?(): number
   /** Stop the timeline playing. */
   pause?(): void
 }
@@ -148,7 +147,6 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       hearths: deps.hearths,
       getCradles: deps.getCradles,
       requestCradles: deps.requestCradles,
-      cradleMax: () => deps.cradleMax?.() ?? 0,
       year: () => year,
       setYear: (y) => { deps.pause?.(); deps.setYear(y) },
       flyToCell: deps.flyToCell,

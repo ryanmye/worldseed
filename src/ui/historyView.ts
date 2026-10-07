@@ -100,11 +100,10 @@ export interface HistoryViewDeps {
   /** orders (the Nudge panel): re-simulate with this list, swapped in at `keepYear` (replaceHistory); the list shown or on its way. */
   requestOrders?(orders: Order[], keepYear: number): void
   getOrders?(): Order[]
-  /** hearths (the Nudge panel's Hearths section): re-simulate with these cradles (swapped in at `keepYear`); the list shown or on its way; the picker; the most hearths. */
+  /** hearths (the Nudge panel's Hearths section): re-simulate with these cradles (swapped in at `keepYear`); the list shown or on its way; the picker. */
   requestCradles?(cradles: number[], keepYear: number): void
   getCradles?(): number[]
   hearths?: HearthPicker
-  cradleMax?(): number
 }
 
 export interface InitialHistoryState {
@@ -478,7 +477,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   })
   inspector.peopleSlot.before(sagas.inspectorLinks)
   // orders: the Nudge panel and its map marks (nudgePanel.ts, render/nudges.ts)
-  const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() }, hearths: deps.hearths, getCradles: deps.getCradles, requestCradles: deps.requestCradles, cradleMax: deps.cradleMax, pause: () => timeline.pause() })
+  const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() }, hearths: deps.hearths, getCradles: deps.getCradles, requestCradles: deps.requestCradles, pause: () => timeline.pause() })
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',

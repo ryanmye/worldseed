@@ -8,8 +8,8 @@
 // failed or lapsed (a sign misread or defied, with why), or not yet known at the year told. The Nudge panel and the
 // chronicle keep their plain wording (nudgeFormat.ts).
 
-import { Biome, EventType, OrderKind, OrderReason, OrderStatus, FeatureKind, type Order, type OrderOutcome } from '../../contract.ts'
-import { cradlesOf, Hearth, hearthOf } from '../cradlesContract.ts'
+import { Biome, CradleOutcome, EventType, OrderKind, OrderReason, OrderStatus, FeatureKind, type Order, type OrderOutcome } from '../../contract.ts'
+import { cradlesOf, hearthOf, type CradleRecord } from '../cradlesData.ts'
 import { createRng } from '../../sim/rng.ts'
 import { statusAt } from '../nudgeFormat.ts'
 import { settingOf, type Ctx } from './facts.ts'
@@ -336,7 +336,7 @@ function failClause(kind: number, reason: number, legend: boolean, plural: boole
 
 // ---------------------------------------------------------------------------
 // The first hearths the player planted (HistoryOptions.cradles; History.cradleWish, cradleCell, cradlePlaced, read
-// through cradlesContract.ts): told as the work of the Divine, never as the player's. Set down as wished, the people
+// through cradlesData.ts): told as the work of the Divine, never as the player's. Set down as wished, the people
 // were placed by the Divine on their land; moved, the Divine pointed to the water (or the ice) the wish lay on and they
 // came ashore at the nearest land; rejected, the Divine marked a place no one could live and they found their own.
 // The chronicle register hedges ("It is held that..."), the legend's tells it as plain fact. Peoples whose cradle the
@@ -356,6 +356,11 @@ export const DIVINE_T: PhraseTable = {
   divineRejected: [
     ['It is told that a place was chosen for the {people} where no one could live, and that they were left to find their own.', 'The old songs say the place chosen for the {people} was one no one could live in, and that they were left to find their own.'],
     ['In the beginning the Divine marked a place no one could live; the {people} were left to find their own.', 'The Divine marked for the {people} a place where no one could live, and left them to find their own.'],
+  ],
+  /** (a placed people set down within sight of another placed people: History.cradleCrowded) */
+  divineCrowded: [
+    ['The old songs say they were set down within sight of the {other}.', 'It is held that the {other} were set down within sight of them.'],
+    ['Within sight of them the Divine set down the {other}.', 'And the Divine set the {other} down within sight of them, so that each saw the other\'s smoke.'],
   ],
   /** (the chronicle's setting of a placed people's first hearth, after `divine` or `divineMoved`: the legend's sentence names the land itself) */
   divineWhere: [['{home} lay {where}.', 'Their first hearth, {home}, lay {where}.'], []],
@@ -389,17 +394,32 @@ function wishWater(c: Ctx, cell: number): string {
 export function divineOrigin(c: Ctx, v: Voice, p: number): { text: string; replaces: boolean } {
   const rec = cradlesOf(c.h)
   const o = hearthOf(rec, p)
-  if (!rec || o === Hearth.Chosen || p < 0 || p >= c.h.peoples.length) return { text: '', replaces: false }
+  if (!rec || o === CradleOutcome.Chosen || p < 0 || p >= c.h.peoples.length) return { text: '', replaces: false }
   const home = c.h.peoples[p].founder
   const vars: Vars = { people: c.peopleName(p), home: c.place(home, 0) }
-  if (o === Hearth.Placed) {
+  if (o === CradleOutcome.Placed) {
     const w = c.world
     const cell = rec.cell[p] >= 0 ? rec.cell[p] : c.h.settlements[home]?.cell ?? -1
     vars.land = w && cell >= 0 && cell < w.grid.cellCount ? BIOME_LAND[w.biome[cell]] ?? 'the land' : 'the land'
-    return { text: v.p('divine', vars), replaces: true }
+    return { text: v.p('divine', vars) + crowdedText(c, v, rec, p), replaces: true }
   }
-  if (o === Hearth.Moved) return { text: v.p('divineMoved', { ...vars, water: wishWater(c, rec.wish[p]) }), replaces: true }
+  if (o === CradleOutcome.Moved) return { text: v.p('divineMoved', { ...vars, water: wishWater(c, rec.wish[p]) }) + crowdedText(c, v, rec, p), replaces: true }
   return { text: v.p('divineRejected', vars), replaces: false }
+}
+
+/** ' They were set down within sight of the X.' for a crowded people: the nearest other crowded wished people ('' otherwise). */
+function crowdedText(c: Ctx, v: Voice, rec: CradleRecord, p: number): string {
+  if (!rec.crowded[p]) return ''
+  const P = c.h.peoples.length
+  const pos = c.world?.grid.positions
+  let best = -1, bd = -Infinity
+  for (let q = 0; q < P; q++) {
+    if (q === p || !rec.crowded[q] || (rec.placed[q] !== CradleOutcome.Placed && rec.placed[q] !== CradleOutcome.Moved)) continue
+    const a = rec.cell[p], b = rec.cell[q]
+    const d = pos ? pos[a * 3] * pos[b * 3] + pos[a * 3 + 1] * pos[b * 3 + 1] + pos[a * 3 + 2] * pos[b * 3 + 2] : -q
+    if (d > bd) { bd = d; best = q }
+  }
+  return best >= 0 ? ' ' + v.p('divineCrowded', { other: c.peopleName(best) }) : ''
 }
 
 /** One sentence on how many peoples the Divine set down ('' when none was placed); `names`: say which, and where. */
@@ -411,8 +431,8 @@ export function divineSummary(c: Ctx, v: Voice, names: boolean): string {
   let rejected = 0
   for (let p = 0; p < P; p++) {
     const o = rec.placed[p]
-    if (o === Hearth.Placed || o === Hearth.Moved) set.push(p)
-    else if (o === Hearth.Rejected) rejected++
+    if (o === CradleOutcome.Placed || o === CradleOutcome.Moved) set.push(p)
+    else if (o === CradleOutcome.Rejected) rejected++
   }
   const n = num(P)
   if (set.length === 0) return rejected ? v.p('divineNone', { n, k: num(rejected) }) : ''

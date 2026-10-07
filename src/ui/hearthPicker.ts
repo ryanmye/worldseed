@@ -1,8 +1,10 @@
 // Planting the first hearths: the player clicks up to N places on the globe (N: how many peoples the world will have)
 // and each click drops a numbered hearth there (render/hearths.ts), snapped to the clicked cell; clicking a hearth again
 // takes it away (and the later ones move up a number); a drag orbits the globe as usual. A cell that cannot be lived on
-// (sea, shallows, ice, a lake) gets a red hearth and a note that the simulation will move it to the nearest land: the
-// simulation decides. The list is the cradle list of HistoryOptions.cradles, in people order (numbers 1..N).
+// (sea, shallows, ice, a lake) gets a red hearth at once; then the simulation's own preview (cradlesData.ts
+// previewCradles, as the History will record it) says per hearth whether it will be set down as wished, come ashore at
+// the nearest land, or be rejected (no livable land within reach), and which are within sight of one another. The list
+// is the cradle list of HistoryOptions.cradles, in people order (numbers 1..N).
 //
 // One picker serves both places that plant: the start page (ui/landing.ts, before the history exists) and the Nudge
 // panel's "Replant the hearths" (ui/nudgePanel.ts, at year 0 of the history shown). The caller places the picker's bar
@@ -15,7 +17,8 @@ import { buildHearthLayer, HEARTH_MAX, type HearthLayer } from '../render/hearth
 import { surfaceRadius } from '../render/globe.ts'
 import { placeFlat } from '../render/mapProjection.ts'
 import { requestRender } from '../render/invalidate.ts'
-import { canonicalCradles } from './cradlesContract.ts'
+import { canonicalCradles, CradleOutcome } from '../contract.ts'
+import { previewCradles } from './cradlesData.ts'
 import './hearths.css'
 
 /** A click this close (CSS px) to a hearth takes it away. */
@@ -76,6 +79,22 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
   let world: World | null = null
   let session: HearthSession | null = null
   let list: number[] = []
+  /** The preview of `list` (outcome and crowded per people), null while it is on its way. */
+  let pv: { key: string; placed: Uint8Array; crowded: Uint8Array } | null = null
+  let pvSeq = 0
+  function askPreview() {
+    const w = world
+    if (!w || !session) return
+    const key = list.join(',')
+    if (pv?.key === key) return
+    pv = null
+    const seq = ++pvSeq
+    void previewCradles(w, list).then((r) => {
+      if (seq !== pvSeq || world !== w || !session) return
+      pv = { key, placed: r.placed, crowded: r.crowded }
+      render()
+    }, (err) => console.error('cradle preview failed:', err))
+  }
   /** The last press on the canvas (client px): a click near a hearth takes it away. */
   const press = { x: -1e9, y: -1e9 }
   deps.canvas.addEventListener('pointerdown', (e) => {
@@ -103,21 +122,32 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     if (!session) return
     const n = list.length, max = session.max
     hint.textContent = n === 0 ? `Click up to ${max} places on the globe to set down the first peoples · drag to turn it` : n < max ? `${n} of ${max} placed · click to add, click a hearth to take it away` : `All ${max} placed · click a hearth to take it away`
-    const wet = list.map((c, i) => [c, i + 1] as const).filter(([c]) => !livable(c)).map(([, k]) => k)
-    note.textContent = wet.length ? `${wet.length === 1 ? `Hearth ${wet[0]} is` : `Hearths ${wet.join(', ')} are`} on water or ice: the people will move to the nearest land` : n > 0 ? 'Peoples you do not place begin where the world would have them.' : ''
-    note.classList.toggle('hearth-warn', wet.length > 0)
+    // (the preview's outcomes once in; meanwhile the plain test of the cell)
+    const P = pv && pv.key === list.join(',') ? pv : null
+    const fate = (i: number) => (P ? P.placed[i] : livable(list[i]) ? CradleOutcome.Placed : CradleOutcome.Moved)
+    const nums = (o: number) => list.map((_, i) => i).filter((i) => fate(i) === o).map((i) => i + 1)
+    const words = (ks: number[]) => (ks.length === 1 ? `Hearth ${ks[0]}` : `Hearths ${ks.slice(0, -1).join(', ')} and ${ks[ks.length - 1]}`)
+    const moved = nums(CradleOutcome.Moved), rejected = nums(CradleOutcome.Rejected)
+    const crowded = P ? list.map((_, i) => i).filter((i) => P.crowded[i]).map((i) => i + 1) : []
+    const parts: string[] = []
+    if (moved.length) parts.push(`${words(moved)} ${P ? (moved.length === 1 ? 'lies' : 'lie') : moved.length === 1 ? 'is' : 'are'} on water or ice: the people will come ashore at the nearest land`)
+    if (rejected.length) parts.push(`${words(rejected)}: no land to live on within reach; that people begins where the world would have it`)
+    if (crowded.length) parts.push(`${words(crowded)} are within sight of one another`)
+    note.textContent = parts.length ? parts.join(' · ') : n > 0 ? 'Peoples you do not place begin where the world would have them.' : ''
+    note.classList.toggle('hearth-warn', moved.length + rejected.length > 0)
     clearBtn.disabled = n === 0
     if (world) {
       if (!layer) {
         layer = buildHearthLayer()
         deps.planetGroup.add(layer.mesh)
       }
-      layer.set(world, list.map((cell, i) => ({ cell, n: i + 1, livable: livable(cell) })))
+      layer.set(world, list.map((cell, i) => ({ cell, n: i + 1, livable: fate(i) === CradleOutcome.Placed })))
     }
     requestRender()
     deps.wake()
   }
   function changed() {
+    askPreview()
     render()
     session?.onChange?.(list.slice())
   }
@@ -197,6 +227,8 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
       list = s.cells.filter((c) => c >= 0).slice(0, session.max)
       bar.classList.remove('hidden')
       deps.canvas.classList.add('hearth-picking')
+      pv = null
+      askPreview()
       render()
     },
     stop() {

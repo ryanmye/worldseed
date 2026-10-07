@@ -2,7 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, World, WorldOptions } from './contract.ts'
-import { decodeOrders, encodeOrders } from './contract.ts'
+import { canonicalCradles, decodeCradles, decodeOrders, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -39,7 +39,7 @@ import { activeDioramaLayer } from './render/dioramas/layer.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
-import { canonicalCradles, cradleCount, decodeCradles, encodeCradles, type CradleOptions } from './ui/cradlesContract.ts'
+import { previewCradles } from './ui/cradlesData.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -64,7 +64,7 @@ import { canonicalCradles, cradleCount, decodeCradles, encodeCradles, type Cradl
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
-// c=<cradles> (the first hearths the player planted, cradlesContract.ts encodeCradles: a cell per people in people order,
+// c=<cradles> (the first hearths the player planted, contract.ts encodeCradles: a cell per people in people order,
 // -1 the simulation's choice): part of the history like o=; written at Start (the start page's "Choose where peoples
 // begin") and by the Nudge panel's "Replant the hearths", cleared with a new seed
 // intro=1 (show the start page, ui/landing.ts, even with other parameters: seed= and years= prefill its fields),
@@ -343,8 +343,8 @@ let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
 /** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
 let currentCradles: number[] = canonicalCradles(decodeCradles(params.get('c') ?? ''))
 /** The history options of the history asked for: its length, the orders and the cradles (undefined: all default). */
-function historyOptionsNow(years = historyYears): CradleOptions | undefined {
-  const o: CradleOptions = {}
+function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
+  const o: HistoryOptions = {}
   if (years !== 2000) o.years = years
   if (currentOrders.length > 0) o.orders = currentOrders
   if (currentCradles.length > 0) o.cradles = currentCradles
@@ -630,7 +630,6 @@ const historyView = createHistoryView(
     requestCradles,
     getCradles: () => currentCradles,
     hearths,
-    cradleMax: () => (currentWorld ? cradleCount(currentWorld) : 0),
     wake: () => wake(),
     setCloudsOverFog: (on) => {
       cloudsOverFog = on
@@ -1552,14 +1551,17 @@ if (showLanding) {
   landing.mountPlantBar(hearths.bar)
 }
 
-/** Planting on the start page: the globe takes the pointer (a drag turns it, no zoom), the slow turn stops, the picker starts (again, for a new world). */
-function startLandingPlanting() {
-  if (!landing || !currentWorld) return
+/** Planting on the start page: the globe takes the pointer (a drag turns it, no zoom), the slow turn stops, the picker starts (again, for a new world) once the world's people count is known. */
+async function startLandingPlanting() {
+  const w = currentWorld
+  if (!landing || !w) return
   spinning = false
   controls.enabled = true
   controls.enableZoom = false
+  const count = (await previewCradles(w, [])).count
+  if (!landing?.planting || currentWorld !== w) return
   hearths.start({
-    max: cradleCount(currentWorld),
+    max: count,
     cells: currentCradles,
     onDone(cells) {
       currentCradles = cells
