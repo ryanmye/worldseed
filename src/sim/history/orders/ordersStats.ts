@@ -249,6 +249,27 @@ export function story(h: History, k: number): string {
   return `${y0}: ${ask}: pending.`
 }
 
+/** Whether what order o asks happened anyway within its years in history h (without orders): the base rate of its kind. */
+export function happenedAnyway(w: World, h: History, o: Order): boolean {
+  const y0 = o.year, y1 = o.year + KINDS[o.kind].years
+  const t = o.target ?? -1, a = o.actor
+  const N = w.grid.cellCount
+  const inW = (y: number): boolean => y >= y0 && y <= y1
+  switch (o.kind) {
+    case OrderKind.Explore: { const k = h.knownYear[a * N + t]; return k >= 0 && k <= y1 }
+    case OrderKind.Settle: return h.settlements.some((x) => x.people === a && !x.outpost && inW(x.foundedYear) && chord(w, x.cell, t) <= 4 * hopOf(w))
+    case OrderKind.Crop: { const k = h.speciesYear[a * h.species.length + t]; return k >= 0 && k <= y1 }
+    case OrderKind.Idea: return ideasHeldAt(h, a, y1).indexOf(t) >= 0
+    case OrderKind.War: { const W = h.wars; for (let k = 0; k < W.count; k++) if (inW(W.startYear[k]) && ((W.attacker[k] === a && W.defender[k] === t) || (W.attacker[k] === t && W.defender[k] === a))) return true; return false }
+    case OrderKind.Peace: { const k = atWarAt(h, a, t, y0 - 1); return k >= 0 && h.wars.endYear[k] >= 0 && h.wars.endYear[k] <= y1 }
+    case OrderKind.Seat: { const P = h.polities[a]; for (let k = 0; k < P.capitals.length; k++) if (P.capitals[k] === t && inW(P.capitalYears[k])) return true; return false }
+    case OrderKind.Faith: return h.events.some((e) => e.type === EventType.RulerConverted && e.value === t && inW(e.year) && polAt(h, e.settlement, e.year) === a)
+    case OrderKind.Fortify: return h.structures.some((x) => x.type === StructureType.Walls && x.settlement === a && inW(x.builtYear))
+    case OrderKind.Quarantine: { const Q = h.quarantines; for (let i = 0; i < Q.settlement.length; i++) if (Q.settlement[i] === a && inW(Q.from[i])) return true; return false }
+  }
+  return false
+}
+
 interface Agg { pop: number; settlements: number; polities: number; wars: number; events: number; known: number }
 function aggregates(h: History): Agg {
   const y = h.years
@@ -272,7 +293,7 @@ function main(): void {
     else seeds.push(Number(args[i]))
   }
   const list = seeds.length > 0 ? seeds : HISTORY_STATS_SEEDS
-  const tally = KINDS.map(() => ({ n: 0, ok: 0, partly: 0, failed: 0, expired: 0, lag: [] as number[] }))
+  const tally = KINDS.map(() => ({ n: 0, ok: 0, partly: 0, failed: 0, expired: 0, lag: [] as number[], anyway: 0 }))
   const reasons = KINDS.map(() => new Map<string, number>())
   const diffs: Record<keyof Agg, number[]> = { pop: [], settlements: [], polities: [], wars: [], events: [], known: [] }
   const ctrl: Record<keyof Agg, number[]> = { pop: [], settlements: [], polities: [], wars: [], events: [], known: [] }
@@ -299,25 +320,27 @@ function main(): void {
         const o = orders[k], r = R[k]
         const T = tally[o.kind]
         T.n++
+        const anyway = happenedAnyway(w, base, o)
+        if (anyway) T.anyway++
         if (r.status === OrderStatus.Fulfilled) { T.ok++; T.lag.push(r.year - o.year) }
         else if (r.status === OrderStatus.Partly) T.partly++
         else if (r.status === OrderStatus.Failed) T.failed++
         else if (r.status === OrderStatus.Expired) T.expired++
         const key = STATUS[r.status] + ':' + REASON[r.reason]
         reasons[o.kind].set(key, (reasons[o.kind].get(key) ?? 0) + 1)
-        if (!quiet) console.log(`  ${KINDS[o.kind].key.padEnd(10)} ${STATUS[r.status].padEnd(9)} ${String(r.year).padStart(5)} ${REASON[r.reason].padEnd(13)} ${story(h, k)}`)
+        if (!quiet) console.log(`  ${KINDS[o.kind].key.padEnd(10)} ${STATUS[r.status].padEnd(9)} ${String(r.year).padStart(5)} ${REASON[r.reason].padEnd(13)} ${anyway ? 'anyway' : '      '} ${story(h, k)}`)
       }
       void EventType
     }
   }
-  console.log('\nkind        n  fulfilled  partly  failed  expired  median years   outcomes')
+  console.log('\nkind        n  fulfilled  partly  failed  expired  median years  anyway   outcomes   (anyway: it happened within the years without the order)')
   for (let i = 0; i < KINDS.length; i++) {
     const T = tally[i]
     if (T.n === 0) continue
     const lag = T.lag.slice().sort((a, b) => a - b)
     const med = lag.length ? lag[lag.length >> 1] : NaN
     const rs = [...reasons[i].entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')
-    console.log(`${KINDS[i].key.padEnd(10)} ${String(T.n).padStart(3)}  ${(T.ok / T.n * 100).toFixed(0).padStart(8)}%  ${String(T.partly).padStart(6)}  ${String(T.failed).padStart(6)}  ${String(T.expired).padStart(7)}  ${String(med).padStart(12)}   ${rs}`)
+    console.log(`${KINDS[i].key.padEnd(10)} ${String(T.n).padStart(3)}  ${(T.ok / T.n * 100).toFixed(0).padStart(8)}%  ${String(T.partly).padStart(6)}  ${String(T.failed).padStart(6)}  ${String(T.expired).padStart(7)}  ${String(med).padStart(12)}  ${(T.anyway / T.n * 100).toFixed(0).padStart(5)}%   ${rs}`)
   }
   const med = (a: number[]): number => { const b = a.slice().sort((x, y) => x - y); return b.length ? b[b.length >> 1] : NaN }
   const mabs = (a: number[]): number => med(a.map(Math.abs))
