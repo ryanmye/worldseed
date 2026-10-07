@@ -1384,7 +1384,16 @@ export const JourneyKind = {
 } as const
 export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
 
-/** Struct-of-arrays, sorted by departYear. Journey j follows cells path[pathOffsets[j] .. pathOffsets[j + 1]). */
+/** Longest a journey takes (History.journeys: arriveYear - departYear), in years (a migration on foot: migration.ts travelYears). */
+export const JOURNEY_MAX_TRAVEL = 10
+
+/**
+ * Struct-of-arrays in order of arrival (arriveYear ascending; journeys of one year in the order they happened), so a
+ * longer history's table begins with a shorter one's exactly: a journey index means the same journey after an
+ * extension. departYear is NOT sorted; it lies at most JOURNEY_MAX_TRAVEL years before arriveYear, so the journeys
+ * under way at year y are among those with arriveYear in [y, y + JOURNEY_MAX_TRAVEL] (a binary search on arriveYear).
+ * Journey j follows cells path[pathOffsets[j] .. pathOffsets[j + 1]).
+ */
 export interface Journeys {
   count: number
   /** Fractional year the group sets out; arriveYear - departYear grows with route length. */

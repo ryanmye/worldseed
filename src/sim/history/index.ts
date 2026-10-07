@@ -314,12 +314,13 @@ export interface HistoryRun {
 }
 
 /**
- * Sorts the recorded journeys by departYear (stable, so ties keep the order
- * they were recorded in during the run) and flattens them into the
- * struct-of-arrays contract shape, each array with its own buffer.
+ * Flattens the recorded journeys into the struct-of-arrays contract shape, each array with its own buffer, in the
+ * order they were recorded: every journey is recorded the year it ends (arriveYear), so the table is in order of
+ * arrival and a longer run's table begins with a shorter one's exactly. (Sorted by departYear, as it was, a journey
+ * that set out before a run's last year but arrived after it would come in between, re-indexing the later ones.)
  */
 function assembleJourneys(records: HistoryState['journeys']): Journeys {
-  const sorted = records.slice().sort((a, b) => a.departYear - b.departYear)
+  const sorted = records
   const count = sorted.length
   const departYear = new Float32Array(count)
   const arriveYear = new Float32Array(count)

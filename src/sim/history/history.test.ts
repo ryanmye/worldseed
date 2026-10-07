@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow } from '../../contract.ts'
+import { JOURNEY_MAX_TRAVEL, Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -497,7 +497,8 @@ function checkInvariants(w: World, h: History): void {
     return false
   }
   for (let j = 0; j < J.count; j++) {
-    if (j > 0) expect(J.departYear[j]).toBeGreaterThanOrEqual(J.departYear[j - 1])
+    if (j > 0) expect(J.arriveYear[j]).toBeGreaterThanOrEqual(J.arriveYear[j - 1]) // (in order of arrival: a strict prefix)
+    expect(J.arriveYear[j] - J.departYear[j]).toBeLessThanOrEqual(JOURNEY_MAX_TRAVEL)
     expect(J.departYear[j]).toBeLessThanOrEqual(J.arriveYear[j])
     expect(J.departYear[j]).toBeGreaterThanOrEqual(h.settlements[J.from[j]].foundedYear)
     expect(J.size[j]).toBeGreaterThan(0)
@@ -951,14 +952,14 @@ function expectPrefix(short: History, long: History): void {
   for (const [x, y] of [[short.landUse, long.landUse], [short.degradation, long.degradation], [short.road, long.road]]) {
     for (let i = 0; i < short.landSnapshotCount * N; i++) if (x[i] !== y[i]) throw new Error(`land snapshot differs at ${i}`)
   }
-  // Events up to Y in the same order; journeys arriving by Y in the same order.
+  // Events up to Y in the same order; journeys arriving by Y at the same indices (the table is a strict prefix).
   const evL = long.events.filter((e) => e.year <= Y)
   expect(evL.length).toBe(short.events.length)
   for (let i = 0; i < evL.length; i++) expect(evL[i]).toEqual(short.events[i])
   const J0 = short.journeys, J1 = long.journeys
   let j1 = 0
   for (let j = 0; j < J0.count; j++) {
-    while (J1.arriveYear[j1] > Y) j1++
+    expect(j1).toBe(j)
     expect([J1.departYear[j1], J1.arriveYear[j1], J1.from[j1], J1.to[j1], J1.size[j1], J1.kind[j1]]).toEqual([J0.departYear[j], J0.arriveYear[j], J0.from[j], J0.to[j], J0.size[j], J0.kind[j]])
     expect(Array.from(J1.path.subarray(J1.pathOffsets[j1], J1.pathOffsets[j1 + 1]))).toEqual(Array.from(J0.path.subarray(J0.pathOffsets[j], J0.pathOffsets[j + 1])))
     j1++
