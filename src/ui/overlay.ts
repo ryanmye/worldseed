@@ -17,6 +17,8 @@ import { GOOD_NAMES } from './format.ts'
 import { addShortcut, shortcutList } from './shortcuts.ts'
 import { loadFlag, loadPref, saveFlag, savePref, titleWhenCut } from './panels.ts'
 import './trade.css'
+import { creditsButton, fillCredits } from './credits.ts'
+import './credits.css'
 
 export interface Readout {
   biome: Biome
@@ -289,7 +291,8 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   mapBtn.addEventListener('click', () => callbacks.onProjectionChange?.(true))
   topBar.append(seedLabel, randomBtn)
   if (callbacks.onProjectionChange) topBar.append(projSwitch)
-  topBar.append(settingsBtn, helpBtn)
+  const creditsBtn = creditsButton()
+  topBar.append(settingsBtn, helpBtn, creditsBtn)
 
   // ---------- popovers ----------
   const makePopover = (cls: string, title: string) => {
@@ -309,6 +312,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   }
   const settingsPop = makePopover('settings-pop', 'Sun and quality')
   const helpPop = makePopover('help-pop', 'Help')
+  const creditsPop = makePopover('credits-pop', 'Credits')
+  creditsBtn.setAttribute('aria-controls', creditsPop.p.id)
+  creditsBtn.setAttribute('aria-expanded', 'false')
   settingsBtn.setAttribute('aria-controls', settingsPop.p.id)
   helpBtn.setAttribute('aria-controls', helpPop.p.id)
   settingsBtn.setAttribute('aria-expanded', 'false')
@@ -316,6 +322,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const popovers: [HTMLElement, HTMLButtonElement][] = [
     [settingsPop.p, settingsBtn],
     [helpPop.p, helpBtn],
+    [creditsPop.p, creditsBtn],
   ]
   let openPop: HTMLElement | null = null
   function closePopover(returnFocus: boolean) {
@@ -332,6 +339,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     closePopover(false)
     if (was) return
     if (p === helpPop.p) fillHelp()
+    if (p === creditsPop.p) fillCredits(creditsPop.body)
     const btn = popovers.find(([q]) => q === p)?.[1]
     p.classList.remove('hidden')
     btn?.setAttribute('aria-expanded', 'true')
@@ -341,6 +349,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   }
   settingsBtn.addEventListener('click', () => togglePopover(settingsPop.p))
   helpBtn.addEventListener('click', () => togglePopover(helpPop.p))
+  creditsBtn.addEventListener('click', () => togglePopover(creditsPop.p))
   document.addEventListener(
     'pointerdown',
     (e) => {
@@ -589,7 +598,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const bottom = document.createElement('div')
   bottom.className = 'bottom-slot'
 
-  root.append(left, right, bottom, readoutPanel, settingsPop.p, helpPop.p, loadingOverlay)
+  root.append(left, right, bottom, readoutPanel, settingsPop.p, helpPop.p, creditsPop.p, loadingOverlay)
   container.appendChild(root)
 
   // A control clicked with the mouse lets go of the focus, so Space goes back to play /
@@ -698,6 +707,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   })
   addShortcut({ keys: ['l', 'L'], label: 'L', description: 'Show or hide the layers', group: 'Panels', run: () => toggleLayers() })
   addShortcut({ keys: ['s', 'S'], label: 'S', description: 'Sun and quality settings', group: 'Panels', run: () => togglePopover(settingsPop.p) })
+  addShortcut({ keys: ['j', 'J'], label: 'J', description: 'Credits and licence', group: 'Panels', run: () => togglePopover(creditsPop.p) })
   addShortcut({ keys: ['?'], label: '?', description: 'This help', group: 'Panels', run: () => togglePopover(helpPop.p) })
   const unavailable = new Set<ViewMode>()
   const stepMode = (dir: number) => {

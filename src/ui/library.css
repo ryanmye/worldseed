@@ -1,0 +1,265 @@
+/* The Library: every saga read as a book, full screen (library.ts) */
+
+.lib {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: rgba(9, 12, 19, 0.97);
+  color: var(--text);
+}
+.lib.hidden {
+  display: none;
+}
+.lib-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.lib-heading {
+  margin: 0 auto 0 0;
+  font-family: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.lib-register {
+  margin-right: 0;
+}
+.lib-told {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.lib-told-input {
+  width: 64px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 5px;
+}
+.lib-step {
+  min-width: 28px;
+}
+.lib-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.lib-close:hover {
+  color: var(--text);
+}
+.lib-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+.lib-toc {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--panel-border);
+  padding: 10px 0 10px 12px;
+}
+.lib-find {
+  margin: 0 12px 8px 0;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 7px;
+}
+.lib-toc-list {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding-right: 8px;
+  min-height: 0;
+}
+.lib-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+.lib-group:first-child {
+  margin-top: 2px;
+}
+.lib-group .lib-more {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+.lib-group .lib-century {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  padding: 1px 4px;
+}
+.lib-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.lib-entry {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 3px 6px;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.lib-entry:hover {
+  background: var(--ctl-bg-hover);
+}
+.lib-entry.on {
+  background: rgba(95, 184, 217, 0.22);
+  color: #f4f6fb;
+}
+.lib-entry.dim .lib-entry-name {
+  color: var(--text-faint);
+}
+.lib-entry-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-entry-years {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+.lib-page {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 28px 24px 40px;
+}
+.lib-text {
+  max-width: 680px;
+  margin: 0 auto;
+  overflow: visible;
+  font-size: 16.5px;
+  line-height: 1.68;
+  color: var(--text);
+}
+.lib-text .sg-title {
+  font-size: 26px;
+  margin: 0 0 8px;
+}
+.lib-text .sg-head {
+  margin: 1.7em 0 0.5em;
+  font-size: 12.5px;
+}
+.lib-foot {
+  max-width: 680px;
+  margin: 28px auto 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+.lib-foot-next {
+  margin-left: auto;
+}
+.lib-foot-map {
+  flex-basis: 100%;
+  text-align: center;
+}
+body.lib-open .side-column,
+body.lib-open .timeline {
+  visibility: hidden;
+}
+
+/* scenes, omens and cross-references (the panel and the reading view too) */
+.sg-scene-title {
+  margin: 1.1em 0 0.3em;
+  font-family: inherit;
+  font-size: 0.95em;
+  font-style: italic;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+.sg-scene {
+  border-left: 2px solid rgba(217, 168, 95, 0.55);
+  padding-left: 12px;
+}
+.sg-omen {
+  font-style: italic;
+  color: #c9c2e8;
+  border-left: 2px solid rgba(160, 140, 230, 0.5);
+  padding-left: 12px;
+}
+.sg-ref {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(95, 184, 217, 0.6);
+}
+.sg-ref:hover {
+  color: var(--focus);
+}
+
+/* the chronicle's "Tell this decade" */
+.lib-decade-link {
+  align-self: flex-start;
+  margin: 2px 0 4px 2px;
+  font-size: 11px;
+}
+.chronicle.collapsed .lib-decade-link {
+  display: none;
+}
+.sg-library {
+  align-self: flex-start;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .lib-main {
+    flex-direction: column;
+  }
+  .lib-toc {
+    flex: 0 0 auto;
+    max-height: 34vh;
+    border-right: none;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .lib-page {
+    padding: 18px 16px 32px;
+  }
+  .lib-text {
+    font-size: 15.5px;
+  }
+}

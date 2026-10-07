@@ -1,0 +1,312 @@
+/* The start page (ui/landing.ts): dark and plain under the app's starry sky, above the app's canvas. html.landing-mode while it shows,
+   .landing-leaving during the hand-over to the app, .ui-veiled while the app's bars wait to fade in. */
+
+html.landing-mode {
+  color-scheme: dark;
+  --landing-text: #eef1f6;
+  --landing-text-2: #b4bccb;
+  --landing-faint: #8e98aa;
+  --landing-line: rgba(255, 255, 255, 0.18);
+  --landing-line-hover: rgba(255, 255, 255, 0.32);
+  --landing-field: rgba(10, 14, 22, 0.72);
+  --landing-accent: #7cc6e6;
+  /* the planet's disc: the slot reserved for it, so nothing moves when it appears */
+  --disc: min(92vw, 94vh, 1080px);
+  /* the app's dark (its canvas's clear colour, main.ts SPACE_BG) */
+  background: #010205;
+  height: auto;
+  overflow: auto;
+  overflow-x: hidden;
+}
+html.landing-mode body {
+  position: relative;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+  background: transparent;
+}
+/* the app under the page: as tall as the page, clipping the window-sized canvas placed in it */
+html.landing-mode #app {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  z-index: 0;
+}
+html.landing-mode #globe-canvas {
+  bottom: auto;
+  right: auto;
+  pointer-events: none;
+  touch-action: auto !important;
+}
+/* the sky (landing.ts): the stars fixed to the window, screened over the planet's canvas, a hole over the disc */
+.landing-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  -webkit-mask-image: var(--hole, none);
+  mask-image: var(--hole, none);
+}
+.landing-sky-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+html.landing-leaving .landing-sky {
+  position: fixed;
+}
+html.landing-leaving #globe-canvas {
+  position: fixed;
+  will-change: transform;
+}
+/* the app's bars: laid out on the window (so the free rect is measured right) but hidden until they fade in */
+html.landing-mode .overlay {
+  position: fixed;
+}
+html.ui-veiled #app > :not(#globe-canvas) {
+  opacity: 0;
+  visibility: hidden;
+}
+html.landing-mode #app > :not(#globe-canvas) {
+  transition: opacity 0.6s ease, visibility 0s linear 0s;
+}
+
+.landing {
+  position: relative;
+  z-index: 1;
+  color: var(--landing-text);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  transition: opacity 0.4s ease;
+}
+html.landing-leaving .landing {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.landing-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 18px 24px;
+}
+.landing-site {
+  color: var(--landing-faint);
+  font-size: 14px;
+  text-decoration: none;
+}
+.landing-site:hover {
+  color: var(--landing-text);
+  text-decoration: underline;
+}
+
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* the disc's top 40 % shows at the bottom of the first screen */
+  min-height: calc(100vh - 0.4 * var(--disc));
+  padding: 64px 16px 28px;
+  text-align: center;
+}
+.landing-title {
+  margin: 0;
+  font-size: clamp(40px, 7vw, 68px);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+.landing-subtitle {
+  margin: 12px 0 0;
+  max-width: 34em;
+  color: var(--landing-text-2);
+  font-size: clamp(15px, 2.2vw, 18px);
+}
+
+.landing-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(460px, 100%);
+  margin-top: 32px;
+}
+.landing-fields {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 12px;
+  text-align: left;
+}
+.landing-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.landing-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--landing-faint);
+}
+.landing-input-row {
+  display: flex;
+  gap: 8px;
+}
+.landing-input-row .landing-input {
+  flex: 1;
+}
+.landing-input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--landing-line);
+  border-radius: 8px;
+  background: var(--landing-field);
+  color: var(--landing-text);
+  font: inherit;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.landing-input:hover {
+  border-color: var(--landing-line-hover);
+}
+.landing-input:focus {
+  outline: none;
+  border-color: var(--landing-accent);
+  box-shadow: 0 0 0 3px rgba(124, 198, 230, 0.3);
+}
+.landing-input[aria-invalid='true'] {
+  border-color: #e0785f;
+}
+.landing-dice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--landing-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--landing-text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.landing-dice:hover {
+  border-color: var(--landing-line-hover);
+  background: rgba(255, 255, 255, 0.12);
+}
+.landing-start {
+  height: 50px;
+  border: 0;
+  border-radius: 8px;
+  background: #f4f6fa;
+  color: #0a0d14;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.landing-start:hover {
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
+}
+.landing :focus-visible {
+  outline: 2px solid var(--landing-accent);
+  outline-offset: 2px;
+}
+.landing-input:focus-visible {
+  outline: none;
+}
+.landing-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- the planet's slot ---------- */
+.landing-globe {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 56px;
+}
+.landing-disc {
+  position: relative;
+  width: var(--disc);
+  height: var(--disc);
+  flex: none;
+}
+.landing-shimmer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: linear-gradient(110deg, #0b0f18 30%, #182131 45%, #0b0f18 60%) 0 0 / 300% 100%;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.landing-globe.landing-loading .landing-shimmer {
+  opacity: 1;
+  animation: landing-shimmer 1.6s linear infinite;
+}
+@keyframes landing-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+/* ---------- about ---------- */
+.landing-about {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 8px 24px 96px;
+}
+.landing-h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.landing-p {
+  margin: 0 0 12px;
+  color: var(--landing-text-2);
+}
+@media (max-width: 640px) {
+  .landing-header {
+    padding: 14px 16px;
+  }
+  .landing-fields {
+    grid-template-columns: 1fr;
+  }
+  .landing-about {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 0 16px 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-globe.landing-loading .landing-shimmer {
+    animation: none;
+  }
+  .landing,
+  html.landing-mode #app > :not(#globe-canvas) {
+    transition-duration: 0.2s;
+  }
+}

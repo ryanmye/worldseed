@@ -35,6 +35,8 @@ import { createCityCard } from './ui/cityCard.ts'
 import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/layer.ts'
+import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
+import { setShortcutsEnabled } from './ui/shortcuts.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -59,8 +61,15 @@ import { activeDioramaLayer } from './render/dioramas/layer.ts'
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
+// intro=1 (show the start page, ui/landing.ts, even with other parameters: seed= and years= prefill its fields),
+// intro=0 (skip it). Without intro the start page shows at the bare URL only: any parameter at all opens the app
+// directly, so shared links keep working. After Start the address gains seed= (and years= when not 2000), intro is dropped.
 
 const params = new URLSearchParams(window.location.search)
+/** The start page comes first (see intro= above). */
+const showLanding = params.get('intro') === '1' || (params.get('intro') !== '0' && [...params.keys()].every((k) => k === 'intro'))
+/** While the start page shows, the address the app writes is kept here and only applied at Start (the bare URL stays bare). */
+let heldUrl: URL | null = showLanding ? new URL(window.location.href) : null
 
 function numParam(name: string, fallback: number, min = -Infinity, max = Infinity): number {
   const raw = params.get(name)
@@ -79,10 +88,10 @@ function seedFromUrl(): number {
 }
 
 function setUrlParam(name: string, value: string | null) {
-  const url = new URL(window.location.href)
+  const url = heldUrl ?? new URL(window.location.href)
   if (value === null) url.searchParams.delete(name)
   else url.searchParams.set(name, value)
-  window.history.replaceState(null, '', url)
+  if (!heldUrl) window.history.replaceState(null, '', url)
 }
 
 const WORLD_OPTIONS: WorldOptions = { subdivisions: Math.round(numParam('sub', 48, 4, 160)) }
@@ -150,7 +159,7 @@ function groundUnder(x: number, y: number, z: number): number {
 if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings && !mapOn && flat.t === 0, groundUnder) // leans the view toward the horizon up close
 
 // The planet turns beneath a sun fixed in world space; the first drag stops it.
-let spinning = numParam('spin', 1) !== 0
+let spinning = showLanding || numParam('spin', 1) !== 0
 const SPIN_SPEED = 0.05 // rad/s
 const fly = createCameraFly(camera)
 controls.addEventListener('start', () => {
@@ -197,7 +206,8 @@ const MORPH_SECONDS = 0.8
 const MAP_BG = new THREE.Color(0x0b1016)
 const SPACE_BG = new THREE.Color(0x010205)
 const clearTmp = new THREE.Color()
-let mapOn = params.has('map') ? params.get('map') === '1' : loadPref(MAP_KEY) === '1'
+// (the start page shows the globe: a remembered map comes back after Start)
+let mapOn = showLanding ? false : params.has('map') ? params.get('map') === '1' : loadPref(MAP_KEY) === '1'
 // (remembered on: written to the URL, so the address reproduces the view)
 if (mapOn && !params.has('map')) setUrlParam('map', '1')
 /** Morph progress toward the map (0 globe .. 1 map), eased into flat.t. */
@@ -336,6 +346,7 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
   if (msg.type === 'world') {
     overlay.setGenerating(false)
     showWorld(msg.world)
+    landing?.setLoading(false)
   } else if (msg.type === 'progress') {
     historyView.setSimProgress(msg.years, msg.target, resimYear >= 0 ? resimLabel : undefined)
   } else if (msg.type === 'history') {
@@ -369,12 +380,19 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
 
 /** Length of the initial history: years= (default 2000), or long enough for a start year= past it; in whole chunks, capped. */
 function initialYears(): number {
-  const want = Math.max(numParam('years', 2000, 1, MAX_YEARS), numParam('year', 0, 0, MAX_YEARS))
+  return wholeChunks(Math.max(numParam('years', 2000, 1, MAX_YEARS), numParam('year', 0, 0, MAX_YEARS)))
+}
+/** A history length asked for, in whole chunks, capped (as years= is read). */
+function wholeChunks(want: number): number {
   return Math.min(MAX_YEARS, Math.max(HISTORY_CHUNK_YEARS, Math.ceil(want / HISTORY_CHUNK_YEARS - 1e-9) * HISTORY_CHUNK_YEARS))
 }
 let historyYears = initialYears()
 
-function requestWorld(seed: number) {
+/** The request id of the latest world asked for without its history (the start page), -1 none. */
+let worldOnlyId = -1
+
+/** `worldOnly`: the world without its history (the start page; the history follows at Start, startHistory). */
+function requestWorld(seed: number, worldOnly = false) {
   overlay.setGenerating(true)
   overlay.setReadout(null)
   if (extending) {
@@ -393,8 +411,29 @@ function requestWorld(seed: number) {
     firstYears: historyYears > 2000 ? 2000 : undefined,
     nocache: params.get('nocache') === '1' || undefined,
     cachecheck: params.get('cachecheck') === '1' || undefined,
+    worldOnly: worldOnly || undefined,
   }
+  worldOnlyId = worldOnly ? requestId : -1
   worker.postMessage(req)
+}
+
+/** Start on the start page: the history of the world shown there (or asked for), `historyYears` long. */
+function startHistory(seed: number) {
+  if (seed !== currentSeed || worldOnlyId !== requestId) {
+    currentSeed = seed
+    overlay.setSeed(seed)
+    requestWorld(seed)
+    return
+  }
+  worldOnlyId = -1
+  worker.postMessage({
+    type: 'history',
+    requestId,
+    historyOptions: historyYears === 2000 ? undefined : { years: historyYears },
+    firstYears: historyYears > 2000 ? 2000 : undefined,
+    nocache: params.get('nocache') === '1' || undefined,
+    cachecheck: params.get('cachecheck') === '1' || undefined,
+  } satisfies WorkerRequest)
 }
 
 /**
@@ -423,7 +462,8 @@ function requestYears(years: number, full = false) {
 
 // ---------- UI ----------
 
-let currentSeed = seedFromUrl()
+// (the start page: the seed given, else a random one)
+let currentSeed = showLanding && !params.has('seed') ? randomSeed() : seedFromUrl()
 
 function clearHistoryParams() {
   setUrlParam('year', null)
@@ -722,7 +762,7 @@ if (mapOn) {
 syncMapUi()
 
 setUrlParam('seed', String(currentSeed))
-requestWorld(currentSeed)
+requestWorld(currentSeed, showLanding)
 
 // ---------- pointer: terrain readout on hover, settlement hover/click ----------
 
@@ -1114,7 +1154,7 @@ for (const type of ['pointerup', 'click', 'keydown', 'input', 'change'] as const
 
 const cloudsDrift = () => qs.cloudsAnimate !== 'never' && currentClouds !== null && currentClouds.mesh.visible
 /** Cloud drift alone keeps the page drawing (High quality only). */
-const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift() && !cityView.engaged
+const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift() && !cityView.engaged && !landingIdle
 
 /** Frames per second at which the auto-rotation / cloud drift moves the surface by ~0.6 CSS px per frame. */
 function ambientFps(): number {
@@ -1134,7 +1174,9 @@ function ambientFps(): number {
 function syncViewportOffset() {
   const inset = getFreeViewportInset()
   const w = window.innerWidth, h = window.innerHeight
-  camera.setViewOffset(w, h, (inset.right - inset.left) / 2, (inset.bottom - inset.top) / 2, w, h)
+  // (on the start page the planet is centred on the canvas; the hand-over moves it to the free rect's centre)
+  const k = landingGeom
+  camera.setViewOffset(w, h, (k * (inset.right - inset.left)) / 2, (k * (inset.bottom - inset.top)) / 2, w, h)
   camera.updateProjectionMatrix()
 }
 
@@ -1181,7 +1223,8 @@ function updateFlat() {
   atmosphere.mesh.visible = t < 0.45
   atmosphere.setStrength(atmosphereStrength * (1 - Math.min(1, t / 0.45)))
   stars.visible = t < 0.5
-  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - Math.min(1, t / 0.5)
+  // (on the start page the page's sky shows the stars, landing.ts; the canvas's own, the same, once it is over)
+  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value = landing ? 0 : 1 - Math.min(1, t / 0.5)
   if (currentClouds) currentClouds.mesh.visible = (t >= 0.5 ? showMapClouds : showClouds) && terrain
   mapFrame.neatline.visible = t > 0.5
   mapFrame.graticule.visible = t > 0.5 && showGraticule
@@ -1198,6 +1241,11 @@ function draw(ts: number) {
     const tr = performance.now()
     applySize()
     traceAdd('resize', performance.now() - tr)
+  }
+  if (landing) {
+    landingFrame(ts)
+    const sky = landing?.takeSky()
+    if (sky) drawLandingSky(sky)
   }
   // near plane follows the height above the ground, so the ground up close is not clipped
   const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundUnder(camera.position.x, camera.position.y, camera.position.z)) * 0.12))
@@ -1307,7 +1355,8 @@ function frameBody(ts: number) {
   cameraChanged = false
   const sunMoved = updateSun(camera)
 
-  const requested = consumeRenderRequest() || carryRequest
+  // (the start page's hand-over to the app: every frame)
+  const requested = consumeRenderRequest() || carryRequest || landing?.leaving === true
   carryRequest = false
   const interacting = camMoved || flying
   // frames drawn one after another for input (dragging the timeline, a held key): motion too
@@ -1371,6 +1420,113 @@ function frameBody(ts: number) {
     // the motion paused: wait the moment out (no drawing), then one frame at full resolution
     rafId = requestAnimationFrame(frame)
   } else sleep()
+}
+
+// ---------- the start page (ui/landing.ts) ----------
+// The planet lies in the page, centred on its own canvas, the camera set back so the disc fills the page's slot;
+// at Start the camera comes in to the app's distance and the centre moves to the free rect's (landingFrame).
+
+/** Geometry from the start page (0) to the app (1). */
+let landingGeom = showLanding ? 0 : 1
+/** The page is scrolled away from the planet: no slow turn, no cloud drift. */
+let landingIdle = false
+const APP_DIST = 3.25
+let landing: Landing | null = null
+if (showLanding) {
+  controls.enabled = false
+  setShortcutsEnabled(false)
+  landing = createLanding({
+    canvas,
+    seed: currentSeed,
+    years: Math.min(YEARS_MAX, Math.max(YEARS_MIN, numParam('years', 2000))),
+    onSeed(seed) {
+      currentSeed = seed
+      overlay.setSeed(seed)
+      setUrlParam('seed', String(seed))
+      landing?.setLoading(true)
+      requestWorld(seed, true)
+    },
+    onStart(seed, years) {
+      // the address: what the app wrote meanwhile, with the seed and the years chosen
+      const url = heldUrl ?? new URL(window.location.href)
+      heldUrl = null
+      url.searchParams.delete('intro')
+      url.searchParams.set('seed', String(seed))
+      if (years === 2000) url.searchParams.delete('years')
+      else url.searchParams.set('years', String(years))
+      window.history.replaceState(null, '', url)
+      historyYears = wholeChunks(years)
+      startHistory(seed)
+      landingIdle = false
+      spinning = numParam('spin', 1) !== 0
+      overlay.relayout()
+    },
+    onVisible(visible) {
+      if (landing?.leaving) return
+      landingIdle = !visible
+      spinning = visible
+      wake()
+    },
+    wake() {
+      requestRender()
+      wake()
+    },
+  })
+  landing.setLoading(currentWorld === null)
+}
+/** One frame of the start page: the camera's distance and the view's centre between the page's and the app's. */
+function landingFrame(ts: number) {
+  if (!landing) return
+  const f = landing.frame(ts)
+  landingGeom = f.geom
+  // the disc's radius (a fraction of the half-height) eased between the two, and the distance that shows it so
+  const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+  const rhoApp = 1 / (Math.sqrt(APP_DIST * APP_DIST - 1) * tanHalf)
+  const rho = landing.discRho() + (rhoApp - landing.discRho()) * f.geom
+  camera.position.setLength(Math.sqrt(1 + 1 / (rho * tanHalf) ** 2))
+  syncViewportOffset()
+  // the page's sky keeps its hole over the planet as it moves (the view offset moves the image the other way)
+  const inset = getFreeViewportInset()
+  const h = window.innerHeight
+  landing.setDisc((-f.geom * (inset.right - inset.left)) / 2, (-f.geom * (inset.bottom - inset.top)) / 2, (rho * h) / 2)
+  if (f.done) {
+    landing = null
+    landingGeom = 1
+    controls.enabled = !mapOn && !cityView.engaged
+    setShortcutsEnabled(true)
+    // a remembered map comes back (the start page showed the globe)
+    if (!params.has('map') && loadPref(MAP_KEY) === '1') setMapMode(true)
+  }
+}
+
+/**
+ * The start page's sky: the app's starfield alone, as the app will show it (the camera at the app's distance, the
+ * view centred on the free rect), drawn straight onto the canvas (on black: the page screens it onto the planet's
+ * canvas) and copied at once into the page's sky canvas, before the frame itself is drawn over it.
+ */
+const skyScene = new THREE.Scene()
+function drawLandingSky(out: HTMLCanvasElement) {
+  const fade = (stars.material as THREE.ShaderMaterial).uniforms.uFade
+  const was = fade.value
+  const len = camera.position.length()
+  const geom = landingGeom
+  fade.value = 1
+  camera.position.setLength(APP_DIST)
+  landingGeom = 1
+  syncViewportOffset()
+  skyScene.add(stars)
+  renderer.setRenderTarget(null)
+  renderer.setClearColor(0x000000, 1)
+  renderer.render(skyScene, camera)
+  const src = renderer.domElement
+  out.width = src.width
+  out.height = src.height
+  out.getContext('2d')?.drawImage(src, 0, 0)
+  scene.add(stars)
+  fade.value = was
+  camera.position.setLength(len)
+  landingGeom = geom
+  syncViewportOffset()
 }
 
 applyQuality(quality)

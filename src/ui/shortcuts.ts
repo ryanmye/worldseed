@@ -20,6 +20,12 @@ export interface Shortcut {
 
 const shortcuts: Shortcut[] = []
 let installed = false
+/** Off while the start page shows (ui/landing.ts): the app's keys wait until it is entered. */
+let enabled = true
+
+export function setShortcutsEnabled(on: boolean): void {
+  enabled = on
+}
 
 function isTyping(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false
@@ -43,7 +49,7 @@ function ownedByControl(t: EventTarget | null, key: string): boolean {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
+  if (!enabled || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
   if (isTyping(e.target)) {
     if (e.key === 'Escape') (e.target as HTMLElement).blur()
     return
