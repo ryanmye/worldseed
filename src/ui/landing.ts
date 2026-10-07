@@ -17,6 +17,12 @@
 // not move; at the end the canvas's own stars, the same ones in the same places, take over. A new seed in the field asks main.ts for that world (debounced; a shimmer over
 // the slot meanwhile); the world is generated in the worker without its history.
 //
+// Planting (the button under Start, "Choose where peoples begin"): the page scrolls the planet into full view and hands
+// the globe to main.ts's hearth picker (ui/hearthPicker.ts, its bar placed over the disc): the canvas takes the pointer
+// (a drag turns the globe, a click plants or takes away a numbered hearth), the slow turn stops. Done (or Esc, or the
+// button again) leaves it; the button then says how many hearths are planted. Start passes them on (main.ts: the
+// history's cradles, c= in the address).
+//
 // Start (or Enter in a field): main.ts starts the history at once, and the page hands over to the app in about
 // 1.2 s (frame(), driven by the render loop so the canvas, the camera and the colours move in the same frame):
 // the canvas is fixed to the window at its current place on screen and slides to the top, while main.ts moves the
@@ -36,6 +42,10 @@ const UI = {
   yearsLabel: 'Years',
   yearsHint: 'How many years of history to simulate (200 to 6000)',
   start: 'Start',
+  plant: 'Choose where peoples begin',
+  plantDone: 'Done planting',
+  planted: (n: number) => `${n} ${n === 1 ? 'hearth' : 'hearths'} planted · change`,
+  plantTitle: 'Plant the first hearths: click places on the globe where the first peoples begin',
 }
 
 /** The years field's range (the timeline extends further later, to the app's MAX_YEARS). */
@@ -65,6 +75,8 @@ export interface LandingDeps {
   onVisible(visible: boolean): void
   /** Something on the page changed what the canvas shows (its place, the colours): draw. */
   wake(): void
+  /** Planting the first hearths begins (true; the page has scrolled the planet into view) or ends (false: Start, or the button again). */
+  onPlant?(on: boolean): void
 }
 
 export interface Landing {
@@ -80,6 +92,11 @@ export interface Landing {
   readonly leaving: boolean
   /** The state of the hand-over at time `ts` (also places the canvas and colours the page). */
   frame(ts: number): LandingFrame
+  /** The hearth picker's bar, placed over the planet's disc. */
+  mountPlantBar(bar: HTMLElement): void
+  /** Planting is over (Done in the bar, Esc): the page is a page again; `planted` hearths are kept. */
+  endPlanting(planted: number): void
+  readonly planting: boolean
 }
 
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2)
@@ -157,7 +174,11 @@ export function createLanding(deps: LandingDeps): Landing {
 
   const start = el('button', 'landing-start', UI.start)
   start.type = 'submit'
-  form.append(fields, start)
+  const plantBtn = el('button', 'landing-plant', UI.plant)
+  plantBtn.type = 'button'
+  plantBtn.title = UI.plantTitle
+  plantBtn.setAttribute('aria-pressed', 'false')
+  form.append(fields, start, plantBtn)
   hero.append(title, subtitle, form)
 
   // ---------- the planet's slot ----------
@@ -266,10 +287,32 @@ export function createLanding(deps: LandingDeps): Landing {
     })
   }
 
+  // ---------- planting the first hearths ----------
+  let planting = false
+  let planted = 0
+  const syncPlant = () => {
+    plantBtn.textContent = planting ? UI.plantDone : planted > 0 ? UI.planted(planted) : UI.plant
+    plantBtn.setAttribute('aria-pressed', String(planting))
+    doc.classList.toggle('landing-planting', planting)
+  }
+  function setPlanting(on: boolean) {
+    if (on === planting || leaving) return
+    planting = on
+    syncPlant()
+    if (on) {
+      const r = disc.getBoundingClientRect()
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      window.scrollTo({ top: Math.max(0, r.top + window.scrollY + r.height / 2 - window.innerHeight / 2), behavior: reduce ? 'auto' : 'smooth' })
+    }
+    deps.onPlant?.(on)
+  }
+  plantBtn.addEventListener('click', () => setPlanting(!planting))
+
   // ---------- Start and the hand-over ----------
   form.addEventListener('submit', (e) => {
     e.preventDefault()
     if (leaving) return
+    if (planting) setPlanting(false)
     const s = parseSeed()
     if (s === null) {
       seedInput.focus()
@@ -313,6 +356,22 @@ export function createLanding(deps: LandingDeps): Landing {
     discRho: () => disc.getBoundingClientRect().height / Math.max(1, window.innerHeight),
     setLoading(on) {
       slot.classList.toggle('landing-loading', on)
+      plantBtn.disabled = on && !planting
+    },
+    mountPlantBar(bar) {
+      bar.classList.remove('in-app')
+      bar.classList.add('in-landing')
+      disc.appendChild(bar)
+    },
+    endPlanting(n) {
+      planted = n
+      if (planting) {
+        planting = false
+        syncPlant()
+      } else syncPlant()
+    },
+    get planting() {
+      return planting
     },
     takeSky() {
       if (!skyDirty) return null

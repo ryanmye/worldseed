@@ -222,6 +222,43 @@ html.landing-leaving .landing {
   background: #fff;
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
 }
+.landing-plant {
+  align-self: center;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--landing-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--landing-text-2);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+.landing-plant:hover:not(:disabled) {
+  border-color: rgba(255, 196, 110, 0.6);
+  color: var(--landing-text);
+}
+.landing-plant[aria-pressed='true'] {
+  border-color: #ffcf8a;
+  color: #ffcf8a;
+}
+.landing-plant:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* planting the first hearths (landing.ts, ui/hearthPicker.ts): the planet takes the pointer, the page around it keeps it */
+html.landing-planting #globe-canvas {
+  pointer-events: auto;
+  touch-action: none !important;
+}
+html.landing-planting .landing {
+  pointer-events: none;
+}
+html.landing-planting .landing-header,
+html.landing-planting .landing-hero,
+html.landing-planting .landing-about {
+  pointer-events: auto;
+}
 .landing :focus-visible {
   outline: 2px solid var(--landing-accent);
   outline-offset: 2px;
