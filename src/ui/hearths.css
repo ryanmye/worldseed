@@ -1,0 +1,88 @@
+/* Planting the first hearths (ui/hearthPicker.ts): the bar with the hint, the note, Clear and Done; on the start page
+   it sits over the top of the planet's disc (.in-landing), in the app at the top of the free view (.in-app). */
+
+#globe-canvas.hearth-picking {
+  cursor: crosshair !important;
+}
+.hearth-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px 10px;
+  border-radius: 10px;
+  background: rgba(10, 13, 20, 0.9);
+  border: 1px solid rgba(255, 196, 110, 0.5);
+  color: #f3eadb;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  max-width: min(560px, calc(100vw - 32px));
+}
+.hearth-bar.hidden {
+  display: none;
+}
+.hearth-note {
+  color: #c9bfae;
+  font-size: 12px;
+}
+.hearth-note:empty {
+  display: none;
+}
+.hearth-note.hearth-warn {
+  color: #ff8f80;
+}
+.hearth-tools {
+  display: flex;
+  gap: 8px;
+}
+.hearth-btn {
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.hearth-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+.hearth-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.hearth-btn.hearth-done {
+  background: #ffcf8a;
+  border-color: #ffcf8a;
+  color: #1a1206;
+  font-weight: 600;
+}
+.hearth-btn.hearth-done:hover {
+  background: #ffdca8;
+}
+.hearth-btn:focus-visible {
+  outline: 2px solid #ffcf8a;
+  outline-offset: 2px;
+}
+.hearth-bar.in-landing {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  width: max-content;
+}
+.hearth-bar.in-app {
+  position: fixed;
+  top: 76px; /* (under the seed bar, as the Nudge panel's pick hint) */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  width: max-content;
+}
