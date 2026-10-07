@@ -70,6 +70,8 @@ export function fillCredits(body: HTMLElement): void {
     ul.appendChild(li)
   }
   body.appendChild(ul)
+  section(body, 'Code')
+  para(body, 'Town layouts draw on Oleg Dolya’s (watabou) ', link('https://github.com/watabou/TownGeneratorOS', 'TownGeneratorOS'), ', GPL-3.0.')
   section(body, 'Privacy')
   para(body, 'Simulated entirely in your browser: no server, no data collected.')
   // the bare app URL: no query, so it works under the /worldseed/ base path too
