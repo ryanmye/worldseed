@@ -71,6 +71,14 @@ export interface DioramaUniforms {
   uShadowBias: { value: number }
   /** World units of one shadow texel (normal offset). */
   uShadowWorld: { value: number }
+  /**
+   * City view light (townLight.ts), blended over the globe's look by uCity (0 outside the city view): the direct
+   * sun's colour x strength, the sky ambient, and the day factor (0: night, windows and lamps on).
+   */
+  uCity: { value: number }
+  uCitySun: { value: THREE.Color }
+  uCitySky: { value: THREE.Color }
+  uCityDay: { value: number }
 }
 
 export function createUniforms(): DioramaUniforms {
@@ -90,6 +98,10 @@ export function createUniforms(): DioramaUniforms {
     uShadowTexel: { value: 1 / 2048 },
     uShadowBias: { value: 0.001 },
     uShadowWorld: { value: 0.00004 },
+    uCity: { value: 0 },
+    uCitySun: { value: SUN_COLOR.clone() },
+    uCitySky: { value: new THREE.Color(0.026, 0.04, 0.07) },
+    uCityDay: { value: 1 },
   }
 }
 
@@ -189,6 +201,15 @@ const SUN_AT_GLSL = /* glsl */ `
     float tl = length(t);
     return normalize(up + (tl > 1e-4 ? t / tl : vec3(0.0)) * 0.6);
   }
+  // the city view's light (townLight.ts), over the globe's by uCity
+  uniform float uCity;
+  uniform vec3 uCitySun;
+  uniform vec3 uCitySky;
+  uniform float uCityDay;
+  /** Direct sun colour x strength, from the globe's colour and day factor. */
+  vec3 citySun(vec3 sunColor, float day) { return mix(sunColor * day, uCitySun, uCity); }
+  float cityDay(float day) { return mix(day, uCityDay, uCity); }
+  vec3 citySky(vec3 sky) { return mix(sky, uCitySky, uCity); }
 `
 
 /** How much of the shadow map covers a point (vertex or fragment shaders). */
@@ -369,10 +390,12 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         if (!gl_FrontFacing) N = -N;
         vec3 L = sunAt(vUp, uSunObj);
         float mu = dot(vUp, L);
-        float day = smoothstep(-0.12, 0.12, mu);
+        float day0 = smoothstep(-0.12, 0.12, mu);
+        vec3 sunC = citySun(uSunColor, day0);
+        float day = cityDay(day0);
         float ndl = dot(N, L);
-        float diff = max(ndl, 0.0) * day;
-        vec3 sky = mix(vec3(0.030, 0.040, 0.070), ${SKY} * 0.08, smoothstep(-0.25, 0.4, mu));
+        float diff = max(ndl, 0.0) * step(1e-4, sunC.r + sunC.g + sunC.b);
+        vec3 sky = citySky(mix(vec3(0.030, 0.040, 0.070), ${SKY} * 0.08, smoothstep(-0.25, 0.4, mu)));
         float up = dot(N, vUp);
         vec3 alb = vAlb;
         float ao = 1.0;
@@ -538,10 +561,10 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         float vis = diff > 0.0 ? shadowAt(vObj, N, 1.0 - max(ndl, 0.0)) : 1.0;
         // sky from above, a warm bounce from the sunlit ground below, so faces turned away
         // from the sun stay readable instead of sinking into the planet's deep shade
-        vec3 fill = sky * (2.4 + 1.2 * up) + uSunColor * day * (0.2 + 0.08 * up) * vec3(1.0, 0.94, 0.85);
+        vec3 fill = sky * (2.4 + 1.2 * up) + sunC * (0.2 + 0.08 * up) * vec3(1.0, 0.94, 0.85);
         // at night: darker, but lived-in buildings catch a little warm light from the streets
         fill *= mix(0.5, 1.0, day);
-        vec3 col = alb * (uSunColor * diff * vis * mix(1.0, ao, 0.5) + fill * ao + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025));
+        vec3 col = alb * (sunC * diff * vis * mix(1.0, ao, 0.5) + fill * ao + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025));
         if (vInfo.x > 0.5) {
           // night: the facade's own windows, some lit
           col += (1.0 - day) * winMask * winOn * vLit * vec3(1.0, 0.58, 0.24) * 1.5;
@@ -644,8 +667,8 @@ export function createGroundMaterial(uniforms: DioramaUniforms): THREE.ShaderMat
         vec3 L = sunAt(up, uSunObj);
         float mu = dot(up, L);
         float day = smoothstep(-0.12, 0.12, mu);
-        vec3 sky = mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu));
-        vC = aWall * (uSunColor * max(mu, 0.0) * day * 0.9 + sky * 2.0);
+        vec3 sky = citySky(mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu)));
+        vC = aWall * (citySun(uSunColor, day) * max(mu, 0.0) * 0.9 + sky * 2.0);
         vec3 q = mat3(instanceMatrix) * position;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(origin + q * min(s, 1.0), 1.0);
         vA = aColor.a * min(s, 1.0) * 0.6;
@@ -776,9 +799,10 @@ export function createTownGroundMaterial(uniforms: DioramaUniforms): THREE.Shade
         // a sacked town's scorched ground, in patches, fading over the years after
         float burnt = vScorch > 0.0 ? vScorch * smoothstep(0.42, 0.6, vnoise(uv * 0.7 + 3.1) * 0.75 + n2 * 0.25) : 0.0;
         alb = mix(alb, alb * 0.2 + vec3(0.012, 0.01, 0.008), min(1.0, burnt * 1.6));
-        float diff = max(dot(N, L), 0.0) * day;
-        vec3 sky = mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu));
-        vec3 col = alb * (uSunColor * diff + sky * 1.4);
+        float diff = max(dot(N, L), 0.0);
+        vec3 sky = citySky(mix(vec3(0.030, 0.040, 0.070), vec3(0.30, 0.50, 0.95) * 0.08, smoothstep(-0.25, 0.4, mu)));
+        vec3 col = alb * (citySun(uSunColor, day) * diff + sky * 1.4);
+        day = cityDay(day);
         // at night the arteries and squares glow with lamps and windows, as the planet's city
         // lights do; lanes and yards only where light spills from the houses (so the night
         // shows the street network, not every patch outline)
@@ -855,7 +879,10 @@ export function createReceiverMaterial(uniforms: DioramaUniforms): THREE.ShaderM
         if (mu < -0.05) discard;
         float vis = shadowAt(vP, up, 0.0);
         // direct sun over sky: a strong shadow when the sun is up, none at night
-        float a = (1.0 - vis) * 0.62 * smoothstep(-0.05, 0.2, mu);
+        // (city view: kept up to a degree or two above the horizon, so the long low shadows of evening read
+        // across the ground -- softer as the sun weakens)
+        float sunK = clamp(dot(uCitySun, vec3(0.3, 0.55, 0.15)) / 1.05, 0.0, 1.0);
+        float a = (1.0 - vis) * mix(0.62 * smoothstep(-0.05, 0.2, mu), 0.56 * smoothstep(0.02, 0.07, mu) * (0.55 + 0.45 * sunK), uCity);
         if (a < 0.004) discard;
         gl_FragColor = vec4(0.0, 0.0, 0.0, a);
       }

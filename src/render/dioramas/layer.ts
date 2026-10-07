@@ -35,7 +35,9 @@ import { requestRender } from '../invalidate.ts'
 import { SUN_DIRECTION, surfaceRadius } from '../globe.ts'
 import { createLayouts, crossing, GROUND_MODEL, NEVER, type GroundSet, type Layouts, type SlotSet } from './layout.ts'
 import { createGroundMaterial, createModelMaterial, createShadowMaterial, createTownGroundMaterial, createUniforms } from './material.ts'
-import { createShadows } from './shadows.ts'
+import { createShadows, type ShadowFit } from './shadows.ts'
+import { newTownLight, townLight } from './townLight.ts'
+import { SUN_COLOR } from '../sun.ts'
 import { closeDetailUniforms, TOWN_MASK_MAX, townMaskUniforms } from './townMask.ts'
 import { isFarModel, loadModels, MODEL_COUNT, MODEL_SPECS, Model, styleKindOf, type ModelLibrary } from './models.ts'
 import { createSurface, rand4, type Probe } from './surface.ts'
@@ -163,6 +165,13 @@ export interface DioramaLayer {
    * fly-in, so its town, villages and fields are laid out while the flight is still high up); null plans from the drawn camera.
    */
   setFocus(camera: THREE.PerspectiveCamera | null): void
+  /**
+   * City view (per frame, main.ts): the town the view is in (-1: none), and whether real shadows are drawn
+   * (false: the soft blob shadows only, the cheap path). In the city view the town is lit by the sun's
+   * elevation over it (townLight.ts: warm and weak low down, the sky's colour as ambient, night) and the
+   * shadow map is fitted to the whole town; outside it (id -1) everything is as on the globe.
+   */
+  setCity(id: number, shadows: boolean): void
   /** Layout work is planned or left over (the instance set is not final for the planning camera). */
   readonly pending: boolean
   /** The year last set (setTime). */
@@ -689,6 +698,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   object.add(shadowSys.receiver)
   /** Bumped whenever the instance set changes (the shadow map redraws). */
   let instanceVersion = 0
+  let instanceSig = NaN
   /** Bumped when the history changes (the town ground is laid again). */
   let groundEpoch = 0
 
@@ -722,6 +732,23 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const camObj = new THREE.Vector3()
   const fwdObj = new THREE.Vector3()
   const tmpQ = new THREE.Quaternion()
+  // ---- city view light and shadow fit (setCity) ----
+  let cityId = -1
+  let cityShadows = true
+  /** The town the shadow map is fitted to, and the key (town, snapshot) it was worked out for. */
+  const cityFit: ShadowFit = { x: 0, y: 0, z: 0, r: 0 }
+  let cityFitKey = ''
+  const cityUp = new THREE.Vector3()
+  const cityL = new THREE.Vector3()
+  const light = newTownLight()
+  /** Last state the city light was worked out for (sun in object space, weight, town). */
+  const lightKey = { x: NaN, y: NaN, z: NaN, w: NaN, id: -2, daylight: -1 }
+  /** The globe's material uniforms (its sun colour is warmed with the town's in the city view). */
+  let globeSun: { value: THREE.Color } | null = null
+  const smoothstep = (a: number, b: number, x: number) => {
+    const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
+    return t * t * (3 - 2 * t)
+  }
   const objToClip = new THREE.Matrix4()
   const cross = new Float64Array(2)
   const v4 = new THREE.Vector4()
@@ -1612,7 +1639,22 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     ground?.commit()
     townGround.end()
     townMaskUniforms.uTownCount.value = masks
-    instanceVersion++
+    // the shadow map redraws for a different instance set only (a rebuild for a camera step often lays out the
+    // same one): an order-free signature of the batches' instances, O(instances) like the rebuild itself
+    let sig = 0
+    for (const b of [...batches, bridgeBatch]) {
+      if (!b || b.count === 0) continue
+      const m = b.mesh.instanceMatrix.array as Float32Array, an = b.anim
+      sig += b.count * 7.31
+      for (let k = 0; k < b.count; k++) {
+        const o = k * 16, q = k * 4
+        sig += m[o + 12] * 1.13 + m[o + 13] * 2.71 + m[o + 14] * 3.37 + m[o] * 0.53 + m[o + 2] * 0.79 + m[o + 5] * 0.41 + an[q] * 1e-3 + an[q + 1] * 1.7e-3
+      }
+    }
+    if (sig !== instanceSig) {
+      instanceSig = sig
+      instanceVersion++
+    }
     stats.groundTriangles = townGround.live / 3
     stats.instances = inst + (ground?.count ?? 0) + (bridgeBatch?.count ?? 0)
     stats.shadows = shadows?.count ?? 0
@@ -1732,6 +1774,71 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   const aimProbe: Probe = { radius: 1, nx: 0, ny: 1, nz: 0, elev: 0, lake: 0, cell: 0 }
   let focusCam: THREE.PerspectiveCamera | null = null
 
+  /**
+   * City view: the town's light from the sun's elevation over it (written to the uCity* uniforms only when the sun,
+   * the town or the blend weight changed), and the shadow map's fit to the town (null outside the city view).
+   * The weight blends the city light in over the last of the descent (camera altitude 0.6 to 0.2), so the fly-in
+   * and fly-out change the look gradually and the globe view keeps its own.
+   */
+  function updateCityLight(alt: number): ShadowFit | null {
+    let w = 0
+    let fit: ShadowFit | null = null
+    if (cityId >= 0 && cityId < N && layouts) {
+      w = 1 - smoothstep(0.2, 0.6, alt)
+      const key = `${cityId}:${snapOf(year)}:${layouts.planned(cityId) ? 1 : 0}`
+      if (key !== cityFitKey) {
+        const a = layer.cityAim(cityId, year)
+        if (a) {
+          cityFitKey = key
+          // the plan's reach at its peak, a margin for the map's soft edge (shadowCover fades the outer 8%)
+          cityFit.x = a.cx; cityFit.y = a.cy; cityFit.z = a.cz
+          cityFit.r = Math.min(DIORAMA_NEAR, Math.max(0.004, a.extent * 1.2 + 0.0015))
+          cityUp.set(a.cx, a.cy, a.cz).normalize()
+        }
+      }
+      if (cityFitKey) fit = cityFit
+    } else cityFitKey = ''
+    if (!cityFitKey) w = 0
+    const S = uniforms.uSunObj.value
+    const dl = uniforms.uDaylight.value > 0.5 ? 1 : 0
+    if (S.x !== lightKey.x || S.y !== lightKey.y || S.z !== lightKey.z || w !== lightKey.w || cityId !== lightKey.id || dl !== lightKey.daylight) {
+      // (a change only redraws when the city light shows or just stopped showing)
+      const redraw = w > 0 || lightKey.w > 0
+      lightKey.x = S.x; lightKey.y = S.y; lightKey.z = S.z; lightKey.w = w; lightKey.id = cityId; lightKey.daylight = dl
+      // the light at the town as the shaders take it (sunAt: leaned to just off the zenith in daylight-everywhere)
+      cityL.copy(S).normalize()
+      if (dl) {
+        const t = tmpV3.copy(cityL).addScaledVector(cityUp, -cityL.dot(cityUp))
+        const tl = t.length()
+        cityL.copy(cityUp).addScaledVector(tl > 1e-4 ? t.multiplyScalar(1 / tl) : t.set(0, 0, 0), 0.6).normalize()
+      }
+      const elev = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, cityL.dot(cityUp)))))
+      townLight(elev, light)
+      uniforms.uCity.value = w
+      uniforms.uCitySun.value.copy(light.sun)
+      uniforms.uCitySky.value.copy(light.sky)
+      uniforms.uCityDay.value = light.day
+      // the ground around the town under the same sun: the globe's sun colour, warmed and weakened with the
+      // town's (its own terminator still shades it) -- by day the same colour as before
+      if (!globeSun && object.parent) {
+        for (const o of object.parent.children) {
+          const m = o as THREE.Mesh
+          const u = (m.material as THREE.ShaderMaterial | undefined)?.uniforms
+          if (m.isMesh && m.geometry?.getAttribute('aSurf') && u?.uSunColor) {
+            globeSun = u.uSunColor as { value: THREE.Color }
+            break
+          }
+        }
+      }
+      if (globeSun) {
+        globeSun.value.copy(SUN_COLOR).lerp(light.sunHigh, w)
+      }
+      if (redraw) requestRender()
+    }
+    return fit
+  }
+  const tmpV3 = new THREE.Vector3()
+
   activeLayer = null
   const layer: DioramaLayer = {
     object,
@@ -1741,6 +1848,12 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     setFocus(camera: THREE.PerspectiveCamera | null) {
       if (camera === focusCam) return
       focusCam = camera
+      requestRender()
+    },
+    setCity(id: number, shadows: boolean) {
+      if (id === cityId && shadows === cityShadows) return
+      cityId = id
+      cityShadows = shadows
       requestRender()
     },
     get pending() {
@@ -1965,7 +2078,11 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
         }
       }
       camera.getWorldDirection(fwdObj).applyQuaternion(tmpQ)
-      shadowSys.update(near, camObj, fwdObj, uniforms.uSunObj.value, uniforms.uDaylight.value > 0.5, object.matrixWorld, year, instanceVersion, DIORAMA_NEAR)
+      const fit = updateCityLight(alt)
+      if (cityId >= 0 && !cityShadows) {
+        // the cheap path: no shadow map (the blob shadows stay)
+        shadowSys.update(false, camObj, fwdObj, uniforms.uSunObj.value, uniforms.uDaylight.value > 0.5, object.matrixWorld, year, instanceVersion, DIORAMA_NEAR)
+      } else shadowSys.update(near, camObj, fwdObj, uniforms.uSunObj.value, uniforms.uDaylight.value > 0.5, object.matrixWorld, year, instanceVersion, DIORAMA_NEAR, fit)
       stats.shadowRenders = shadowSys.renders
       if (travelDirty) {
         writeTravellers()
@@ -1975,6 +2092,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     },
     dispose() {
       disposed = true
+      globeSun?.value.copy(SUN_COLOR)
       townMaskUniforms.uTownCount.value = 0
       closeDetailUniforms.uFieldDetail.value = 0
       for (const b of batches) b?.dispose()
