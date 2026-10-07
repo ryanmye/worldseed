@@ -39,13 +39,15 @@ import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { networkRouteSamples, routeNetwork, smoothPaths, type PathSamples } from './routeCurves.ts'
+import { networkRouteSamples, routeNetwork, segmentWater, smoothPaths, type PathSamples } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { MARKER_SLOT_GLSL } from './markerSlots.ts'
 import { INDUSTRY_LIST, ownerRgb, type GoodsData } from '../ui/goodsData.ts'
 
 const LIFT = 0.0033
 const MARK_LIFT = 0.0045
+/** The samples of each network piece the legs are drawn with (routeCurves.ts networkRouteSamples). */
+const LEG_SAMPLES = [0, 2, 4, 5]
 const TEX_W = 1024
 const NEVER = 1e9
 const MAX_SHIPS = 40
@@ -85,90 +87,6 @@ export interface LongHaulLayer {
   /** Up close the markers yield to the 3D towns: the rings follow (near, far camera distances; far <= 0 off). */
   setYield(near: number, far: number): void
   dispose(): void
-}
-
-/** Every other sample of each path (its ends kept); arc lengths and fractions as they were. */
-function thinSamples(a: PathSamples): PathSamples {
-  const keep: number[] = []
-  const offsets = new Uint32Array(a.count + 1)
-  for (let i = 0; i < a.count; i++) {
-    offsets[i] = keep.length
-    const s0 = a.offsets[i], s1 = a.offsets[i + 1]
-    for (let k = s0; k < s1; k += 2) keep.push(k)
-    if (s1 - s0 > 1 && (s1 - 1 - s0) % 2 === 1) keep.push(s1 - 1)
-  }
-  offsets[a.count] = keep.length
-  const n = keep.length
-  const pos = new Float32Array(n * 3), side = new Float32Array(n * 3), arc = new Float32Array(n), frac = new Float32Array(n), water = new Uint8Array(n)
-  keep.forEach((k, j) => {
-    for (let c = 0; c < 3; c++) {
-      pos[j * 3 + c] = a.pos[k * 3 + c]
-      side[j * 3 + c] = a.side[k * 3 + c]
-    }
-    arc[j] = a.arc[k]
-    frac[j] = a.frac[k]
-    water[j] = a.water[k]
-  })
-  return { count: a.count, offsets, pos, side, arc, frac, water, length: a.length }
-}
-
-/**
- * Each path's samples averaged over a window of w samples each side, `iters` times (its ends kept),
- * back at their radius; the sideways vectors from the new tangents, arc lengths and fractions anew.
- */
-function easeSamples(a: PathSamples, w: number, iters: number): PathSamples {
-  const pos = a.pos.slice(), side = a.side.slice(), arc = a.arc.slice(), frac = a.frac.slice()
-  const length = a.length.slice()
-  const tmp = new Float32Array(pos.length)
-  for (let i = 0; i < a.count; i++) {
-    const s0 = a.offsets[i], s1 = a.offsets[i + 1]
-    if (s1 - s0 < 3) continue
-    for (let it = 0; it < iters; it++) {
-      for (let k = s0; k < s1; k++) {
-        if (k === s0 || k === s1 - 1) {
-          for (let c = 0; c < 3; c++) tmp[k * 3 + c] = pos[k * 3 + c]
-          continue
-        }
-        // (a narrower window near the ends, so they stay put)
-        const r = Math.min(w, k - s0, s1 - 1 - k)
-        let x = 0, y = 0, z = 0
-        for (let q = k - r; q <= k + r; q++) {
-          x += pos[q * 3]
-          y += pos[q * 3 + 1]
-          z += pos[q * 3 + 2]
-        }
-        const len0 = Math.hypot(pos[k * 3], pos[k * 3 + 1], pos[k * 3 + 2])
-        const len = Math.hypot(x, y, z) || 1
-        tmp[k * 3] = (x / len) * len0
-        tmp[k * 3 + 1] = (y / len) * len0
-        tmp[k * 3 + 2] = (z / len) * len0
-      }
-      pos.set(tmp.subarray(s0 * 3, s1 * 3), s0 * 3)
-    }
-    let total = 0
-    for (let k = s0; k < s1; k++) {
-      const kp = Math.max(s0, k - 1), kn = Math.min(s1 - 1, k + 1)
-      const tx = pos[kn * 3] - pos[kp * 3], ty = pos[kn * 3 + 1] - pos[kp * 3 + 1], tz = pos[kn * 3 + 2] - pos[kp * 3 + 2]
-      const ux = pos[k * 3], uy = pos[k * 3 + 1], uz = pos[k * 3 + 2]
-      // side = up x tangent, in the tangent plane: one handedness along the whole path (the network's
-      // half curves carry their own, which flips where a route runs a half backwards)
-      let sx = uy * tz - uz * ty, sy = uz * tx - ux * tz, sz = ux * ty - uy * tx
-      const sl = Math.hypot(sx, sy, sz)
-      if (sl > 1e-12) {
-        sx /= sl
-        sy /= sl
-        sz /= sl
-        side[k * 3] = sx
-        side[k * 3 + 1] = sy
-        side[k * 3 + 2] = sz
-      }
-      if (k > s0) total += Math.hypot(pos[k * 3] - pos[k * 3 - 3], pos[k * 3 + 1] - pos[k * 3 - 2], pos[k * 3 + 2] - pos[k * 3 - 1])
-      arc[k] = total
-    }
-    for (let k = s0; k < s1; k++) frac[k] = total > 0 ? arc[k] / total : 0
-    length[i] = total
-  }
-  return { count: a.count, offsets: a.offsets, pos, side, arc, frac, water: a.water, length }
 }
 
 /** Samples of a's paths, then b's (one geometry for the legs and the trails). */
@@ -681,12 +599,13 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   // legs along the bundled network (routeCurves.ts routeNetwork: sea runs snap onto lanes already
   // sailed, every shared link is one curve), so parallel lanes through a strait or along a coast
   // draw as one bundle that brightens with its members instead of a braid of ribbons; the opening
-  // expeditions' trails on their own smoothed paths
-  const legNet = routeNetwork(world, offs, path, L)
-  // (every other sample of the network's half curves is plenty at a lane's few pixels: fewer triangles)
-  // and eased round the hex grid's corners (a lane crosses open sea in long straight runs): the same
-  // window over the same shared samples, so a bundle stays one curve
-  const legSmp = easeSamples(thinSamples(networkRouteSamples(legNet, L, LIFT)), 8, 3)
+  // expeditions' trails on their own smoothed paths. The network smooths each
+  // node over five cells (a lane crosses open sea in long straight runs), still from the leg's own
+  // cells alone and checked against land and sea, so legs sharing a stretch share its curve.
+  const legNet = routeNetwork(world, offs, path, L, 2)
+  // (four of each piece's six samples are plenty at a lane's few pixels: fewer triangles; the same
+  // four of every piece, so a shared piece stays one curve)
+  const legSmp = networkRouteSamples(legNet, L, LIFT, LEG_SAMPLES)
   const trailOffs = new Uint32Array(trails.length + 1)
   for (let i = 0; i <= trails.length; i++) trailOffs[i] = offs[L + i] - offs[L]
   const smp = concatSamples(legSmp, smoothPaths(world, trailOffs, path.subarray(offs[L]), trails.length, LIFT))
@@ -1097,7 +1016,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     const len = Math.hypot(dB[i * 4], dB[i * 4 + 1], dB[i * 4 + 2]) || 1
     for (let c = 0; c < 3; c++) dB[i * 4 + c] /= len
     // a wagon on land, a ship at sea
-    dB[i * 4 + 3] = smp.water[t < 0.5 ? lo : hi] ? 0 : 1
+    dB[i * 4 + 3] = (hi > lo ? segmentWater(smp.water, lo, t) : smp.water[lo]) ? 0 : 1
   }
 
   function writeShips(y: number) {
