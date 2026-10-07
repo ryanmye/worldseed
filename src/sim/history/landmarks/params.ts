@@ -185,6 +185,15 @@ export const LANDMARK = {
   revivePop: 1500,
   reviveShare: 0.4,
   revive: 0.08,
+  /**
+   * Sights (tourism, sights.ts): a great landmark ruined, unfinished or sightAge years old (since it was begun) becomes a sight
+   * of its own (SightKind.Landmark) with fame sightFame[kind], times sightRuin when ruined or unfinished. false: no landmark
+   * sights (the landmarks a pure consequence layer again).
+   */
+  sights: true,
+  sightAge: 300,
+  sightFame: [0.15, 0.25, 0.25, 0.15, 0.1, 0.1, 0.2, 0.2, 0.15, 0.2, 0.15, 0.1, 0, 0],
+  sightRuin: 0.8,
   /** Years after a change before another (sack and abandonment excepted). */
   minGap: 10,
 }

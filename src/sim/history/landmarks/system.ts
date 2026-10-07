@@ -278,7 +278,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   if (ruler < 0) ruler = rulerOf(s, p)
   const R = s.rul
   const dyn = ruler >= 0 && R !== null ? R.rDyn[ruler] : -1
-  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lHome.push(v); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
+  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lHome.push(v); lm.lSight.push(0); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
   lm.lPol.push(p); lm.lRuler.push(ruler); lm.lDyn.push(dyn); lm.lFaith.push(isWorship(kind) ? faith : stateFaith(s, p)); lm.lPeople.push(builders)
   lm.lLang.push(rank === LandmarkRank.Great && p >= 0 && ps !== null ? langSeat(s, ps, p) : v); lm.lSubject.push(subject)
   lm.lState.push(ST.Building); lm.lSince.push(s.year); lm.lCur.push(isWorship(kind) ? faith : -1); lm.lRef.push(s.pop[v]); lm.lLow.push(-1)

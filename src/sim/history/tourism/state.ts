@@ -114,6 +114,8 @@ export interface TourismState {
   sSettlement: number[]
   sFrom: number[]
   sFame: number[]
+  /** landmarks: the landmark row of a Landmark sight, else -1. */
+  sLandmark: number[]
   /** Scanned positions: events, discoveries. */
   evSeen: number
   discSeen: number
@@ -155,7 +157,7 @@ export function createTourism(world: World, T: Terrain, P: number, rngSprings: R
     pFrom: [], pTo: [], pFirst: [], pPath: [], pIndex: new Map<number, number>(),
     rSnap: [], rPair: [], rVis: [], rSpend: [],
     peopleStarted: new Uint8Array(P),
-    sKind: [], sCell: [], sSettlement: [], sFrom: [], sFame: [], evSeen: 0, discSeen: 0,
+    sKind: [], sCell: [], sSettlement: [], sFrom: [], sFame: [], sLandmark: [], evSeen: 0, discSeen: 0,
     dist: new Float64Array(N).fill(Infinity), prev: new Int32Array(N).fill(-1), mark: new Int32Array(N), run: 0,
     diag: { spendDecade: [], searches: 0, visits: 0 },
   }

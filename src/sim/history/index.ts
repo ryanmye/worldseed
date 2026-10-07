@@ -547,7 +547,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     speciesSystem(s, trade)
     speciesV2System(s, trade) // species-v2
     if (gx) goodsYear(s, gx, trade, techState, explore) // goods: events, lanes, posts; decadal phases
-    if (tz) tourismYear(s, tz, trade, explore) // tourism: sights, destinations, leisure travel, resorts
+    if (tz) tourismYear(s, tz, trade, explore, lm) // tourism: sights, destinations, leisure travel, resorts (landmarks: great landmarks among the sights; lm null when off)
     if (dz) diseaseSystem(s, dz, trade, techState) // disease: outbreaks spread and take their toll (visitors carry them too); endemic sickness, fever
     const fled = rel ? religionYear(s, rel, trade) : false // religion: spread, conversion, churches, schism, persecution, pilgrims, flight
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
@@ -612,6 +612,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
+    for (const x of tourismHist.sights) if (x.landmark !== undefined && x.landmark < lmHist.landmarks.count) x.name = lmHist.landmarks.name[x.landmark] // landmarks: a Landmark sight bears its name
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,

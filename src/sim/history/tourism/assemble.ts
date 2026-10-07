@@ -41,7 +41,9 @@ export function assembleTourism(tz: TourismState, tradeSnapshotCount: number, na
         if (id !== undefined && features[id].namedYear <= tz.sFrom[k]) name = features[id].name
       }
     }
-    sights.push({ id: k, kind: tz.sKind[k] as SightKind, cell: c, settlement: st, fromYear: tz.sFrom[k], fame: tz.sFame[k], name })
+    const x: Sight = { id: k, kind: tz.sKind[k] as SightKind, cell: c, settlement: st, fromYear: tz.sFrom[k], fame: tz.sFame[k], name }
+    if (tz.sLandmark[k] >= 0) x.landmark = tz.sLandmark[k] // landmarks: (named after the landmark: index.ts)
+    sights.push(x)
   }
   const n = tz.pFrom.length
   const pathOffsets = new Uint32Array(n + 1)

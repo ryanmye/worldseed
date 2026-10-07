@@ -20,6 +20,8 @@
 // bought with visitor income; it is given up when its visitors fail for RESORT.grace years.
 // Effects elsewhere (small hooks): wealth to scenic backwaters; road wear along the ways; luxury and finery demand where
 // visitors are (trade.ts); sickness carried by visitors (disease/system.ts, DiseaseVia.Visitors).
+// landmarks: with the landmarks on, great landmarks ruined, unfinished or centuries old are sights too (landmarks/sights.ts,
+// through tourismYear's lm: null with the landmarks off, when tourism is as it was without them).
 
 import { EventType, JourneyKind, SightKind, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import type { HistoryEvent } from '../../../contract.ts'
@@ -41,6 +43,8 @@ import { LEISURE, RESORT, SIGHT, TRAVEL } from './params.ts'
 import type { TourismState } from './state.ts'
 import { addDestination, ensureTourism } from './state.ts'
 import { tourismExtraScores } from './hooks.ts'
+import type { LandmarksState } from '../landmarks/state.ts' // landmarks: (the hook: landmarks/sights.ts)
+import { landmarkSights } from '../landmarks/sights.ts'
 
 function logExtra(s: HistoryState, type: HistoryEvent['type'], settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -69,12 +73,25 @@ function polOf(s: HistoryState, id: number): number {
 /** A new sight (at its settlement's cell, if any); its fame goes to the destination its settlement hosts, else to one at its cell. */
 function addSight(s: HistoryState, tz: TourismState, kind: number, cell: number, settlement: number, fame: number): void {
   const k = tz.sKind.length
-  tz.sKind.push(kind); tz.sCell.push(cell); tz.sSettlement.push(settlement); tz.sFrom.push(s.year); tz.sFame.push(fame)
+  tz.sKind.push(kind); tz.sCell.push(cell); tz.sSettlement.push(settlement); tz.sFrom.push(s.year); tz.sFame.push(fame); tz.sLandmark.push(-1)
   if (settlement >= 0) tz.sighted[settlement] = 1
   logExtra(s, EventType.SightRecognised, nearestLiving(s, tz, cell, settlement), settlement, k, kind)
   const d = settlement >= 0 && alive(s, settlement) ? tz.hostOf[settlement] : -1
   if (d >= 0) { tz.dFame[d] += fame; if (tz.dFame[d] > 1.5) tz.dFame[d] = 1.5 }
   else addDestination(s.world, s.terrain, tz, cell, tz.scenery[cell] / 510, fame, kind)
+}
+
+/**
+ * landmarks: a great landmark becomes a sight of its own (landmarks/sights.ts): as addSight, but its town stays free to become
+ * a sight of the other kinds (it is not marked sighted); its fame goes to the destination its town hosts, else to one at its cell.
+ */
+function addLandmarkSight(s: HistoryState, tz: TourismState, cell: number, settlement: number, fame: number, landmark: number): void {
+  const k = tz.sKind.length
+  tz.sKind.push(SightKind.Landmark); tz.sCell.push(cell); tz.sSettlement.push(settlement); tz.sFrom.push(s.year); tz.sFame.push(fame); tz.sLandmark.push(landmark)
+  logExtra(s, EventType.SightRecognised, nearestLiving(s, tz, cell, settlement), settlement, k, SightKind.Landmark)
+  const d = settlement >= 0 && settlement < tz.seen && alive(s, settlement) ? tz.hostOf[settlement] : -1
+  if (d >= 0) { tz.dFame[d] += fame; if (tz.dFame[d] > 1.5) tz.dFame[d] = 1.5 }
+  else addDestination(s.world, s.terrain, tz, cell, tz.scenery[cell] / 510, fame, SightKind.Landmark)
 }
 
 /** The living settlement by a sight: its own, else the host of the destination at its cell, else the nearest (chord) living one. */
@@ -95,7 +112,7 @@ function nearestLiving(s: HistoryState, tz: TourismState, cell: number, own: num
 }
 
 /** Every SIGHT.step years: peaks, then new sights from events, discoveries and polities' capitals. */
-function sightScan(s: HistoryState, tz: TourismState, es: ExploreState): void {
+function sightScan(s: HistoryState, tz: TourismState, es: ExploreState, lm: LandmarksState | null): void {
   const X = SIGHT
   for (const id of s.living) {
     const p = s.pop[id]
@@ -149,6 +166,8 @@ function sightScan(s: HistoryState, tz: TourismState, es: ExploreState): void {
       }
     }
   }
+  // landmarks: great landmarks ruined, unfinished or centuries old (the hook: lm is null with the landmarks off).
+  if (lm !== null) landmarkSights(s, lm, (cell, v, fame, id) => addLandmarkSight(s, tz, cell, v, fame, id))
 }
 
 // --- Destinations ---------------------------------------------------------------------------------------------------
@@ -681,10 +700,10 @@ function newVisitors(s: HistoryState, tz: TourismState, h: number): boolean {
 }
 
 /** System (yearly, after the goods system): sights, destinations, flows, spending, resorts. */
-export function tourismYear(s: HistoryState, tz: TourismState, ts: TradeState, es: ExploreState): void {
+export function tourismYear(s: HistoryState, tz: TourismState, ts: TradeState, es: ExploreState, lm: LandmarksState | null = null): void {
   ensureTourism(tz, s.count)
   const year = s.year
-  if (year % SIGHT.step === 0) sightScan(s, tz, es)
+  if (year % SIGHT.step === 0) sightScan(s, tz, es, lm)
   if (year % TRAVEL.vogueStep === 0) for (let d = 0; d < tz.dCount; d++) tz.dVogue[d] = tz.rng.range(TRAVEL.vogueLo, TRAVEL.vogueHi)
   if (year % TRAVEL.destStep === 0) refreshDestinations(s, tz)
   if (year % TRAVEL.flowStep === 0) flowStep(s, tz)
