@@ -1268,7 +1268,8 @@ function draw(ts: number) {
   if (target) drawSize.set(target.width, target.height)
   else renderer.getDrawingBufferSize(drawSize)
   currentRivers?.update(camera, drawSize.y)
-  sunDisc.update(camera, drawSize.y)
+  // (not on the start page: its sky is a fixed layer behind the scrolling planet, landing.ts)
+  sunDisc.update(camera, drawSize.y, landing !== null)
   const tt = performance.now()
   historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0

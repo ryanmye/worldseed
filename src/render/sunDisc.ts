@@ -7,7 +7,7 @@
 // at a fixed distance from the camera along the sun's direction, so three's frustum culling
 // drops it (no draw call) when the sun is behind the camera; it is also hidden (no draw
 // call) while the sun is well behind the planet, on the flat map, and with daylight
-// everywhere. Nothing runs between drawn frames.
+// everywhere, and on the start page. Nothing runs between drawn frames.
 //
 // Occlusion by the planet: the quad is depth-tested against the depth buffer (the globe,
 // the terrain, the 3D towns: never drawn over the planet), and each fragment's ray is also
@@ -36,7 +36,7 @@ const QUAD_DISTANCE = 150
 export interface SunDisc {
   mesh: THREE.Mesh
   /** Per drawn frame, after the sun and the camera are placed. */
-  update(camera: THREE.PerspectiveCamera, drawHeightPx: number): void
+  update(camera: THREE.PerspectiveCamera, drawHeightPx: number, hidden?: boolean): void
   dispose(): void
 }
 
@@ -147,7 +147,7 @@ export function buildSunDisc(): SunDisc {
   const toCentre = new THREE.Vector3()
   return {
     mesh,
-    update(camera, drawHeightPx) {
+    update(camera, drawHeightPx, hidden = false) {
       const fade = 1 - Math.min(1, flat.t / 0.25)
       uniforms.uFade.value = fade
       camera.updateMatrixWorld()
@@ -166,7 +166,7 @@ export function buildSunDisc(): SunDisc {
       // strongest with the sun just behind the edge; gone well behind it or well clear of it
       uniforms.uGraze.value = THREE.MathUtils.smoothstep(m, -0.16, -0.01) * (1 - THREE.MathUtils.smoothstep(m, 0.0, 0.08))
       // (a sun far behind the planet lights nothing in view: no draw call)
-      mesh.visible = fade > 0 && sunUniforms.uDaylight.value < 0.5 && m > -0.2
+      mesh.visible = !hidden && fade > 0 && sunUniforms.uDaylight.value < 0.5 && m > -0.2
       if (!mesh.visible) return
       uniforms.uSun.value.copy(SUN_DIRECTION)
       mesh.position.copy(camPos).addScaledVector(SUN_DIRECTION, QUAD_DISTANCE)
