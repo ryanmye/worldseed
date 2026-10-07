@@ -15,7 +15,7 @@ import type { Biome } from '../contract.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
 import { GOOD_NAMES } from './format.ts'
 import { addShortcut, shortcutList } from './shortcuts.ts'
-import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { loadFlag, loadPref, saveFlag, savePref, titleWhenCut } from './panels.ts'
 import './trade.css'
 
 export interface Readout {
@@ -584,6 +584,8 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const right = document.createElement('div')
   right.className = 'side-column right'
   right.appendChild(mapPanel)
+  // (the panels' header summaries are cut short in a narrow column: their whole text on hover)
+  titleWhenCut(right, '.gp-count, .pp-count, .fp-count, .chr-count')
   const bottom = document.createElement('div')
   bottom.className = 'bottom-slot'
 
@@ -607,7 +609,24 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   // The columns stop above the timeline when they would reach under it, and the left one
   // keeps clear of the hover readout. Measured on resize and when panels change size only.
   const GAP = 10
+  /** Left edge the timeline keeps right of when it moves left: the hover readout's usual width (16 px in, about 200 wide) and a gap. */
+  const READOUT_CLEAR = 16 + 200 + GAP
+  let shiftedTo = ''
   function relayout() {
+    // the timeline moves left out from under the right column when there is room for it there (at 1200 px wide it
+    // would reach under the column's edge by a few pixels, and the column would then stop above it for nothing)
+    {
+      const rw = right.getBoundingClientRect().width
+      const w = bottom.offsetWidth
+      const colLeft = window.innerWidth - 16 - rw - GAP
+      const centred = (window.innerWidth - w) / 2
+      // (not over the hover readout's corner, bottom left: READOUT_CLEAR)
+      const x = rw > 0 && w > 0 && centred + w > colLeft && colLeft - w >= READOUT_CLEAR ? `${Math.round(colLeft - w / 2)}px` : ''
+      if (x !== shiftedTo) {
+        shiftedTo = x
+        bottom.style.left = x
+      }
+    }
     const tl = bottom.getBoundingClientRect()
     const reserveTimeline = tl.height > 0 ? window.innerHeight - tl.top + GAP - 16 : 0
     const lr = left.getBoundingClientRect()

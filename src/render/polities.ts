@@ -53,7 +53,7 @@ import type { History, World } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius, type GlobeMesh } from './globe.ts'
 import { NOISE_GLSL } from './glsl.ts'
 import { RELIEF_GLSL, relief, reliefUniforms } from './terrainHeight.ts'
-import { flatUniforms, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
+import { flatUniforms, MAP_XY_FRAG_GLSL, seamCopy, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
 import { capitalSlotHeight } from './markerSlots.ts'
@@ -214,6 +214,7 @@ varying float vElev;
 varying float vSlope;
 ${NOISE_GLSL}
 ${SEAM_FRAG_GLSL}
+${MAP_XY_FRAG_GLSL}
 
 // cheap value noise in about [-0.5, 0.5] (the sweep of a changing border needs no gradient noise)
 float pl_vnoise(vec3 x) {
@@ -260,9 +261,13 @@ float pl_dash(vec2 g, float period, float shift) {
   float k = floor(a / 0.7853982 + 0.5) * 0.7853982;
   return fract(dot(gl_FragCoord.xy, vec2(cos(k), sin(k))) / period + shift);
 }
-// 1 on a stripe across direction n (unit) of the surface (period, width and antialiasing edge in world units)
-float pl_stripeAlong(vec3 p, vec3 n, float aa, float period, float width) {
-  float u = dot(p, n);
+// 1 on a stripe of the surface (period, width and antialiasing edge in world units): on the globe the circles round the
+// axis n (unit), spaced by arc length (the angle from n: even spacing all over the sphere, where the planes across n
+// widened toward its poles); on the flat map across direction m (unit) of the map plane, whose units are the screen's
+// world units there (the sphere's are stretched by the projection, which made the stripes coarser on the map)
+float pl_stripeAlong(vec3 p, vec3 n, vec2 m, float aa, float period, float width) {
+  vec3 q = normalize(p);
+  float u = uFlat > 0.5 ? dot(ws_mapXY(p), m) : atan(length(cross(q, n)), dot(q, n));
   float d = abs(mod(u, period) - 0.5 * period);
   return 1.0 - smoothstep(0.5 * width - aa, 0.5 * width + aa, d);
 }
@@ -270,7 +275,7 @@ float pl_stripeAlong(vec3 p, vec3 n, float aa, float period, float width) {
 // phased by p (the pre-warp object-space position, vObj — the same point on the globe and on
 // the flat map, so the stripes hold still under the land instead of swimming with the screen)
 float pl_stripe(vec3 p, float aa, float period, float width) {
-  return pl_stripeAlong(p, vec3(0.5773503), aa, period, width);
+  return pl_stripeAlong(p, vec3(0.5773503), vec2(0.7071068, 0.7071068), aa, period, width);
 }
 vec3 pl_heat(float x) {
   vec3 c0 = vec3(0.20, 0.10, 0.30), c1 = vec3(0.55, 0.12, 0.30), c2 = vec3(0.86, 0.30, 0.12), c3 = vec3(1.0, 0.78, 0.30);
@@ -410,14 +415,16 @@ void main() {
     vec3 c = pl_color(dom);
     if (overD >= -0.5) {
       vec3 oc = pl_color(overD);
-      // stripe scale from the pixel footprint (world units per pixel, already used above for the
-      // coast and noise antialiasing), so the stripes keep a steady screen width at any zoom
+      // stripe scale from the frame's world size of a pixel at the view's centre (uPxW, as the claims' hatch below),
+      // so the stripes keep a steady screen width at any zoom (the per-triangle footprint varies from one triangle to
+      // the next, which shifted the phase and broke the stripes into dashes up close); the footprint only antialiases
       float sAA = footprint * 0.6;
+      float sPx = max(uPxW, footprint * 0.5);
       // on the Terrain tint the fill is faint (uTint, below): a little stronger stripe blend keeps it readable
       float sBoost = tint ? 1.3 : 1.0;
       // a vassal: its overlord's colour with stripes of its own; a tributary: its own with thin faint stripes of its overlord's
-      if (relD.y < 1.5) c = mix(oc, c, min(1.0, 0.85 * sBoost) * pl_stripe(p, sAA, 9.0 * footprint, 2.8 * footprint));
-      else c = mix(c, oc, min(1.0, 0.42 * sBoost) * pl_stripe(p, sAA, 12.0 * footprint, 1.3 * footprint));
+      if (relD.y < 1.5) c = mix(oc, c, min(1.0, 0.85 * sBoost) * pl_stripe(p, sAA, 9.0 * uPxW, 2.8 * sPx));
+      else c = mix(c, oc, min(1.0, 0.42 * sBoost) * pl_stripe(p, sAA, 12.0 * uPxW, 1.3 * sPx));
     }
     // over the terrain a little more chroma, so a pale tint still reads against greens and sands
     if (tint) c = max(mix(vec3(dot(c, vec3(0.2126, 0.7152, 0.0722))), c, 1.35), vec3(0.0));
@@ -432,7 +439,7 @@ void main() {
     if (claimed > 0.5) {
       // (period from the frame's world size of a pixel, not the per-triangle footprint: a period that varies from one
       // triangle to the next would shift the phase and break the lines into dashes)
-      float hatch = pl_stripeAlong(p, vec3(0.7071068, -0.7071068, 0.0), footprint * 0.6, 5.0 * uPxW, 1.3 * max(uPxW, footprint * 0.8));
+      float hatch = pl_stripeAlong(p, vec3(0.7071068, -0.7071068, 0.0), vec2(0.7071068, -0.7071068), footprint * 0.6, 5.0 * uPxW, 1.3 * max(uPxW, footprint * 0.8));
       if (political) c = mix(mix(c, vec3(0.8, 0.79, 0.76), 0.4), c, 0.85 * hatch);
       else a *= mix(0.42, 1.0, 0.8 * hatch);
     }

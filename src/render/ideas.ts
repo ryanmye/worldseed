@@ -40,6 +40,9 @@ const CITY_MIN_RADIUS = 7.0
 /** Longest pulse (years) at any speed; how long a link takes to draw out. */
 const PULSE_MAX = 12
 const GROW_YEARS = 3
+/** Camera distances (planet radii) over which the selected idea's per-town rings give way to the holders' halos alone (uFar 0 .. 1). */
+const RINGS_NEAR = 1.9
+const RINGS_FAR = 2.6
 /** Row kinds (aA.w) and the settlements' instances. */
 const K_ADOPT = 0, K_FIRST = 1, K_AGAIN = 2, K_LOST = 3, K_SETTLEMENT = 9
 
@@ -80,6 +83,7 @@ attribute vec3 aPos;
 attribute vec4 aA; // rows: year, how, idea, kind (0 adoption, 1 first conception, 2 independent, 3 loss); settlements: founded, abandoned, -1, 9
 attribute vec4 aB; // marker radius (px); settlements: year its people took up the selected idea, year it lost it, when 0..1
 attribute float aKnown;
+uniform float uFar; // 0 from mid zoom down .. 1 at the globe's far view: only the holders' halos
 uniform float uYear;
 uniform float uPulse;
 uniform float uSel;
@@ -135,6 +139,8 @@ void main() {
     col = uHowRgb[int(clamp(aA.y, 0.0, 13.0) + 0.5)];
     if (kind > 0.5 && kind < 2.5) col = uHowRgb[0];
   }
+  // far out the land colouring of the Ideas view tells who holds it: the not-yet and lost rings go, the holders keep a halo
+  if (mode > 5.5 && uFar > 0.99) hidden = true;
   if (hidden || mode < 0.0) {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
@@ -158,13 +164,14 @@ void main() {
   vR = mode > 2.5 && mode < 4.5 ? (mode < 3.5 ? (kind > 1.5 ? 4.0 : 5.5) : 3.5) * s : r;
   vAge = mode < 2.5 ? clamp(age / max(uPulse, 1e-3), 0.0, 1.0) : 0.0;
   vCol = col;
-  vAlpha = smoothstep(0.0, 0.25, facing) * (mode < 2.5 ? uFx : 1.0) * (kind < 2.5 && kind > 1.5 ? 0.8 : 1.0);
+  vAlpha = smoothstep(0.0, 0.25, facing) * (mode < 2.5 ? uFx : 1.0) * (kind < 2.5 && kind > 1.5 ? 0.8 : 1.0) * (mode > 5.5 ? 1.0 - uFar : 1.0);
   vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
 }
 `
 
 const MARK_FRAG = /* glsl */ `
 uniform float uSizeScale;
+uniform float uFar;
 varying vec2 vPx;
 flat varying float vMode;
 varying float vR;
@@ -223,8 +230,9 @@ void main() {
     o = glyph(x, vec3(0.7, 0.7, 0.74), dark, 0.9);
   } else if (vMode < 5.5) {
     // a settlement of a people holding it: a soft halo and a ring in the colour of when (holders' towns read as a patch)
-    float halo = (1.0 - smoothstep(R + 3.0, R + 9.0 * uSizeScale, d)) * step(R, d) * 0.32;
-    o = over(glyph(abs(d - R - 2.8) - 1.5, vCol, dark, 0.8), vec4(vCol * halo, halo));
+    // (far out the halo alone, a little stronger: the rings would crowd the globe)
+    float halo = (1.0 - smoothstep(R + 3.0, R + 9.0 * uSizeScale, d)) * step(R, d) * mix(0.32, 0.42, uFar);
+    o = over(glyph(abs(d - R - 2.8) - 1.5, vCol, dark, 0.8) * (1.0 - uFar), vec4(vCol * halo, halo));
   } else if (vMode < 6.5) {
     // not yet: a faint hollow ring
     o = glyph(abs(d - R - 2.4) - 0.4, vec3(0.75, 0.78, 0.84), dark, 0.3) * 0.28;
@@ -424,6 +432,7 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
     uFx: { value: 1 },
     uMaskOn: { value: 0 },
     uSizeScale: { value: 1 },
+    uFar: { value: 0 },
     uYield: { value: new THREE.Vector2(0, 0) },
     uViewport: { value: new THREE.Vector2(1, 1) },
     uPixelRatio: { value: 1 },
@@ -693,6 +702,7 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
       lu.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, (dist - 1) / 0.6)))
       // as the settlement markers (the rings must fit them)
       mu.uSizeScale.value = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / Math.max(1e-3, (camera as THREE.PerspectiveCamera).position.length()))))
+      mu.uFar.value = smoothAt((camera as THREE.PerspectiveCamera).position.length(), RINGS_NEAR, RINGS_FAR)
     },
     setYield(near: number, far: number) {
       mu.uYield.value.set(near, far)

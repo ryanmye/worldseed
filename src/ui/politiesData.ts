@@ -913,11 +913,15 @@ function labPair(c: readonly number[], out: Float64Array): void {
   lab(0.29275 * r + 0.70725 * g, 0.29275 * r + 0.70725 * g, -0.02234 * r + 0.02234 * g + b, 3)
 }
 
+/** Colour distance (CIELAB) between neighbours past which a polity keeps nearer its own hue and shade (was 45: neighbours' pale tones sat too close). */
+const ENOUGH_APART = 54
+
 /**
  * Colours that keep neighbours apart: in founding order, each polity takes the variant of its
- * hue (nudged in hue by up to 0.1, lighter, darker or paler) farthest in colour, as seen with
+ * hue (nudged in hue, lighter, darker or paler) farthest in colour, as seen with
  * normal vision and with red-green colour blindness, from the earlier polities alive at its
- * founding whose capitals lie near its own (its parent included). A successor so stays in its
+ * founding whose capitals lie near its own (its parent included), or whose land touched its own early on (nudged up to 0.3
+ * when a smaller nudge leaves them too close). A successor so stays in its
  * parent's hue family (the hue comes from the simulation) but reads apart from it. Depends
  * only on founding years and capitals, so a longer run of the same history keeps the colours.
  */
@@ -952,8 +956,9 @@ export function assignPolityColors(pd: PolitiesData, world: World): void {
     }
   }
   // (saturated enough to read as a tint over green land and over sand alike)
-  const shades: [number, number][] = [[0.68, 0.55], [0.78, 0.43], [0.62, 0.67], [0.85, 0.36], [0.74, 0.61]]
-  const shifts = [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.2, -0.2]
+  // (the two lightest a little less pale than they were: pale tones lie close together in colour, so neighbours drew apart too little)
+  const shades: [number, number][] = [[0.68, 0.55], [0.78, 0.43], [0.62, 0.63], [0.85, 0.36], [0.74, 0.58]]
+  const shifts = [0, 0.05, -0.05, 0.1, -0.1, 0.15, -0.15, 0.2, -0.2, 0.25, -0.25, 0.3, -0.3]
   const labs = new Float64Array(P * 6)
   const cand = new Float64Array(6)
   const cosNear = Math.cos(0.42) // radians between capitals
@@ -981,7 +986,7 @@ export function assignPolityColors(pd: PolitiesData, world: World): void {
           d = Math.min(d, dn, dd * 1.15)
         }
         // enough apart is enough: then stay close to the intended hue and shade
-        const score = Math.min(d, 45) - Math.abs(shifts[hi]) * 22 - v * 1.2
+        const score = Math.min(d, ENOUGH_APART) - Math.abs(shifts[hi]) * 22 - v * 1.2
         if (score > bestScore) {
           bestScore = score
           best = c

@@ -440,3 +440,34 @@ function hsl(h: number, s: number, l: number): RGB {
   const p = 2 * l - q
   return [hue2rgb(p, q, h + 1 / 3), hue2rgb(p, q, h), hue2rgb(p, q, h - 1 / 3)]
 }
+
+// ---------- legends (ui/viewLegends.ts): the views' colours as CSS ----------
+
+const css = (c: readonly number[]) => `rgb(${Math.round(c[0] * 255)}, ${Math.round(c[1] * 255)}, ${Math.round(c[2] * 255)})`
+/** A left-to-right CSS gradient of ramp stops over [lo, hi] of their domain. */
+function gradientCss(stops: readonly (readonly [number, RGB])[], lo: number, hi: number): string {
+  return `linear-gradient(to right, ${stops.map(([t, c]) => `${css(c)} ${(((t - lo) / (hi - lo)) * 100).toFixed(1)}%`).join(', ')})`
+}
+/** The Elevation, Temperature, Rainfall, Capacity (and Population) views' ramps as CSS gradients (Elevation: -1 deep sea .. 1 peaks, the coast a sharp step at the middle; the others 0 .. 1). */
+export const VIEW_RAMP_CSS = {
+  elevation: gradientCss([...ELEV_SEA, ...ELEV_LAND].map(([t, c]) => [(t + 1) / 2, c] as const), 0, 1),
+  temperature: gradientCss(TEMP_STOPS, 0, 1),
+  rainfall: gradientCss(RAIN_STOPS, 0, 1),
+  capacity: gradientCss(CAPACITY_STOPS, 0, 1),
+} as const
+/** Swatches of the views' fixed colours: water and bare land of the data views, stateless land, wild land of the Land use view, a plate on land and under the sea. */
+export const VIEW_SWATCH_CSS = {
+  water: css(CAPACITY_WATER),
+  barren: css(CAPACITY_BARREN),
+  stateless: css(FACTIONS_STATELESS),
+  factionsWater: css(FACTIONS_WATER),
+  wild: css(LANDUSE_WILD),
+  dangerLand: css(DANGER_LAND),
+  plateLand: css(hsl(0.58, 0.5, 0.56)),
+  plateSea: css(hsl(0.58, 0.5, 0.34)),
+} as const
+/** The Biomes view's colours, in the legend's order (land from cold to hot, then mountains, coast, ocean). */
+export function biomeLegend(): { name: string; css: string }[] {
+  const order = [Biome.Ice, Biome.Tundra, Biome.Taiga, Biome.TemperateForest, Biome.Grassland, Biome.Savanna, Biome.Desert, Biome.Rainforest, Biome.Mountain, Biome.Coast, Biome.Ocean]
+  return order.map((b) => ({ name: BIOME_NAMES[b], css: css(BIOME_COLOR[b]) }))
+}

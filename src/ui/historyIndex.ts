@@ -12,6 +12,7 @@ import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './dis
 import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
 import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isLandmarkEvent } from './landmarksFormat.ts'
+import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
@@ -65,6 +66,8 @@ export const EntryKind = {
   BorderDisputes: 21,
   /** ideas: one idea's adoptions per half-century, one network's first arrivals per half-century, one idea's refusals per half-century (ideasFormat.ts ideasGroupKey). */
   Ideas: 22,
+  /** danger on the way of trade: major routes forsaken (TradeForsaken), or trodden again (TradeRestored), in one decade (one type per entry). */
+  TradeDanger: 23,
   /** rulers: one state's successions per quarter-century, a contested succession's events, a war of succession (rulersFormat.ts rulersGroupKey; numbered apart from the others). */
   Rulers: 40,
   /** religion: one state's conversion and state religion, a faith reaching peoples per half-century, a holy war (rulersFormat.ts). */
@@ -382,6 +385,7 @@ function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
   if (isIdeasEvent(type)) return true // 120-123: ideas (ideasFormat.ts)
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
+  if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
@@ -409,7 +413,9 @@ function otherIsSettlement(type: number): boolean {
     // claims: the other side's capital in a border dispute
     isDisputeEvent(type) ||
     // landmarks: the builder's or restorer's capital, the sacker's
-    isLandmarkEvent(type)
+    isLandmarkEvent(type) ||
+    // danger on the way: the route's other end
+    isTradeDangerEvent(type)
 }
 
 /** Landfalls on land smaller than this (cells at the default resolution, scaled) are small islands, gathered per ISLAND_BUCKET_YEARS. */
@@ -558,6 +564,11 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   }
   const openingsPerBucket = perBucket(EventType.TradeOpened, () => true)
   const closingsPerBucket = perBucket(EventType.TradeClosed, () => true)
+  // danger on the way: routes forsaken, and restored, per decade (one entry per type and decade)
+  const forsakenPerBucket = perBucket(EventType.TradeForsaken, () => true)
+  const restoredPerBucket = perBucket(EventType.TradeRestored, () => true)
+  const forsakenEntry = new Map<number, number>()
+  const restoredEntry = new Map<number, number>()
   const migrationsPerBucket = perBucket(EventType.Migration, (v) => v >= migrationThreshold)
   const burstPerBucket = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, perBucket(t, () => true)]))
   const burstEntry = new Map<number, Map<number, number>>(BURST_TYPES.map((t) => [t, new Map<number, number>()]))
@@ -701,7 +712,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     if (!isShownType(e.type)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
-    if (ideasHiddenInChronicle(h, e)) continue // ideas: a farming technique's (the species lines say it)
+    // (ideas: a farming technique's stays, for the Ideas filter: the chronicle leaves it out of All, where the species lines say it)
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
     if (e.type === EventType.Famine && (faminesPerYear.get(e.year) ?? 0) >= FAMINE_BURST) join(famineEntry, e.year, EntryKind.FamineBurst, i)
@@ -709,6 +720,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (e.type === EventType.Migration && (migrationsPerBucket.get(bucketOf(e.year)) ?? 0) >= 2) join(migrationEntry, bucketOf(e.year), EntryKind.Migrations, i)
     else if (e.type === EventType.TradeOpened && (openingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(openingEntry, bucketOf(e.year), EntryKind.TradeOpenings, i)
     else if (e.type === EventType.TradeClosed && (closingsPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(closingEntry, bucketOf(e.year), EntryKind.TradeClosings, i)
+    else if (e.type === EventType.TradeForsaken && (forsakenPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(forsakenEntry, bucketOf(e.year), EntryKind.TradeDanger, i)
+    else if (e.type === EventType.TradeRestored && (restoredPerBucket.get(bucketOf(e.year)) ?? 0) >= TRADE_BURST) join(restoredEntry, bucketOf(e.year), EntryKind.TradeDanger, i)
     else if ((burstPerBucket.get(e.type)?.get(bucketOf(e.year)) ?? 0) >= 2) join(burstEntry.get(e.type)!, bucketOf(e.year), EntryKind.Burst, i)
     else if (isIslandLandfall(e.type, e.value) && (islandLandfallsPerBucket.get(islandBucketOf(e.year)) ?? 0) >= 2) join(landfallEntry, islandBucketOf(e.year), EntryKind.Landfalls, i)
     else if (gainKeyOfEvent.has(i) && (gainsPerKey.get(gainKeyOfEvent.get(i)!) ?? 0) >= 2) join(gainEntry, gainKeyOfEvent.get(i)!, EntryKind.PolityGains, i)

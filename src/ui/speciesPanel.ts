@@ -17,7 +17,7 @@ import { SpeciesCategory, type History } from '../contract.ts'
 import { goodName, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
 import { CASH_VIEW, cropSnapshotAt, habitLevel, habitSnapshotAt, heldAt, holdersAt, inViewCategory, isHabitForming, techHoldersAt, type SpeciesData } from './speciesData.ts'
-import { loadFlag, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { ViewMode } from '../render/palette.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
@@ -328,12 +328,15 @@ export function createSpeciesView(deps: SpeciesViewDeps): SpeciesView {
     head.setAttribute('aria-expanded', String(!collapsed))
   }
   syncCollapsed()
-  head.addEventListener('click', () => {
+  const toggleCollapsed = () => {
     collapsed = !collapsed
     saveFlag('worldseed.species.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('species', !collapsed)
     forceRefresh()
-  })
+  }
+  head.addEventListener('click', toggleCollapsed)
+  registerPanel('species', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   // (as the other panels' letters: P, R, G, F, D, T, C)
   addShortcut({ keys: ['n', 'N'], label: 'N', description: 'Show or hide the species (crops, herds, plants, techniques)', group: 'Panels', run: () => (root.classList.contains('hidden') ? false : head.click()) })
 

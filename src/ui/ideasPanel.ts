@@ -25,7 +25,7 @@ import {
 } from './ideasData.ts'
 import { channelPhrase, conceivedHere, lossShort, refusalShort } from './ideasFormat.ts'
 import { setPeopleIdeasNote, setPeopleTechNote } from './peoplesPanel.ts'
-import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { loadLayerPrefs, type LayerToggle } from './overlay.ts'
 import './ideas.css'
@@ -143,10 +143,12 @@ export function createIdeasView(deps: IdeasViewDeps): IdeasView {
     collapsed = !collapsed
     saveFlag('worldseed.ideas.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('ideas', !collapsed)
     force()
     if (!collapsed) window.setTimeout(() => root.scrollIntoView({ block: 'nearest' }), 80)
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('ideas', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   const syncTabs = () => tabBtns.forEach((b, i) => {
     b.classList.toggle('active', i === tab)
     b.setAttribute('aria-selected', String(i === tab))

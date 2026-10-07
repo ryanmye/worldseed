@@ -22,7 +22,7 @@ import { formatPopulation, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
 import { assignPolityColors, polityAtYear, politiesOf, type PolitiesData } from './politiesData.ts'
 import type { PeoplesData } from './peoplesData.ts'
-import { loadFlag, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import './cities.css'
 
@@ -101,10 +101,12 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
     collapsed = !collapsed
     saveFlag('worldseed.cities.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('cities', !collapsed)
     shownS0 = -1 // force the body to fill in now that it is visible
     if (!collapsed) window.setTimeout(() => root.scrollIntoView({ block: 'nearest' }), 80)
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('cities', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   let showAll = false
   more.addEventListener('click', () => {
     showAll = !showAll
@@ -269,6 +271,7 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
     for (let i = 0; i < shown; i++) updateRow(rowAt(i), i, ranked[i].id, ranked[i].pop, year)
     for (let i = shown; i < rows.length; i++) rows[i].el.hidden = true
     for (let i = 0; i < shown; i++) rows[i].el.hidden = false
+    root.classList.toggle('many', shown >= 8) // (style.css: eight rows or more keep at least eight in view)
   }
 
   function recompute(s0: number) {

@@ -24,7 +24,7 @@ import {
 } from './diseaseData.ts'
 import { setPolityDiseaseNote } from './politiesPanel.ts'
 import { setPeopleDiseaseNote } from './peoplesPanel.ts'
-import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { loadLayerPrefs, type LayerToggle } from './overlay.ts'
 import type { TimelineMark } from './timeline.ts'
@@ -159,9 +159,11 @@ export function createDiseaseView(deps: DiseaseViewDeps): DiseaseView {
     collapsed = !collapsed
     saveFlag('worldseed.disease.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('disease', !collapsed)
     force()
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('disease', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   const syncTabs = () => tabBtns.forEach((b, i) => {
     b.classList.toggle('active', i === tab)
     b.setAttribute('aria-selected', String(i === tab))

@@ -23,7 +23,7 @@ import {
   snapAt, sourcesAt, sourcesUpTo, spendAt, tourismOf, TRAVEL_CSS, tripsFrom, visitorsAt, worldVisitors, type TourismData,
 } from './tourismData.ts'
 import { causeShort } from './tourismFormat.ts'
-import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
+import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { loadLayerPrefs, type LayerToggle } from './overlay.ts'
 import './tourism.css'
@@ -151,12 +151,14 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
     collapsed = !collapsed
     saveFlag('worldseed.travel.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('travel', !collapsed)
     force()
     // (the right column scrolls as a whole when it outgrows the window: bring the opened panel into view)
     // (after the next frame has filled it)
     if (!collapsed) window.setTimeout(() => root.scrollIntoView({ block: 'nearest' }), 80)
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('travel', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
   const syncTabs = () => tabBtns.forEach((b, i) => {
     b.classList.toggle('active', i === tab)
     b.setAttribute('aria-selected', String(i === tab))

@@ -11,7 +11,7 @@
 // caller falls back to what it said before).
 
 import { AccessionHow, EventType, FaithKind, ReignEnd, UnionEnd, type History, type HistoryEvent } from '../contract.ts'
-import { capitalAt, polityAtYear } from './politiesData.ts'
+import { capitalAt, polityAtYear, politiesOf, statIndex } from './politiesData.ts'
 import { peopleName, peopleOf, settlementName } from './format.ts'
 import { faithName, faithsOf, type FaithsData } from './faithsData.ts'
 import {
@@ -446,7 +446,18 @@ export function describeRulersGroup(h: History, members: readonly HistoryEvent[]
     // the chiefdoms of a quarter-century: one of them as a big state's line (below, without the house), several in a count
     const states = new Set(acc.map((r) => rd.rulers[r].polity))
     const last = acc[acc.length - 1]
-    if (states.size > 1) return `${acc.length} successions in ${states.size} chiefdoms, the latest ${rd.title[last]} of ${pname(rd, rd.rulers[last].polity)}`
+    if (states.size > 1) {
+      // name the largest one or two (by people at the latest succession)
+      const pd = politiesOf(h)
+      const y = rd.rulers[last].acceded
+      const pop = (q: number) => {
+        if (!pd) return 0
+        const k = statIndex(pd, q, Math.round(y / pd.interval))
+        return k >= 0 ? pd.alivePop[k] : 0
+      }
+      const big = [...states].sort((a, b) => pop(b) - pop(a) || a - b).slice(0, 2).map((q) => pname(rd, q))
+      return `${acc.length} successions in ${states.size} chiefdoms, among them ${big.join(' and ')}; the latest ${rd.title[last]} of ${pname(rd, rd.rulers[last].polity)}`
+    }
     const names = acc.map((r) => rd.title[r])
     return `${pname(rd, q)}: ${names.length <= 4 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} succeed in turn` : `${names.length} reigns in turn, ${names[0]} to ${names[names.length - 1]}`}`
   }

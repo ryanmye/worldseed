@@ -28,6 +28,13 @@ export interface FaithsData {
   worldShare: Float32Array
   /** Living settlements whose majority follows each faith, per snapshot: places[s * F + f]. */
   places: Uint32Array
+  /** Share of the world's people living in the places where each faith is the majority, per snapshot (worldShare's upper reach there): majorityPop[s * F + f], 0..1. */
+  majorityPop: Float32Array
+  /**
+   * Whether the history records the majority's share in each place (some living place below 255): then worldShare counts the
+   * followers there; else only that a faith is the majority, and the panel says in how many places instead of a share.
+   */
+  sharesKnown: boolean
   /** Faiths whose holy city each settlement is. */
   holyOf: Map<number, number[]>
   /** Schisms of each faith (ids, in order). */
@@ -137,12 +144,16 @@ function buildFaithsData(h: History): FaithsData | null {
   // followers per snapshot
   const worldShare = new Float32Array(S * F)
   const places = new Uint32Array(S * F)
+  const majorityPop = new Float32Array(S * F)
+  const accAll = new Float64Array(F)
+  let sharesKnown = false
   const peakShare = new Float32Array(F)
   const out = new Uint8Array(N)
   for (let i = 0; i < N; i++) if ((h.settlements[i] as { outpost?: boolean }).outpost === true) out[i] = 1
   const acc = new Float64Array(F)
   for (let s = 0; s < S; s++) {
     acc.fill(0)
+    accAll.fill(0)
     let total = 0
     const o = s * N
     for (let i = 0; i < N; i++) {
@@ -152,11 +163,14 @@ function buildFaithsData(h: History): FaithsData | null {
       const f = p.faith[o + i]
       if (f >= F) continue
       acc[f] += pop * (p.faithShare[o + i] / 255)
+      accAll[f] += pop
+      if (p.faithShare[o + i] < 255) sharesKnown = true
       places[s * F + f]++
     }
     if (total > 0) for (let f = 0; f < F; f++) {
       const v = acc[f] / total
       worldShare[s * F + f] = v
+      majorityPop[s * F + f] = accAll[f] / total
       if (v > peakShare[f]) peakShare[f] = v
     }
   }
@@ -206,7 +220,7 @@ function buildFaithsData(h: History): FaithsData | null {
       }
     }
   }
-  return { history: h, faiths, F, N, S, interval: h.snapshotInterval, universal, rgb, css, worldShare, places, holyOf, children, eventsOf, holyWarsOf, holyWarFaith, statesOf, holyFell, peakShare }
+  return { history: h, faiths, F, N, S, interval: h.snapshotInterval, universal, rgb, css, worldShare, places, majorityPop, sharesKnown, holyOf, children, eventsOf, holyWarsOf, holyWarFaith, statesOf, holyFell, peakShare }
 }
 
 /** Snapshot of a year. */

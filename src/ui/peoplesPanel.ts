@@ -25,7 +25,7 @@ import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, PeoplesEvent, TECH_FIELD_NAMES } from './format.ts'
 import { NORM_YEARS, type HistoryIndex } from './historyIndex.ts'
 import { ANYONE, cellKnownYears, contactOf, knownShare, metCount, NEVER_YEAR, type PeoplesData } from './peoplesData.ts'
-import { loadFlag, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { HabitLine, SpeciesChips, TechniqueCount } from './speciesPanel.ts'
 import './peoples.css'
@@ -186,9 +186,11 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     collapsed = !collapsed
     saveFlag('worldseed.peoples.collapsed', collapsed)
     syncCollapsed()
+    panelToggled('peoples', !collapsed)
     forceRefresh()
   }
   head.addEventListener('click', toggleCollapsed)
+  registerPanel('peoples', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
 
   // ---------- banner ----------
   const banner = document.createElement('div')
