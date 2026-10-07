@@ -1,0 +1,44 @@
+/* Credits popover (credits.ts), in the help popover's style */
+.credits-pop {
+  width: 340px;
+}
+.credits-p {
+  margin: 2px 0;
+  color: var(--text-2);
+}
+.credits-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+.credits-list li {
+  margin: 0 0 4px;
+}
+.credits-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.credits-link:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Narrow windows: the seed bar is wider than the left column, so it wraps (keeping the ? and Credits
+   buttons clear of the right column) and the popovers start below it */
+@media (max-width: 560px) {
+  .top-bar {
+    flex-wrap: wrap;
+    max-width: var(--left-w);
+  }
+  .top-bar .icon-btn {
+    flex: none;
+  }
+  .popover {
+    top: 112px;
+    max-height: calc(100% - 128px - var(--left-reserve));
+  }
+}
