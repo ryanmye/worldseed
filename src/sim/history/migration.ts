@@ -41,6 +41,8 @@ import type { FrontierState } from './frontier.ts'
 import { fleeChance, joinBlocked, joinFactor, refugeeKnowledge, siteAlt, siteAltReset, siteChosen, siteFactor } from './polity/system.ts' // polities:
 import { rushAt } from './goods/hooks.ts' // goods:
 import { feverSite } from './disease/system.ts' // disease:
+import { settleBias, settleJoin, settleUrge, settleUrged } from './orders/hooks.ts' // orders:
+import { ORDERS } from './orders/params.ts' // orders:
 
 /**
  * Reusable search buffers. The search is Dijkstra with a bucket queue (Dial's algorithm): bucket b
@@ -172,7 +174,8 @@ export function migrationSystem(s: HistoryState, search: Search): void {
     }
     // A cheap exit first: a roll above what colonise (at most pressureChance) could reach.
     if (roll >= M.pressureChance + flee) continue
-    const colonise = (M.pressureChance * smoothstep(M.pressureLow, M.pressureHigh, p / foodBase(s, id))) / (1 + WEALTH.stay * prosperity(s, id))
+    let colonise = (M.pressureChance * smoothstep(M.pressureLow, M.pressureHigh, p / foodBase(s, id))) / (1 + WEALTH.stay * prosperity(s, id))
+    if (s.orders !== null) colonise = settleUrge(s, s.orders, id, colonise) // orders: the towns nearest an ordered target send settlers
     if (roll >= colonise + flee) continue
     const g = Math.floor(p * rng.range(M.groupMin, M.groupMax))
     if (g < M.minGroup || p - g < M.minGroup) continue
@@ -289,6 +292,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
             if (!leap) { const dd = 1 + d * invHalf; score *= (1 + FR.contigBonus) / (dd * dd) } // frontier: (a settlement is settled land)
             if (s.pol !== null) score *= joinFactor(s, s.pol, from, occ) // polities: crowding into walled towns
             if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
+            if (s.orders !== null) score *= settleJoin(s, s.orders, from) // orders: settlers urged toward a place seldom settle for a town instead
             if (score > bestScore) { bestScore = score; bestCell = -1; bestJoin = occ }
           }
         }
@@ -319,6 +323,7 @@ function siteSearch(s: HistoryState, search: Search, from: number, g: number, ma
           if (s.pol !== null) { pf = siteFactor(s, s.pol, c, from); score *= pf } // polities: danger and defensibility
           if (s.goods !== null) score *= rushAt(s.goods, c) // goods: the rush to a fresh find
           if (s.dz !== null) score *= feverSite(s.dz, c, s.people[from]) // disease: fever ground shunned
+          if (s.orders !== null) score *= settleBias(s, s.orders, from, c) // orders: urged to settle toward a cell
           if (note) siteAlt(c, score / pf) // polities: (diag) the choice danger did not shape
           if (score > bestScore) { bestScore = score; bestCell = c; bestJoin = -1 }
         }
@@ -376,6 +381,8 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
   const voyage = rng.next() < (hasPort ? PORT.voyageChance : M.voyageChance)
   let budget = M.budget * (1 + M.budgetTech * (techOf(s, from, TechField.Crafts) - 1)) * rng.range(M.budgetJitterMin, M.budgetJitterMax)
   if (hasHorse(s, from)) budget *= 1 + SPECIES.horseBudget
+  const urged = s.orders !== null && settleUrged(s, s.orders, from) // orders: settlers urged toward a place go further, and on past the towns
+  if (urged) budget *= ORDERS.settleReach
   let ocean = (M.oceanCost * T.cellScale) / Math.sqrt(techOf(s, from, TechField.Seafaring))
   if (voyage) { budget *= M.voyageBudget; ocean *= M.voyageOcean }
   // frontier: a few groups go far (long voyages, and leapChance of the rest: from the frontier stream).
@@ -407,7 +414,7 @@ function migrate(s: HistoryState, search: Search, from: number, g: number, mayJo
 
   // frontier: bound for a new site, the group may stop at a settlement it passes that takes it in.
   let joinPath: number[] | null = null
-  if (bestCell >= 0 && !leap) {
+  if (bestCell >= 0 && !leap && !urged) {
     const way = reconstructPath(prev, origin, bestCell)
     const stop = passJoin(s, fr, from, g, way, foodBase, prosperity)
     if (stop.join >= 0) {

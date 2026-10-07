@@ -162,6 +162,8 @@ import { LANDMARKS_ON } from './landmarks/params.ts'
 import { createLandmarks, landmarksYear } from './landmarks/system.ts'
 import type { LandmarksDiag } from './landmarks/state.ts'
 import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
+// orders: the player's nudges (orders/).
+import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -424,6 +426,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   s.ideas = ix
   // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
+  // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
+  const ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
+  s.orders = ox
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -520,6 +525,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const step = (year: number): void => {
     s.year = year
     s.landYear = year % LAND.step === 0
+    if (ox) ordersBegin(s, ox) // orders: the orders of the year given and put in force
     weatherSystem(s, weather)
     foodSystem(s)
     if (gx) goodsProduce(s, gx, explore) // goods: mines and furs, before the market
@@ -532,6 +538,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     abandonmentSystem(s)
     tradeAbandonSystem(s, trade)
     if (pol) politySystem(s, pol, trade) // polities: states, war, danger
+    if (ox && pol) ordersPolity(s, ox, pol) // orders: the court may move to an ordered seat
     structureSystem(s, scratch, portSearch)
     if (s.landYear) {
       landUseSystem(s)
@@ -556,6 +563,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
+    if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -640,6 +648,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         renamings: renHist.renamings, // renaming:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
+        ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
       },
       terrain,
       diag: {

@@ -25,6 +25,9 @@ import type { PolityState } from './state.ts'
 import { relationOf } from './relations.ts'
 import { atWar } from './formation.ts'
 import { bandits } from './outlaw.ts'
+import { OrderKind } from '../../../contract.ts' // orders:
+import { townUrged } from '../orders/hooks.ts' // orders:
+import { ORDERS } from '../orders/params.ts' // orders:
 
 
 /** Raises the danger of settlement id to at least z (an event). */
@@ -192,8 +195,10 @@ export function wallStep(s: HistoryState, ps: PolityState): void {
     let want = false
     if (r === 0) want = (p >= W.pop || (cap && p >= W.capitalPop)) && za >= W.danger
     else if (r < W.maxRings) want = p >= W.ringGrowth * ps.wallPop[id] && (za >= W.ringDanger || (cap && p >= W.ringCapital))
+    const fo = s.orders !== null && r === 0 && townUrged(s.orders, OrderKind.Fortify, id) // orders: urged to fortify (danger aside, fewer people)
+    if (fo && p >= ORDERS.fortifyPop * (cap ? W.capitalPop : W.pop)) want = true
     if (!want) continue
     // (a structure built this year is never lost this year: campaigns ran before this)
-    if (rng.next() < step * W.chance * buildSkill(s, id)) buildWalls(s, ps, id)
+    if (rng.next() < step * W.chance * buildSkill(s, id) * (fo ? ORDERS.fortifyMul : 1)) buildWalls(s, ps, id)
   }
 }

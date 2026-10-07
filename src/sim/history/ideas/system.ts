@@ -20,6 +20,7 @@ import { IDEA, IDEA_DEFS, R_FAITH, R_GUILD, R_RULER } from './params.ts'
 import type { IdeasState } from './state.ts'
 import { CH, createIdeas, ensureIdeas, PRE } from './state.ts'
 import { recompute, record } from './hooks.ts'
+import { ideaMul, ideaTarget } from '../orders/hooks.ts' // orders:
 
 const DEFS = IDEA_DEFS
 
@@ -409,6 +410,7 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
     if (scale < X.scaleMin) scale = X.scaleMin
     else if (scale > X.scaleMax) scale = X.scaleMax
     const boost = (1 + X.combo * nHeld) * scale
+    const io = s.orders !== null ? ideaTarget(s.orders, q) : -1 // orders: urged to seek idea io (ideaMul below)
     const tq = c.farm[q] + c.sea[q] + c.metal[q] + c.crafts[q]
     for (let h = 0; h < P; h++) {
       const th = c.farm[h] + c.sea[h] + c.metal[h] + c.crafts[h]
@@ -445,13 +447,13 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
       if (met) {
         const u = d.use ? d.use(c, q) : 1
         if (!(u > 0)) continue
-        const add = (E * learn) / d.teach
+        const add = ((E * learn) / d.teach) * ideaMul(io, i)
         prog[qi] += add
         const ao = qi * CH
         for (let cc = 1; cc < CH; cc++) acc[ao + cc] += ACCW[cc]
         if (!(E > 0)) prog[qi] *= 1 - X.forget * dt
         if (prog[qi] < 1) continue
-        const chance = X.adopt * u
+        const chance = X.adopt * u * ideaMul(io, i)
         const [r, why] = d.resist ? resistance(s, ix, q, i) : [0, -1]
         const x = rng.next()
         if (x < chance * (1 - r)) {
@@ -490,7 +492,7 @@ function learnAndConceive(s: HistoryState, ix: IdeasState): void {
       if (!(w > 0)) continue
       let mix = c.met[q]
       if (mix > X.mixMax) mix = X.mixMax
-      const chance = ((((X.conceive * d.chance) / 100) * dt * w * (1 + X.mix * mix)) / (1 + X.cardwell * ix.recent[q])) * boost
+      const chance = ((((X.conceive * d.chance) / 100) * dt * w * (1 + X.mix * mix)) / (1 + X.cardwell * ix.recent[q])) * boost * ideaMul(io, i)
       if (rng.next() >= chance) continue
       const sk = SITE[i]
       const at = sk !== SITE_NONE && BEST[q * SITES + sk] >= 0 ? BEST[q * SITES + sk] : ix.largest[q]

@@ -58,6 +58,8 @@ import { speciesExpedition } from './species.ts'
 import { expeditionFinds } from './goods/deposits.ts' // goods:
 import { ideaRange } from './ideas/hooks.ts' // ideas:
 import { oceanGaps, oceanReach } from './oceans.ts' // oceans: wide oceans wait for the seafaring ideas
+import { exploreFruitless, exploreTarget, exploreUrge, towardTarget } from './orders/hooks.ts' // orders:
+import { ORDERS } from './orders/params.ts' // orders:
 
 /** Notable places (Discovery): kind of a discovery record. */
 export const Place = {
@@ -359,9 +361,13 @@ export function explorationSystem(s: HistoryState, es: ExploreState): void {
     let sat = town > f ? town : f
     if (portF > sat) sat = portF
     if (sat > 1) sat = 1
+    const xu = s.orders !== null ? exploreUrge(s, s.orders, id) : 0 // orders: urged to explore (the order is the purpose: its frontier is the target)
+    if (xu > 0 && sat < ORDERS.exploreSat) sat = ORDERS.exploreSat
     if (sat < X.satMin) { es.urge[id] *= 1 - X.fade * dt; continue }
-    if (!frontier(s, es, id)) { es.urge[id] *= 1 - X.fade * dt; continue } // nothing unknown anywhere near: no urge
-    es.urge[id] += dt * X.urge * sat * (1 + X.urgeTech * (driveTech(s, id) - 1))
+    if (xu === 0 && !frontier(s, es, id)) { es.urge[id] *= 1 - X.fade * dt; continue } // nothing unknown anywhere near: no urge
+    const du = dt * X.urge * sat * (1 + X.urgeTech * (driveTech(s, id) - 1))
+    es.urge[id] += du
+    if (xu > 0) es.urge[id] += xu * du // orders:
     if (es.urge[id] < 1 || s.year < es.nextTry[id]) continue
     es.urge[id] = 0
     expedition(s, es, id, f)
@@ -499,6 +505,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
   const B = buckets.length
   const rangeI = Math.floor(10 * range)
   const gap = oceanGaps(s), reach = oceanReach(s, people) // oceans:
+  const xo = s.orders !== null ? exploreTarget(s.orders, people) : -1 // orders: urged toward a cell
   bucketLen.fill(0)
   let pending = 0
   const push = (c: number, d: number): void => {
@@ -530,8 +537,9 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
       if (dist[c] !== cur) continue // improved since it was queued
       if (visits >= X.maxVisits) break search
       visits++
-      if (known[kBase + c] < 0 && unk[c] >= X.minUnknown) {
-        const score = unk[c] * weight(s, c) * rng.range(0.7, 1.3)
+      if (known[kBase + c] < 0 && unk[c] >= (xo >= 0 ? ORDERS.exploreUnknown : X.minUnknown)) { // (orders: the target is worth the trip)
+        let score = unk[c] * weight(s, c) * rng.range(0.7, 1.3)
+        if (xo >= 0) score *= towardTarget(s, xo, origin, c) // orders:
         if (score > bestScore) { bestScore = score; best = c }
       }
       for (let k = off[c]; k < off[c + 1]; k++) {
@@ -553,6 +561,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
     const k = es.fails[id] < X.retryMax ? ++es.fails[id] : X.retryMax
     es.nextTry[id] = s.year + X.retry * k
     es.fruitless++
+    if (xo >= 0 && s.orders !== null) exploreFruitless(s.orders, people) // orders: nothing unknown within reach that way
     es.newsRange[nk] = nf && es.newsRange[nk] > range ? es.newsRange[nk] : range
     es.newsYear[nk] = s.year
     return
