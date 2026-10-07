@@ -107,7 +107,8 @@ export function buildSunDisc(): SunDisc {
         float airLow = min(1.0 / (max(dot(ro / camR, rd), 0.0) + 0.035), 28.0);
         float odSpace = exp(-alt / H) * airSpace;
         float odLow = exp(-max(camR - RP, 0.0) / H) * airLow;
-        vec3 tr = exp(-BETA * mix(odLow, odSpace, uSpace) * H * 3.0);
+        // (low down a little more: the disc deep orange at the horizon, as the city sky's sunset, citySky.ts)
+        vec3 tr = exp(-BETA * mix(odLow * 2.0, odSpace, uSpace) * H * 3.0);
         // the disc (limb-darkened, antialiased) and its glow
         float disc = 1.0 - smoothstep(rs - px, rs + px, th);
         float mu = sqrt(max(0.0, 1.0 - (th * th) / (rs * rs)));
@@ -125,6 +126,15 @@ export function buildSunDisc(): SunDisc {
           col += mix(vec3(1.0, 0.3, 0.06), vec3(1.0, 0.66, 0.36), smoothstep(0.0, 0.02, alt)) * rim * 1.8;
           cover = min(0.75, rim);
         }
+        // low down, against the bright sky: clip the brightest part keeping its hue (a white-hot
+        // core would wash out to yellow-white at the display's limit and hide the reddening)
+        float mx = max(col.r, max(col.g, col.b));
+        // (only near the horizon: higher up the disc stays white-hot)
+        float lim = mix(1.0, 4.0, smoothstep(0.03, 0.2, dot(ro / camR, rd)));
+        col = mix(col * min(1.0, lim / max(mx, 1e-4)), col, uSpace);
+        // (and the disc covers the sky behind it rather than adding to it: a bright sunset sky
+        // plus the disc would add up to yellow-white)
+        cover = max(cover, disc * (1.0 - uSpace));
         float k = uFade * (1.0 - smoothstep(0.7, 1.0, qr));
         gl_FragColor = vec4(col * k, cover * k);
         #include <colorspace_fragment>
@@ -159,7 +169,10 @@ export function buildSunDisc(): SunDisc {
       toCentre.copy(camPos).multiplyScalar(-1 / d)
       const m = Math.acos(Math.max(-1, Math.min(1, SUN_DIRECTION.dot(toCentre)))) - alpha
       const px = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, drawHeightPx)
-      const rs = Math.max(SUN_RADIUS, 2.2 * px)
+      // low down, the sun near the horizon looks larger (and its glow wider; the reddening is the shader's)
+      const sinE = SUN_DIRECTION.dot(camPos) / d
+      const big = 1 + 0.7 * (1 - uniforms.uSpace.value) * (1 - THREE.MathUtils.smoothstep(sinE, 0, 0.2))
+      const rs = Math.max(SUN_RADIUS * big, 2.2 * px)
       uniforms.uDisc.value.set(rs, px)
       uniforms.uVis.value = THREE.MathUtils.smoothstep(m, -rs, rs)
       uniforms.uNear.value = THREE.MathUtils.smoothstep(m, -0.05, 0)

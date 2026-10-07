@@ -6,8 +6,9 @@ import { decodeOrders, encodeOrders } from './contract.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
-import { buildAtmosphere, buildClouds, buildStarfield, type Clouds } from './render/sky.ts'
+import { buildAtmosphere, buildClouds, buildStarfield, CLOUD_DECK_RADIUS, type Clouds } from './render/sky.ts'
 import { buildSunDisc } from './render/sunDisc.ts'
+import { buildCitySky } from './render/citySky.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
 import { goodsInUse } from './ui/tradePanel.ts'
 import { attachPointer } from './ui/pointer.ts'
@@ -191,6 +192,9 @@ scene.add(atmosphere.mesh)
 // the sun itself in the sky (render/sunDisc.ts)
 const sunDisc = buildSunDisc()
 scene.add(sunDisc.mesh)
+// the sky seen from low down (the city view): a dome behind everything (render/citySky.ts)
+const citySky = buildCitySky()
+scene.add(citySky.mesh)
 
 const planetGroup = new THREE.Group()
 planetGroup.rotation.y = -THREE.MathUtils.degToRad(numParam('lon', 0))
@@ -1248,7 +1252,9 @@ function draw(ts: number) {
     if (sky) drawLandingSky(sky)
   }
   // near plane follows the height above the ground, so the ground up close is not clipped
-  const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundUnder(camera.position.x, camera.position.y, camera.position.z)) * 0.12))
+  const groundR = groundUnder(camera.position.x, camera.position.y, camera.position.z)
+  atmosphere.setGroundRadius(groundR)
+  const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundR) * 0.12))
   if (Math.abs(camera.near - nearWant) > camera.near * 0.15) {
     camera.near = nearWant
     camera.updateProjectionMatrix()
@@ -1270,6 +1276,11 @@ function draw(ts: number) {
   currentRivers?.update(camera, drawSize.y)
   // (not on the start page: its sky is a fixed layer behind the scrolling planet, landing.ts)
   sunDisc.update(camera, drawSize.y, landing !== null)
+  // the low sky: off on the start page and toward the flat map; the stars fade under it by day,
+  // and the clouds seen from below draw after the sun (they pass in front of it)
+  citySky.update(camera, landing ? 0 : 1 - Math.min(1, flat.t / 0.45))
+  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value *= citySky.stars
+  if (currentClouds) currentClouds.mesh.renderOrder = citySky.low > 0 && camera.position.length() < CLOUD_DECK_RADIUS ? 10.6 : 5
   const tt = performance.now()
   historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0
