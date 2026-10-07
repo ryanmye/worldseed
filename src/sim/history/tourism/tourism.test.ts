@@ -158,6 +158,9 @@ function checkTourism(w: World, h: History): void {
     expect(x.fame >= 0 && x.fame <= 1.5).toBe(true)
     expect(x.settlement >= -1 && x.settlement < S).toBe(true)
     if (x.settlement >= 0) { expect(h.settlements[x.settlement].cell).toBe(x.cell); expect(x.name).toBe(h.settlements[x.settlement].name) }
+    // (landmarks: a Landmark sight is a great landmark's, named after it; checked in full in landmarks.test.ts)
+    if (x.kind === SightKind.Landmark) expect(x.landmark! >= 0 && x.landmark! < h.landmarks.count).toBe(true)
+    else expect(x.landmark).toBeUndefined()
     const ev = h.events.find((e) => e.type === EventType.SightRecognised && e.value === x.id)
     expect(ev && ev.year === x.fromYear && ev.extra === x.kind && ev.other === x.settlement && aliveAt(h, ev.settlement, ev.year)).toBe(true)
     if (x.settlement >= 0 && aliveAt(h, x.settlement, x.fromYear)) expect(ev!.settlement).toBe(x.settlement)

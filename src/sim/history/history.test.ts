@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow } from '../../contract.ts'
+import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow, routePathAt } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -7,6 +7,7 @@ import type { HistoryRun } from './index.ts'
 import { buildTerrain } from './terrain.ts'
 import type { Terrain } from './terrain.ts'
 import { CAPACITY, DISEASE, EXPLORE, OUTPOST, POPULATION } from './params.ts'
+import { WAYRISK } from './polity/params.ts'
 import { K_COUNT, S_COUNT, speciesFit, SPECIES_TABLE } from './species.ts'
 import { speciesProbe } from './speciesStats.ts'
 import type { SpeciesProbe } from './speciesStats.ts'
@@ -390,6 +391,7 @@ function checkInvariants(w: World, h: History): void {
           while (f >= 0 && !(h.events[f].type === EventType.TradeForsaken && h.events[f].value === r)) f--
           expect(f).toBeGreaterThanOrEqual(0)
           expect(e.extra).toBe(e.year - h.events[f].year)
+          expect(e.extra).toBeGreaterThanOrEqual(WAYRISK.minForsaken) // (a route open again within the spell is not restored)
         }
         break
       }
@@ -546,6 +548,30 @@ function checkInvariants(w: World, h: History): void {
     expect(p1 - p0).toBeGreaterThanOrEqual(2)
     if (tr.path[p0] !== h.settlements[a].cell || tr.path[p1 - 1] !== h.settlements[b].cell) throw new Error(`route ${r} path does not run from ${a}'s cell to ${b}'s`)
     for (let k = p0 + 1; k < p1; k++) if (!isNeighbor(tr.path[k - 1], tr.path[k])) throw new Error(`route ${r} path jumps between ${tr.path[k - 1]} and ${tr.path[k]}`)
+  }
+  // Re-paths round danger (polities): in order of year, after the route opened, each a valid way between its ends that
+  // differs from the way it had; none within WAYRISK.rerouteGap years of the route's last; none without polities.
+  const RP = tr.repathCount
+  expect(tr.repathRoute.length).toBe(RP); expect(tr.repathYear.length).toBe(RP); expect(tr.repathOffsets.length).toBe(RP + 1)
+  expect(tr.repathOffsets[RP]).toBe(tr.repathPath.length)
+  if (h.polities.length === 0) expect(RP).toBe(0)
+  const lastRe = new Int32Array(R).fill(-100000)
+  for (let k = 0; k < RP; k++) {
+    const r = tr.repathRoute[k], y = tr.repathYear[k]
+    expect(r >= 0 && r < R).toBe(true)
+    if (k > 0) expect(y).toBeGreaterThanOrEqual(tr.repathYear[k - 1])
+    expect(y).toBeGreaterThan(tr.openedYear[r])
+    expect(y - lastRe[r]).toBeGreaterThanOrEqual(WAYRISK.rerouteGap)
+    lastRe[r] = y
+    const p0 = tr.repathOffsets[k], p1 = tr.repathOffsets[k + 1]
+    expect(p1 - p0).toBeGreaterThanOrEqual(2)
+    if (tr.repathPath[p0] !== h.settlements[tr.a[r]].cell || tr.repathPath[p1 - 1] !== h.settlements[tr.b[r]].cell) throw new Error(`re-path ${k} of route ${r} does not run between its ends`)
+    for (let j = p0 + 1; j < p1; j++) if (!isNeighbor(tr.repathPath[j - 1], tr.repathPath[j])) throw new Error(`re-path ${k} of route ${r} jumps`)
+    const was = routePathAt(tr, r, y - 1)
+    const same = was.to - was.from === p1 - p0 && tr.repathPath.subarray(p0, p1).every((c, j) => c === was.arr[was.from + j])
+    expect(same).toBe(false)
+    const now = routePathAt(tr, r, y)
+    expect([now.arr === tr.repathPath, now.from, now.to]).toEqual([true, p0, p1])
   }
   // Events open and close each route alternately, first opening at openedYear; volume only while open, with both ends alive.
   const open = new Uint8Array(R)

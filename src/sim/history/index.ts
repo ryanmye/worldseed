@@ -612,7 +612,6 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
-    for (const x of tourismHist.sights) if (x.landmark !== undefined && x.landmark < lmHist.landmarks.count) x.name = lmHist.landmarks.name[x.landmark] // landmarks: a Landmark sight bears its name
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,

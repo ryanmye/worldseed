@@ -137,6 +137,7 @@ function search(s: HistoryState, ps: PolityState, ts: TradeState, r: number, bou
 function repath(s: HistoryState, ps: PolityState, ts: TradeState, r: number, pair: number, path: number[]): void {
   const a = ts.rA[r], b = ts.rB[r]
   if (ps.rOrig[r].length === 0) ps.rOrig[r] = ts.rPath[r]
+  ts.rePrev.push(ts.rPath[r])
   ts.rPath[r] = path
   // Transit: the trading settlements the way passes through, and where the goods change between land and sea, the trader
   // whose region (the last link search) holds that shore (transshipment), as trade.ts createRoute.

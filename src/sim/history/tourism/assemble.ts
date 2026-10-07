@@ -42,7 +42,7 @@ export function assembleTourism(tz: TourismState, tradeSnapshotCount: number, na
       }
     }
     const x: Sight = { id: k, kind: tz.sKind[k] as SightKind, cell: c, settlement: st, fromYear: tz.sFrom[k], fame: tz.sFame[k], name }
-    if (tz.sLandmark[k] >= 0) x.landmark = tz.sLandmark[k] // landmarks: (named after the landmark: index.ts)
+    if (tz.sLandmark[k] >= 0) x.landmark = tz.sLandmark[k] // landmarks: (its name its town's, as any sight's: the landmark's own is landmarkNameAt)
     sights.push(x)
   }
   const n = tz.pFrom.length

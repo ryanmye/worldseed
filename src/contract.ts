@@ -637,7 +637,7 @@ export const SightKind = {
   MineTown: 4, // a mining boom town gone quiet
   FormerResort: 5, // a resort that went out of fashion long ago: quaint
   Holy: 6, // a holy city (pilgrimage; from the religion system)
-  Landmark: 7, // landmarks: a great landmark ruined, left unfinished, or centuries old (Sight.landmark is its row in History.landmarks; its name the landmark's)
+  Landmark: 7, // landmarks: a great landmark ruined, left unfinished, or centuries old (Sight.landmark is its row in History.landmarks: show landmarkNameAt)
 } as const
 export type SightKind = (typeof SightKind)[keyof typeof SightKind]
 
@@ -652,7 +652,7 @@ export interface Sight {
   fromYear: number
   /** How famous, 0..1 (the pull it adds to the place). */
   fame: number
-  /** Its settlement's name, or the name of the feature it is on (a summit's range), or ''; a Landmark sight's is the landmark's name. */
+  /** Its settlement's name, or the name of the feature it is on (a summit's range), or '' (a Landmark sight's too: its own name is landmarkNameAt(h, landmark, year)). */
   name: string
   /** landmarks: a Landmark sight's row in History.landmarks (absent on the other kinds). */
   landmark?: number

@@ -156,6 +156,8 @@ export interface TradeState {
   reRoute: number[]
   reYear: number[]
   rePath: number[][]
+  /** The way each re-path left (the first one per route is the way it opened along: History.trade.path). */
+  rePrev: number[][]
 
   // Market, per settlement (index id * G + g).
   stock: Float64Array
@@ -232,7 +234,7 @@ export function createTrade(cellCount: number): TradeState {
     rRoadAcc: new Float64Array(256),
     rGood: new Float64Array(256 * G * 2),
     openList: [],
-    reRoute: [], reYear: [], rePath: [], // polities: (re-paths)
+    reRoute: [], reYear: [], rePath: [], rePrev: [], // polities: (re-paths)
     stock: new Float64Array(S * G),
     demand: new Float64Array(S * G),
     price: new Float64Array(S * G),
@@ -1219,8 +1221,12 @@ export function assembleTrade(ts: TradeState): {
   const goodAB = new Uint8Array(R)
   const goodBA = new Uint8Array(R)
   const pathOffsets = new Uint32Array(R + 1)
+  // (each route's way as it opened: polities: the way before its first re-path, if it re-pathed)
+  const opened: number[][] = ts.rPath.slice()
+  const firstRe = new Uint8Array(R)
+  for (let k = 0; k < ts.reRoute.length; k++) { const r = ts.reRoute[k]; if (!firstRe[r]) { firstRe[r] = 1; opened[r] = ts.rePrev[k] } }
   let total = 0
-  for (let r = 0; r < R; r++) total += ts.rPath[r].length
+  for (let r = 0; r < R; r++) total += opened[r].length
   const path = new Uint32Array(total)
   let off = 0
   for (let r = 0; r < R; r++) {
@@ -1236,7 +1242,7 @@ export function assembleTrade(ts: TradeState): {
     goodAB[r] = bestAB
     goodBA[r] = bestBA
     pathOffsets[r] = off
-    const p = ts.rPath[r]
+    const p = opened[r]
     for (let k = 0; k < p.length; k++) path[off + k] = p[k]
     off += p.length
   }
