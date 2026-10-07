@@ -1,16 +1,19 @@
-/* The start page (ui/landing.ts): light, plain, above the app's canvas. html.landing-mode while it shows,
+/* The start page (ui/landing.ts): dark and plain under the app's starry sky, above the app's canvas. html.landing-mode while it shows,
    .landing-leaving during the hand-over to the app, .ui-veiled while the app's bars wait to fade in. */
 
 html.landing-mode {
-  color-scheme: light;
-  --landing-text: #16181d;
-  --landing-text-2: #4a505c;
-  --landing-faint: #6b7280;
-  --landing-line: #d6d9df;
-  --landing-accent: #1d6f8f;
+  color-scheme: dark;
+  --landing-text: #eef1f6;
+  --landing-text-2: #b4bccb;
+  --landing-faint: #8e98aa;
+  --landing-line: rgba(255, 255, 255, 0.18);
+  --landing-line-hover: rgba(255, 255, 255, 0.32);
+  --landing-field: rgba(10, 14, 22, 0.72);
+  --landing-accent: #7cc6e6;
   /* the planet's disc: the slot reserved for it, so nothing moves when it appears */
   --disc: min(92vw, 94vh, 1080px);
-  background: #fff;
+  /* the app's dark (its canvas's clear colour, main.ts SPACE_BG) */
+  background: #010205;
   height: auto;
   overflow: auto;
   overflow-x: hidden;
@@ -36,6 +39,28 @@ html.landing-mode #globe-canvas {
   right: auto;
   pointer-events: none;
   touch-action: auto !important;
+}
+/* the sky (landing.ts): the stars fixed to the window, screened over the planet's canvas, a hole over the disc */
+.landing-sky {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  -webkit-mask-image: var(--hole, none);
+  mask-image: var(--hole, none);
+}
+.landing-sky-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+}
+html.landing-leaving .landing-sky {
+  position: fixed;
 }
 html.landing-leaving #globe-canvas {
   position: fixed;
@@ -74,7 +99,7 @@ html.landing-leaving .landing {
   padding: 18px 24px;
 }
 .landing-site {
-  color: var(--landing-text-2);
+  color: var(--landing-faint);
   font-size: 14px;
   text-decoration: none;
 }
@@ -146,19 +171,22 @@ html.landing-leaving .landing {
   padding: 0 12px;
   border: 1px solid var(--landing-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--landing-field);
   color: var(--landing-text);
   font: inherit;
   font-size: 17px;
   font-variant-numeric: tabular-nums;
 }
+.landing-input:hover {
+  border-color: var(--landing-line-hover);
+}
 .landing-input:focus {
   outline: none;
   border-color: var(--landing-accent);
-  box-shadow: 0 0 0 3px rgba(29, 111, 143, 0.18);
+  box-shadow: 0 0 0 3px rgba(124, 198, 230, 0.3);
 }
 .landing-input[aria-invalid='true'] {
-  border-color: #b4462f;
+  border-color: #e0785f;
 }
 .landing-dice {
   display: inline-flex;
@@ -168,21 +196,22 @@ html.landing-leaving .landing {
   padding: 0 12px;
   border: 1px solid var(--landing-line);
   border-radius: 8px;
-  background: #f6f7f9;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--landing-text);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
 }
 .landing-dice:hover {
-  background: #eceef2;
+  border-color: var(--landing-line-hover);
+  background: rgba(255, 255, 255, 0.12);
 }
 .landing-start {
   height: 50px;
   border: 0;
   border-radius: 8px;
-  background: var(--landing-text);
-  color: #fff;
+  background: #f4f6fa;
+  color: #0a0d14;
   font: inherit;
   font-size: 17px;
   font-weight: 600;
@@ -190,7 +219,8 @@ html.landing-leaving .landing {
   cursor: pointer;
 }
 .landing-start:hover {
-  background: #2b2f38;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
 }
 .landing :focus-visible {
   outline: 2px solid var(--landing-accent);
@@ -224,7 +254,7 @@ html.landing-leaving .landing {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: linear-gradient(110deg, #eef0f3 30%, #f8f9fa 45%, #eef0f3 60%) 0 0 / 300% 100%;
+  background: linear-gradient(110deg, #0b0f18 30%, #182131 45%, #0b0f18 60%) 0 0 / 300% 100%;
   opacity: 0;
   transition: opacity 0.3s ease;
   pointer-events: none;

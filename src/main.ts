@@ -34,7 +34,7 @@ import { createCityCard } from './ui/cityCard.ts'
 import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/layer.ts'
-import { createLanding, mixBg, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
+import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 
 // ---------- URL parameters ----------
@@ -1204,11 +1204,6 @@ onFreeViewportChange(() => {
  */
 function updateFlat() {
   const t = easeMorph(morph)
-  if (landing) {
-    // the start page's white, cross-fading to the app's dark at Start (in sRGB, as the page's CSS background)
-    const [r, g, b] = mixBg(landingBgMix)
-    renderer.setClearColor(clearTmp.setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace), 1)
-  }
   if (t > 0 || flat.t > 0) {
     planetGroup.updateWorldMatrix(true, false)
     flatCam.copy(camera.position)
@@ -1224,12 +1219,13 @@ function updateFlat() {
   atmosphere.mesh.visible = t < 0.45
   atmosphere.setStrength(atmosphereStrength * (1 - Math.min(1, t / 0.45)))
   stars.visible = t < 0.5
-  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value = 1 - Math.min(1, t / 0.5)
+  // (on the start page the page's sky shows the stars, landing.ts; the canvas's own, the same, once it is over)
+  ;(stars.material as THREE.ShaderMaterial).uniforms.uFade.value = landing ? 0 : 1 - Math.min(1, t / 0.5)
   if (currentClouds) currentClouds.mesh.visible = (t >= 0.5 ? showMapClouds : showClouds) && terrain
   mapFrame.neatline.visible = t > 0.5
   mapFrame.graticule.visible = t > 0.5 && showGraticule
   mapFrame.matte.visible = t > 0.8
-  if (!landing) renderer.setClearColor(clearTmp.copy(SPACE_BG).lerp(MAP_BG, t), 1)
+  renderer.setClearColor(clearTmp.copy(SPACE_BG).lerp(MAP_BG, t), 1)
   mapFrame.setBackground(clearTmp)
   sunUniforms.uDaylight.value = sunState.mode === SunMode.Full || (t >= 0.5 && !showMapNight) ? 1 : 0
   syncSeamCopies(planetGroup)
@@ -1242,7 +1238,11 @@ function draw(ts: number) {
     applySize()
     traceAdd('resize', performance.now() - tr)
   }
-  if (landing) landingFrame(ts)
+  if (landing) {
+    landingFrame(ts)
+    const sky = landing?.takeSky()
+    if (sky) drawLandingSky(sky)
+  }
   // near plane follows the height above the ground, so the ground up close is not clipped
   const nearWant = Math.min(0.05, Math.max(0.0012, (camera.position.length() - groundUnder(camera.position.x, camera.position.y, camera.position.z)) * 0.12))
   if (Math.abs(camera.near - nearWant) > camera.near * 0.15) {
@@ -1421,9 +1421,8 @@ function frameBody(ts: number) {
 // The planet lies in the page, centred on its own canvas, the camera set back so the disc fills the page's slot;
 // at Start the camera comes in to the app's distance and the centre moves to the free rect's (landingFrame).
 
-/** Geometry from the start page (0) to the app (1), and the background mix (0 white .. 1 the app's dark). */
+/** Geometry from the start page (0) to the app (1). */
 let landingGeom = showLanding ? 0 : 1
-let landingBgMix = 0
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
 const APP_DIST = 3.25
@@ -1475,13 +1474,16 @@ function landingFrame(ts: number) {
   if (!landing) return
   const f = landing.frame(ts)
   landingGeom = f.geom
-  landingBgMix = f.bg
   // the disc's radius (a fraction of the half-height) eased between the two, and the distance that shows it so
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
   const rhoApp = 1 / (Math.sqrt(APP_DIST * APP_DIST - 1) * tanHalf)
   const rho = landing.discRho() + (rhoApp - landing.discRho()) * f.geom
   camera.position.setLength(Math.sqrt(1 + 1 / (rho * tanHalf) ** 2))
   syncViewportOffset()
+  // the page's sky keeps its hole over the planet as it moves (the view offset moves the image the other way)
+  const inset = getFreeViewportInset()
+  const h = window.innerHeight
+  landing.setDisc((-f.geom * (inset.right - inset.left)) / 2, (-f.geom * (inset.bottom - inset.top)) / 2, (rho * h) / 2)
   if (f.done) {
     landing = null
     landingGeom = 1
@@ -1490,6 +1492,36 @@ function landingFrame(ts: number) {
     // a remembered map comes back (the start page showed the globe)
     if (!params.has('map') && loadPref(MAP_KEY) === '1') setMapMode(true)
   }
+}
+
+/**
+ * The start page's sky: the app's starfield alone, as the app will show it (the camera at the app's distance, the
+ * view centred on the free rect), drawn straight onto the canvas (on black: the page screens it onto the planet's
+ * canvas) and copied at once into the page's sky canvas, before the frame itself is drawn over it.
+ */
+const skyScene = new THREE.Scene()
+function drawLandingSky(out: HTMLCanvasElement) {
+  const fade = (stars.material as THREE.ShaderMaterial).uniforms.uFade
+  const was = fade.value
+  const len = camera.position.length()
+  const geom = landingGeom
+  fade.value = 1
+  camera.position.setLength(APP_DIST)
+  landingGeom = 1
+  syncViewportOffset()
+  skyScene.add(stars)
+  renderer.setRenderTarget(null)
+  renderer.setClearColor(0x000000, 1)
+  renderer.render(skyScene, camera)
+  const src = renderer.domElement
+  out.width = src.width
+  out.height = src.height
+  out.getContext('2d')?.drawImage(src, 0, 0)
+  scene.add(stars)
+  fade.value = was
+  camera.position.setLength(len)
+  landingGeom = geom
+  syncViewportOffset()
 }
 
 applyQuality(quality)

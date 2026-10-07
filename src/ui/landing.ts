@@ -1,20 +1,27 @@
-// The start page: shown at the bare URL (and with intro=1; main.ts decides), before the app. A light page with
+// The start page: shown at the bare URL (and with intro=1; main.ts decides), before the app. A dark page under the
+// app's starry sky, with
 // the title, a seed field (with a dice to roll a new one), a years field and Start; below it the real planet of
 // the seed in the field, its top rising into the first screen like a sunrise and slowly turning; further down,
 // what worldseed is and how to use it (the words: landingCopy.ts).
 //
 // The planet is the app's own: the same WebGL canvas and scene (main.ts), here lying in the page under the
 // fields (the canvas, window-sized, is placed in the document so that it scrolls with the page for free, no
-// redraw on scroll), drawn on the page's white with the camera set back so the disc fills the slot reserved for
-// it (main.ts reads discRho()). A new seed in the field asks main.ts for that world (debounced; a shimmer over
+// redraw on scroll), drawn on the app's own dark with the camera set back so the disc fills the slot reserved for
+// it (main.ts reads discRho()).
+//
+// The sky: the app's starfield as the app will show it once started (main.ts draws it, takeSky(), with the app's
+// camera) onto a window-sized canvas fixed to the window, so the stars stay put while the page (and the planet
+// with it) scrolls; it lies over the planet's canvas, which draws no stars meanwhile, screened onto it (stars add
+// light, as in the app), with a hole where the disc is (a mask in page coordinates, so it scrolls with the disc
+// while the stars it holds stay fixed). During the hand-over the hole follows the planet (setDisc) and the stars do
+// not move; at the end the canvas's own stars, the same ones in the same places, take over. A new seed in the field asks main.ts for that world (debounced; a shimmer over
 // the slot meanwhile); the world is generated in the worker without its history.
 //
 // Start (or Enter in a field): main.ts starts the history at once, and the page hands over to the app in about
 // 1.2 s (frame(), driven by the render loop so the canvas, the camera and the colours move in the same frame):
 // the canvas is fixed to the window at its current place on screen and slides to the top, while main.ts moves the
-// camera from the landing distance to the app's and the view's centre to the app's free rect; the page's white
-// cross-fades to the app's dark (the canvas clear colour too); the fields and text fade out; the app's bars fade
-// in. With prefers-reduced-motion it is a short fade instead. Then the page is removed and the document is the
+// camera from the landing distance to the app's and the view's centre to the app's free rect; the stars stay; the
+// fields and text fade out; the app's bars fade in. With prefers-reduced-motion it is a short fade instead. Then the page is removed and the document is the
 // app's again (no scrolling).
 
 import { LANDING_COPY as C } from './landingCopy.ts'
@@ -31,10 +38,6 @@ const UI = {
   start: 'Start',
 }
 
-export const LANDING_BG = [255, 255, 255] as const
-/** The app's background (main.ts SPACE_BG, style.css body). */
-const APP_BG = [1, 2, 5] as const
-
 /** The years field's range (the timeline extends further later, to the app's MAX_YEARS). */
 export const YEARS_MIN = 200
 export const YEARS_MAX = 6000
@@ -46,8 +49,6 @@ const SEED_DEBOUNCE_MS = 450
 export interface LandingFrame {
   /** Geometry from the landing (0) to the app (1): camera distance, view centre, the canvas's place. */
   geom: number
-  /** Background from the page's white (0) to the app's dark (1). */
-  bg: number
   /** The page has been handed over: main.ts finishes (controls, keys) and drops the landing. */
   done: boolean
 }
@@ -71,6 +72,10 @@ export interface Landing {
   discRho(): number
   /** The world for the field's seed is on its way (true) or shown (false). */
   setLoading(on: boolean): void
+  /** The sky canvas, when its stars need drawing (first, after a resize, at Start); null otherwise. */
+  takeSky(): HTMLCanvasElement | null
+  /** During the hand-over: the planet's place on its canvas (centre offset from the canvas's, radius; CSS px). */
+  setDisc(dx: number, dy: number, r: number): void
   /** The hand-over is running: the render loop must draw every frame. */
   readonly leaving: boolean
   /** The state of the hand-over at time `ts` (also places the canvas and colours the page). */
@@ -78,7 +83,6 @@ export interface Landing {
 }
 
 const ease = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2)
-export const mixBg = (t: number) => LANDING_BG.map((c, i) => Math.round(c + (APP_BG[i] - c) * t))
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag)
@@ -177,12 +181,22 @@ export function createLanding(deps: LandingDeps): Landing {
   root.append(header, hero, slot, about)
   document.body.insertBefore(root, document.body.firstChild)
 
+  // ---------- the sky ----------
+  // (outside the page's own layer, which is isolated by its fade: the screen blend reaches the planet's canvas)
+  const sky = el('div', 'landing-sky')
+  sky.setAttribute('aria-hidden', 'true')
+  const skyCanvas = el('canvas', 'landing-sky-canvas')
+  sky.appendChild(skyCanvas)
+  document.body.appendChild(sky)
+  let skyDirty = true
+
   // ---------- the canvas in the page ----------
   // (the hand-over's state, see frame)
   let leaving = false
   let t0 = -1
   let y0 = 0
   let reduced = false
+  let geomNow = 0
   let uiShown = false
   const canvas = deps.canvas
   /** Centre the window-sized canvas on the disc, in document coordinates (it then scrolls with the page). */
@@ -193,10 +207,21 @@ export function createLanding(deps: LandingDeps): Landing {
     canvas.style.top = `${Math.round(top)}px`
     // (a classic scrollbar narrows the page: keep the disc centred on it)
     canvas.style.left = `${Math.round((doc.clientWidth - window.innerWidth) / 2)}px`
+    // the sky's hole over the disc (page coordinates)
+    const cx = r.left + window.scrollX + r.width / 2
+    const cy = r.top + window.scrollY + r.height / 2
+    setHole(cx, cy, r.height / 2)
     deps.wake()
   }
+  function setHole(cx: number, cy: number, rad: number) {
+    sky.style.setProperty('--hole', `radial-gradient(circle at ${cx.toFixed(1)}px ${cy.toFixed(1)}px, transparent ${(rad - 0.5).toFixed(1)}px, #000 ${(rad + 0.5).toFixed(1)}px)`)
+  }
+  function resized() {
+    skyDirty = true
+    placeCanvas()
+  }
   placeCanvas()
-  window.addEventListener('resize', placeCanvas)
+  window.addEventListener('resize', resized)
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(placeCanvas) : null
   ro?.observe(root)
   // the slow turn only while the planet is on screen
@@ -259,22 +284,27 @@ export function createLanding(deps: LandingDeps): Landing {
     leaving = true
     io?.disconnect()
     ro?.disconnect()
-    window.removeEventListener('resize', placeCanvas)
+    window.removeEventListener('resize', resized)
     canvas.style.top = '0px'
     canvas.style.left = '0px'
     canvas.style.transform = `translateY(${y0}px)`
+    // (the sky, fixed to the window now, keeps its hole over the disc: in window coordinates)
+    const r = disc.getBoundingClientRect()
+    setHole(r.left + r.width / 2, r.top + r.height / 2, r.height / 2)
     doc.classList.add('landing-leaving')
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     root.setAttribute('aria-hidden', 'true')
     shownSeed = s
     deps.onStart(s, y)
+    // the app's bars have their places now: the stars as the app will show them
+    skyDirty = true
     deps.wake()
   })
 
   function finish() {
     root.remove()
+    sky.remove()
     doc.classList.remove('landing-mode', 'landing-leaving', 'ui-veiled')
-    doc.style.background = ''
     canvas.style.top = canvas.style.left = canvas.style.transform = canvas.style.opacity = ''
     window.scrollTo(0, 0)
   }
@@ -284,34 +314,39 @@ export function createLanding(deps: LandingDeps): Landing {
     setLoading(on) {
       slot.classList.toggle('landing-loading', on)
     },
+    takeSky() {
+      if (!skyDirty) return null
+      skyDirty = false
+      return skyCanvas
+    },
+    setDisc(dx, dy, r) {
+      if (!leaving) return
+      const ty = geomNow >= 1 ? 0 : y0 * (1 - geomNow)
+      setHole(window.innerWidth / 2 + dx, ty + window.innerHeight / 2 + dy, r)
+    },
     get leaving() {
       return leaving
     },
     frame(ts) {
-      if (!leaving) return { geom: 0, bg: 0, done: false }
+      if (!leaving) return { geom: 0, done: false }
       if (t0 < 0) t0 = ts
       const dur = reduced ? REDUCED_MS : DURATION_MS
       const p = Math.min(1, (ts - t0) / dur)
-      let geom: number, bg: number
+      let geom: number
       if (reduced) {
-        // a fade: out at the landing's place, in at the app's
+        // a fade: out at the landing's place, in at the app's (the stars stay)
         geom = p < 0.5 ? 0 : 1
-        bg = p
         canvas.style.opacity = String(p < 0.5 ? 1 - 2 * p : 2 * p - 1)
-      } else {
-        geom = ease(p)
-        bg = ease(Math.min(1, p / 0.8))
-      }
+      } else geom = ease(p)
+      geomNow = geom
       canvas.style.transform = geom >= 1 ? '' : `translateY(${(y0 * (1 - geom)).toFixed(2)}px)`
-      const [r, g, b] = mixBg(bg)
-      doc.style.background = `rgb(${r}, ${g}, ${b})`
       if (!uiShown && p >= (reduced ? 0.5 : 0.55)) {
         uiShown = true
         doc.classList.remove('ui-veiled')
       }
       const done = p >= 1
       if (done) finish()
-      return { geom, bg, done }
+      return { geom, done }
     },
   }
 }
