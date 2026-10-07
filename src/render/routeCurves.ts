@@ -39,7 +39,7 @@
 // (roads, bridges), so a road and the land trade it carries are the same curve.
 
 import * as THREE from 'three'
-import { RIVER_FLOW_THRESHOLD, type World } from '../contract.ts'
+import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, surfaceRadius } from './globe.ts'
 import { riverHalfWidthNear } from './rivers.ts'
 import { evalGround, locate, located, newGroundSample, terrainOf } from './terrainHeight.ts'
@@ -279,7 +279,7 @@ export interface RouteNetwork {
   linkNodeA: Int32Array
   linkNodeB: Int32Array
   linkSea: Uint8Array
-  /** Routes using each link. */
+  /** Routes (ways, on a trade network) using each link. */
   linkRoutes: Uint16Array
   /** Nodes: their cell, and the incident links as CSR (nodeLinks[nodeLinkOffsets[n] ..)). */
   nodeCount: number
@@ -321,6 +321,133 @@ export interface RouteNetwork {
   routeForward: Uint8Array
   routePieceFrom: Int32Array
   routePieceTo: Int32Array
+  /**
+   * Trade networks (tradeNetwork) only: the "routes" above are ways, one per distinct path a trade
+   * route followed: ways 0 .. routeCount - 1 are the routes' opening paths (way r is route r's), the
+   * rest the distinct ways they re-pathed onto (History.trade.repath*). Per route, its re-paths in
+   * year order (CSR, repathOffsets[r] ..): the year and the way it followed from then on (way r again
+   * when it went back to the way it opened along). routeWayAt picks the way in force at a year.
+   */
+  routeCount?: number
+  repathOffsets?: Uint32Array
+  repathYear?: Float32Array
+  repathWay?: Int32Array
+}
+
+/** The way (route index into the network's per-route arrays) route r follows at `year`: r, or the way of its last re-path by then. */
+export function routeWayAt(net: RouteNetwork, r: number, year: number): number {
+  const o = net.repathOffsets
+  if (!o || r + 1 >= o.length) return r
+  const ry = net.repathYear!, rw = net.repathWay!
+  let w = r
+  for (let k = o[r]; k < o[r + 1] && ry[k] <= year; k++) w = rw[k]
+  return w
+}
+
+/** Ways of route r as spans of years: [way, from, to) in order, from its opening (`opened`) on; the last runs to +Infinity. */
+export function routeWaySpans(net: RouteNetwork, r: number, opened: number): { way: number; from: number; to: number }[] {
+  const out = [{ way: r, from: opened, to: Infinity }]
+  const o = net.repathOffsets
+  if (!o || r + 1 >= o.length) return out
+  for (let k = o[r]; k < o[r + 1]; k++) {
+    const y = net.repathYear![k], w = net.repathWay![k]
+    const last = out[out.length - 1]
+    if (w === last.way) continue
+    last.to = y
+    out.push({ way: w, from: y, to: Infinity })
+  }
+  return out
+}
+
+interface TradeWays {
+  wayCount: number
+  offsets: Uint32Array
+  path: Uint32Array
+  repathOffsets: Uint32Array
+  repathYear: Float32Array
+  repathWay: Int32Array
+}
+const waysCache = new WeakMap<Uint32Array, TradeWays>()
+
+/** The trade routes' distinct ways (their opening paths, then each distinct re-path), cached per route path array. */
+function tradeWays(T: TradeRoutes): TradeWays {
+  const hit = waysCache.get(T.path)
+  const n = T.repathCount ?? 0
+  if (hit && hit.repathOffsets.length === T.count + 1 && hit.repathWay.length === n) return hit
+  const R = T.count
+  const repathOffsets = new Uint32Array(R + 1)
+  const repathYear = new Float32Array(n)
+  const repathWay = new Int32Array(n)
+  let ways: TradeWays
+  if (n === 0 || !T.repathRoute || !T.repathPath) {
+    ways = { wayCount: R, offsets: T.pathOffsets, path: T.path, repathOffsets, repathYear, repathWay }
+  } else {
+    for (let k = 0; k < n; k++) { const r = T.repathRoute[k]; if (r >= 0 && r < R) repathOffsets[r + 1]++ }
+    for (let r = 0; r < R; r++) repathOffsets[r + 1] += repathOffsets[r]
+    const cur = repathOffsets.slice(0, R)
+    // per route, the ways it has had so far (to match a re-path back onto an earlier way)
+    const waysOf = new Map<number, number[]>()
+    const extraFrom: number[] = [], extraTo: number[] = []
+    const cellsOf = (w: number): [Uint32Array, number, number] =>
+      w < R ? [T.path, T.pathOffsets[w], T.pathOffsets[w + 1]] : [T.repathPath, extraFrom[w - R], extraTo[w - R]]
+    for (let k = 0; k < n; k++) {
+      const r = T.repathRoute[k]
+      if (r < 0 || r >= R) continue
+      const a = T.repathOffsets[k], b = T.repathOffsets[k + 1]
+      let list = waysOf.get(r)
+      if (!list) waysOf.set(r, (list = [r]))
+      let way = -1
+      for (const w of list) {
+        const [arr, p, q] = cellsOf(w)
+        if (q - p !== b - a) continue
+        let same = true
+        for (let i = 0; i < b - a && same; i++) if (arr[p + i] !== T.repathPath[a + i]) same = false
+        if (same) { way = w; break }
+      }
+      if (way < 0) {
+        way = R + extraFrom.length
+        extraFrom.push(a)
+        extraTo.push(b)
+        list.push(way)
+      }
+      const j = cur[r]++
+      repathYear[j] = T.repathYear[k]
+      repathWay[j] = way
+    }
+    const E = extraFrom.length
+    let cells = T.pathOffsets[R]
+    for (let e = 0; e < E; e++) cells += extraTo[e] - extraFrom[e]
+    const offsets = new Uint32Array(R + E + 1)
+    const path = new Uint32Array(cells)
+    offsets.set(T.pathOffsets.subarray(0, R + 1))
+    path.set(T.path.subarray(0, T.pathOffsets[R]))
+    let o = T.pathOffsets[R]
+    for (let e = 0; e < E; e++) {
+      path.set(T.repathPath.subarray(extraFrom[e], extraTo[e]), o)
+      o += extraTo[e] - extraFrom[e]
+      offsets[R + e + 1] = o
+    }
+    ways = { wayCount: R + E, offsets, path, repathOffsets, repathYear, repathWay }
+  }
+  waysCache.set(T.path, ways)
+  return ways
+}
+
+/**
+ * The bundled network of the trade routes with every way they followed (their opening paths and
+ * the distinct ways they re-pathed onto; see RouteNetwork.routeCount): built once per history and
+ * shared by the trade, road, outlaw and other layers. Pick a route's way at a year with routeWayAt.
+ */
+export function tradeNetwork(world: World, T: TradeRoutes): RouteNetwork {
+  const w = tradeWays(T)
+  const net = routeNetwork(world, w.offsets, w.path, w.wayCount)
+  if (net.repathOffsets !== w.repathOffsets) {
+    net.routeCount = T.count
+    net.repathOffsets = w.repathOffsets
+    net.repathYear = w.repathYear
+    net.repathWay = w.repathWay
+  }
+  return net
 }
 
 const networkCache = new WeakMap<Uint32Array, RouteNetwork>()

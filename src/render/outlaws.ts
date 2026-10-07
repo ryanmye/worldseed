@@ -34,7 +34,7 @@ import { SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
-import { PIECE_SAMPLES, type RouteNetwork } from './routeCurves.ts'
+import { PIECE_SAMPLES, routeWayAt, type RouteNetwork } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { blockadesAt, HUB_CONTRABAND, type BlockadeMark, type PolitiesData } from '../ui/politiesData.ts'
 
@@ -329,17 +329,22 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
   const slotOf = new Int32Array(L).fill(-1)
   const slotLink: number[] = []
   const outlawRoutes: number[] = []
-  if (T && net && (SM || LO) && net.routeLinkOffsets.length === R + 1) {
+  // (a route's links are its way's at the snapshot: it may have re-pathed round danger, routeWayAt)
+  const wayAt = (r: number, t: number) => (net ? routeWayAt(net, r, t * T!.interval) : r)
+  if (T && net && (SM || LO) && (net.routeCount ?? net.routeLinkOffsets.length - 1) === R) {
     for (let r = 0; r < R; r++) {
       let any = false
-      for (let t = 0; t < TS && !any; t++) if ((SM && SM[t * R + r] > 0) || (LO && LO[t * R + r] > 0)) any = true
-      if (!any) continue
-      outlawRoutes.push(r)
-      for (let k = net.routeLinkOffsets[r]; k < net.routeLinkOffsets[r + 1]; k++) {
-        const l = net.routeLinks[k]
-        if (slotOf[l] < 0) {
-          slotOf[l] = slotLink.length
-          slotLink.push(l)
+      for (let t = 0; t < TS; t++) {
+        if (!((SM && SM[t * R + r] > 0) || (LO && LO[t * R + r] > 0))) continue
+        if (!any) outlawRoutes.push(r)
+        any = true
+        const w = wayAt(r, t)
+        for (let k = net.routeLinkOffsets[w]; k < net.routeLinkOffsets[w + 1]; k++) {
+          const l = net.routeLinks[k]
+          if (slotOf[l] < 0) {
+            slotOf[l] = slotLink.length
+            slotLink.push(l)
+          }
         }
       }
     }
@@ -362,7 +367,8 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
       sum.fill(0)
       for (const r of outlawRoutes) {
         const v = SM[t * R + r]
-        if (v > 0) for (let k = net.routeLinkOffsets[r]; k < net.routeLinkOffsets[r + 1]; k++) sum[slotOf[net.routeLinks[k]]] += v
+        const w = wayAt(r, t)
+        if (v > 0) for (let k = net.routeLinkOffsets[w]; k < net.routeLinkOffsets[w + 1]; k++) sum[slotOf[net.routeLinks[k]]] += v
       }
       for (let i = 0; i < nSlots; i++) if (sum[i] > maxSm) maxSm = sum[i]
     }
@@ -567,12 +573,21 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
       const s0 = SM ? SM[t0 * R + r] : 0, s1 = SM ? SM[t1 * R + r] : 0
       const l0 = LO ? LO[t0 * R + r] / 255 : 0, l1 = LO ? LO[t1 * R + r] / 255 : 0
       if (s0 <= 0 && s1 <= 0 && l0 <= 0 && l1 <= 0) continue
-      for (let k = net.routeLinkOffsets[r]; k < net.routeLinkOffsets[r + 1]; k++) {
-        const i = slotOf[net.routeLinks[k]]
-        laneData[i * 4] += s0
-        laneData[i * 4 + 1] += s1
-        if (l0 > laneData[i * 4 + 2]) laneData[i * 4 + 2] = l0
-        if (l1 > laneData[i * 4 + 3]) laneData[i * 4 + 3] = l1
+      // each snapshot along the way the route followed then
+      const w0 = wayAt(r, t0), w1 = wayAt(r, t1)
+      if (s0 > 0 || l0 > 0) {
+        for (let k = net.routeLinkOffsets[w0]; k < net.routeLinkOffsets[w0 + 1]; k++) {
+          const i = slotOf[net.routeLinks[k]]
+          laneData[i * 4] += s0
+          if (l0 > laneData[i * 4 + 2]) laneData[i * 4 + 2] = l0
+        }
+      }
+      if (s1 > 0 || l1 > 0) {
+        for (let k = net.routeLinkOffsets[w1]; k < net.routeLinkOffsets[w1 + 1]; k++) {
+          const i = slotOf[net.routeLinks[k]]
+          laneData[i * 4 + 1] += s1
+          if (l1 > laneData[i * 4 + 3]) laneData[i * 4 + 3] = l1
+        }
       }
     }
     for (let i = 0; i < nSlots; i++) {

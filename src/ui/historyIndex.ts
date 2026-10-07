@@ -68,6 +68,8 @@ export const EntryKind = {
   Ideas: 22,
   /** danger on the way of trade: major routes forsaken (TradeForsaken), or trodden again (TradeRestored), in one decade (one type per entry). */
   TradeDanger: 23,
+  /** trade routes that changed their way round danger, or went back to their old way, in one decade (History.trade.repath*; members are -(REPATH_MEMBER_BASE + re-path row)). */
+  Repaths: 24,
   /** rulers: one state's successions per quarter-century, a contested succession's events, a war of succession (rulersFormat.ts rulersGroupKey; numbered apart from the others). */
   Rulers: 40,
   /** religion: one state's conversion and state religion, a faith reaching peoples per half-century, a holy war (rulersFormat.ts). */
@@ -161,8 +163,18 @@ export interface TradeData {
   routeList: Int32Array
   /** Routes open (volume > 0) per trade snapshot. */
   openCount: Uint32Array
-  /** 1 where a route crosses water somewhere. */
+  /** 1 where a route crosses water somewhere (along the way it opened along). */
   bySea: Uint8Array
+  /** The same per re-path (History.trade.repath*): 1 where that way crosses water. */
+  repathSea: Uint8Array
+}
+
+/** Whether route r crosses water at `year`: along the way it follows then (its last re-path by then, else the way it opened along). */
+export function routeBySeaAt(td: TradeData, r: number, year: number): boolean {
+  const T = td.routes
+  let k = -1
+  for (let i = 0, n = T.repathCount ?? 0; i < n && T.repathYear[i] <= year; i++) if (T.repathRoute[i] === r) k = i
+  return k >= 0 ? td.repathSea[k] === 1 : td.bySea[r] === 1
 }
 
 export interface RoadData {
@@ -256,7 +268,17 @@ export function tradeDataOf(h: History, settlementCount: number, isWater?: (cell
       }
     }
   }
-  return { routes: T, interval, count, volume, routeOffsets, routeList, openCount, bySea }
+  const RP = T.repathCount ?? 0
+  const repathSea = new Uint8Array(RP)
+  for (let k = 0; k < RP; k++) {
+    for (let q = T.repathOffsets[k] + 1; q + 1 < T.repathOffsets[k + 1]; q++) {
+      if (water(T.repathPath[q])) {
+        repathSea[k] = 1
+        break
+      }
+    }
+  }
+  return { routes: T, interval, count, volume, routeOffsets, routeList, openCount, bySea, repathSea }
 }
 
 /** The history's road rows when present and consistent with its land snapshots, else null. */
@@ -465,6 +487,25 @@ function namingEntries(h: History): { year: number; members: number[] }[] {
 
 /** Chronicle members standing for rows of History.raids are -(RAID_MEMBER_BASE + row). */
 export const RAID_MEMBER_BASE = 1 << 24
+
+/** Chronicle members standing for rows of History.trade's re-paths are -(REPATH_MEMBER_BASE + row) (apart from the raids' rows). */
+export const REPATH_MEMBER_BASE = 1 << 28
+
+/** Chronicle entries for the trade routes' re-paths (no event says them), one per decade, in year order (each member at its year). */
+function repathEntries(h: History): { year: number; members: number[] }[] {
+  const T = (h as Partial<History>).trade
+  const n = T?.repathCount ?? 0
+  if (!T || !(n > 0) || !T.repathYear || !T.repathRoute) return []
+  const out: { year: number; members: number[] }[] = []
+  let k = 0
+  while (k < n) {
+    const d = Math.floor(T.repathYear[k] / 10)
+    const members: number[] = []
+    for (; k < n && Math.floor(T.repathYear[k] / 10) === d; k++) members.push(-(REPATH_MEMBER_BASE + k))
+    out.push({ year: T.repathYear[-members[0] - REPATH_MEMBER_BASE], members })
+  }
+  return out
+}
 
 /** Year a decade's small raids appear in the chronicle: its last year. */
 export function smallRaidYear(h: History, row: number): number {
@@ -703,12 +744,26 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const raidEntry = new Map<number, number>()
   const smallRaids = smallRaidEntries(h)
   let nextSmallRaid = 0
+  const repaths = repathEntries(h)
+  let nextRepath = 0
   const namings = namingEntries(h)
   let nextNaming = 0
+  /** The entries without events (namings, small raids, re-paths) dated before `y`, in year order. */
+  const flushBefore = (y: number) => {
+    for (;;) {
+      const yn = nextNaming < namings.length ? namings[nextNaming].year : Infinity
+      const ys = nextSmallRaid < smallRaids.length ? smallRaids[nextSmallRaid].year : Infinity
+      const yr = nextRepath < repaths.length ? repaths[nextRepath].year : Infinity
+      const m = Math.min(yn, ys, yr)
+      if (!(m < y)) return
+      if (yn === m) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
+      else if (ys === m) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
+      else entries.push({ kind: EntryKind.Repaths, members: repaths[nextRepath++].members })
+    }
+  }
   for (const i of order) {
     const e = h.events[i]
-    while (nextNaming < namings.length && namings[nextNaming].year < e.year) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
-    while (nextSmallRaid < smallRaids.length && smallRaids[nextSmallRaid].year < e.year) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
+    flushBefore(e.year)
     if (!isShownType(e.type)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
@@ -737,9 +792,8 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     else if (ideasKeyOfEvent.has(i) && (ideasPerKey.get(ideasKeyOfEvent.get(i)!) ?? 0) >= 2) join(ideasEntry, ideasKeyOfEvent.get(i)!, EntryKind.Ideas, i)
     else entries.push({ kind: EntryKind.Single, members: [i] })
   }
-  while (nextNaming < namings.length) entries.push({ kind: EntryKind.Named, members: namings[nextNaming++].members })
-  while (nextSmallRaid < smallRaids.length) entries.push({ kind: EntryKind.SmallRaids, members: smallRaids[nextSmallRaid++].members })
-  const memberYear = (m: number) => (m >= 0 ? h.events[m].year : m <= -RAID_MEMBER_BASE ? smallRaidYear(h, -m - RAID_MEMBER_BASE) : h.features[-m - 1].namedYear)
+  flushBefore(Infinity)
+  const memberYear = (m: number) => (m >= 0 ? h.events[m].year : m <= -REPATH_MEMBER_BASE ? h.trade.repathYear[-m - REPATH_MEMBER_BASE] : m <= -RAID_MEMBER_BASE ? smallRaidYear(h, -m - RAID_MEMBER_BASE) : h.features[-m - 1].namedYear)
   const notableKind = Uint8Array.from(entries, (en) => en.kind)
   const notableYear = Float64Array.from(entries, (en) => memberYear(en.members[0]))
   const notableOffsets = new Uint32Array(entries.length + 1)

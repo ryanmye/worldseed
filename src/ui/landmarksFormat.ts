@@ -3,20 +3,20 @@
 // Rilko falls into ruin"; "Keep of Thesmu (castle), built 1405-1432 by Thesmu IV of Vashtar, neglected since 1820"). Names
 // and states come from History.landmarks; every function tolerates a history without them (null or '': the caller falls back).
 
-import { CITY_POPULATION, EventType, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, settlementNameAt, type History, type HistoryEvent } from '../contract.ts'
+import { CITY_POPULATION, EventType, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, landmarkNameAt, landmarksAt, landmarkTownAt, settlementNameAt, type History, type HistoryEvent } from '../contract.ts'
 import { settlementName } from './format.ts'
 import { faithName, faithsOf } from './faithsData.ts'
 import { capitalAt, polityAtYear, politiesOf } from './politiesData.ts'
 import { rulersOf } from './rulersData.ts'
-import { landmarkSpanAt, landmarksOf } from './landmarksData.ts'
 import './landmarks.css'
 
 export const isLandmarkEvent = (t: number) => t >= EventType.LandmarkBegun && t <= EventType.LandmarkConverted
 
-/** The landmark row of a landmark event, or -1. */
+/** The landmark row of a landmark event (at its `settlement`: its town, or the heir town that restored it), or -1. */
 function rowOf(h: History, e: HistoryEvent): number {
   const L = (h as Partial<History>).landmarks
-  return isLandmarkEvent(e.type as number) && L && e.value >= 0 && e.value < L.count && L.settlement[e.value] === e.settlement ? e.value : -1
+  if (!isLandmarkEvent(e.type as number) || !L || !(e.value >= 0 && e.value < L.count)) return -1
+  return L.settlement[e.value] === e.settlement || landmarkTownAt(h, e.value, e.year) === e.settlement ? e.value : -1
 }
 
 const TEMPLE_NOUN = ['church', 'domed temple', 'temple mound', 'temple', 'pagoda', 'stave church', 'stupa', 'shrine']
@@ -60,28 +60,11 @@ const faith = (h: History, f: number): string | null => {
 }
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 
-const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/**
- * Landmark i's name as said now: a name holding its town's name of the year it was begun ("the Keep of Shorno") says the
- * town's name in use now instead (the view year's, or the event's inside withEventNames: "the Keep of Fim Solno"). Only that
- * exact name as a whole word is replaced; any other name (a ruler's, a faith's, a fresh one) stays as given.
- */
-export function landmarkName(h: History, i: number): string {
-  const L = h.landmarks
-  const n = L.name[i]
-  const id = L.settlement[i]
-  if (!(h as Partial<History>).renamings || !(id >= 0 && id < h.settlements.length)) return n
-  const then = settlementNameAt(h, id, L.begunYear[i])
-  const now = settlementName(h, id)
-  if (!then || !now || then === now) return n
-  return n.replace(new RegExp(`(^|[^\\p{L}])${escapeRe(then)}(?![\\p{L}])`, 'u'), (_m, pre: string) => pre + now)
-}
-
-/** "the Keep of Thesmu at Rilko" (the town added unless the name holds it); the name as given, with "the" in front when it has none. */
-function called(h: History, i: number, town: string, withTown = true): string {
-  const n = landmarkName(h, i)
-  return withTown && !n.includes(town) ? `${n} at ${town}` : n
+/** "the Keep of Thesmu at Rilko" at `year` (its name then, landmarkNameAt; the town it belongs to then added unless the name holds it). */
+function called(h: History, i: number, year: number, withTown = true): string {
+  const n = landmarkNameAt(h, i, year)
+  const town = settlementNameAt(h, landmarkTownAt(h, i, year), year)
+  return withTown && town && !n.includes(town) ? `${n} at ${town}` : n
 }
 
 /** The change row of landmark i in year y to `state` (the last of its year), or -1. */
@@ -98,7 +81,7 @@ export function describeLandmarkEvent(h: History, e: HistoryEvent): string | nul
   if (i < 0) return null
   const L = h.landmarks
   const town = settlementName(h, e.settlement)
-  const name = called(h, i, town)
+  const name = called(h, i, e.year)
   const who = ruler(h, L.ruler[i]), realm = polity(h, L.polity[i])
   switch (e.type as number) {
     case EventType.LandmarkBegun:
@@ -132,11 +115,10 @@ export function describeLandmarkEventFor(h: History, e: HistoryEvent, id: number
   const i = rowOf(h, e)
   if (i < 0) return null
   if (id !== e.settlement) {
-    const town = settlementName(h, e.settlement)
-    return (e.type as number) === EventType.LandmarkBegun ? `Its realm began ${called(h, i, town)}` : (e.type as number) === EventType.LandmarkCompleted ? `Its realm finished ${called(h, i, town)}` : describeLandmarkEvent(h, e)
+    return (e.type as number) === EventType.LandmarkBegun ? `Its realm began ${called(h, i, e.year)}` : (e.type as number) === EventType.LandmarkCompleted ? `Its realm finished ${called(h, i, e.year)}` : describeLandmarkEvent(h, e)
   }
   const L = h.landmarks
-  const name = landmarkName(h, i)
+  const name = landmarkNameAt(h, i, e.year)
   const who = ruler(h, L.ruler[i])
   switch (e.type as number) {
     case EventType.LandmarkBegun: return `Work began on ${name}` + (who ? ` under ${who}` : '')
@@ -178,30 +160,67 @@ const STATE_WORDS = ['being built', 'in use', 'neglected', 'in ruins', 'restored
  * shrines ([text, css class] pairs; [] when none).
  */
 export function landmarkLines(h: History, id: number, year: number): [string, string][] {
-  const d = landmarksOf(h)
-  const ids = d?.bySettlement.get(id)
-  if (!d || !ids) return []
-  const L = d.L
+  const L = (h as Partial<History>).landmarks
+  if (!L || !(L.count > 0)) return []
   const out: [string, string][] = []
   const lesser: [string, string][] = []
-  for (const i of ids) {
-    if (L.begunYear[i] > year) break
-    const o = landmarkSpanAt(d, i, year)
-    if (o < 0) continue
-    const st = d.spanState[o]
-    const since = d.spanFrom[o]
+  // (the town's at the year: a landmark an heir town restored on its ruins is listed under it)
+  for (const x of landmarksAt(h, id, year)) {
+    const i = x.id
+    const st = x.state
+    const since = x.since
     const done = L.completedYear[i] >= 0 && L.completedYear[i] <= year ? L.completedYear[i] : -1
     const noun = landmarkNoun(L.kind[i], L.form[i])
     const who = ruler(h, L.ruler[i]), realm = polity(h, L.polity[i])
-    let s = `${landmarkName(h, i)} (${noun})`
+    let s = `${landmarkNameAt(h, i, year)} (${noun})`
     if (st === LandmarkState.Building) s += `, being built since ${L.begunYear[i]}`
     else if (done >= 0) s += `, built ${L.begunYear[i]}–${done}`
     else s += `, begun ${L.begunYear[i]}`
     if (L.rank[i] === LandmarkRank.Great && (who || realm)) s += ` by ${who ? `${who}${realm ? ` of ${realm}` : ''}` : realm}`
-    if (st === LandmarkState.Converted) { const f = faith(h, d.spanFaith[o]); s += `; rededicated${f ? ` to ${f}` : ''} in ${since}` }
+    if (st === LandmarkState.Converted) { const f = faith(h, x.faith); s += `; rededicated${f ? ` to ${f}` : ''} in ${since}` }
     else if (st !== LandmarkState.InUse && st !== LandmarkState.Building) s += `; ${STATE_WORDS[st]} since ${since}`
     const cls = st === LandmarkState.Ruined || st === LandmarkState.Unfinished ? 'lost' : st === LandmarkState.Neglected ? 'worn' : ''
     ;(L.rank[i] === LandmarkRank.Great ? out : lesser).push([s, cls])
   }
   return out.concat(lesser)
+}
+
+/** State of landmark i at `year` (its change rows; Building before the first). */
+function landmarkStateAt(h: History, i: number, year: number): number {
+  const L = h.landmarks
+  let st: number = LandmarkState.Building
+  for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) if (L.changeLandmark[k] === i) st = L.changeState[k]
+  return st
+}
+
+const CENTURIES = ['a century', 'two centuries', 'three centuries', 'four centuries', 'five centuries', 'six centuries', 'seven centuries', 'eight centuries', 'nine centuries', 'ten centuries']
+
+/**
+ * A landmark sight (SightKind.Landmark) as a phrase at `year`: "the ruined Keep of Kube", "the unfinished Sulunovel Palace",
+ * "the Keep of Thimin" (its name then, landmarkNameAt); '' without landmarks.
+ */
+export function landmarkSightPhrase(h: History, i: number | undefined, year: number): string {
+  const L = (h as Partial<History>).landmarks
+  if (!L || i === undefined || !(i >= 0 && i < L.count)) return ''
+  const n = landmarkNameAt(h, i, year)
+  const st = landmarkStateAt(h, i, year)
+  const adj = st === LandmarkState.Ruined ? 'ruined' : st === LandmarkState.Unfinished ? 'unfinished' : ''
+  if (!adj) return n
+  return n.startsWith('the ') ? `the ${adj} ${n.slice(4)}` : `${n}, ${st === LandmarkState.Ruined ? 'in ruins' : 'left unfinished'}`
+}
+
+/**
+ * Chronicle line for a landmark become a sight in `year` (SightRecognised with `extra` 7): "The ruined Keep of Kube draws
+ * visitors"; "The Cathedral of Rilko, three centuries old, is counted among the sights". Null without landmarks.
+ */
+export function describeLandmarkSight(h: History, i: number | undefined, year: number): string | null {
+  const p = landmarkSightPhrase(h, i, year)
+  if (!p || i === undefined) return null
+  const L = h.landmarks
+  const st = landmarkStateAt(h, i, year)
+  if (st === LandmarkState.Ruined || st === LandmarkState.Unfinished) return `${cap(p)} draws visitors`
+  const done = L.completedYear[i]
+  const age = year - (done >= 0 && done <= year ? done : L.begunYear[i])
+  const c = Math.min(CENTURIES.length, Math.floor(age / 100))
+  return c >= 1 ? `${cap(p)}, ${CENTURIES[c - 1]} old, is counted among the sights` : `${cap(p)} is counted among the sights`
 }

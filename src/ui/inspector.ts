@@ -126,6 +126,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
   // landmarks: its great buildings and houses of worship, each with its state at the year (landmarksFormat.ts)
   const landmarksEl = q<HTMLDivElement>('.insp-landmarks')
   let shownLandmarks = ''
+  let shownLandmarksSel = -1, shownLandmarksYear = NaN
   const originEl = q<HTMLDivElement>('.insp-origin')
   const placesEl = q<HTMLDivElement>('.insp-places')
   // renaming: "Formerly Ilchanak (until 1202) · called Tiboi by the Leko" (renamingFormat.ts)
@@ -382,6 +383,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       shownTier = -1
       shownLand = -1
       shownStructures = -1
+      shownLandmarksSel = -1
       cell = s.cell
       landEl.classList.toggle('hidden', ix.land === null)
       trade.show(ix, id)
@@ -501,7 +503,10 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
         structuresEl.classList.toggle('hidden', shown === 0)
       }
 
-      {
+      // (the lines change with the whole year at most: worked out once per year shown)
+      if (selected !== shownLandmarksSel || Math.floor(year) !== shownLandmarksYear) {
+        shownLandmarksSel = selected
+        shownLandmarksYear = Math.floor(year)
         const lines = landmarkLines(h, selected, year)
         const key = selected + ':' + lines.map((l) => l[0]).join('|')
         if (key !== shownLandmarks) {

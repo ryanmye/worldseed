@@ -19,7 +19,7 @@
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { CITY_POPULATION, IdeaHow, TOWN_POPULATION } from '../contract.ts'
+import { CITY_POPULATION, IdeaHow, routePathAt, TOWN_POPULATION } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
@@ -515,9 +515,11 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
     const key = pairKey(A.source[k], A.via[k])
     let done = false
     if (A.how[k] === IdeaHow.Trade) {
+      // (along the way the route followed that year: it may have re-pathed round danger)
       const r = routeOf.get(key)
-      if (r !== undefined && T.pathOffsets[r + 1] - T.pathOffsets[r] >= 2) {
-        copyPath(T.path, T.pathOffsets[r], T.pathOffsets[r + 1], ca)
+      const rp = r !== undefined ? routePathAt(T, r, A.year[k]) : null
+      if (rp && rp.to - rp.from >= 2) {
+        copyPath(rp.arr, rp.from, rp.to, ca)
         done = true
       }
     } else if (A.how[k] === IdeaHow.Lane) {

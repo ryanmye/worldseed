@@ -289,6 +289,14 @@ function deriveStandIn(world: World, h: History, N: number): Raw {
         for (let k = T.pathOffsets[r]; k < T.pathOffsets[r + 1]; k++) learn(people[end], T.path[k], T.openedYear[r])
       }
     }
+    // a way round danger: both ends' peoples learn it when the route takes it (History.trade's re-paths)
+    for (let k = 0, n = T.repathCount ?? 0; k < n; k++) {
+      const r = T.repathRoute[k]
+      for (const end of [T.a[r], T.b[r]]) {
+        if (end < 0 || end >= S) continue
+        for (let q = T.repathOffsets[k]; q < T.repathOffsets[k + 1]; q++) learn(people[end], T.repathPath[q], T.repathYear[k])
+      }
+    }
   }
   // contact: when one first knows a living settlement of the other
   const C = new Int16Array(P * P).fill(-1)

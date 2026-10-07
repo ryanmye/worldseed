@@ -17,7 +17,7 @@
 // already built once per history by historyView.ts and handed in at commit().
 
 import { landmarksOf } from './landmarksData.ts'
-import { CITY_POPULATION, TOWN_POPULATION, type History, type World } from '../contract.ts'
+import { CITY_POPULATION, landmarksAt, TOWN_POPULATION, type History, type World } from '../contract.ts'
 import { formatPopulation, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
 import { assignPolityColors, polityAtYear, politiesOf, type PolitiesData } from './politiesData.ts'
@@ -242,9 +242,9 @@ export function createCitiesView(deps: CitiesViewDeps): CitiesView {
     }
     if (row.sparkCtx) sparkline(row.sparkCtx, id, shownS0)
     // landmarks: its great buildings standing by the year (any state), in the tooltip
-    const ld = landmarksOf(history)
+    // (the town's at the year: one an heir town restored on its ruins counts there, landmarksAt)
     let great = 0
-    for (const i of ld?.bySettlement.get(id) ?? []) if (ld!.L.rank[i] === 0 && ld!.L.begunYear[i] <= year) great++
+    if (landmarksOf(history)) for (const x of landmarksAt(history!, id, year)) if (x.rank === 0) great++
     row.el.title = `${settlementName(history!, id)}: ${Math.round(pop)} people` + (polData && p >= 0 ? `, ${polData.names[p]}` : '') + (great ? ` · ${great} landmark${great > 1 ? 's' : ''}` : '')
     row.el.classList.toggle('selected', id === selectedId)
   }

@@ -15,6 +15,11 @@
 //    road is left to the road, and the trade line only shows where no road has been worn
 //    yet (a faint warm line); at globe zoom, where roads are faint, the warm line traces
 //    the road exactly. With roads hidden every land link is drawn.
+//  - Re-paths: a route that changes its way round danger (History.trade.repath*) has one
+//    way per distinct path in the network (tradeNetwork), each piece built once; its link
+//    volumes, its merchants and its highlight follow the way in force at the year
+//    (routeWayAt; the highlight holds every way with its span of years), so the drawn route
+//    switches at the re-path year without rebuilding anything.
 //  - The routes of the selected settlement are drawn bold on top, route by route, along
 //    the same geometry (and, once closed, as a faint trace).
 //  - Merchants: symbolic traffic, not simulated. Route r carries merchant k while its
@@ -42,7 +47,7 @@ import { isWaterCell, lakeArray, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { networkRouteSamples, PIECE_SAMPLES, routeNetwork, segmentWater, SHORE } from './routeCurves.ts'
+import { networkRouteSamples, PIECE_SAMPLES, routeWayAt, routeWaySpans, segmentWater, SHORE, tradeNetwork } from './routeCurves.ts'
 
 /**
  * Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury,
@@ -159,18 +164,22 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const cellSpacing = Math.sqrt((4 * Math.PI) / world.grid.cellCount)
   const speed = CELLS_PER_YEAR * cellSpacing // world units per year
 
-  const net = routeNetwork(world, T.pathOffsets, T.path, R)
+  // every way the routes followed (their opening paths and the ways they re-pathed onto): a
+  // route's samples, cap and links are its way's at the year (routeWayAt), so a re-path switches
+  // its line and merchants without rebuilding anything
+  const net = tradeNetwork(world, T)
+  const W = net.routeLinkOffsets.length - 1
   const L = net.linkCount
   const NN = net.nodeCount
-  const smp = networkRouteSamples(net, R, LIFT)
+  const smp = networkRouteSamples(net, W, LIFT)
   const { offsets: sOff, pos: sPos, frac: sFrac, water: sWater, link: sLink } = smp
-  // per route, a cap on the sphere round its samples (centre direction, cosine and sine of
+  // per way, a cap on the sphere round its samples (centre direction, cosine and sine of
   // its angular radius): a route wholly out of view is skipped without placing its merchants
   // (they would all fail the view test), so writeMerchants does work only for routes in view
-  const capDir = new Float32Array(R * 3)
-  const capCos = new Float32Array(R).fill(-1)
-  const capSin = new Float32Array(R)
-  for (let r = 0; r < R; r++) {
+  const capDir = new Float32Array(W * 3)
+  const capCos = new Float32Array(W).fill(-1)
+  const capSin = new Float32Array(W)
+  for (let r = 0; r < W; r++) {
     let cx = 0, cy = 0, cz = 0
     for (let k = sOff[r]; k < sOff[r + 1]; k++) {
       const l = Math.hypot(sPos[k * 3], sPos[k * 3 + 1], sPos[k * 3 + 2]) || 1
@@ -235,7 +244,8 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       const r = pairList[q]
       const v = vol[s * R + r]
       if (v <= 0) continue
-      for (let k = rlOff[r]; k < rlOff[r + 1]; k++) out[rLinks[k]] += v
+      const w = routeWayAt(net, r, s * input.interval)
+      for (let k = rlOff[w]; k < rlOff[w + 1]; k++) out[rLinks[k]] += v
     }
   }
   const linkVol0 = new Float32Array(L)
@@ -463,6 +473,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       ${RELIEF_GLSL}
       attribute vec4 aSide; // side direction, across (-1|1)
       attribute vec4 aRoute; // route id, year first opened, sea, arc length
+      attribute vec2 aSpan; // years this way of the route is in force: [from, to)
       uniform sampler2D uRouteVol;
       uniform float uFrac;
       uniform float uLogMax;
@@ -485,8 +496,9 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
         int id = int(aRoute.x + 0.5);
         vec4 t = texelFetch(uRouteVol, ivec2(id - (id / ${TEX_W}) * ${TEX_W}, id / ${TEX_W}), 0);
         float s = mix(level(t.x), level(t.y), uFrac);
+        if (uYear < aSpan.x || uYear >= aSpan.y) s = 0.0;
         // a closed route stays as a faint trace
-        vGhost = uYear >= aRoute.y && s < 0.15 ? 1.0 : 0.0;
+        vGhost = uYear >= aRoute.y && uYear >= aSpan.x && uYear < aSpan.y && s < 0.15 ? 1.0 : 0.0;
         if (s <= 0.002 && vGhost < 0.5) {
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
           return;
@@ -548,22 +560,28 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
     highlight.geometry = highlightGeom
     highlight.visible = false
     if (id < 0) return
-    const routes: number[] = []
+    // each route's ways, with the years each was in force (a re-pathed route is drawn along the way of the year)
+    const spans: { r: number; way: number; from: number; to: number }[] = []
     let samples = 0
     for (let r = 0; r < R; r++) {
-      if ((T.a[r] === id || T.b[r] === id) && sOff[r + 1] - sOff[r] >= 2) {
-        routes.push(r)
-        samples += sOff[r + 1] - sOff[r]
+      if (T.a[r] !== id && T.b[r] !== id) continue
+      const sp = routeWaySpans(net, r, T.openedYear[r])
+      for (let i = 0; i < sp.length; i++) {
+        const w = sp[i].way
+        if (sOff[w + 1] - sOff[w] < 2) continue
+        spans.push({ r, way: w, from: i === 0 ? -1e6 : sp[i].from, to: i === sp.length - 1 ? 1e6 : sp[i].to })
+        samples += sOff[w + 1] - sOff[w]
       }
     }
-    if (routes.length === 0) return
+    if (spans.length === 0) return
     const hp = new Float32Array(samples * 2 * 3)
     const hs = new Float32Array(samples * 2 * 4)
     const hr = new Float32Array(samples * 2 * 4)
+    const hy = new Float32Array(samples * 2 * 2)
     const idx: number[] = []
     let v = 0
-    for (const r of routes) {
-      for (let s = sOff[r]; s < sOff[r + 1]; s++) {
+    for (const { r, way: w, from, to } of spans) {
+      for (let s = sOff[w]; s < sOff[w + 1]; s++) {
         for (let e = 0; e < 2; e++) {
           hp[v * 3] = sPos[s * 3]
           hp[v * 3 + 1] = sPos[s * 3 + 1]
@@ -576,9 +594,11 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           hr[v * 4 + 1] = T.openedYear[r]
           hr[v * 4 + 2] = sWater[s] === SHORE ? 0.5 : sWater[s]
           hr[v * 4 + 3] = smp.arc[s]
+          hy[v * 2] = from
+          hy[v * 2 + 1] = to
           v++
         }
-        if (s + 1 < sOff[r + 1]) {
+        if (s + 1 < sOff[w + 1]) {
           const b = v - 2
           idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3)
         }
@@ -587,6 +607,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
     highlightGeom.setAttribute('position', new THREE.BufferAttribute(hp, 3))
     highlightGeom.setAttribute('aSide', new THREE.BufferAttribute(hs, 4))
     highlightGeom.setAttribute('aRoute', new THREE.BufferAttribute(hr, 4))
+    highlightGeom.setAttribute('aSpan', new THREE.BufferAttribute(hy, 2))
     highlightGeom.setIndex(idx)
     highlight.visible = true
   }
@@ -792,12 +813,14 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       const sinView = Math.sqrt(Math.max(0, 1 - cosView * cosView))
       outer: for (let q = pairOff[s0]; q < pairOff[s0 + 1]; q++) {
         const r = pairList[q]
+        // the way it follows this year (it may have re-pathed round danger)
+        const wy = routeWayAt(net, r, year)
         // the route's cap and the view's cap apart: none of its merchants can be in view
-        if (capCos[r] > 0 && cosView > 0 && capDir[r * 3] * cx + capDir[r * 3 + 1] * cy + capDir[r * 3 + 2] * cz < cosView * capCos[r] - sinView * capSin[r]) continue
+        if (capCos[wy] > 0 && cosView > 0 && capDir[wy * 3] * cx + capDir[wy * 3 + 1] * cy + capDir[wy * 3 + 2] * cz < cosView * capCos[wy] - sinView * capSin[wy]) continue
         const v0 = vol[s0 * R + r], v1 = vol[s1 * R + r]
         const presence = (v0 > 0 ? 1 - frac : 0) + (v1 > 0 ? frac : 0)
-        const L = smp.length[r]
-        if (presence <= 0 || L <= 0 || sOff[r + 1] - sOff[r] < 2) continue
+        const L = smp.length[wy]
+        if (presence <= 0 || L <= 0 || sOff[wy + 1] - sOff[wy] < 2) continue
         const v = v0 + (v1 - v0) * frac
         const trip = Math.max(MIN_TRIP_YEARS, L / speed)
         let threshold = FIRST_MERCHANT_VOLUME * jitter[r] * g
@@ -812,7 +835,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           const fromEnd = Math.min(p, 1 - p) * L
           a *= Math.min(1, fromEnd / END_FADE)
           if (a < 0.02) continue
-          const lo = sampleAt(r, p)
+          const lo = sampleAt(wy, p)
           const f0 = sFrac[lo], f1 = sFrac[lo + 1]
           const u = f1 > f0 ? Math.min(1, Math.max(0, (p - f0) / (f1 - f0))) : 0
           const i0 = lo * 3, i1 = lo * 3 + 3

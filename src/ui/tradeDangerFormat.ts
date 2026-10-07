@@ -3,9 +3,12 @@
 // trodden again (TradeRestored, 151: `extra` the years it lay forsaken). `settlement` and `other` are the route's
 // ends, `value` the route id. ("Merchants forsake the road from Rilko to Fanfin: bandits on the way"; "The road from
 // Rilko to Fanfin is trodden again after 12 years".) A restored route is called a sea way when it was forsaken to pirates.
+// A route that followed a way round danger at the time (History.trade's re-paths, tradeRepath.ts) says so: "..., now going
+// round by way of Osu" (trodden again round the danger), "..., even going round by way of Osu" (forsaken all the same).
 
 import { EventType, type History, type HistoryEvent } from '../contract.ts'
 import { settlementName } from './format.ts'
+import { goesRoundAt } from './tradeRepath.ts'
 
 export const isTradeDangerEvent = (t: number) => t === EventType.TradeForsaken || t === EventType.TradeRestored
 
@@ -41,12 +44,18 @@ function way(h: History, e: HistoryEvent): string {
   return (e.type === EventType.TradeForsaken ? e.extra ?? 0 : forsakenCause(h, e)) === 1 ? 'sea way' : 'road'
 }
 
+/** ", now going round by way of Osu" (restored) or ", even going round by way of Osu" (forsaken) when the route then followed a way round danger, else ''. */
+function roundNote(h: History, e: HistoryEvent): string {
+  const r = goesRoundAt(h, e.value, e.year)
+  return r ? `, ${e.type === EventType.TradeForsaken ? 'even' : 'now'} going ${r}` : ''
+}
+
 export function describeTradeDangerEvent(h: History, e: HistoryEvent): string | null {
   const from = settlementName(h, e.settlement), to = settlementName(h, e.other)
-  if (e.type === EventType.TradeForsaken) return `Merchants forsake the ${way(h, e)} from ${from} to ${to}: ${cause(e)}`
+  if (e.type === EventType.TradeForsaken) return `Merchants forsake the ${way(h, e)} from ${from} to ${to}${roundNote(h, e)}: ${cause(e)}`
   if (e.type === EventType.TradeRestored) {
     const w = way(h, e)
-    return `The ${w} from ${from} to ${to} is ${w === 'road' ? 'trodden' : 'sailed'} again after ${years(e.extra ?? 0)}`
+    return `The ${w} from ${from} to ${to} is ${w === 'road' ? 'trodden' : 'sailed'} again after ${years(e.extra ?? 0)}${roundNote(h, e)}`
   }
   return null
 }
@@ -54,10 +63,10 @@ export function describeTradeDangerEvent(h: History, e: HistoryEvent): string | 
 /** The same from the point of view of one end (inspector): "Merchants forsook the road to Fanfin: bandits on the way". */
 export function describeTradeDangerEventFor(h: History, e: HistoryEvent, id: number): string | null {
   const partner = settlementName(h, e.settlement === id ? e.other : e.settlement)
-  if (e.type === EventType.TradeForsaken) return `Merchants forsook the ${way(h, e)} to ${partner}: ${cause(e)}`
+  if (e.type === EventType.TradeForsaken) return `Merchants forsook the ${way(h, e)} to ${partner}${roundNote(h, e)}: ${cause(e)}`
   if (e.type === EventType.TradeRestored) {
     const w = way(h, e)
-    return `The ${w} to ${partner} was ${w === 'road' ? 'trodden' : 'sailed'} again after ${years(e.extra ?? 0)}`
+    return `The ${w} to ${partner} was ${w === 'road' ? 'trodden' : 'sailed'} again after ${years(e.extra ?? 0)}${roundNote(h, e)}`
   }
   return null
 }
@@ -74,6 +83,6 @@ export function describeTradeDangerGroup(h: History, example: HistoryEvent, memb
   else seas++
   const ways = roads && seas ? 'roads and sea ways' : roads ? 'roads' : 'sea ways'
   const n = members.length
-  if (example.type === EventType.TradeForsaken) return `Merchants forsake ${n} ${ways}, among them ${pair} (${cause(example)})`
-  return `${n} forsaken ${ways} are ${seas ? 'travelled' : 'trodden'} again, among them ${pair} (after ${years(example.extra ?? 0)})`
+  if (example.type === EventType.TradeForsaken) return `Merchants forsake ${n} ${ways}, among them ${pair} (${cause(example)}${roundNote(h, example)})`
+  return `${n} forsaken ${ways} are ${seas ? 'travelled' : 'trodden'} again, among them ${pair} (after ${years(example.extra ?? 0)}${roundNote(h, example)})`
 }

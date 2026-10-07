@@ -6,7 +6,7 @@
 
 import { EventType } from '../contract.ts'
 import { describeEvent, describeFamineBurst, describeFoundings, describeLandfall, describeLandfallBurst, describeMigrations, describeNaming, describePeoplesBurst, describePeoplesEvent, describeTradeBurst, eventKind, PeoplesEvent } from './format.ts'
-import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
+import { countUpTo, EntryKind, FOUNDING_BUCKET_YEARS, ISLAND_BUCKET_YEARS, RAID_MEMBER_BASE, REPATH_MEMBER_BASE, type HistoryIndex } from './historyIndex.ts'
 import { attachWidthHandle, loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import { describeAlliances, describeBlockades, describeBonds, describeDisputes, describeForts, describeGains, describeRaids, describeRevolts, describeSmallRaids, describeWalls, isDisputeHeadline, isPolityHeadline } from './polityFormat.ts'
 import { entryCategory, CHRONICLE_FILTERS, CHRONICLE_FILTER_ORDER, isOptionalFilter } from './chronicleFilter.ts'
@@ -19,6 +19,7 @@ import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
 import { isLandmarkHeadline } from './landmarksFormat.ts'
 import { describeTradeDangerGroup } from './tradeDangerFormat.ts'
+import { describeRepathGroup, repathTarget } from './tradeRepath.ts'
 
 import { describeIdeasGroup, ideasHiddenInChronicle, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
 
@@ -175,6 +176,20 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       r.year.textContent = `${R.decade[row0] * 10}s`
       r.text.textContent = line
       r.li.title = `The ${R.decade[row0] * 10}s: ${line}`
+      return
+    }
+    if (kind === EntryKind.Repaths) {
+      // trade routes going round danger (or back to their old way) in one decade (History.trade's re-path rows)
+      const ks: number[] = []
+      for (let q = lo; q < lo + m; q++) ks.push(-ix.notableMembers[q] - REPATH_MEMBER_BASE)
+      const line = describeRepathGroup(h, ks)
+      const decade = `${Math.floor(h.trade.repathYear[ks[0]] / 10) * 10}s`
+      r.target = repathTarget(h, ks[ks.length - 1])
+      r.li.hidden = false
+      r.li.className = 'ev-trade ev-faint'
+      r.year.textContent = ks.length > 1 ? decade : String(h.trade.repathYear[ks[0]])
+      r.text.textContent = line
+      r.li.title = `${ks.length > 1 ? `The ${decade}` : `Year ${h.trade.repathYear[ks[0]]}`}: ${line}`
       return
     }
     if (kind === EntryKind.Named) {

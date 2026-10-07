@@ -5,9 +5,10 @@
 // fashion does not flood it. Every function tolerates a history without tourism data (null: the
 // caller falls back).
 
-import { EventType, type History, type HistoryEvent } from '../contract.ts'
+import { EventType, SightKind, type History, type HistoryEvent } from '../contract.ts'
 import { peopleName, settlementName } from './format.ts'
 import { SIGHT_WORDS, sceneryWords, sightPhrase, tourismOf } from './tourismData.ts'
+import { describeLandmarkSight } from './landmarksFormat.ts'
 
 export const isTourismEvent = (t: number) => t >= EventType.LeisureTravel && t <= EventType.SightRecognised
 
@@ -92,7 +93,11 @@ export function describeTourismEvent(h: History, e: HistoryEvent): string | null
     case EventType.SightRecognised: {
       const x = sightOf(h, e)
       const own = e.other >= 0 && e.other !== e.settlement
-      return `${cap(sightPhrase(x))} ${x && x.kind === 0 ? 'become' : 'becomes'} a sight worth the journey` + (own ? `; its visitors stay at ${S}` : '')
+      const stay = own ? `; its visitors stay at ${S}` : ''
+      // a great landmark ruined, left unfinished or centuries old ("The ruined Keep of Kube draws visitors")
+      const lm = x && x.kind === SightKind.Landmark ? describeLandmarkSight(h, x.landmark, e.year) : null
+      if (lm) return lm + stay
+      return `${cap(sightPhrase(x, h, e.year))} ${x && x.kind === 0 ? 'become' : 'becomes'} a sight worth the journey` + stay
     }
   }
   return null
@@ -121,9 +126,10 @@ export function describeTourismEventFor(h: History, e: HistoryEvent, id: number)
       return `Given up as a resort after ${Math.round(e.value)} years without visitors`
     case EventType.SightRecognised: {
       const x = sightOf(h, e)
-      if (self && (e.other < 0 || e.other === id)) return `${cap(sightPhrase(x))} became a sight worth the journey`
-      if (self) return `${cap(sightPhrase(x))} nearby became a sight; its visitors stay here`
-      return `${cap(sightPhrase(x))} became a sight; its visitors stay at ${S}`
+      const p = cap(sightPhrase(x, h, e.year))
+      if (self && (e.other < 0 || e.other === id)) return `${p} became a sight worth the journey`
+      if (self) return `${p} nearby became a sight; its visitors stay here`
+      return `${p} became a sight; its visitors stay at ${S}`
     }
   }
   return null
@@ -161,7 +167,7 @@ function listOf(xs: readonly string[], max = 3): string {
 export function describeTourismGroup(h: History, members: readonly HistoryEvent[]): string {
   const e = members[members.length - 1]
   if (members.length === 1) return describeTourismEvent(h, e) ?? ''
-  if (isSightGroup(e)) return `New sights worth the journey: ${listOf(members.map((m) => sightPhrase(sightOf(h, m))))}`
+  if (isSightGroup(e)) return `New sights worth the journey: ${listOf(members.map((m) => sightPhrase(sightOf(h, m), h, m.year)))}`
   // fashion: per place, in order: in, out, back in, in and out again
   const order: number[] = []
   const seq = new Map<number, HistoryEvent[]>()

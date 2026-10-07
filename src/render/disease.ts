@@ -25,7 +25,7 @@
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { CITY_POPULATION, DiseaseVia, JourneyKind, TOWN_POPULATION } from '../contract.ts'
+import { CITY_POPULATION, DiseaseVia, JourneyKind, routePathAt, TOWN_POPULATION } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
@@ -605,11 +605,13 @@ export function buildDiseaseLayer(world: World, h: History, dd: DiseaseData, max
       const r = routeOf.get(key)
       const k = legOf.get(key)
       // a sea passage prefers a route that goes by water; the long-haul lane next
-      if (r !== undefined && T.pathOffsets[r + 1] - T.pathOffsets[r] >= 2) {
+      // (along the way the route followed that year: it may have re-pathed round danger)
+      const rp = r !== undefined ? routePathAt(T, r, O.year[i]) : null
+      if (rp && rp.to - rp.from >= 2) {
         let wet = false
-        for (let q = T.pathOffsets[r]; q < T.pathOffsets[r + 1] && !wet; q++) if (isWater(T.path[q])) wet = true
+        for (let q = rp.from; q < rp.to && !wet; q++) if (isWater(rp.arr[q])) wet = true
         if (via === DiseaseVia.Route || wet || k === undefined) {
-          copyPath(T.path, T.pathOffsets[r], T.pathOffsets[r + 1], ca)
+          copyPath(rp.arr, rp.from, rp.to, ca)
           done = true
         }
       }

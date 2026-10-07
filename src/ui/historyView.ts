@@ -41,7 +41,7 @@ import { createTimeline, More } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
 import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
-import { routeNetwork } from '../render/routeCurves.ts'
+import { tradeNetwork } from '../render/routeCurves.ts'
 import { addShortcut } from './shortcuts.ts'
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { setNamesYear } from './renamingData.ts'
@@ -706,7 +706,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         name: 'network',
         run() {
           const td = b.index!.trade
-          if (td) routeNetwork(w, td.routes.pathOffsets, td.routes.path, td.routes.count)
+          if (td) tradeNetwork(w, td.routes)
         },
       },
       {

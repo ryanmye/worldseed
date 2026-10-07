@@ -11,7 +11,7 @@
 // what is shown changes.
 
 import * as THREE from 'three'
-import { SceneryBit, type History, type World } from '../contract.ts'
+import { landmarkNameAt, SceneryBit, SightKind, type History, type World } from '../contract.ts'
 import { buildTourismLayer, type TourismLayer } from '../render/tourism.ts'
 import { ViewMode } from '../render/palette.ts'
 import type { GlobeMesh } from '../render/globe.ts'
@@ -392,7 +392,7 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
     let nRes = 0
     for (const r of dd.resorts) if (r.founded <= year) nRes++
     // (lists follow the trade snapshot; the resorts' states and the sights follow their events)
-    const key = `${tab}:${q}:${nSights}:${nRes}:${tab === 1 ? dd.resorts.map((r) => resortState(dd, r.id, year) + (inFashion(dd, r.id, year) ? 1 : 0)).join('') : ''}`
+    const key = `${tab}:${q}:${nSights}:${nRes}:${tab === 1 ? dd.resorts.map((r) => resortState(dd, r.id, year) + (inFashion(dd, r.id, year) ? 1 : 0)).join('') : ''}:${tab === 2 ? namesEpoch() : ''}`
     if (key === shownPaneKey) return
     shownPaneKey = key
     pane.replaceChildren()
@@ -450,10 +450,12 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       const g = span('tp-glyph', SIGHT_GLYPH[x.kind] ?? '•')
       g.style.color = SIGHT_CSS[x.kind] ?? '#fff'
       const target = sightTarget(k)
-      const b = row(g, span('gp-name', x.name || SIGHT_SHORT[x.kind] || 'Sight'), span('gp-sub', `${SIGHT_SHORT[x.kind] ?? ''} · ${fameWords(x.fame)}`), span('gp-num', String(x.fromYear), 'A sight since'))
+      // (a landmark sight by its own name at the year: landmarkNameAt)
+      const nm = x.kind === SightKind.Landmark && x.landmark !== undefined && dd.history.landmarks ? cap(landmarkNameAt(dd.history, x.landmark, year)) : x.name
+      const b = row(g, span('gp-name', nm || SIGHT_SHORT[x.kind] || 'Sight'), span('gp-sub', `${SIGHT_SHORT[x.kind] ?? ''} · ${fameWords(x.fame)}`), span('gp-num', String(x.fromYear), 'A sight since'))
       if (target >= 0) b.dataset.sid = String(target)
       else b.dataset.cell = String(x.cell)
-      b.title = `${cap(sightPhrase(x))}: ${fameWords(x.fame)}, a sight since ${x.fromYear}` + (target >= 0 && target !== x.settlement ? `; its visitors stay at ${sname(target)}` : '')
+      b.title = `${cap(sightPhrase(x, dd.history, year))}: ${fameWords(x.fame)}, a sight since ${x.fromYear}` + (target >= 0 && target !== x.settlement ? `; its visitors stay at ${sname(target)}` : '')
       pane.append(b)
     }
   }
@@ -513,7 +515,7 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       const x = dd.sights[k]
       if (x.fromYear > year) continue
       const near = x.settlement !== id
-      out.push([`${near ? 'Near it: ' : 'A sight: '}${sightPhrase(x)}, ${fameWords(x.fame)}, since ${x.fromYear}`])
+      out.push([`${near ? 'Near it: ' : 'A sight: '}${sightPhrase(x, dd.history, year)}, ${fameWords(x.fame)}, since ${x.fromYear}`])
     }
     if (dd.isHome[id]) {
       const trips = tripsFrom(dd, id, q, 3)
@@ -715,7 +717,7 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
       const parts: string[] = []
       for (const k of dd.sightsAt.get(cell) ?? []) {
         const x = dd.sights[k]
-        if (x.fromYear <= year) parts.push(`Sight: ${sightPhrase(x)} (${fameWords(x.fame)})`)
+        if (x.fromYear <= year) parts.push(`Sight: ${sightPhrase(x, dd.history, year)} (${fameWords(x.fame)})`)
       }
       for (const id of atCell.get(cell) ?? []) {
         const st = resortState(dd, id, year)
@@ -760,12 +762,12 @@ export function createTourismView(deps: TourismViewDeps): TourismView {
         const v = new THREE.Vector3(P[c * 3], P[c * 3 + 1], P[c * 3 + 2]).multiplyScalar(1.004).applyMatrix4(deps.planetGroup.matrixWorld).project(lastCamera)
         return [((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight]
       },
-      /** Show every sight with the glyph of kind (index mod 7), to look at all seven (Holy cities come with the religion system). */
+      /** Show every sight with the glyph of kind (index mod 8), to look at all eight (Holy cities come with the religion system, landmarks with the landmarks). */
       cycleSightKinds: () => {
         const marks = layer?.object.children.find((o) => o.name === 'tourism marks') as THREE.Mesh | undefined
         const a = marks?.geometry.getAttribute('aA') as THREE.InstancedBufferAttribute | undefined
         if (!a || !data) return false
-        for (let k = 0; k < data.sights.length; k++) a.setZ(k, k % 7)
+        for (let k = 0; k < data.sights.length; k++) a.setZ(k, k % 8)
         a.needsUpdate = true
         requestRender()
         return true

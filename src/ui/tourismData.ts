@@ -12,6 +12,7 @@
 
 import { EventType, SceneryBit, SightKind, type History, type Sight, type VisitorFlows } from '../contract.ts'
 import { settlementName } from './format.ts'
+import { landmarkSightPhrase } from './landmarksFormat.ts'
 
 /** A resort town: founded for visitors, perhaps abandoned; fashion spans from the events. */
 export interface ResortInfo {
@@ -392,11 +393,11 @@ export function resortState(td: TourismData, id: number, year: number): '' | 'al
 export const sname = (td: TourismData, id: number) => (id >= 0 && id < td.N ? settlementName(td.history, id) : 'a far place')
 
 /** Kind of sight as a noun ("ruins", "old capital"). */
-export const SIGHT_WORDS: readonly string[] = ['ruins', 'old capital', 'famous summit', 'old polar base', 'old mining town', 'faded resort', 'holy city']
+export const SIGHT_WORDS: readonly string[] = ['ruins', 'old capital', 'famous summit', 'old polar base', 'old mining town', 'faded resort', 'holy city', 'great landmark']
 /** Kind of sight as a short label for lists. */
-export const SIGHT_SHORT: readonly string[] = ['Ruins', 'Old capital', 'Summit', 'Polar base', 'Mine town', 'Old resort', 'Holy city']
+export const SIGHT_SHORT: readonly string[] = ['Ruins', 'Old capital', 'Summit', 'Polar base', 'Mine town', 'Old resort', 'Holy city', 'Landmark']
 /** A glyph per kind for the panel (as the map draws them: render/tourism.ts). */
-export const SIGHT_GLYPH: readonly string[] = ['∏', '♛', '▲', '✻', '⚒', '☂', '✦']
+export const SIGHT_GLYPH: readonly string[] = ['∏', '♛', '▲', '✻', '⚒', '☂', '✦', '⌶']
 /** Colours per sight kind (CSS and 0..1), as the map tints their glyphs. */
 export const SIGHT_RGB: readonly (readonly [number, number, number])[] = [
   [0.88, 0.8, 0.66], // ruins: weathered stone
@@ -406,15 +407,20 @@ export const SIGHT_RGB: readonly (readonly [number, number, number])[] = [
   [0.92, 0.6, 0.4], // mine town: rust
   [0.86, 0.66, 0.82], // faded resort: faded pink
   [1.0, 0.95, 0.72], // holy city: pale gold
+  [0.74, 0.9, 0.66], // great landmark: mossy stone
 ]
 export const SIGHT_CSS: readonly string[] = SIGHT_RGB.map(([r, g, b]) => `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`)
 /** The travellers' colour (flows, visited places, resorts): a holiday pink apart from trade's cyan and amber and the disease kinds. */
 export const TRAVEL_RGB: readonly [number, number, number] = [1.0, 0.5, 0.74]
 export const TRAVEL_CSS = '#ff80bd'
 
-/** "the ruins of Kuniden", "the old capital Razu", "the summit of the Nozuhus", "a holy city". */
-export function sightPhrase(x: Sight | undefined): string {
+/**
+ * "the ruins of Kuniden", "the old capital Razu", "the summit of the Nozuhus", "a holy city"; a landmark sight by its own name
+ * at `year` (default the year it became a sight) with history `h` ("the ruined Keep of Kube": landmarksFormat.ts), else "a great landmark".
+ */
+export function sightPhrase(x: Sight | undefined, h?: History, year?: number): string {
   if (!x) return 'a sight'
+  if (x.kind === SightKind.Landmark) return (h ? landmarkSightPhrase(h, x.landmark, year ?? x.fromYear) : '') || 'a great landmark'
   const n = x.name
   switch (x.kind) {
     case SightKind.Ruin: return n ? `the ruins of ${n}` : 'old ruins'

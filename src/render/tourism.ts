@@ -6,7 +6,8 @@
 //      (over the place where nothing lives on its cell; markerSlots.ts) in a colour of
 //      their kind (broken columns for ruins, a crown for an old capital, a flagged peak for a summit
 //      first climbed, a snowflake for an old polar base, crossed tools for a mining town gone quiet, a
-//      faded parasol for a resort long out of fashion, a four-point star for a holy city), a little
+//      faded parasol for a resort long out of fashion, a four-point star for a holy city, a lone column
+//      on a stepped base for a great landmark ruined, unfinished or centuries old), a little
 //      larger the more famous (a faded parasol is not drawn while the place is a living resort again,
 //      nor a holy city's star on the Faiths view, which marks holy cities itself);
 //      visited places, a ring of pink dots round the settlement marker, wider with its visitors a
@@ -116,7 +117,7 @@ ${RELIEF_GLSL}
 ${MARKER_SLOT_GLSL}
 ${TEX_GLSL}
 attribute vec3 aPos;
-attribute vec4 aA; // from year, until year (NEVER), kind (0..6 a sight, 8 a destination), item (destinations: texture item)
+attribute vec4 aA; // from year, until year (NEVER), kind (0..7 a sight, 8 a destination), item (destinations: texture item)
 attribute vec4 aB; // static marker radius (px), fame 0..1, flags (1 resort), resort founded year
 attribute vec2 aC; // resort given up (year, NEVER), settlement id
 attribute float aKnown;
@@ -132,7 +133,7 @@ uniform float uPixelRatio;
 uniform vec3 uCamObj;
 uniform vec3 uSunObj;
 uniform float uDaylight;
-uniform vec3 uSightRgb[7];
+uniform vec3 uSightRgb[8];
 varying vec2 vPx;
 flat varying float vKind;
 varying float vScale;
@@ -198,7 +199,7 @@ void main() {
   vFashion = fashion;
   vParasol = glyphOff;
   vSel = uSel >= 0.0 && abs(aC.y - uSel) < 0.5 ? 1.0 : 0.0;
-  vCol = kind > 7.5 ? vec3(${TRAVEL_RGB.map((x) => x.toFixed(3)).join(', ')}) : uSightRgb[int(clamp(kind, 0.0, 6.0) + 0.5)];
+  vCol = kind > 7.5 ? vec3(${TRAVEL_RGB.map((x) => x.toFixed(3)).join(', ')}) : uSightRgb[int(clamp(kind, 0.0, 7.0) + 0.5)];
   vAlpha = smoothstep(0.0, 0.25, facing);
   vNight = 1.0 - smoothstep(-0.15, 0.1, mix(dot(up, normalize(uSunObj)), 1.0, uDaylight));
 }
@@ -297,10 +298,20 @@ float sightD(float kind, vec2 p) {
     return min(handles, min(pick, head));
   }
   if (kind < 5.5) return parasolD(p);
-  // a holy city: a four-point star
-  v[0] = vec2(0.0, 5.2); v[1] = vec2(1.25, 1.25); v[2] = vec2(5.2, 0.0); v[3] = vec2(1.25, -1.25);
-  v[4] = vec2(0.0, -5.2); v[5] = vec2(-1.25, -1.25); v[6] = vec2(-5.2, 0.0); v[7] = vec2(-1.25, 1.25);
-  return sdPoly(p, v, 8);
+  if (kind < 6.5) {
+    // a holy city: a four-point star
+    v[0] = vec2(0.0, 5.2); v[1] = vec2(1.25, 1.25); v[2] = vec2(5.2, 0.0); v[3] = vec2(1.25, -1.25);
+    v[4] = vec2(0.0, -5.2); v[5] = vec2(-1.25, -1.25); v[6] = vec2(-5.2, 0.0); v[7] = vec2(-1.25, 1.25);
+    return sdPoly(p, v, 8);
+  }
+  // a great landmark (ruined, unfinished or centuries old): one tall column on a stepped base, its
+  // capital under a broken stub of entablature (apart from the ruins' pair of columns)
+  float shaft = sdBox(p - vec2(0.0, -0.4), vec2(1.15, 3.4));
+  float capital = sdBox(p - vec2(0.0, 3.35), vec2(2.3, 0.65));
+  float stub = sdBox(p - vec2(-1.2, 4.55), vec2(2.9, 0.55));
+  float step1 = sdBox(p - vec2(0.0, -4.0), vec2(2.6, 0.6));
+  float step2 = sdBox(p - vec2(0.0, -5.05), vec2(3.9, 0.55));
+  return min(min(shaft, capital), min(stub, min(step1, step2)));
 }
 void main() {
   vec2 p = vPx;

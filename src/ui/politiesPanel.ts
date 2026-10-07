@@ -28,10 +28,10 @@
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { BondKind, BondEnd, PolityOrigin, WarOutcome } from '../contract.ts'
+import { BondKind, BondEnd, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
 import { buildPolityLayer, PolityView, type PolityLayer } from '../render/polities.ts'
 import { buildOutlawLayer, type OutlawLayer } from '../render/outlaws.ts'
-import { routeNetwork } from '../render/routeCurves.ts'
+import { tradeNetwork } from '../render/routeCurves.ts'
 import { setTradeRouteNote } from './tradePanel.ts'
 import type { GlobeMesh } from '../render/globe.ts'
 import type { LabelLayer, RegionLabel } from '../render/labels.ts'
@@ -315,7 +315,17 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     outlaws?.setShown(v !== PolityView.Off, tradeOn, v === PolityView.Danger)
   }
 
-  /** The routes of history h that cross water (for the inspector's losses), worked out once per history. */
+  /** Whether route r crosses water at `year` (the way it follows then: it may have re-pathed), for the inspector's losses. */
+  function lossSeaAt(r: number, year: number): boolean {
+    const T = data ? (data.history as Partial<History>).trade : undefined
+    if (!T || !world) return false
+    const p = routePathAt(T, r, year)
+    if (p.arr === T.path) return !!lossSea()?.[r]
+    for (let k = p.from + 1; k + 1 < p.to; k++) if (world.elevation[p.arr[k]] < 0 || world.lake[p.arr[k]] === 1) return true
+    return false
+  }
+
+  /** The routes of history h that cross water along the way they opened (for the inspector's losses), worked out once per history. */
   function lossSea(): Uint8Array | null {
     if (routeSea || !data || !world) return routeSea
     const T = (data.history as Partial<History>).trade
@@ -356,7 +366,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     const sm = pd.smuggle ? pd.smuggle[t * R + r] : 0
     if (v > 0 && sm / v >= 0.05) parts.push(`${Math.round((100 * sm) / v)}% contraband`)
     const l = pd.loss ? pd.loss[t * R + r] / 255 : 0
-    if (l >= 0.01) parts.push(`${Math.round(l * 100)}% lost to ${lossSea()?.[r] ? 'pirates' : 'bandits'}`)
+    if (l >= 0.01) parts.push(`${Math.round(l * 100)}% lost to ${lossSeaAt(r, y) ? 'pirates' : 'bandits'}`)
     return parts.join(' · ')
   }
   /** Whether p and q trade duty-free at year y (a vassal or tributary and its overlord). */
@@ -890,13 +900,13 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const t = tradeSnapNear(pd, year)
       const R = T.count
       let seaV = 0, seaL = 0, landV = 0, landL = 0
-      const sea = lossSea()
+      const ty = t * T.interval
       for (let r = 0; r < R; r++) {
         if (T.a[r] !== id && T.b[r] !== id) continue
         const vol = T.volume[t * R + r]
         if (!(vol > 0)) continue
         const l = LO[t * R + r] / 255
-        if (sea && sea[r]) {
+        if (lossSeaAt(r, ty)) {
           seaV += vol
           seaL += vol * l
         } else {
@@ -1069,7 +1079,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       // the outlaw layer: along the bundled route network (cached: the trade and road layers share it)
       const T = (h as Partial<History>).trade
       const v2 = pd.smuggle || pd.loss || pd.havenSettlements.length > 0 || pd.hubSettlements.length > 0 || pd.blockades.length > 0
-      const net = T && T.count > 0 && pd.trade ? routeNetwork(w, T.pathOffsets, T.path, T.count) : null
+      const net = T && T.count > 0 && pd.trade ? tradeNetwork(w, T) : null
       return { data: pd, layer: buildPolityLayer(w, h, pd), outlaws: v2 ? buildOutlawLayer(w, h, pd, net) : null }
     },
     disposeBuilt(b) {

@@ -4,7 +4,8 @@
 // when the population snapshot (wealth) or the nearest trade snapshot (routes) changes.
 
 import { formatInt, formatPopulation, goodName } from './format.ts'
-import { isAlive, type HistoryIndex } from './historyIndex.ts'
+import { isAlive, routeBySeaAt, type HistoryIndex } from './historyIndex.ts'
+import { goesRoundAt } from './tradeRepath.ts'
 import { GOOD_COLORS } from '../render/trade.ts'
 import { GOOD_COUNT, type TradeRoutes } from '../contract.ts'
 import './trade.css'
@@ -107,10 +108,12 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
     tradeEl.classList.toggle('hidden', rows.length === 0)
     if (rows.length === 0) return
 
+    // (the way each route follows at the snapshot: it may have re-pathed round danger)
+    const y = t * td.interval
     let sea = 0
     const exported = new Float64Array(GOOD_COUNT), imported = new Float64Array(GOOD_COUNT)
     for (const { r, v } of rows) {
-      if (td.bySea[r]) sea++
+      if (routeBySeaAt(td, r, y)) sea++
       const isA = T.a[r] === id
       exported[isA ? T.goodAB[r] : T.goodBA[r]] += v / 2
       imported[isA ? T.goodBA[r] : T.goodAB[r]] += v / 2
@@ -144,7 +147,8 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
       const out = isA ? T.goodAB[r] : T.goodBA[r]
       const back = isA ? T.goodBA[r] : T.goodAB[r]
       const li = document.createElement('li')
-      li.title = `${formatInt(v)} loads a year${td.bySea[r] ? ', partly by sea' : ''}`
+      const round = goesRoundAt(ix.history, r, y)
+      li.title = `${formatInt(v)} loads a year${routeBySeaAt(td, r, y) ? ', partly by sea' : ''}${round ? `; going ${round} to keep clear of danger` : ''}`
       const bar = document.createElement('span')
       bar.className = 'insp-partner-bar'
       const fill = document.createElement('span')

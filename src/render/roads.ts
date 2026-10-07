@@ -31,7 +31,7 @@ import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { PIECE_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
+import { PIECE_SAMPLES, riverHalfWidth, tradeNetwork } from './routeCurves.ts'
 import { TOWN_MASK_GLSL, townMaskUniforms } from './dioramas/townMask.ts'
 import { createSurface, type Probe } from './dioramas/surface.ts'
 
@@ -93,7 +93,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const T = input.routes
   const water = (c: number) => isWaterCell(world, lake, c)
   const isRiver = (c: number) => flow[c] >= RIVER_FLOW_THRESHOLD && riverTo[c] >= 0 && !water(c)
-  const net = routeNetwork(world, T.pathOffsets, T.path, T.count)
+  // every way the routes followed (re-paths too): roads are worn on the cells of the way traffic took
+  const net = tradeNetwork(world, T)
   const HS = PIECE_SAMPLES
   /** The cells whose road level a piece shows: its link's, or on a link to the shore its land cell twice (the road down to the quay). */
   const roadCells = (h: number): [number, number] => {

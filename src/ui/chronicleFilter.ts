@@ -49,6 +49,7 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
     case EntryKind.TradeOpenings:
     case EntryKind.TradeClosings:
     case EntryKind.TradeDanger:
+    case EntryKind.Repaths:
     case EntryKind.Named:
     case EntryKind.Landfalls:
     case EntryKind.Goods:
