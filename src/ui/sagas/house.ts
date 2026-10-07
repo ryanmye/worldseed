@@ -6,7 +6,9 @@ import { AccessionHow, EventType, ReignEnd } from '../../contract.ts'
 import { Ctx, topBy } from './facts.ts'
 import { reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { list, num, plural, Voice, type PhraseTable } from './voice.ts'
-import type { Saga } from './types.ts'
+import { Book, type Saga } from './types.ts'
+import { OMEN_T, omenText, omensOfHouse } from './omens.ts'
+import { Refs } from './refs.ts'
 
 const T: PhraseTable = {
   title: [['The Chronicle of the House of {name}'], ['The Saga of the House of {name}']],
@@ -57,14 +59,15 @@ export function houseSaga(c: Ctx, d: number, legend: boolean): Saga {
   const h = c.h
   const rd = c.rd!
   const D = h.dynasties[d]
-  const v = new Voice(c.seed, `house:${d}`, legend, T)
+  const v = new Voice(c.seed, `house:${d}`, legend, T, OMEN_T)
   const Y = c.Y
   const reigns = (rd.houseReigns[d] ?? []).filter((r) => rd.rulers[r].acceded <= Y)
-  const paras: string[] = []
+  const book = new Book()
+  const refs = new Refs(c, book, { kind: 'house', id: d }, legend)
   const nm = (r: number) => (legend ? withEpithet(c.ruler(r), rulerEpithet(reignFacts(c, r))) : c.ruler(r))
   const f = D.founder
   const fx = rd.rulers[f]
-  paras.push(v.p('founder', { name: D.name, state: c.ptitle(fx.polity, fx.acceded), year: fx.acceded, ruler: nm(f), how: HOW[fx.how] ?? 'took the throne' }) + v.p('people', { people: c.peopleName(D.people) }))
+  book.add(refs.cite(v.p('founder', { name: D.name, state: c.ptitle(fx.polity, fx.acceded), year: fx.acceded, ruler: nm(f), how: HOW[fx.how] ?? 'took the throne' }), { kind: 'state', id: fx.polity }) + v.p('people', { people: c.peopleName(D.people) }))
 
   const p2: string[] = []
   const thrones = [...new Set(reigns.map((r) => rd.rulers[r].polity))]
@@ -83,16 +86,17 @@ export function houseSaga(c: Ctx, d: number, legend: boolean): Saga {
   }
   const un = c.type(EventType.UnionFormed).map((i) => c.ev(i)).find((e) => e.extra !== undefined && rd.rulers[e.extra]?.dynasty === d)
   if (un) p2.push(v.p('unions', { year: un.year }))
-  if (p2.length) paras.push(p2.join(' '))
+  if (p2.length) book.add(p2.join(' '))
+  for (const f of omensOfHouse(c, d)) book.omen(omenText(c, v, f))
 
   let closing = v.p('closing', { name: D.name })
   if (D.ended >= 0 && D.ended <= Y) {
     const last = reigns[reigns.length - 1]
-    paras.push(v.p('ended', { year: D.ended, ruler: c.ruler(last), end: END[rd.rulers[last].end] ?? 'died' }))
+    book.add(v.p('ended', { year: D.ended, ruler: c.ruler(last), end: END[rd.rulers[last].end] ?? 'died' }))
   } else {
     const now = reigns.filter((r) => !c.reignEndedBy(r)).pop()
-    if (now !== undefined) paras.push(v.p('reigning', { Y, ruler: `${nm(now)} of ${c.pname(rd.rulers[now].polity)}` }))
+    if (now !== undefined) book.add(v.p('reigning', { Y, ruler: `${nm(now)} of ${c.pname(rd.rulers[now].polity)}` }))
   }
   const facts = [`founded ${D.founded}`, plural(reigns.length, 'ruler'), D.ended >= 0 && D.ended <= Y ? `ended ${D.ended}` : `reigning in ${Y}`]
-  return { kind: 'house', id: d, year: Y, legend, title: v.p('title', { name: D.name }), epigraph: v.p('epigraph', { name: D.name, facts: list(facts) }), paragraphs: paras, closing }
+  return { kind: 'house', id: d, year: Y, legend, title: v.p('title', { name: D.name }), epigraph: v.p('epigraph', { name: D.name, facts: list(facts) }), ...book.parts(), closing }
 }

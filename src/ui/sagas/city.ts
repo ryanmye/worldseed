@@ -4,14 +4,17 @@
 // it stands at the year told. Every sentence comes from the records (events up to the year, the snapshots, the
 // landmark, renaming, faith and goods tables); a town where little happened gets a short notice instead.
 
-import { CITY_POPULATION, EventType, LandmarkRank, LandmarkState, landmarksAt, PostKind, RenameCause, StructureType, TOWN_POPULATION } from '../../contract.ts'
+import { CITY_POPULATION, EventType, LandmarkRank, LandmarkState, landmarksAt, OrderKind, PostKind, RenameCause, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { goodsOf } from '../goodsData.ts'
 import { speciesGloss } from '../format.ts'
 import { Ctx, farmingAt, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, cap, list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
-import type { Saga } from './types.ts'
+import { Book, type Saga } from './types.ts'
+import { OMEN_T, omenText, omensOfCity } from './omens.ts'
+import { Refs } from './refs.ts'
+import { foundingScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 
 const T: PhraseTable = {
   title: [['The Legend of {name}'], ['The Legend of {name}']],
@@ -209,6 +212,17 @@ const T: PhraseTable = {
   closingAlive: [['Here ends the legend of {name}, which still stands.', 'So stands {name} in the year {Y}.'], ['So ends the legend of {name}; may its gates long stand.', 'Thus far the legend of {name}; its tale is not yet done.']],
   closingRuin: [['Here ends the legend of {name}.', 'So ends the story of {name}.'], ['So ends the legend of {name}, and the wind keeps its stones.', 'Thus passed {name}, and only its name remains.']],
   epiAlive: [['{name}: {facts}.'], ['{name}{ep}: {facts}.']],
+  closingLittle: [['That is all the records hold of {name}.', 'No more is written of {name}.'], ['No more is sung of {name}.', 'That is all the songs say of {name}.']],
+  hFounding: [['Founding'], ['How It Began']],
+  hGrowth: [['Growth and Names'], ['Its Rising']],
+  hMasters: [['Masters and Wars'], ['Crowns and Sieges']],
+  hWorks: [['Great Works'], ['Halls and Towers']],
+  hSickness: [['Plague and Hunger'], ['Pestilence and Famine']],
+  hFame: [['Trade and Fame'], ['Its Renown']],
+  hRulers: [['Rulers and Faiths'], ['Thrones and Gods']],
+  hOmens: [['Signs and Portents'], ['Signs and Wonders']],
+  hNow: [['{name} in {Y}'], ['As It Stands']],
+  hRuin: [['The End of {name}'], ['The Last Fire']],
 }
 
 /** How a renaming came about, in a clause ("by its Kusubel conquerors"). */
@@ -241,20 +255,35 @@ const TIER_WORD = (pop: number) => (pop >= CITY_POPULATION ? 'city' : pop >= TOW
 export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const h = c.h
   const s = h.settlements[id]
-  const v = new Voice(c.seed, `city:${id}`, legend, T)
+  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T)
   const Y = c.Y
   const nowName = c.name(id, Y)
   const pn = c.peopleName(s.people)
   const ep = legend ? cityEpithet(c, id) : ''
   const titleName = ep ? `${nowName} ${ep}` : nowName
-  const paras: string[] = []
+  const book = new Book()
+  const refs = new Refs(c, book, { kind: 'city', id }, legend)
+  const scenes = pickScenes([
+    foundingScene(c, v, id),
+    ...topBy(c.at(id, [EventType.Sacked]), (i) => c.ev(i).value * c.pop(id, Math.max(0, c.ev(i).year - 1)), 1).map((i) => sackScene(c, v, i)),
+    ...topBy(c.at(id, [EventType.CityStricken]), (i) => (c.ev(i).extra ?? 0) + 0.001, 1).map((i) => plagueScene(c, v, i, legend)),
+    ...topBy(c.at(id, [EventType.LandmarkCompleted]), (i) => { const L = h.landmarks; return L ? L.completedYear[c.ev(i).value] - L.begunYear[c.ev(i).value] : 0 }, 1).map((i) => workScene(c, v, i)),
+  ], 2)
+  const omens = omensOfCity(c, id)
+  const placed = new Set<number>()
+  const section = (head: string, text: string, sceneKinds: readonly Scene['kind'][] = [], omenKinds: readonly number[] = []) => {
+    book.chapter(head ? v.p(head, { name: nowName, Y }) : null)
+    book.add(text)
+    for (const s of scenes) if (sceneKinds.includes(s.kind)) book.scene(s.title, s.text)
+    for (const f of omens) if (omenKinds.includes(f.o.kind) && !placed.has(f.k)) { placed.add(f.k); book.omen(omenText(c, v, f)) }
+  }
   const born = s.foundedYear
 
   // ---- founding and setting ----
   const p1: string[] = []
   const isFirst = s.parent < 0
-  if (isFirst) p1.push(v.p('firstHearth', { name: c.place(id, born), people: pn }))
-  else {
+  if (isFirst) p1.push(refs.cite(v.p('firstHearth', { name: c.place(id, born), people: pn }), { kind: 'people', id: s.people }))
+  else if (!scenes.some((x) => x.kind === 'founding')) {
     const fe = c.at(id, [EventType.Founded])[0]
     const group = fe !== undefined ? Math.round(c.ev(fe).value) : 0
     const parent = c.place(s.parent, born)
@@ -274,7 +303,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const set = settingOf(c, s.cell)
   if (set) {
     const water = set.coast ? (set.river ? 'where a river meets the sea, ' : 'by the sea, ') : set.river ? 'on a river, ' : set.lake ? 'on a lake shore, ' : ''
-    p1.push(v.p('setting', { where: set.where, water }))
+    if (!scenes.some((x) => x.kind === 'founding')) p1.push(v.p('setting', { where: set.where, water }))
   }
   const farm = farmingAt(c, s.cell, Math.min(Y, Math.max(born + 50, c.peak(id).year)))
   const sp = h.species
@@ -301,17 +330,20 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   if (little) {
     const what = farm.crop >= 0 && sp[farm.crop] ? `village of ${sp[farm.crop].name} growers` : set?.coast ? 'village by the sea' : 'village'
     const out = [v.p('littleVillage', { name: nowName, an: an(what).split(' ')[0], what }), ...p1]
-    paras.push(out.join(' '))
-    paras.push(presentLine(c, v, id, nowName))
+    out.push(presentLine(c, v, id, nowName))
+    book.add(out.join(' '))
+    for (const f of omens) book.omen(omenText(c, v, f))
     return {
       kind: 'city', id, year: Y, legend,
       title: v.p('title', { name: titleName }),
       epigraph: epigraph(c, v, id, nowName, ep, peak.pop),
-      paragraphs: paras,
-      closing: v.p(c.alive(id) ? 'closingAlive' : 'closingRuin', { name: nowName, Y }),
+      ...book.parts(),
+      closing: v.p(c.alive(id) ? 'closingLittle' : 'closingRuin', { name: nowName, Y }),
     }
   }
-  paras.push(p1.join(' '))
+  const fs = scenes.find((x) => x.kind === 'founding')
+  if (fs) { book.chapter(v.p('hFounding')); book.scene(fs.title, fs.text) }
+  section(fs ? '' : 'hFounding', p1.join(' '), [], [OrderKind.Settle])
 
   // ---- growth, daughters, names ----
   const p2: string[] = []
@@ -332,7 +364,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     const why = whyRenamed(c, k)
     p2.push(v.p('renamed', { year: R.year[k], new: R.name[k], why, why2: cap(why) + ',' }).replace(/, ,/g, ','))
   }
-  if (p2.length) paras.push(p2.join(' '))
+  section('hGrowth', p2.join(' '))
 
   // ---- who held it, whose seat it was, war ----
   const p3: string[] = []
@@ -355,7 +387,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
         const t0 = c.ptitle(p0.id, p0.foundedYear), tg = c.pgreatTitle(p0.id)
         const tier = tg.split(' of ')[0].toLowerCase()
         const grew = tg !== t0 ? v.p('grew', { an: an(tier).split(' ')[0], tier }) : ''
-        push3(v.p('seatFirst', { state: t0, year: p0.foundedYear, grew }), p0.foundedYear)
+        push3(refs.cite(v.p('seatFirst', { state: t0, year: p0.foundedYear, grew }), { kind: 'state', id: p0.id }), p0.foundedYear)
       } else push3(v.p('heldFirst', { state: c.ptitle(runs[0].p, runs[0].from), year: runs[0].from }), runs[0].from)
       const later: string[] = []
       for (const r of runs.slice(1)) {
@@ -371,7 +403,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
       const from = p.capitalYears[k]
       const toY = k + 1 < p.capitals.length ? p.capitalYears[k + 1] : p.endedYear
       const to = toY >= 0 && toY <= Y ? `to ${toY}` : 'onward'
-      push3(v.p('capital', { state: c.pgreatTitle(p.id), from, to }), from)
+      push3(refs.cite(v.p('capital', { state: c.pgreatTitle(p.id), from, to }), { kind: 'state', id: p.id }), from)
     }
   }
   const walls = c.at(id, [EventType.Built]).map((i) => c.ev(i)).find((e) => h.structures[e.other]?.type === StructureType.Walls)
@@ -392,7 +424,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   else if (sieges.length > 3) push3(v.p('siege', { times: times(sieges.length), n: `${num(sieges.length)} sieges`, years: `the years between ${sieges[0]} and ${sieges[sieges.length - 1]}` }), sieges[0])
   const revolts = c.at(id, [EventType.Revolt])
   if (revolts.length > 0) push3(v.p('revolts', { times: times(revolts.length), first: revolts.length > 1 ? `, first in ${c.ev(revolts[0]).year}` : `, in ${c.ev(revolts[0]).year}` }), c.ev(revolts[0]).year)
-  if (p3.length) paras.push(p3.map((t, i) => [t, p3y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '))
+  section('hMasters', p3.map((t, i) => [t, p3y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '), ['sack'], [OrderKind.War, OrderKind.Peace, OrderKind.Seat, OrderKind.Fortify])
 
   // ---- great buildings ----
   if (L && greats.length > 0) {
@@ -435,7 +467,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     let lesser = 0
     for (const x of landmarksAt(h, id, Y)) if (x.rank !== LandmarkRank.Great) lesser++
     if (lesser > 0) p4.push(v.p(greats.length === 1 ? 'lesserOne' : 'lesser', { n: lesser === 1 ? 'one lesser temple or shrine' : `${num(lesser)} lesser temples and shrines` }))
-    paras.push(p4.join(' '))
+    section('hWorks', p4.join(' '), ['work'])
   }
 
   // ---- sickness and hunger ----
@@ -460,7 +492,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     const worst = [...famines].sort((a, b) => b.value - a.value)[0]
     if (worst.value >= 0.05) p5.push(v.p('famine', { year: worst.year, share: shareWords(worst.value) }) + (famines.length > 1 ? cap(v.p('famines', { times: times(famines.length) }).trim()).replace(/^/, ' ') : ''))
   }
-  if (p5.length) paras.push(p5.join(' '))
+  section('hSickness', p5.join(' '), ['plague'], [OrderKind.Quarantine])
 
   // ---- trade and fame ----
   const p6: string[] = []
@@ -521,7 +553,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   if (smug !== undefined) p6.push(v.p('smugglers', { year: c.ev(smug).year }))
   const pir = c.at(id, [EventType.PiratesRise])[0]
   if (pir !== undefined) p6.push(v.p('pirates', { year: c.ev(pir).year }))
-  if (p6.length) paras.push(p6.join(' '))
+  section('hFame', p6.join(' '), [], [OrderKind.Explore, OrderKind.Crop, OrderKind.Idea])
 
   // ---- the rulers seated there, faiths founded ----
   const p7: string[] = []
@@ -541,14 +573,16 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     if (c.fd?.faiths[e.value]?.holyCity === id) continue // (said with the holy city)
     p7.push(cap(v.p('founderFaith', { faith: c.faith(e.value), year: e.year })))
   }
-  if (p7.length) paras.push(p7.join(' '))
+  section('hRulers', p7.join(' '), [], [OrderKind.Faith])
 
-  paras.push(presentLine(c, v, id, nowName))
+  const rest = omens.filter((f) => !placed.has(f.k))
+  if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
+  section(c.alive(id) ? 'hNow' : 'hRuin', presentLine(c, v, id, nowName))
   return {
     kind: 'city', id, year: Y, legend,
     title: v.p('title', { name: titleName }),
     epigraph: epigraph(c, v, id, nowName, ep, peak.pop),
-    paragraphs: paras,
+    ...book.parts(),
     closing: v.p(c.alive(id) ? 'closingAlive' : 'closingRuin', { name: nowName, Y }),
   }
 }

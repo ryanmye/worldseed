@@ -49,8 +49,8 @@ export const SCENE_T: PhraseTable = {
   plagueQuar: [['The port had held its ships in quarantine since {year}, to no avail.'], ['Since {year} the port had turned the ships away, and still it came.']],
   foundTitle: [['The Founding of {name}, {year}'], ['How {name} Was Founded']],
   foundA: [
-    ['In {year} {group} settlers set out from {parent}.', 'In {year} a band of {group} left {parent} to find new land.'],
-    ['In the year {year} {group} souls went out from {parent} to seek new fields.', 'In {year} {group} wanderers left the hearths of {parent}.'],
+    ['In {year} a party of {group} settlers set out from {parent}.', 'In {year} a band of {group} left {parent} to find new land.'],
+    ['In the year {year} a company of {group} souls went out from {parent} to seek new fields.', 'In {year} a band of {group} wanderers left the hearths of {parent}.'],
   ],
   foundB: [
     ['They stopped {at}, and built {name}.', 'They settled {at}, and called the place {name}.'],
@@ -59,8 +59,8 @@ export const SCENE_T: PhraseTable = {
   foundEmpty: [['No one had ever lived on that land before them.'], ['Before them no fire had burned on that land.']],
   landfallTitle: [['The First Landfall, {year}'], ['The Coming to the Empty Shore']],
   landfallA: [
-    ['In {year} {group} settlers from {from} crossed the sea to a land where no one lived.', 'In {year} a ship out of {from} brought {group} settlers to a land no one had ever lived on.'],
-    ['In {year} {group} souls out of {from} crossed the whale-road to a shore no foot had trodden.', 'In the year {year} the ships of {from} came to an empty shore with {group} aboard.'],
+    ['In {year} a party of {group} settlers from {from} crossed the sea to a land where no one lived.', 'In {year} a ship out of {from} brought {group} settlers to a land no one had ever lived on.'],
+    ['In {year} a company of {group} souls out of {from} crossed the whale-road to a shore no foot had trodden.', 'In the year {year} the ships of {from} came to an empty shore with {group} aboard.'],
   ],
   landfallB: [['There they founded {place}{land}.', 'They founded {place} there{land}.'], ['There they raised {place}{land}.', 'On that shore they raised {place}{land}.']],
   convTitle: [['The Conversion of {ruler}, {year}'], ['The Turning of {ruler}']],
