@@ -43,7 +43,7 @@ function growF32(a: Float32Array, need: number): Float32Array { if (need <= a.le
 /** Snapshot (with the trade snapshots, every tradeInterval years). */
 export function goodsSnapshot(s: HistoryState, g: GoodsState, ts: TradeState): void {
   const S = s.count
-  const D = g.dCount, T = g.tCount, L = g.legHist.count, K = g.sCount // (legs: History.longHaul's records, legHistory.ts)
+  const D = g.dCount, T = g.tCount, L = g.ext.legHist.count, K = g.sCount // (legs: History.longHaul's records, legHistory.ts)
   g.snapS.push(S); g.snapL.push(L); g.snapT.push(T); g.snapK.push(K)
   g.snapOffS.push(g.sUsed); g.snapOffL.push(g.lvUsed); g.snapOffT.push(g.tqUsed); g.snapOffK.push(g.gUsed)
   g.snapCount++

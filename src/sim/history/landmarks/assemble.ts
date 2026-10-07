@@ -149,7 +149,7 @@ function candidates(lm: LandmarksState, i: number, rng: Rng, T: string, R: strin
   const form = lm.lForm[i]
   switch (lm.lKind[i]) {
     case KD.Castle:
-      return lm.lSeat[i] === 1
+      return lm.lSeat0[i] === 1 // (as when begun: prefix-stable)
         ? [`the Keep of ${T}`, `the Citadel of ${T}`, `${T} Castle`, `the ${honour(R || H)} Keep`, `Castle ${fresh()}`]
         : [`the Fortress of ${T}`, `the ${T} Citadel`, `the Bastion of ${T}`, `Fort ${honour(R)}`]
     case KD.Palace:

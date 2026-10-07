@@ -286,7 +286,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   lm.lPol.push(p); lm.lRuler.push(ruler); lm.lDyn.push(dyn); lm.lFaith.push(isWorship(kind) ? faith : stateFaith(s, p)); lm.lPeople.push(builders)
   lm.lLang.push(rank === LandmarkRank.Great && p >= 0 && ps !== null ? langSeat(s, ps, p) : v); lm.lSubject.push(subject)
   lm.lState.push(ST.Building); lm.lSince.push(s.year); lm.lCur.push(isWorship(kind) ? faith : -1); lm.lRef.push(s.pop[v]); lm.lLow.push(-1)
-  lm.lDue.push(s.year + lm.rng.int(LANDMARK.buildMin[kind], LANDMARK.buildMax[kind])); lm.lSeat.push(seat); lm.lNext.push(-1)
+  lm.lDue.push(s.year + lm.rng.int(LANDMARK.buildMin[kind], LANDMARK.buildMax[kind])); lm.lSeat.push(seat); lm.lSeat0.push(seat); lm.lNext.push(-1)
   if (lm.tail[v] >= 0) lm.lNext[lm.tail[v]] = id
   else lm.head[v] = id
   lm.tail[v] = id

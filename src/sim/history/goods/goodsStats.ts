@@ -111,7 +111,7 @@ export function probeFn(pr: Probe, years: number): (s: HistoryState, t: TradeSta
       if (!t.trader[id]) continue
       pr.toolMul.push(g.toolMul[id])
       // (wealth a head: the town's and its merchant houses' capital, goods/merchants.ts; wphTown the town's alone)
-      const mc = id < g.merch.cap ? g.merch.mw[id] : 0
+      const mc = id < g.ext.merch.cap ? g.ext.merch.mw[id] : 0
       pr.relay.push(g.relaySm[id]); pr.wph.push((s.wealth[id] + mc) / s.pop[id]); pr.wphTown.push(s.wealth[id] / s.pop[id]); pr.through.push(s.through[id])
       for (const [m, c] of [[0, 7], [2, 10]]) {
         const off = (id * 4 + m) * 4

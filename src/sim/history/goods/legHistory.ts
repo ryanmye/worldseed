@@ -56,7 +56,7 @@ function mainClasses(g: GoodsState, k: number, base: Float64Array, bo: number): 
 
 /** Ends the current record of leg k (if it lasts) this year. */
 export function legRecordEnd(g: GoodsState, k: number, year: number): void {
-  const h = g.legHist
+  const h = g.ext.legHist
   const r = k < h.cur.length ? h.cur[k] : -1
   if (r < 0 || h.closed[r] >= 0) return
   h.closed[r] = year
@@ -70,7 +70,7 @@ export function legRecordEnd(g: GoodsState, k: number, year: number): void {
  * record lasts on the same way.
  */
 export function legRecordOpen(g: GoodsState, k: number, path: number[], year: number): void {
-  const h = g.legHist
+  const h = g.ext.legHist
   while (h.cur.length <= k) h.cur.push(-1)
   const r0 = h.cur[k]
   if (r0 >= 0 && h.closed[r0] < 0) {
@@ -95,13 +95,13 @@ export function legRecordOpen(g: GoodsState, k: number, path: number[], year: nu
 
 /** The record History shows for simulation leg k now (a lane's record never changes), -1 if none. */
 export function legRecord(g: GoodsState, k: number): number {
-  const h = g.legHist
+  const h = g.ext.legHist
   return k >= 0 && k < h.cur.length ? h.cur[k] : -1
 }
 
 /** Volume of each record this year (the leg's while the record lasts and the leg is open, else 0), written at `out[o..]`. */
 export function legRecordVolumes(g: GoodsState, out: Float32Array, o: number): void {
-  const h = g.legHist
+  const h = g.ext.legHist
   for (let r = 0; r < h.count; r++) {
     const k = h.leg[r]
     out[o + r] = h.closed[r] < 0 && g.legOpen[k] ? g.legVol[k] : 0
@@ -110,7 +110,7 @@ export function legRecordVolumes(g: GoodsState, out: Float32Array, o: number): v
 
 /** History.longHaul from the records (paths, a, b, kind and chart from their legs). */
 export function assembleLegRecords(g: GoodsState): LongHaul {
-  const h = g.legHist
+  const h = g.ext.legHist
   const L = h.count
   let total = 0
   for (let r = 0; r < L; r++) total += h.path[r].length

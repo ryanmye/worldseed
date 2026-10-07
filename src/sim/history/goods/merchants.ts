@@ -101,7 +101,7 @@ function grow(m: MerchantState, count: number): void {
 /** Long-haul merchant profit x made at settlement id: its merchants keep their share as capital; returns it (the town's income loses it). */
 export function merchantKeep(g: GoodsState, id: number, x: number): number {
   if (!(x > 0) || !MERCHANT.on) return 0
-  const m = g.merch
+  const m = g.ext.merch
   if (id >= m.cap) grow(m, id + 1)
   const k = MERCHANT.keep * x
   m.mw[id] += k
@@ -111,7 +111,7 @@ export function merchantKeep(g: GoodsState, id: number, x: number): number {
 /** Cargo worth `value` moved on a leg from mart a to mart b: the turnover of both ends' merchant houses. */
 export function merchantTurnover(g: GoodsState, a: number, b: number, value: number): void {
   if (!(value > 0) || !MERCHANT.on) return
-  const m = g.merch
+  const m = g.ext.merch
   const hi = a > b ? a : b
   if (hi >= m.cap) grow(m, hi + 1)
   const x = MERCHANT.turnover * value
@@ -122,7 +122,7 @@ export function merchantTurnover(g: GoodsState, a: number, b: number, value: num
 /** Goods a town pays for (luxuries, stimulants, finery) worth `value` at mart a's price sent on along a leg by its merchants. */
 export function merchantResale(g: GoodsState, a: number, value: number): void {
   if (!(value > 0) || !MERCHANT.on) return
-  const m = g.merch
+  const m = g.ext.merch
   if (a >= m.cap) grow(m, a + 1)
   m.resale[a] += value
 }
@@ -133,7 +133,7 @@ export function merchantResale(g: GoodsState, a: number, value: number): void {
  * charged to the town. Returns what the town pays; the year's resale is cleared.
  */
 export function merchantResaleNet(g: GoodsState, id: number, paid: number, share: number): number {
-  const m = g.merch
+  const m = g.ext.merch
   if (id >= m.cap) return paid
   const r = m.resale[id] * share * MERCHANT.resale
   m.resale[id] = 0
@@ -142,13 +142,13 @@ export function merchantResaleNet(g: GoodsState, id: number, paid: number, share
 
 /** Capital the merchants of id can put into a venture. */
 export function merchantFunds(g: GoodsState, id: number): number {
-  const m = g.merch
+  const m = g.ext.merch
   return id < m.cap ? m.mw[id] : 0
 }
 
 /** Pays `cost` for a venture of id: its merchants' capital first, then the town's wealth. */
 export function merchantPay(s: HistoryState, g: GoodsState, id: number, cost: number): void {
-  const m = g.merch
+  const m = g.ext.merch
   const have = id < m.cap ? m.mw[id] : 0
   if (have >= cost) { m.mw[id] = have - cost; return }
   if (have > 0) m.mw[id] = 0
@@ -157,7 +157,7 @@ export function merchantPay(s: HistoryState, g: GoodsState, id: number, cost: nu
 
 /** A mart bypassed by lane k (routes.ts relayYear): its merchants will follow the trade to the lane's ends. */
 export function merchantsBypassed(g: GoodsState, id: number, k: number): void {
-  const m = g.merch
+  const m = g.ext.merch
   if (id >= m.cap) grow(m, id + 1)
   m.toA[id] = g.legA[k] !== id ? g.legA[k] : -1
   m.toB[id] = g.legB[k] !== id ? g.legB[k] : -1
@@ -165,7 +165,7 @@ export function merchantsBypassed(g: GoodsState, id: number, k: number): void {
 
 /** Yearly (goods system, after relay income): pay, wear, flight of bypassed marts' merchants, capital of the abandoned. */
 export function merchantYear(s: HistoryState, g: GoodsState): void {
-  const m = g.merch
+  const m = g.ext.merch
   grow(m, s.count)
   const mw = m.mw
   const X = MERCHANT
@@ -237,7 +237,7 @@ let BEST = new Int32Array(0)
 
 /** After the trade system's settle (trade.ts): merchant capital a head raises the town's economy. */
 export function merchantEcon(s: HistoryState, g: GoodsState): void {
-  const m = g.merch
+  const m = g.ext.merch
   const mw = m.mw
   const X = MERCHANT
   const living = s.living
@@ -254,7 +254,7 @@ export function merchantEcon(s: HistoryState, g: GoodsState): void {
 
 /** Snapshot (with the population snapshots). */
 export function merchantSnapshot(s: HistoryState, g: GoodsState): void {
-  const m = g.merch
+  const m = g.ext.merch
   const n = s.count
   if (m.snap.length < m.used + n) { let k = m.snap.length; while (k < m.used + n) k *= 2; const b = new Float32Array(k); b.set(m.snap); m.snap = b }
   for (let id = 0; id < n; id++) m.snap[m.used + id] = id < m.cap && s.abandoned[id] < 0 ? m.mw[id] : 0
@@ -265,7 +265,7 @@ export function merchantSnapshot(s: HistoryState, g: GoodsState): void {
 
 /** History.merchantWealth: snapshots 0..Q-1 padded to S settlements (same layout as History.wealth). */
 export function assembleMerchants(g: GoodsState, Q: number, S: number): Float32Array {
-  const m = g.merch
+  const m = g.ext.merch
   const out = new Float32Array(Q * S)
   for (let q = 0; q < Q; q++) out.set(m.snap.subarray(m.snapOff[q], m.snapOff[q] + m.snapN[q]), q * S)
   return out
