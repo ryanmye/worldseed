@@ -671,6 +671,8 @@ export interface GroundSample {
   h: number
   /** Signed elevation, linearly interpolated (the shader's coast contour field). */
   e: number
+  /** The drawn coast: e plus the shader's coastline noise, > 0 where the land is drawn, <= 0 over the sea. */
+  land: number
   /** Detail amplitude times wildness (what the per-pixel octaves are scaled by). */
   aw: number
   /** The detail displacement included in h (elevation units). */
@@ -690,7 +692,7 @@ export interface GroundSample {
 }
 
 export function newGroundSample(): GroundSample {
-  return { h: 0, e: 0, aw: 0, d: 0, ridge: 0, snow: 0, gx: 0, gy: 0, gz: 0, ux: 0, uy: 1, uz: 0 }
+  return { h: 0, e: 0, land: 0, aw: 0, d: 0, ridge: 0, snow: 0, gx: 0, gy: 0, gz: 0, ux: 0, uy: 1, uz: 0 }
 }
 
 /** Distance (object space) from p to segment ab, both on the unit sphere (chordal, locally planar). */
@@ -769,6 +771,7 @@ export function evalGround(f: TerrainField, a: number, b: number, c: number, la:
     const r = 1 + RELIEF_NEAR * Math.max(0, base)
     ec += fbm(ux * r + 17, uy * r + 17, uz * r + 17, f.cellFreq * 0.6, 5) * coastAmp
   }
+  out.land = ec
   const land = smooth(0, 0.035, ec)
   base *= land
   // smoothed gradient of the base (shading): interpolated corner gradients
