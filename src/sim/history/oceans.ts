@@ -42,8 +42,15 @@ export function oceanGaps(s: HistoryState): Float32Array {
   const T = s.terrain
   let gap = GAPS.get(T)
   if (gap) return gap
+  gap = oceanGapsOf(T, s.world.grid)
+  GAPS.set(T, gap)
+  return gap
+}
+
+/** The gaps of a terrain on its grid (oceanGaps, uncached). */
+export function oceanGapsOf(T: Terrain, grid: { neighborOffsets: Uint32Array | Int32Array; neighbors: Uint32Array | Int32Array }): Float32Array {
   const N = T.cellCount
-  const { neighborOffsets: off, neighbors: nb } = s.world.grid
+  const off = grid.neighborOffsets, nb = grid.neighbors
   const d = new Int32Array(N).fill(-1)
   const q = new Int32Array(N)
   let n = 0
@@ -52,10 +59,41 @@ export function oceanGaps(s: HistoryState): Float32Array {
     const c = q[h]
     for (let k = off[c]; k < off[c + 1]; k++) { const j = nb[k]; if (d[j] < 0) { d[j] = d[c] + 1; q[n++] = j } }
   }
-  gap = new Float32Array(N)
+  const gap = new Float32Array(N)
   for (let i = 0; i < N; i++) gap[i] = d[i] > 0 ? d[i] * T.cellScale : 0
-  GAPS.set(T, gap)
   return gap
+}
+
+/**
+ * The widest gap on the best way by sea (or over other lands) from landmass a to landmass b: the least, over all ways, of
+ * the largest gap crossed (tests and harnesses: two lands are joined within reach r when this is at most r). Infinity if none.
+ */
+export function oceanBottleneck(T: Terrain, gap: Float32Array, grid: { neighborOffsets: Uint32Array | Int32Array; neighbors: Uint32Array | Int32Array }, a: number, b: number): number {
+  const N = T.cellCount
+  const off = grid.neighborOffsets, nb = grid.neighbors
+  // Thresholds in increasing order: the distinct gap values; flood fill from a within each.
+  const all = Array.from(gap).sort((x, y) => x - y)
+  const levels: number[] = []
+  for (const g of all) if (levels.length === 0 || g > levels[levels.length - 1]) levels.push(g)
+  const seen = new Uint8Array(N)
+  const st: number[] = []
+  for (let i = 0; i < N; i++) if (T.landmass[i] === a) { seen[i] = 1; st.push(i) }
+  const parked: number[] = [] // (cells over the current level, met at the edge)
+  for (const lv of levels) {
+    for (let i = parked.length - 1; i >= 0; i--) if (gap[parked[i]] <= lv) { st.push(parked[i]); parked.splice(i, 1) }
+    while (st.length) {
+      const c = st.pop() as number
+      if (T.landmass[c] === b) return lv
+      for (let k = off[c]; k < off[c + 1]; k++) {
+        const j = nb[k]
+        if (seen[j]) continue
+        seen[j] = 1
+        if (gap[j] <= lv) st.push(j)
+        else parked.push(j)
+      }
+    }
+  }
+  return Infinity
 }
 
 const KEEL = IDEA_INDEX.get('keel') ?? -1, COMPASS = IDEA_INDEX.get('compass') ?? -1, NAVIGATION = IDEA_INDEX.get('navigation') ?? -1

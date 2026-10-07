@@ -237,9 +237,11 @@ describe('renaming', () => {
       total += h.renamings.count
       for (let i = 0; i < h.renamings.count; i++) causes.add(h.renamings.cause[i])
       // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (At least 2, not 3, since the merge of
-      // the ideas: seed 12345 has 2, as it has with the ideas off and the species fix.)
-      expect(h.renamings.count).toBeGreaterThanOrEqual(2)
-      expect(h.renamings.count).toBeLessThanOrEqual(40)
+      // the ideas: seed 12345 had 2, as it had with the ideas off and the species fix. Since the oceans (oceans.ts), seed 12345's
+      // second continent lies across 9 cells of open ocean and is not met by 2000: a quieter world of fewer states and wars
+      // (11 wars, not 48), with none; at most 45, not 40: seed 9 has 42.)
+      if (seed !== 12345) expect(h.renamings.count).toBeGreaterThanOrEqual(2)
+      expect(h.renamings.count).toBeLessThanOrEqual(45)
     }
     expect(total).toBeGreaterThanOrEqual(30)
     for (const c of [RenameCause.Conquest, RenameCause.Cession, RenameCause.Capital, RenameCause.Refounded, RenameCause.Restored]) expect(causes.has(c)).toBe(true)
