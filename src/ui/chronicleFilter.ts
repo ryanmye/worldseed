@@ -4,6 +4,7 @@ import type { History, HistoryEvent } from '../contract.ts'
 import { EntryKind } from './historyIndex.ts'
 import { isWallEvent } from './polityFormat.ts'
 import { isFaithEvent, isRulersEvent } from './rulersData.ts'
+import { isOrderEvent, orderEventIsPolitics } from './nudgeFormat.ts'
 
 /** Filter labels; index 0 shows everything, the others one category each. */
 export const CHRONICLE_FILTERS: readonly string[] = ['All', 'Politics and war', 'Settlement', 'Trade and exploration', 'Nature and crops', 'Sickness', 'Travel']
@@ -68,6 +69,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t >= 100 && t <= 105) return TRAVEL
   // renaming (110): a place renamed by conquest, cession, a new capital, a faith, trade or restoration
   if (t === 110) return POLITICS
+  // orders (170-173): the player's nudges, by kind (a state's or a town's, a people's)
+  if (isOrderEvent(t)) return orderEventIsPolitics(h, first) ? POLITICS : TRADE
   // claims (130): border disputes between states
   if (t === 130) return POLITICS
   // landmarks (140-146): great buildings are the settlements' (a house of worship rededicated, the faiths')

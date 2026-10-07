@@ -22,6 +22,7 @@ import { describeTradeDangerGroup } from './tradeDangerFormat.ts'
 import { describeRepathGroup, repathTarget } from './tradeRepath.ts'
 
 import { describeIdeasGroup, ideasHiddenInChronicle, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
+import { isOrderEvent, isOrderHeadline } from './nudgeFormat.ts'
 
 const ROWS = 40
 
@@ -382,6 +383,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     // ideas: an idea first conceived anywhere, an idea's first arrival in a world cut off from it (a network's together); independent origins and losses notable
     else if ((kind === EntryKind.Single && isIdeasHeadline(h, h.events[ev])) || (kind === EntryKind.Ideas && m > 1 && isIdeasGroupHeadline(h, [...ix.notableMembers.subarray(lo, lo + m)].map((i) => h.events[i])))) r.li.className = `ev-${ek} notable headline`
     else if (kind === EntryKind.Single && isIdeasNotable(h.events[ev])) r.li.className = `ev-${ek} notable`
+    // orders: a nudge fulfilled is a headline, the others notable
+    else if (kind === EntryKind.Single && isOrderEvent(h.events[ev].type as number)) r.li.className = `ev-${ek} notable${isOrderHeadline(h.events[ev]) ? ' headline' : ''}`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`
