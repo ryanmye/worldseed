@@ -234,6 +234,8 @@ export const EventType = {
   OrderFulfilled: 171, // order `value` came to pass at `settlement`; `other` a related settlement (an expedition's sender, a war's defender's capital...) or -1; `extra` the OrderOutcome.product
   OrderFailed: 172, // order `value` failed: `settlement` the actor's seat (or -1); `other` -1; `extra` the OrderReason
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
+  // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
+  CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -535,6 +537,53 @@ export interface History {
   orders?: Order[]
   /** What became of each order: orderOutcomes[k] is for orders[k]. */
   orderOutcomes?: OrderOutcome[]
+  // cradle wishes: (absent when HistoryOptions.cradles holds no wish for any people, i.e. undefined, [], or only -1 there).
+  /** Per people: the cell the player wished it to begin on (HistoryOptions.cradles[p], when a whole number >= 0), or -1. */
+  cradleWish?: Int32Array
+  /** Per people: the cell it actually began on (the cell of its first settlement, settlements[peoples[p].founder].cell, also without wishes). */
+  cradleCell?: Int32Array
+  /** Per people: the CradleOutcome. */
+  cradlePlaced?: Uint8Array
+  /** Per people: 1 when another wished people began within sight of it (kept, but noted), else 0. */
+  cradleCrowded?: Uint8Array
+}
+
+/**
+ * cradle wishes: what became of a people's wished start cell (History.cradlePlaced, the `extra` of EventType.CradlePlaced).
+ * The rule: a wished cell must be land a founding tribe can live on (not sea, ice, bare rock or dry waste: the simulation's own
+ * test for tribe sites) and not already taken by an earlier wish; else the nearest such cell within 3 hops of it (at the default
+ * grid, scaled with the grid; over land or sea) is used; else the wish is rejected and the simulation chooses.
+ */
+export const CradleOutcome = {
+  Chosen: 0, // no wish: the simulation chose (it may have moved this people off a wished one)
+  Placed: 1, // begun on the wished cell
+  Moved: 2, // the wished cell was unlivable (or taken): begun on the nearest livable land
+  Rejected: 3, // no livable land near the wish (or a cell outside the world): the simulation chose
+} as const
+export type CradleOutcome = (typeof CradleOutcome)[keyof typeof CradleOutcome]
+
+/** The wishes of HistoryOptions.cradles as text: cell ids (or -1) joined by `;` (e.g. `12345;-1;9981`); decodeCradles reverses it. */
+export function encodeCradles(cells: readonly number[]): string {
+  return cells.map((c) => (Number.isInteger(c) && c >= 0 ? String(c) : '-1')).join(';')
+}
+
+/** Parses encodeCradles text; an item that is not a whole number >= 0 reads as -1 (the position is kept). Empty text: []. */
+export function decodeCradles(text: string): number[] {
+  const t = text.trim()
+  if (t === '') return []
+  return t.split(';').map((x) => {
+    const v = x.trim()
+    return /^\d{1,10}$/.test(v) && Number(v) <= 0x7fffffff ? Number(v) : -1
+  })
+}
+
+/** The canonical form of a wish list (for cache keys and URLs): anything but a whole number >= 0 as -1, trailing -1s dropped ([] when there is no wish). Gives the same History as the list itself. */
+export function canonicalCradles(cells: readonly number[]): number[] {
+  const out = decodeCradles(encodeCradles(cells))
+  let n = out.length
+  while (n > 0 && out[n - 1] < 0) n--
+  out.length = n
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -1407,7 +1456,23 @@ export interface HistoryOptions {
    * nothing before its year. encodeOrders / decodeOrders give a compact URL-safe text form.
    */
   orders?: Order[]
+  /**
+   * cradle wishes: the player plants where civilisations start, part of the input like the seed. cradles[p] is the cell people p
+   * is wished to begin on, -1 to let the simulation choose; entries beyond the world's people count (cradleCount) are ignored, and
+   * missing ones are -1. The number of peoples never changes. A wish is placed, moved to nearby livable land or rejected
+   * (CradleOutcome); the peoples the simulation places keep away from the wished ones. Everything after year 0 follows the rules.
+   * Default none: undefined, [] or only -1 give exactly the history without wishes (History.cradleWish etc. absent).
+   * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
+   */
+  cradles?: number[]
 }
+
+/**
+ * cradle wishes: the number of peoples a world gets (History.peoples.length of any history of it, whatever the options): it depends
+ * only on the world. Exported by src/sim/index.ts as `cradleCount` (it builds the world's terrain: a fraction of a second), with
+ * `previewCradles(world, cradles)`, which tells, without simulating, what the History will record for those wishes.
+ */
+export type CradleCount = (world: World) => number
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
 export type SimulateHistory = (world: World, options?: HistoryOptions) => History
