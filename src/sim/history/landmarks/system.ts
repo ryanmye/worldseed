@@ -56,6 +56,9 @@
 // given up; once the heir is reviveYears old and has max(revivePop, reviveShare of the old town's peak) people, each ruin is
 // restored with chance revive per scan (a great one if the heir has none of its kind, a temple if it has fewer than templeMax;
 // shrines stay ruins) and becomes the heir's (History.landmarks.changeSettlement), rededicated to the heir's majority faith.
+// Likewise a town rebuilt after the sack that ruined a landmark (refounded, often under a new name) restores the ruin
+// reviveYears after the sack once it has max(revivePop, reviveShare of its old peak) people (revive per scan), without the
+// wealth an ordinary restoration needs.
 // Building traditions (LandmarkForm): each faith's is fixed when it first appears, from its founding settlement's lands
 // (traditionOf: mountains, hot dry lands, cold lands, rainforest, savanna, cool and warm temperate forest, grassland) and a draw
 // from 'landmarks-faith-<id>' (a universal faith draws no ziggurat or stone circle: those are the folk traditions'; a schism keeps
@@ -258,6 +261,7 @@ function change(s: HistoryState, lm: LandmarksState, id: number, state: number, 
   lm.lState[id] = state
   lm.lSince[id] = s.year
   if (state === ST.Unfinished && lm.lRank[id] === LandmarkRank.Great) lm.has[lm.lSett[id]] &= ~(1 << lm.lKind[id])
+  if (state === ST.Restored) lm.lSack[id] = -1
 }
 
 /**
@@ -278,7 +282,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   if (ruler < 0) ruler = rulerOf(s, p)
   const R = s.rul
   const dyn = ruler >= 0 && R !== null ? R.rDyn[ruler] : -1
-  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lHome.push(v); lm.lSight.push(0); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
+  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lHome.push(v); lm.lSight.push(0); lm.lSack.push(-1); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
   lm.lPol.push(p); lm.lRuler.push(ruler); lm.lDyn.push(dyn); lm.lFaith.push(isWorship(kind) ? faith : stateFaith(s, p)); lm.lPeople.push(builders)
   lm.lLang.push(rank === LandmarkRank.Great && p >= 0 && ps !== null ? langSeat(s, ps, p) : v); lm.lSubject.push(subject)
   lm.lState.push(ST.Building); lm.lSince.push(s.year); lm.lCur.push(isWorship(kind) ? faith : -1); lm.lRef.push(s.pop[v]); lm.lLow.push(-1)
@@ -346,7 +350,7 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
           lm.diag.sackRolls++
           const k = lm.lKind[id]
           const chance = lm.lRank[id] === LandmarkRank.Lesser ? X.sackLesser : k === KD.Castle ? X.sackCastle : X.sackGreat
-          if (rng.next() < chance) change(s, lm, id, ST.Ruined, -1, by, e.other)
+          if (rng.next() < chance) { change(s, lm, id, ST.Ruined, -1, by, e.other); lm.lSack[id] = year }
         }
         lm.warYear[v] = year
         break
@@ -646,6 +650,19 @@ function scan(s: HistoryState, lm: LandmarksState): void {
         if (worship) lm.lCur[id] = f
         lm.lLow[id] = -1
         if (lm.lSeat[id] === 1) lm.lastCap[v] = year
+        change(s, lm, id, ST.Restored, f, p, capitalOf(s, p))
+        continue
+      }
+    } else if (st === ST.Ruined && lm.lSack[id] >= 0 && X.revive > 0 && kind !== KD.Shrine && year - lm.lSack[id] >= X.reviveYears && pop >= X.revivePop && pop >= X.reviveShare * lm.lRef[id]) {
+      // A town rebuilt after the sack that ruined it (refounded, often under a new name) restores the ruin once it has grown
+      // back enough (Revival: the same rule as an heir's), a seat only as a lord's hall unless it is a capital again.
+      if (rng.next() < X.revive) {
+        const f = worship ? (m >= 0 ? m : lm.lCur[id]) : -1
+        if (worship) lm.lCur[id] = f
+        lm.lLow[id] = -1
+        lm.lRef[id] = pop
+        if (lm.lSeat[id] === 1) { if (cap) lm.lastCap[v] = year; else lm.lSeat[id] = 0 }
+        lm.diag.revived++
         change(s, lm, id, ST.Restored, f, p, capitalOf(s, p))
         continue
       }
