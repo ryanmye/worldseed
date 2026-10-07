@@ -25,6 +25,7 @@ import * as THREE from 'three'
 import { PLANET_RADIUS } from './globe.ts'
 import { SUN_DIRECTION, sunUniforms } from './sun.ts'
 import { flat } from './mapProjection.ts'
+import { WARM } from './sunRamps.ts'
 
 /** The sun's angular radius (radians): the real sun's, seen from about one astronomical unit. */
 const SUN_RADIUS = 0.0046
@@ -170,8 +171,9 @@ export function buildSunDisc(): SunDisc {
       const m = Math.acos(Math.max(-1, Math.min(1, SUN_DIRECTION.dot(toCentre)))) - alpha
       const px = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / Math.max(1, drawHeightPx)
       // low down, the sun near the horizon looks larger (and its glow wider; the reddening is the shader's)
-      const sinE = SUN_DIRECTION.dot(camPos) / d
-      const big = 1 + 0.7 * (1 - uniforms.uSpace.value) * (1 - THREE.MathUtils.smoothstep(sinE, 0, 0.2))
+      // (as the sky's sunset warmth: sunRamps.ts)
+      const elev = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, SUN_DIRECTION.dot(camPos) / d))))
+      const big = 1 + 0.7 * (1 - uniforms.uSpace.value) * (1 - THREE.MathUtils.smoothstep(elev, WARM[0], WARM[1]))
       const rs = Math.max(SUN_RADIUS * big, 2.2 * px)
       uniforms.uDisc.value.set(rs, px)
       uniforms.uVis.value = THREE.MathUtils.smoothstep(m, -rs, rs)

@@ -398,9 +398,10 @@ const CLOUD_FRAG = /* glsl */ `
       // the sun behind thin cloud: a bright, silvery edge
       dayC += vec3(0.6, 0.56, 0.48) * pow(max(cosT, 0.0), 10.0) * (1.0 - thick);
       vec3 warmC = mix(vec3(0.3, 0.3, 0.44), mix(vec3(0.95, 0.4, 0.36), vec3(1.0, 0.48, 0.14), smoothstep(0.7, 1.0, tw)), smoothstep(0.15, 0.8, tw)) * mix(1.0, 0.75, thick);
-      float warm = pow(1.0 - smoothstep(0.0, 0.26, sunH), 1.6);
+      float E = sunElevDeg(sunH);
+      float warm = rampWarm(E) * rampDusk(E);
       // still lit from below a little after sunset (the cloud is higher than the town), then dark
-      float lit = smoothstep(-0.14, 0.03, sunH);
+      float lit = rampLamps(E);
       vec3 sky = citySkyColor(rd, up, L);
       vec3 under = mix(sky * 0.55, mix(dayC, warmC, warm), lit);
       under = mix(under, citySkyHorizon(rd, up, L), 0.5 * exp(-max(e, 0.0) / 0.035));

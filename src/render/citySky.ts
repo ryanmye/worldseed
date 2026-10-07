@@ -20,6 +20,7 @@
 import * as THREE from 'three'
 import { PLANET_RADIUS } from './globe.ts'
 import { SUN_DIRECTION, sunUniforms } from './sun.ts'
+import { DUSK, LAMPS, SUN_RAMPS_GLSL } from './sunRamps.ts'
 
 /**
  * citySkyColor(rd, up, sun): linear sky colour (display-referred) along unit view direction rd.
@@ -27,6 +28,12 @@ import { SUN_DIRECTION, sunUniforms } from './sun.ts'
  * citySkyLight(up, sun): the overall sky brightness, 0 at night .. 1 by day.
  */
 export const CITY_SKY_GLSL = /* glsl */ `
+${SUN_RAMPS_GLSL}
+float citySkyLight(vec3 up, vec3 sun) {
+  // the twilight sky (a third as bright) from just below the horizon, full day once the lamps go out
+  float E = sunElevDeg(dot(up, sun));
+  return rampDusk(E) * mix(0.3, 1.0, rampLamps(E));
+}
 vec3 citySkyColor(vec3 rd, vec3 up, vec3 sun) {
   float sunH = dot(up, sun);
   float e = clamp(dot(rd, up), 0.0, 1.0);
@@ -36,12 +43,11 @@ vec3 citySkyColor(vec3 rd, vec3 up, vec3 sun) {
   float az = dot(rh, sh) * inversesqrt(max(dot(rh, rh) * dot(sh, sh), 1e-8));
   float tw = 0.5 + 0.5 * az;
   float cosT = dot(rd, sun);
-  // ramps on the sun's height
-  float day = smoothstep(-0.05, 0.22, sunH);          // full day above ~13 deg
-  float warm = pow(1.0 - smoothstep(0.0, 0.26, sunH), 1.6); // sunset colours below ~15 deg
-  warm *= smoothstep(-0.32, -0.06, sunH);             // gone by deep twilight
-  float lit = smoothstep(-0.22, 0.08, sunH);          // sky light at all (twilight down to ~-13 deg)
-  lit *= lit;
+  // ramps on the sun's elevation (degrees; the town's light uses the same, sunRamps.ts)
+  float E = sunElevDeg(sunH);
+  float day = rampDay(E);                             // blue: full day above 12 deg
+  float warm = rampWarm(E) * rampDusk(E);             // sunset colours below 16 deg, gone by deep twilight
+  float lit = citySkyLight(up, sun);                  // sky light at all
   // day: deep blue at the zenith, paler toward the horizon
   vec3 zen = vec3(0.035, 0.12, 0.42);
   vec3 hor = vec3(0.3, 0.45, 0.66);
@@ -59,10 +65,10 @@ vec3 citySkyColor(vec3 rd, vec3 up, vec3 sun) {
   // brightening around the sun (forward scattering): white by day, golden low down
   float ct = max(cosT, 0.0);
   float fwd = mix(0.12 * pow(ct, 6.0), 0.24 * pow(ct, 48.0) + 0.1 * pow(ct, 5.0), warm);
-  col += mix(vec3(0.9, 0.85, 0.75), vec3(1.0, 0.45, 0.12), warm) * fwd * smoothstep(-0.12, 0.02, sunH);
+  col += mix(vec3(0.9, 0.85, 0.75), vec3(1.0, 0.45, 0.12), warm) * fwd * rampDusk(E);
   col *= lit;
   // night: the app's dark, and a faint glow low where the sun went down
-  float glow = smoothstep(-0.42, -0.04, sunH) * (1.0 - lit) * pow(tw, 4.0) * exp(-e / 0.06);
+  float glow = smoothstep(-24.0, -2.0, E) * (1.0 - lit) * pow(tw, 4.0) * exp(-e / 0.06);
   col += vec3(0.11, 0.045, 0.03) * glow;
   return max(col, vec3(0.0003, 0.0006, 0.0015));
 }
@@ -71,10 +77,6 @@ vec3 citySkyHorizon(vec3 rd, vec3 up, vec3 sun) {
   float l = length(rh);
   vec3 dir = l > 1e-5 ? normalize(rh / l + up * 0.03) : up;
   return citySkyColor(dir, up, sun);
-}
-float citySkyLight(vec3 up, vec3 sun) {
-  float l = smoothstep(-0.22, 0.08, dot(up, sun));
-  return l * l;
 }
 `
 
@@ -157,8 +159,9 @@ export function buildCitySky(): CitySky {
       // daylight everywhere: the sun overhead
       const sun = sunUniforms.uDaylight.value > 0.5 ? up.copy(camPos).normalize() : SUN_DIRECTION
       const sunH = sun.dot(up.copy(camPos).divideScalar(Math.max(d, 1e-6)))
-      // the stars come out in deep twilight (and stay in space)
-      stars = 1 - low * (1 - smooth(-sunH, 0.06, 0.2))
+      // the stars come out once the lamps are lit, all of them by deep twilight (and stay in space)
+      const elev = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, sunH))))
+      stars = 1 - low * smooth(elev, DUSK[0], LAMPS[0])
       mesh.visible = low > 0.001
       if (!mesh.visible) return
       uniforms.uSun.value.copy(sun)

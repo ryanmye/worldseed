@@ -1,7 +1,8 @@
 // The town's light in the city view, from the sun's elevation over the town (degrees): the
 // colour and strength of the direct sun, the colour of the sky's ambient light, and how
 // much of the day there is (0 at night: windows and street lamps on). Evaluated on the CPU
-// once per sun change (layer.ts), written to four uniforms (material.ts uCity*).
+// once per sun change (layer.ts), written to four uniforms (material.ts uCity*). The elevation
+// thresholds are shared with the city sky (sunRamps.ts).
 //
 //  - Sun: white-yellow and full above ~15 degrees; below, it warms toward orange and
 //    weakens (the light crosses more air), and fades out just below the horizon.
@@ -12,6 +13,7 @@
 
 import * as THREE from 'three'
 import { SUN_COLOR } from '../sun.ts'
+import { DAY, DUSK, LAMPS, WARM, WARM_POW } from '../sunRamps.ts'
 
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
@@ -44,12 +46,12 @@ export function newTownLight(): TownLight {
 export function townLight(elevDeg: number, out: TownLight): TownLight {
   const e = elevDeg
   // warming: none above 15 degrees, nearly all of it at the horizon
-  const warm = Math.pow(1 - smooth(0, 16, e), 1.4)
+  const warm = Math.pow(1 - smooth(WARM[0], WARM[1], e), WARM_POW)
   out.sunHigh.copy(SUN_COLOR).lerp(tmp.copy(SUN_LOW).multiplyScalar(SUN_COLOR.r), warm).multiplyScalar(1 - 0.45 * warm)
   out.sun.copy(out.sunHigh).multiplyScalar(smooth(-1.2, 2.5, e))
   // sky: night -> dusk -> day
-  out.sky.copy(SKY_NIGHT).lerp(SKY_DUSK, smooth(-12, -1, e)).lerp(SKY_DAY, smooth(1, 12, e))
-  out.day = smooth(-4, 3, e)
+  out.sky.copy(SKY_NIGHT).lerp(SKY_DUSK, smooth(DUSK[0], DUSK[1], e)).lerp(SKY_DAY, smooth(DAY[0], DAY[1], e))
+  out.day = smooth(LAMPS[0], LAMPS[1], e)
   return out
 }
 
