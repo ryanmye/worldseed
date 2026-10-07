@@ -15,8 +15,18 @@
 // the shorter one on the main thread. Requests are handled one at a time (one simulation
 // at once); the main thread sends at most one extension at a time and drops responses
 // whose requestId is stale (a new seed).
+//
+// Orders (the player's nudges, HistoryOptions.orders): a generate request may carry them in its
+// historyOptions, and an `orders` request re-simulates the kept world with a new list. Either way the
+// list is canonicalised (decodeOrders(encodeOrders(...)), dropped when empty, so [] and undefined
+// give the same run and the same cache key) and is part of the cache key (cacheKeys serialises the
+// history options). The resumable run keeps the orders it was created with, so new orders start a new
+// createHistoryRun from year 0 (the run before the earliest order is the same, but a run cannot be
+// forked, so it is simulated again: a full run, about 3 s for 2000 years). A newer orders or generate
+// request makes a queued orders request moot (it is skipped).
 
-import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, World, WorldOptions } from './contract.ts'
+import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, Order, World, WorldOptions } from './contract.ts'
+import { decodeOrders, encodeOrders } from './contract.ts'
 import * as sim from './sim/index.ts'
 import { buffersOf, cacheKeys, hashValue, openHistoryCache, snapshot, type CacheKeys } from './historyCache.ts'
 
@@ -48,12 +58,19 @@ export type WorkerRequest =
       /** Run at full speed even in a hidden tab (the run the page was opened for). */
       full?: boolean
     }
+  | {
+      /** Simulate the kept world again with these orders (the player's nudges), `years` long; answered with a `replace` history under the new requestId. */
+      type: 'orders'
+      requestId: number
+      orders: Order[]
+      years: number
+    }
   /** The page was hidden or shown: background extensions run at a reduced duty cycle while hidden. */
   | { type: 'throttle'; hidden: boolean }
 
 export type WorkerResponse =
   | { type: 'world'; requestId: number; world: World }
-  | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean; cached?: boolean }
+  | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean; cached?: boolean; /** A run with different orders of the world shown (an `orders` request). */ replace?: boolean }
   | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend'; message: string }
   /** Progress of a run in chunks (resumable runs only, see `simulate`): `years` simulated so far of `target`. */
   | { type: 'progress'; requestId: number; years: number; target: number }
@@ -108,7 +125,7 @@ async function simulate(k: Kept, years: number | undefined, requestId: number, b
   }
 }
 
-async function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean, background = false) {
+async function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean, background = false, replace = false) {
   const t0 = performance.now()
   const history = await simulate(k, years, requestId, background)
   const ms = performance.now() - t0
@@ -147,7 +164,7 @@ async function simulateAndPost(requestId: number, k: Kept, years: number | undef
   // ideas: the adoptions table (its typed columns, fresh per run)
   if (partial.ideaAdoptions) for (const v of Object.values(partial.ideaAdoptions)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
-  post({ type: 'history', requestId, history, ms, extend }, [...transfer])
+  post({ type: 'history', requestId, history, ms, extend, replace: replace || undefined }, [...transfer])
   if (stored && k.keys) void cacheWrite(k.keys.history(stored.years), k.keys.group, stored.years, stored)
 }
 
@@ -171,8 +188,24 @@ function cacheWrite(key: string, group: string, years: number, value: unknown) {
   })
 }
 
+/** History options with the orders canonical (decodeOrders(encodeOrders(...))) and dropped when there are none. */
+function canonicalOptions(o: HistoryOptions | undefined): HistoryOptions | undefined {
+  if (!o || o.orders === undefined) return o
+  const { orders, ...rest } = o
+  const canon = decodeOrders(encodeOrders(orders))
+  const out: HistoryOptions = canon.length > 0 ? { ...rest, orders: canon } : rest
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** The seed and world options of the kept world (for the cache keys of an orders request). */
+let keptSeed: { seed: number; options?: WorldOptions } | null = null
+/** The latest request id seen: a queued orders request older than it is skipped. */
+let latestRequestId = 0
+
 async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
-  const { requestId, seed, options, historyOptions } = req
+  const { requestId, seed, options } = req
+  const historyOptions = canonicalOptions(req.historyOptions)
+  keptSeed = { seed, options }
   const cache = await cacheReady
   const keys = cache ? cacheKeys(cache.version, seed, options, historyOptions) : null
   const target = historyOptions?.years ?? 2000
@@ -219,6 +252,33 @@ async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
   }
 }
 
+/** Re-simulate the kept world with new orders (a new resumable run from year 0), `years` long, from the cache when it has that run. */
+async function reorder(req: Extract<WorkerRequest, { type: 'orders' }>) {
+  if (req.requestId !== latestRequestId) return // superseded while queued
+  if (!kept || !keptSeed) {
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: 'no world to re-simulate' })
+    return
+  }
+  const base = { ...(kept.historyOptions ?? {}) }
+  delete base.orders
+  const historyOptions = canonicalOptions({ ...base, orders: req.orders })
+  const cache = await cacheReady
+  const keys = cache ? cacheKeys(cache.version, keptSeed.seed, keptSeed.options, historyOptions) : null
+  kept = { requestId: req.requestId, world: kept.world, historyOptions, run: null, keys }
+  try {
+    const t0 = performance.now()
+    const hit = keys ? await cache!.getHistory<History>(keys, req.years) : null
+    if (hit && hit.years === req.years) {
+      console.info(`cache: ${hit.years}-year history with ${historyOptions?.orders?.length ?? 0} orders read in ${(performance.now() - t0).toFixed(0)} ms`)
+      post({ type: 'history', requestId: req.requestId, history: hit.value, ms: performance.now() - t0, extend: false, cached: true, replace: true }, buffersOf(hit.value))
+      return
+    }
+    await simulateAndPost(req.requestId, kept, req.years, false, false, true)
+  } catch (err) {
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: errorMessage(err) })
+  }
+}
+
 async function extend(req: Extract<WorkerRequest, { type: 'extend' }>) {
   const { requestId, years } = req
   if (!kept || kept.requestId !== requestId) return // superseded by a newer world
@@ -234,5 +294,8 @@ let queue: Promise<void> = Promise.resolve()
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const req = ev.data
   if (req.type === 'throttle') hidden = req.hidden
-  else queue = queue.then(() => (req.type === 'extend' ? extend(req) : generate(req)))
+  else {
+    if (req.type !== 'extend') latestRequestId = req.requestId
+    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : generate(req)))
+  }
 }
