@@ -227,6 +227,13 @@ export const EventType = {
   // goods: merchant capital (160-169).
   MerchantsMoved: 160, // the merchant houses of the bypassed mart `settlement` began to leave for the ends of the lane that took its trade (`other` one of them, -1 if both are gone); `value` their capital then
   TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
+  // orders: the player's nudges (HistoryOptions.orders; 170-179; none without orders). In each, `value` is the order's index in
+  // History.orders and `extra` as noted; `settlement` is where the story is told (the people's largest town, the polity's capital,
+  // the town itself, or where the order came to pass).
+  OrderGiven: 170, // order `value` was given: `settlement` the actor's seat; `other` the target settlement (or -1); `extra` the OrderKind
+  OrderFulfilled: 171, // order `value` came to pass at `settlement`; `other` a related settlement (an expedition's sender, a war's defender's capital...) or -1; `extra` the OrderOutcome.product
+  OrderFailed: 172, // order `value` failed: `settlement` the actor's seat (or -1); `other` -1; `extra` the OrderReason
+  OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -523,6 +530,11 @@ export interface History {
   // landmarks: great buildings (castles, palaces, temples, ...) and the lesser houses of worship, raised as a consequence of history
   // (empty when HistoryOptions.landmarks is false). Never removed: a landmark outlives its town's fortunes in its states.
   landmarks: Landmarks
+  // orders: (absent when HistoryOptions.orders is undefined or empty).
+  /** The orders as given (HistoryOptions.orders, a copy, in the given order). */
+  orders?: Order[]
+  /** What became of each order: orderOutcomes[k] is for orders[k]. */
+  orderOutcomes?: OrderOutcome[]
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,6 +1400,13 @@ export interface HistoryOptions {
    * on or off, every other field is the same (events aside, which gain the landmark events 140-146).
    */
   landmarks?: boolean
+  /**
+   * orders: the player's nudges, part of the simulation's input like the seed (see Order). Each raises a drive, a weight or a chance
+   * for a while from its year; the systems' own rules decide, and an order can fail. Default none: undefined or [] gives exactly the
+   * history without orders (History.orders and orderOutcomes absent). Applied in year order (ties in list order); an order changes
+   * nothing before its year. encodeOrders / decodeOrders give a compact URL-safe text form.
+   */
+  orders?: Order[]
 }
 
 /** Signature of the history entry point exported by src/sim/index.ts. Must be deterministic in (world, options) and must not mutate `world`. Years are capped at 32767. */
@@ -1797,4 +1816,248 @@ export function landmarkNameAt(h: Pick<History, 'landmarks' | 'settlements' | 'r
   const t = L.nameTemplate ? L.nameTemplate[id] : undefined
   if (!t || t.indexOf('{town}') < 0) return L.name[id]
   return t.split('{town}').join(settlementNameAt(h, landmarkTownAt(h, id, year), year))
+}
+
+// ---------------------------------------------------------------------------
+// orders: the player's nudges (HistoryOptions.orders). Light steering that obeys the rules: an order raises the relevant drive,
+// weight or chance for a while (OrderKindInfo.years) and the systems decide; it can fail. Not a game: no goals, no score.
+
+/** What an order asks. The actor and target of each are in describeOrderKinds(). */
+export const OrderKind = {
+  Explore: 0, // a people (actor) is urged to explore toward a cell (target): its towns send expeditions sooner, aimed that way
+  Settle: 1, // a people is urged to settle toward a cell: its settlers prefer sites that way
+  Crop: 2, // a people is urged to take up a species (target: History.species id) from neighbours, its own towns or the wild
+  Idea: 3, // a people is urged to seek an idea (target: History.ideas id): it learns it faster from those it has met, or conceives it sooner
+  War: 4, // a polity (actor) is urged to make war on a neighbouring polity (target)
+  Peace: 5, // a polity is urged to make peace in its war with another polity (target)
+  Seat: 6, // a polity is urged to move its capital to one of its towns (target: settlement id)
+  Faith: 7, // a polity's ruler is urged to take up a universal faith (target: History.faiths id)
+  Fortify: 8, // a town (actor: settlement id) is urged to raise walls
+  Quarantine: 9, // a port (actor: settlement id) is urged to hold incoming ships in quarantine
+} as const
+export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind]
+export const ORDER_KIND_COUNT = 10
+
+/** One nudge. `year` >= 1 (earlier years act at year 1); `target` per kind (describeOrderKinds), absent or -1 when the kind takes none. */
+export interface Order {
+  year: number
+  kind: OrderKind
+  actor: number
+  target?: number
+}
+
+/** What an actor or a target is. */
+export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7 } as const
+export type OrderRole = (typeof OrderRole)[keyof typeof OrderRole]
+
+/** What became of an order. */
+export const OrderStatus = {
+  Pending: 0, // its year is after the end of the run
+  Active: 1, // given, still in force at the end of the run
+  Fulfilled: 2,
+  Partly: 3, // ran out of time with something done toward it (an expedition sent that way that did not reach the target)
+  Failed: 4, // impossible when given, or made impossible (its actor or target gone)
+  Expired: 5, // ran out of time with nothing done: the rules never let it happen
+} as const
+export type OrderStatus = (typeof OrderStatus)[keyof typeof OrderStatus]
+
+/** Why an order came out as it did (OrderOutcome.reason; the `extra` of OrderFailed and OrderLapsed). */
+export const OrderReason = {
+  None: 0,
+  NoActor: 1, // no such people, polity or town alive at the order's year
+  NoTarget: 2, // no such target, or not one this kind takes (a farming technique for Idea, a traditional faith for Faith, the polity itself)
+  SystemOff: 3, // the system it needs is switched off (polities, ideas, religion, disease)
+  AlreadyDone: 4, // already so: the cell known, the species or idea held, at war, the capital, the ruler's faith, walls up, in quarantine
+  ActorGone: 5, // the actor died out or ended while the order was in force
+  TargetGone: 6, // the target ended (the other polity, the town)
+  Unknown: 7, // Settle: the people does not know the land that way (its settlers go only where it knows)
+  Unfit: 8, // Crop: the species grows at none of the people's settlements; Settle: the target is sea
+  NoSource: 9, // Crop: nobody it knows, nor the wild near its fields, has the species; Idea: no holder met and it cannot conceive it
+  Prerequisite: 10, // Idea: an idea it rests on is not held
+  NoBorder: 11, // War: no common frontier between the two
+  Truce: 12, // War: a truce holds, or the two are vassal and overlord
+  TooWeak: 13, // War: never strong enough at the front to dare it; Fortify, Seat: too small a town
+  NotAtWar: 14, // Peace: the two are not at war
+  NotMember: 15, // Seat: the town is not in the realm
+  Refused: 16, // the ruler, the council or the faithful would not (Seat, Faith, a resisted idea)
+  NotPort: 17, // Quarantine: the town has no port, or is not in a polity
+  Unskilled: 18, // Quarantine: its people lacks the idea of quarantine or the craft
+  Absent: 19, // Faith: too few of the realm follow it for the ruler to turn
+  Reached: 20, // Explore: an expedition reached the target (Fulfilled), or set out that way (Partly)
+  NoExpedition: 21, // Explore: no town of the people was able to send one (too poor, too hungry, nothing unknown near)
+  Done: 22, // fulfilled by the systems' own rules
+  Busy: 23, // War: already at as many wars as it can fight
+} as const
+export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
+
+/**
+ * The outcome of History.orders[k] (orderOutcomes[k]). `product` per kind: Explore the journey id (History.journeys) of the expedition
+ * that reached the target (or the last one sent that way); Settle the new settlement; Crop the settlement that took the species up;
+ * Idea the settlement where it came in; War and Peace the war id (History.wars); Seat the new capital; Faith the ruler id
+ * (History.rulers, -1 without rulers); Fortify the structure id of the walls; Quarantine the port. -1 when nothing was produced.
+ */
+export interface OrderOutcome {
+  status: OrderStatus
+  reason: OrderReason
+  /** The year it was resolved (fulfilled, failed, lapsed), -1 while pending or active. */
+  year: number
+  /** The first year something was done toward it (an expedition sent that way...), -1 if never. */
+  acted: number
+  product: number
+  /** Where it came to pass (or the actor's seat when it failed or lapsed), a settlement id or -1. */
+  place: number
+}
+
+export interface OrderKindInfo {
+  kind: OrderKind
+  /** Short key used in the text encoding ("explore", "war", ...). */
+  key: string
+  /** Human label, such as "Explore toward". */
+  label: string
+  actor: OrderRole
+  target: OrderRole
+  /** Years the nudge stays in force. */
+  years: number
+  /** What it does, in a sentence (for the UI). */
+  effect: string
+}
+
+const ORDER_KINDS: readonly OrderKindInfo[] = [
+  { kind: OrderKind.Explore, key: 'explore', label: 'Explore toward', actor: OrderRole.People, target: OrderRole.Cell, years: 40, effect: 'Its towns fit out expeditions sooner and aim them toward the place, if they can afford it and reach it.' },
+  { kind: OrderKind.Settle, key: 'settle', label: 'Settle toward', actor: OrderRole.People, target: OrderRole.Cell, years: 50, effect: 'Its settlers prefer sites toward the place, through land the people knows.' },
+  { kind: OrderKind.Crop, key: 'crop', label: 'Take up a crop or herd', actor: OrderRole.People, target: OrderRole.Species, years: 50, effect: 'Its towns take the species up readily from whoever has it, where it grows.' },
+  { kind: OrderKind.Idea, key: 'idea', label: 'Seek an idea', actor: OrderRole.People, target: OrderRole.Idea, years: 50, effect: 'It learns the idea faster from the peoples it has met, or conceives it sooner where it could.' },
+  { kind: OrderKind.War, key: 'war', label: 'Make war on', actor: OrderRole.Polity, target: OrderRole.Polity, years: 25, effect: 'Rivalry rises and the ruler is eager: war comes if the realm is strong enough at the border.' },
+  { kind: OrderKind.Peace, key: 'peace', label: 'Make peace with', actor: OrderRole.Polity, target: OrderRole.Polity, years: 15, effect: 'Envoys seek terms: the war ends sooner.' },
+  { kind: OrderKind.Seat, key: 'seat', label: 'Move the capital to', actor: OrderRole.Polity, target: OrderRole.Settlement, years: 20, effect: 'The court may move to a large town of the realm, if the ruler agrees.' },
+  { kind: OrderKind.Faith, key: 'faith', label: 'Take up a faith', actor: OrderRole.Polity, target: OrderRole.Faith, years: 40, effect: 'The ruler leans toward a universal faith already followed in the realm.' },
+  { kind: OrderKind.Fortify, key: 'fortify', label: 'Fortify', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The town raises walls even without danger, if it has the people.' },
+  { kind: OrderKind.Quarantine, key: 'quarantine', label: 'Quarantine', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The port holds incoming ships in quarantine, if its people knows how and can pay.' },
+]
+
+/** The order kinds with their labels, the roles of actor and target, and how long each stays in force (a fresh copy). */
+export function describeOrderKinds(): OrderKindInfo[] {
+  return ORDER_KINDS.map((x) => ({ ...x }))
+}
+
+/** Orders sorted by year (ties keep their list order): the order the simulation applies them in. A new array of the same objects. */
+export function sortOrders(orders: readonly Order[]): Order[] {
+  const idx = orders.map((_, i) => i)
+  idx.sort((a, b) => (orders[a].year - orders[b].year) || (a - b))
+  return idx.map((i) => orders[i])
+}
+
+/**
+ * Compact URL-safe text of an order list: `year:key:actor[:target]` joined by `;` (e.g. `1500:explore:3:12345;1600:war:7:9`),
+ * keys from describeOrderKinds(). The same list (as given, not sorted) always gives the same text; decodeOrders reverses it.
+ */
+export function encodeOrders(orders: readonly Order[]): string {
+  return orders.map((o) => {
+    const k = ORDER_KINDS[o.kind]
+    const head = `${Math.floor(o.year)}:${k ? k.key : String(o.kind)}:${Math.floor(o.actor)}`
+    return o.target !== undefined && o.target >= 0 ? `${head}:${Math.floor(o.target)}` : head
+  }).join(';')
+}
+
+/** Parses encodeOrders text; items that do not parse (unknown kind, not whole numbers, a missing target) are skipped. */
+export function decodeOrders(text: string): Order[] {
+  const out: Order[] = []
+  const int = /^-?\d+$/
+  for (const item of text.split(';')) {
+    const f = item.trim().split(':')
+    if (f.length < 3 || f.length > 4 || !int.test(f[0]) || !int.test(f[2]) || (f.length === 4 && !int.test(f[3]))) continue
+    const key = f[1].toLowerCase()
+    const info = ORDER_KINDS.find((k) => k.key === key)
+    if (!info) continue
+    const o: Order = { year: Number(f[0]), kind: info.kind, actor: Number(f[2]) }
+    if (f.length === 4 && info.target !== OrderRole.None) o.target = Number(f[3])
+    if (info.target !== OrderRole.None && (o.target === undefined || o.target < 0)) continue
+    out.push(o)
+  }
+  return out
+}
+
+/**
+ * A cheap check, from a History (one without the order, or with it: they agree before its year), whether `order` could act if
+ * given at `year` (judged, as the simulation does, on the world at the end of the year before): OrderReason.None when it might (it may still fail), else why not (the UI greys it out). Checks that the actor and the
+ * target exist and live then, and the plain facts (cell already known, species or idea already held, prerequisites, at war or not,
+ * town in the realm, a port, a universal faith); not the drives the systems weigh.
+ */
+export function orderFeasible(h: History, order: Order, year: number): OrderReason {
+  const info = ORDER_KINDS[order.kind]
+  if (!info) return OrderReason.NoTarget
+  const y = (year < 1 ? 1 : year) - 1 // (an order given at a year acts on the world as it stood at the end of the year before)
+  const N = h.capacity.length
+  const S = h.settlements.length
+  const alive = (id: number): boolean => id >= 0 && id < S && h.settlements[id].foundedYear <= y && (h.settlements[id].abandonedYear < 0 || h.settlements[id].abandonedYear > y)
+  const peopleAlive = (p: number): boolean => { for (const x of h.settlements) if (x.people === p && !x.outpost && alive(x.id)) return true; return false }
+  const polAlive = (p: number): boolean => p >= 0 && p < h.polities.length && h.polities[p].foundedYear <= y && (h.polities[p].endedYear < 0 || h.polities[p].endedYear > y)
+  const capitalAt = (p: number): number => { const P = h.polities[p]; let c = -1; for (let k = 0; k < P.capitals.length && P.capitalYears[k] <= y; k++) c = P.capitals[k]; return c }
+  const atWar = (p: number, q: number): boolean => {
+    const W = h.wars
+    for (let w = 0; w < W.count; w++) if (((W.attacker[w] === p && W.defender[w] === q) || (W.attacker[w] === q && W.defender[w] === p)) && W.startYear[w] <= y && (W.endYear[w] < 0 || W.endYear[w] >= y)) return true
+    return false
+  }
+  const t = order.target ?? -1
+  const a = order.actor
+  switch (order.kind) {
+    case OrderKind.Explore: case OrderKind.Settle: {
+      if (a < 0 || a >= h.peoples.length || !peopleAlive(a)) return OrderReason.NoActor
+      if (t < 0 || t >= N) return OrderReason.NoTarget
+      const k = h.knownYear[a * N + t]
+      if (order.kind === OrderKind.Explore) return k >= 0 && k <= y ? OrderReason.AlreadyDone : OrderReason.None
+      if (!(h.capacity[t] > 0)) return OrderReason.Unfit
+      return k >= 0 && k <= y ? OrderReason.None : OrderReason.Unknown
+    }
+    case OrderKind.Crop: {
+      if (a < 0 || a >= h.peoples.length || !peopleAlive(a)) return OrderReason.NoActor
+      if (t < 0 || t >= h.species.length) return OrderReason.NoTarget
+      const k = h.speciesYear[a * h.species.length + t]
+      return k >= 0 && k <= y ? OrderReason.AlreadyDone : OrderReason.None
+    }
+    case OrderKind.Idea: {
+      if (h.ideas.length === 0) return OrderReason.SystemOff
+      if (a < 0 || a >= h.peoples.length || !peopleAlive(a)) return OrderReason.NoActor
+      if (t < 0 || t >= h.ideas.length || h.ideas[t].technique >= 0) return OrderReason.NoTarget
+      const held = ideasHeldAt(h, a, y)
+      if (held.indexOf(t) >= 0) return OrderReason.AlreadyDone
+      for (const q of h.ideas[t].prerequisites) if (held.indexOf(q) < 0) return OrderReason.Prerequisite
+      return OrderReason.None
+    }
+    case OrderKind.War: case OrderKind.Peace: case OrderKind.Seat: case OrderKind.Faith: {
+      if (h.polities.length === 0) return OrderReason.SystemOff
+      if (!polAlive(a)) return OrderReason.NoActor
+      if (order.kind === OrderKind.Seat) {
+        if (!alive(t)) return OrderReason.NoTarget
+        if (capitalAt(a) === t) return OrderReason.AlreadyDone
+        const q = Math.min(h.snapshotCount - 1, Math.floor(y / h.snapshotInterval))
+        return h.polity[q * S + t] === a ? OrderReason.None : OrderReason.NotMember
+      }
+      if (order.kind === OrderKind.Faith) {
+        if (h.faiths.length === 0) return OrderReason.SystemOff
+        if (t < 0 || t >= h.faiths.length || h.faiths[t].kind !== FaithKind.Universal || h.faiths[t].foundedYear > y) return OrderReason.NoTarget
+        return OrderReason.None
+      }
+      if (t === a || !polAlive(t)) return OrderReason.NoTarget
+      const w = atWar(a, t)
+      if (order.kind === OrderKind.War) return w ? OrderReason.AlreadyDone : OrderReason.None
+      return w ? OrderReason.None : OrderReason.NotAtWar
+    }
+    case OrderKind.Fortify: case OrderKind.Quarantine: {
+      if (!alive(a) || h.settlements[a].outpost) return OrderReason.NoActor
+      if (h.polities.length === 0) return OrderReason.SystemOff
+      if (order.kind === OrderKind.Fortify) {
+        for (const x of h.structures) if (x.type === StructureType.Walls && x.settlement === a && x.builtYear <= y && (x.lostYear < 0 || x.lostYear > y)) return OrderReason.AlreadyDone
+        return OrderReason.None
+      }
+      if (h.diseases.length === 0) return OrderReason.SystemOff
+      let port = false
+      for (const x of h.structures) if (x.type === StructureType.Port && x.settlement === a && x.builtYear <= y && (x.lostYear < 0 || x.lostYear > y)) port = true
+      if (!port) return OrderReason.NotPort
+      const Q = h.quarantines
+      for (let i = 0; i < Q.settlement.length; i++) if (Q.settlement[i] === a && Q.from[i] <= y && (Q.to[i] < 0 || Q.to[i] > y)) return OrderReason.AlreadyDone
+      return OrderReason.None
+    }
+  }
+  return OrderReason.NoTarget
 }
