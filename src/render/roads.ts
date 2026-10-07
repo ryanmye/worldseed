@@ -3,12 +3,13 @@
 // Roads: History.road holds a road level per cell per land snapshot. Drawn naively
 // (every road cell joined to every road neighbour) roads form blobs around busy towns,
 // so the road network is the land part of the bundled trade network (routeCurves.ts):
-// only cell-to-cell links that some route travels, each drawn once along the same curve
-// the land trade line and the merchants follow, so a road and its traffic never run
-// side by side. Where the network runs along a river its nodes sit on one bank, so a
-// road up a valley is drawn beside the river rather than over it, and crosses only where
-// it changes banks. Geometry is static; a link's level is the lower road level of its two
-// cells, read from a small texture holding the road rows of the two land snapshots
+// only cell-to-cell links that some route travels, each land piece drawn once along the
+// same curve the land trade line and the merchants follow, so a road and its traffic never
+// run side by side; a port's road runs on down to the waterline where its ships leave.
+// Where the network runs along a river its nodes sit on one bank, so a road up a valley is
+// drawn beside the river rather than over it, and crosses only where it changes banks.
+// Geometry is static; a link's level is the lower road level of its two cells (a port's
+// link to the sea: its land cell's), read from a small texture holding the road rows of the two land snapshots
 // bracketing the year (rewritten only when that pair changes) and interpolated in the
 // vertex shader, so roads appear, widen and fade with traffic as a pure function of the
 // year. Packed-earth ribbons, sun-lit, over the rivers; faint at globe zoom (where the
@@ -30,7 +31,7 @@ import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { HALF_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
+import { PIECE_SAMPLES, riverHalfWidth, routeNetwork } from './routeCurves.ts'
 import { TOWN_MASK_GLSL, townMaskUniforms } from './dioramas/townMask.ts'
 import { createSurface, type Probe } from './dioramas/surface.ts'
 
@@ -93,22 +94,28 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const water = (c: number) => isWaterCell(world, lake, c)
   const isRiver = (c: number) => flow[c] >= RIVER_FLOW_THRESHOLD && riverTo[c] >= 0 && !water(c)
   const net = routeNetwork(world, T.pathOffsets, T.path, T.count)
-  const HS = HALF_SAMPLES
-  const degree = (n: number) => net.nodeLinkOffsets[n + 1] - net.nodeLinkOffsets[n]
+  const HS = PIECE_SAMPLES
+  /** The cells whose road level a piece shows: its link's, or on a link to the shore its land cell twice (the road down to the quay). */
+  const roadCells = (h: number): [number, number] => {
+    const l = net.pieceLink[h]
+    const a = net.linkA[l], b = net.linkB[l]
+    if (!net.linkSea[l]) return [a, b]
+    const c = net.pieceEnd[h] ? b : a
+    return [c, c]
+  }
 
-  // ---------- road pieces: the land halves of the network ----------
+  // ---------- road pieces: the land pieces of the network ----------
   let pieceCount = 0
   let extCount = 0
-  for (let l = 0; l < net.linkCount; l++) {
-    if (net.linkSea[l]) continue
-    pieceCount += 2
-    if (degree(net.linkNodeA[l]) !== 2) extCount++
-    if (degree(net.linkNodeB[l]) !== 2) extCount++
+  for (let h = 0; h < net.pieceCount; h++) {
+    if (net.pieceSea[h]) continue
+    pieceCount++
+    if (net.pieceOpen[h]) extCount++
   }
   const V = (pieceCount * HS + extCount) * 2
   const pos = new Float32Array(V * 3)
   const side = new Float32Array(V * 4) // side xyz, across
-  const cells = new Float32Array(V * 4) // link end cells, position along the half, 0
+  const cells = new Float32Array(V * 4) // the cells whose road it shows, position along the piece, 0
   const index = new Uint32Array((pieceCount * (HS - 1) + extCount) * 6)
   let nv = 0
   let ni = 0
@@ -136,18 +143,15 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
       nv++
     }
   }
-  const { halfDir: hd, halfRadius: hr, halfSide: hsd } = net
-  for (let l = 0; l < net.linkCount; l++) {
-    if (net.linkSea[l]) continue
-    const a = net.linkA[l], b = net.linkB[l]
-    for (let e = 0; e < 2; e++) {
-      const h = 2 * l + e
-      const node = e === 0 ? net.linkNodeA[l] : net.linkNodeB[l]
+  const { pieceDir: hd, pieceRadius: hr, pieceSide: hsd } = net
+  for (let h = 0; h < net.pieceCount; h++) {
+    if (net.pieceSea[h]) continue
+    const [a, b] = roadCells(h)
+    {
       const i0 = h * HS
       const base = nv
-      // at a junction or a road's end, reach a little past the node so the pieces close up
-      const ext = degree(node) !== 2
-      if (ext) {
+      // at a road's end, reach a little past the node so the pieces ending there close up
+      if (net.pieceOpen[h]) {
         const dx = hd[i0 * 3] - hd[i0 * 3 + 3], dy = hd[i0 * 3 + 1] - hd[i0 * 3 + 4], dz = hd[i0 * 3 + 2] - hd[i0 * 3 + 5]
         const k = JUNCTION_REACH / (Math.hypot(dx, dy, dz) || 1)
         put(hd[i0 * 3] + dx * k, hd[i0 * 3 + 1] + dy * k, hd[i0 * 3 + 2] + dz * k, hr[i0], hsd[i0 * 3], hsd[i0 * 3 + 1], hsd[i0 * 3 + 2], a, b, 0)
@@ -229,16 +233,16 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
   const bridgeCells: number[] = []
   const e1 = new THREE.Vector3(), e2 = new THREE.Vector3(), up3 = new THREE.Vector3(), hit = new THREE.Vector3(), dir = new THREE.Vector3()
   const road2 = new Float64Array(HS * 2)
-  for (let l = 0; l < net.linkCount; l++) {
-    if (net.linkSea[l]) continue
+  for (let h = 0; h < net.pieceCount; h++) {
+    if (net.pieceSea[h]) continue
+    const l = net.pieceLink[h]
     const a = net.linkA[l], b = net.linkB[l]
     const cand = [...pieces(a), ...pieces(b)]
     if (cand.length === 0) continue
-    for (let e = 0; e < 2; e++) {
-      const h = 2 * l + e
-      const node = e === 0 ? net.linkNodeA[l] : net.linkNodeB[l]
+    {
+      const node = net.pieceNode[h]
       const i0 = h * HS
-      // a local plane at the half's node
+      // a local plane at the piece's node
       up3.set(hd[i0 * 3], hd[i0 * 3 + 1], hd[i0 * 3 + 2])
       e1.set(hd[i0 * 3 + 3 * (HS - 1)] - up3.x, hd[i0 * 3 + 3 * (HS - 1) + 1] - up3.y, hd[i0 * 3 + 3 * (HS - 1) + 2] - up3.z)
       e1.addScaledVector(up3, -e1.dot(up3)).normalize()
@@ -354,7 +358,7 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     vertexShader: /* glsl */ `
       ${RELIEF_GLSL}
       attribute vec4 aSide;
-      attribute vec4 aCells; // the link's two cells, position along the half, unused
+      attribute vec4 aCells; // the cells whose road it shows, position along the piece, unused
       uniform float uPixel;
       uniform float uPixelRatio;
       uniform float uLift;

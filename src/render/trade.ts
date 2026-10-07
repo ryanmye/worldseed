@@ -1,9 +1,10 @@
 // Trade: the route network and the merchants travelling it.
 //
 //  - Flow lines: routes are bundled into the shared network of routeCurves.ts (every
-//    distinct cell-to-cell link once, on one smooth curve), and each link is drawn once
-//    with brightness and width from the summed volume of all the routes using it, so a
-//    shared corridor reads as one line that thickens with its traffic rather than a braid.
+//    distinct cell-to-cell link once, its curves made of pieces shared by the routes with
+//    the same cells around them), and each piece is drawn once with brightness and width
+//    from the summed volume of all the routes using its link, so a shared corridor reads
+//    as one line that thickens with its traffic rather than a braid.
 //    Per frame nothing is uploaded: a float texture holds each link's summed volume at the
 //    two trade snapshots bracketing the year, each node's largest link volume (a thin
 //    branch swells into the trunk it joins, so junctions are smooth), and the road level
@@ -37,11 +38,11 @@
 
 import * as THREE from 'three'
 import { GOOD_COUNT, type TradeRoutes, type World } from '../contract.ts'
-import { SUN_DIRECTION } from './globe.ts'
+import { isWaterCell, lakeArray, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
-import { HALF_SAMPLES, networkRouteSamples, routeNetwork } from './routeCurves.ts'
+import { networkRouteSamples, PIECE_SAMPLES, routeNetwork, segmentWater, SHORE } from './routeCurves.ts'
 
 /**
  * Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury,
@@ -262,42 +263,42 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   routeTex.generateMipmaps = false
   routeTex.needsUpdate = true
 
-  // ---------- flow lines: every half link once ----------
-  const HS = HALF_SAMPLES
-  const halves = 2 * L
-  const V = halves * HS * 2
+  // ---------- flow lines: every piece once ----------
+  const HS = PIECE_SAMPLES
+  const pieces = net.pieceCount
+  const V = pieces * HS * 2
   const vPos = new Float32Array(V * 3)
   const vSide = new Float32Array(V * 4)
   const vLink = new Float32Array(V * 4)
   const vArc = new Float32Array(V)
-  for (let h = 0; h < halves; h++) {
-    const l = h >> 1
-    const node = h & 1 ? net.linkNodeB[l] : net.linkNodeA[l]
-    const arcEnd = net.halfArc[h * HS + HS - 1]
+  for (let h = 0; h < pieces; h++) {
+    const l = net.pieceLink[h]
+    const node = net.pieceNode[h]
+    const arcEnd = net.pieceArc[h * HS + HS - 1]
     for (let s = 0; s < HS; s++) {
       const i = h * HS + s
-      const r = net.halfRadius[i] + LIFT
+      const r = net.pieceRadius[i] + LIFT
       for (let e = 0; e < 2; e++) {
         const v = i * 2 + e
-        vPos[v * 3] = net.halfDir[i * 3] * r
-        vPos[v * 3 + 1] = net.halfDir[i * 3 + 1] * r
-        vPos[v * 3 + 2] = net.halfDir[i * 3 + 2] * r
-        vSide[v * 4] = net.halfSide[i * 3]
-        vSide[v * 4 + 1] = net.halfSide[i * 3 + 1]
-        vSide[v * 4 + 2] = net.halfSide[i * 3 + 2]
+        vPos[v * 3] = net.pieceDir[i * 3] * r
+        vPos[v * 3 + 1] = net.pieceDir[i * 3 + 1] * r
+        vPos[v * 3 + 2] = net.pieceDir[i * 3 + 2] * r
+        vSide[v * 4] = net.pieceSide[i * 3]
+        vSide[v * 4 + 1] = net.pieceSide[i * 3 + 1]
+        vSide[v * 4 + 2] = net.pieceSide[i * 3 + 2]
         vSide[v * 4 + 3] = e === 0 ? -1 : 1
         vLink[v * 4] = l
         vLink[v * 4 + 1] = L + node
         vLink[v * 4 + 2] = s / (HS - 1)
-        vLink[v * 4 + 3] = net.linkSea[l]
-        vArc[v] = arcEnd - net.halfArc[i] // from the link midpoint, so dashes run on across it
+        vLink[v * 4 + 3] = net.pieceSea[h]
+        vArc[v] = arcEnd - net.pieceArc[i] // from the meeting point, so dashes run on across it
       }
     }
   }
-  const index = new Uint32Array(halves * (HS - 1) * 6)
+  const index = new Uint32Array(pieces * (HS - 1) * 6)
   {
     let k = 0
-    for (let h = 0; h < halves; h++) {
+    for (let h = 0; h < pieces; h++) {
       for (let s = 0; s + 1 < HS; s++) {
         const v = (h * HS + s) * 2
         index[k++] = v; index[k++] = v + 2; index[k++] = v + 1
@@ -349,7 +350,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
     vertexShader: /* glsl */ `
       ${RELIEF_GLSL}
       attribute vec4 aSide; // side direction, across (-1|1)
-      attribute vec4 aLink; // link texel, node texel, position along the half (0 node .. 1 midpoint), sea
+      attribute vec4 aLink; // link texel, node texel, position along the piece (0 node .. 1 meeting point), sea
       attribute float aArc; // arc length from the link midpoint
       uniform sampler2D uVol;
       uniform float uFrac;
@@ -573,7 +574,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           hs[v * 4 + 3] = e === 0 ? -1 : 1
           hr[v * 4] = r
           hr[v * 4 + 1] = T.openedYear[r]
-          hr[v * 4 + 2] = sWater[s]
+          hr[v * 4 + 2] = sWater[s] === SHORE ? 0.5 : sWater[s]
           hr[v * 4 + 3] = smp.arc[s]
           v++
         }
@@ -830,7 +831,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           mDir[n * 3 + 2] = dz * l
           const good = forward ? T.goodAB[r] : T.goodBA[r]
           const gi = good < GOOD_COUNT ? good : 0
-          const sea = sWater[u < 0.5 ? lo : lo + 1]
+          const sea = segmentWater(sWater, lo, u)
           // larger on busy links
           const lk = sLink[lo]
           const sizeT = Math.sqrt(levelOf(linkVol0[lk] + (linkVol1[lk] - linkVol0[lk]) * frac))
@@ -857,13 +858,19 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
 
   const road = input.road ?? null
   const N = world.grid.cellCount
+  const lake = lakeArray(world)
   function setRoadRows(l0: number, l1: number) {
     if (!road) return
     const o0 = l0 * N, o1 = l1 * N
     const rd = road.road
     for (let l = 0; l < L; l++) {
-      if (net.linkSea[l]) continue
-      const a = net.linkA[l], b = net.linkB[l]
+      let a = net.linkA[l], b = net.linkB[l]
+      if (net.linkSea[l]) {
+        // a link to the shore: its land piece carries the port cell's road down to the quay
+        if (isWaterCell(world, lake, a) === isWaterCell(world, lake, b)) continue
+        if (isWaterCell(world, lake, a)) a = b
+        else b = a
+      }
       volData[l * 4 + 2] = Math.min(rd[o0 + a], rd[o0 + b]) / 255
       volData[l * 4 + 3] = Math.min(rd[o1 + a], rd[o1 + b]) / 255
     }
