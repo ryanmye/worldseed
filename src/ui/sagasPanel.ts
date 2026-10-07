@@ -12,6 +12,8 @@ import { Ctx, topBy } from './sagas/facts.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import './sagas.css'
+import { addDecadeLink, createLibrary } from './library.ts'
+import { renderSaga } from './sagas/render.ts'
 
 export interface SagasViewDeps {
   right: HTMLElement
@@ -127,9 +129,18 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
 
   const text = document.createElement('article')
   text.className = 'sg-text'
-  body.append(controls, bar, told, text)
+  const libLink = document.createElement('button')
+  libLink.type = 'button'
+  libLink.className = 'gp-link sg-library'
+  libLink.textContent = 'Open the library'
+  libLink.title = 'Every saga of the world, read as a book (B)'
+  libLink.addEventListener('click', () => library.open(subject, legend))
+  body.append(controls, bar, told, text, libLink)
   root.append(head, body)
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
+  // the library (full screen) and the chronicle's "Tell this decade"
+  const library = createLibrary({ host: document.body, setUrlParam: deps.setUrlParam, year: deps.year, onSelectSettlement: deps.onSelectSettlement })
+  addDecadeLink(deps.right.querySelector('.chronicle'), deps.year)
 
   // ---------- reading view ----------
   const reader = document.createElement('div')
@@ -162,7 +173,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   // ---------- state ----------
   let history: History | null = null
   let world: World | null = null
-  let subject: SagaSubject = deps.initial?.subject ?? { kind: 'world', id: 0 }
+  let subject: SagaSubject = deps.initial?.subject && deps.initial.subject.kind !== 'decade' && deps.initial.subject.kind !== 'year' ? deps.initial.subject : { kind: 'world', id: 0 }
   let legend = deps.initial?.legend ?? false
   let saga: Saga | null = null
   let shown = ''
@@ -260,30 +271,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   }
 
   function render(target: HTMLElement, s: Saga) {
-    target.textContent = ''
-    const h1 = document.createElement('h3')
-    h1.className = 'sg-title'
-    h1.textContent = s.title
-    const ep = document.createElement('p')
-    ep.className = 'sg-epigraph'
-    ep.textContent = s.epigraph
-    target.append(h1, ep)
-    s.paragraphs.forEach((p, i) => {
-      const hd = s.heads?.[i]
-      if (hd) {
-        const h4 = document.createElement('h4')
-        h4.className = 'sg-head'
-        h4.textContent = hd
-        target.appendChild(h4)
-      }
-      const el = document.createElement('p')
-      el.textContent = p
-      target.appendChild(el)
-    })
-    const cl = document.createElement('p')
-    cl.className = 'sg-closing'
-    cl.textContent = s.closing
-    target.appendChild(cl)
+    renderSaga(target, s, (r) => { if (r.subject.kind === 'decade' || r.subject.kind === 'year') library.open(r.subject, legend); else { subject = r.subject; tell() } })
   }
 
   /** Tells the saga of the subject at the timeline's year (cached), and shows it. */
@@ -412,6 +400,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     inspectorLinks: links,
     commit(h, w, extend) {
       history = h
+      library.commit(h, w, extend)
       world = w
       root.classList.toggle('hidden', !h)
       if (!h) { closeReader(); saga = null; shown = ''; text.textContent = ''; return }
