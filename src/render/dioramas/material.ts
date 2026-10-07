@@ -564,7 +564,7 @@ export function createModelMaterial(uniforms: DioramaUniforms): THREE.ShaderMate
         vec3 fill = sky * (2.4 + 1.2 * up) + sunC * (0.2 + 0.08 * up) * vec3(1.0, 0.94, 0.85);
         // at night: darker, but lived-in buildings catch a little warm light from the streets
         fill *= mix(0.5, 1.0, day);
-        vec3 col = alb * (sunC * diff * vis * mix(1.0, ao, 0.5) + fill * ao + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025));
+        vec3 col = alb * (sunC * diff * vis * mix(1.0, ao, 0.5) + fill * ao + (1.0 - day) * vLit * vec3(0.10, 0.06, 0.025) * (1.0 - 0.45 * uCity));
         if (vInfo.x > 0.5) {
           // night: the facade's own windows, some lit
           col += (1.0 - day) * winMask * winOn * vLit * vec3(1.0, 0.58, 0.24) * 1.5;
