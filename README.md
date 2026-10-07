@@ -8,6 +8,12 @@ roads, ports, dams, and the rise and fall of towns and cities. There is no
 backend, no LLM, and no corpus of training data — everything is generated from
 the seed by code in this repository.
 
+Live at [ryanmye.github.io/worldseed](https://ryanmye.github.io/worldseed/).
+
+![Seed 42 in the year 4067: 25 states, 25 cities and 33 long-distance trade lanes on a planet of 1.3 million people](docs/world-42-year-4067.png)
+
+*Seed 42 in the year 4067: 25 states, 25 cities and 33 long-distance lanes, 1.3 million people.*
+
 ## Running it
 
 ```
