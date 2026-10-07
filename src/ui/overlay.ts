@@ -707,7 +707,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   })
   addShortcut({ keys: ['l', 'L'], label: 'L', description: 'Show or hide the layers', group: 'Panels', run: () => toggleLayers() })
   addShortcut({ keys: ['s', 'S'], label: 'S', description: 'Sun and quality settings', group: 'Panels', run: () => togglePopover(settingsPop.p) })
-  addShortcut({ keys: ['b', 'B'], label: 'B', description: 'Credits and licence', group: 'Panels', run: () => togglePopover(creditsPop.p) })
+  addShortcut({ keys: ['j', 'J'], label: 'J', description: 'Credits and licence', group: 'Panels', run: () => togglePopover(creditsPop.p) })
   addShortcut({ keys: ['?'], label: '?', description: 'This help', group: 'Panels', run: () => togglePopover(helpPop.p) })
   const unavailable = new Set<ViewMode>()
   const stepMode = (dir: number) => {
