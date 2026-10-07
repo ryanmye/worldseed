@@ -2,7 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, World, WorldOptions } from './contract.ts'
-import { decodeOrders, encodeOrders } from './contract.ts'
+import { canonicalCradles, decodeCradles, decodeOrders, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -38,6 +38,8 @@ import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/layer.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
+import { createHearthPicker } from './ui/hearthPicker.ts'
+import { previewCradles } from './ui/cradlesData.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -62,6 +64,9 @@ import { setShortcutsEnabled } from './ui/shortcuts.ts'
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
+// c=<cradles> (the first hearths the player planted, contract.ts encodeCradles: a cell per people in people order,
+// -1 the simulation's choice): part of the history like o=; written at Start (the start page's "Choose where peoples
+// begin") and by the Nudge panel's "Replant the hearths", cleared with a new seed
 // intro=1 (show the start page, ui/landing.ts, even with other parameters: seed= and years= prefill its fields),
 // intro=0 (skip it). Without intro the start page shows at the bare URL only: any parameter at all opens the app
 // directly, so shared links keep working. After Start the address gains seed= (and years= when not 2000), intro is dropped.
@@ -314,7 +319,13 @@ function showWorld(world: World) {
   }
   applyLayerVisibility()
   historyView.setWorld(world)
+  hearths.setWorld(world)
+  // (planting on the start page while the seed changed: the new world's peoples)
+  if (landing?.planting) startLandingPlanting()
 }
+
+// ---------- planting the first hearths (ui/hearthPicker.ts): the start page's and the Nudge panel's ----------
+const hearths = createHearthPicker({ canvas, camera, planetGroup, getWorld: () => currentWorld, wake: () => wake() })
 
 // ---------- worker ----------
 // One request per seed; responses for superseded requests are dropped. Extensions (a longer
@@ -329,6 +340,16 @@ let extending = 0
 let failNextExtension = false
 /** The player's orders (o=, the Nudge panel), canonical; the history shown or on its way was simulated with them. */
 let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
+/** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
+let currentCradles: number[] = canonicalCradles(decodeCradles(params.get('c') ?? ''))
+/** The history options of the history asked for: its length, the orders and the cradles (undefined: all default). */
+function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
+  const o: HistoryOptions = {}
+  if (years !== 2000) o.years = years
+  if (currentOrders.length > 0) o.orders = currentOrders
+  if (currentCradles.length > 0) o.cradles = currentCradles
+  return Object.keys(o).length > 0 ? o : undefined
+}
 /** A re-simulation with new orders is on its way: the year to keep when it arrives (-1 none). */
 let resimYear = -1
 let resimLabel = ''
@@ -410,7 +431,7 @@ function requestWorld(seed: number, worldOnly = false) {
     requestId: ++requestId,
     seed,
     options: WORLD_OPTIONS,
-    historyOptions: historyYears === 2000 && currentOrders.length === 0 ? undefined : { ...(historyYears === 2000 ? {} : { years: historyYears }), ...(currentOrders.length > 0 ? { orders: currentOrders } : {}) },
+    historyOptions: historyOptionsNow(),
     // a long first run (year=6000): show the default length first, then extend to it
     firstYears: historyYears > 2000 ? 2000 : undefined,
     nocache: params.get('nocache') === '1' || undefined,
@@ -433,7 +454,7 @@ function startHistory(seed: number) {
   worker.postMessage({
     type: 'history',
     requestId,
-    historyOptions: historyYears === 2000 ? undefined : { years: historyYears },
+    historyOptions: historyOptionsNow(),
     firstYears: historyYears > 2000 ? 2000 : undefined,
     nocache: params.get('nocache') === '1' || undefined,
     cachecheck: params.get('cachecheck') === '1' || undefined,
@@ -450,10 +471,26 @@ function requestOrders(orders: Order[], keepYear: number) {
   resimYear = Math.max(0, keepYear)
   extending = 0 // (an extension in flight is answered under the old requestId and dropped)
   const years = historyView.years || historyYears
-  const req: WorkerRequest = { type: 'orders', requestId: ++requestId, orders: currentOrders, years }
+  const req: WorkerRequest = { type: 'orders', requestId: ++requestId, orders: currentOrders, years, cradles: currentCradles }
   worker.postMessage(req)
   const n = currentOrders.length
   resimLabel = n > 0 ? `Simulating with ${n} ${n === 1 ? 'order' : 'orders'}…` : 'Simulating without orders…'
+  historyView.setSimProgress(0, years, resimLabel)
+}
+
+/**
+ * Re-simulate the world with the first hearths planted anew (the Nudge panel's "Replant the hearths"), as the orders
+ * are: a new run from year 0 as long as the history shown, swapped in at `keepYear` keeping the camera. Written to the URL (c=).
+ */
+function requestCradles(cradles: number[], keepYear: number) {
+  currentCradles = canonicalCradles(cradles)
+  setUrlParam('c', currentCradles.length > 0 ? encodeCradles(currentCradles) : null)
+  resimYear = Math.max(0, keepYear)
+  extending = 0
+  const years = historyView.years || historyYears
+  worker.postMessage({ type: 'orders', requestId: ++requestId, orders: currentOrders, years, cradles: currentCradles } satisfies WorkerRequest)
+  const n = currentCradles.filter((c) => c >= 0).length
+  resimLabel = n > 0 ? `Simulating with ${n} ${n === 1 ? 'hearth' : 'hearths'} planted…` : 'Simulating with the hearths the world chooses…'
   historyView.setSimProgress(0, years, resimLabel)
 }
 
@@ -482,6 +519,8 @@ function clearHistoryParams() {
   for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price', 'epidemic', 'sickness']) setUrlParam(k, null)
   setUrlParam('o', null) // (orders belong to the world they were given in)
   currentOrders = []
+  setUrlParam('c', null) // (and so do the hearths planted)
+  currentCradles = []
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -588,6 +627,9 @@ const historyView = createHistoryView(
     requestYears,
     requestOrders,
     getOrders: () => currentOrders,
+    requestCradles,
+    getCradles: () => currentCradles,
+    hearths,
     wake: () => wake(),
     setCloudsOverFog: (on) => {
       cloudsOverFog = on
@@ -781,7 +823,8 @@ const pointerInput = attachPointer({
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
   selectFactionAt: (cell) => historyView.selectFactionAt(cell),
-  pickCell: (cell) => historyView.pickCell(cell),
+  // (planting hearths first: the start page's and the Nudge panel's, ui/hearthPicker.ts)
+  pickCell: (cell) => hearths.pickCell(cell) || historyView.pickCell(cell),
   dragSun: (dir) => {
     setSunToward(dir)
     syncSun()
@@ -1283,6 +1326,7 @@ function draw(ts: number) {
   if (currentClouds) currentClouds.mesh.renderOrder = citySky.low > 0 && camera.position.length() < CLOUD_DECK_RADIUS ? 10.6 : 5
   const tt = performance.now()
   historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
+  hearths.update(camera, drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0
   if (cityView.engaged && ts - cityCardTs > 200) {
     // (the card: a few times a second at most, and only on frames drawn anyway)
@@ -1457,6 +1501,9 @@ if (showLanding) {
       currentSeed = seed
       overlay.setSeed(seed)
       setUrlParam('seed', String(seed))
+      // (hearths belong to the world they were planted in)
+      currentCradles = []
+      if (!landing?.planting) landing?.endPlanting(0)
       landing?.setLoading(true)
       requestWorld(seed, true)
     },
@@ -1468,6 +1515,8 @@ if (showLanding) {
       url.searchParams.set('seed', String(seed))
       if (years === 2000) url.searchParams.delete('years')
       else url.searchParams.set('years', String(years))
+      if (currentCradles.length > 0) url.searchParams.set('c', encodeCradles(currentCradles))
+      else url.searchParams.delete('c')
       window.history.replaceState(null, '', url)
       historyYears = wholeChunks(years)
       startHistory(seed)
@@ -1478,8 +1527,20 @@ if (showLanding) {
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible
+      spinning = visible && !hearths.active
       wake()
+    },
+    onPlant(on) {
+      if (on) {
+        startLandingPlanting()
+        return
+      }
+      // (the button again, or Start: the hearths as planted are kept)
+      if (hearths.active) {
+        currentCradles = canonicalCradles(hearths.cells())
+        hearths.stop()
+      }
+      endLandingPlanting()
     },
     wake() {
       requestRender()
@@ -1487,6 +1548,34 @@ if (showLanding) {
     },
   })
   landing.setLoading(currentWorld === null)
+  landing.mountPlantBar(hearths.bar)
+}
+
+/** Planting on the start page: the globe takes the pointer (a drag turns it, no zoom), the slow turn stops, the picker starts (again, for a new world) once the world's people count is known. */
+async function startLandingPlanting() {
+  const w = currentWorld
+  if (!landing || !w) return
+  spinning = false
+  controls.enabled = true
+  controls.enableZoom = false
+  const count = (await previewCradles(w, [])).count
+  if (!landing?.planting || currentWorld !== w) return
+  hearths.start({
+    max: count,
+    cells: currentCradles,
+    onDone(cells) {
+      currentCradles = cells
+      endLandingPlanting()
+    },
+  })
+}
+function endLandingPlanting() {
+  if (!landing) return
+  controls.enabled = false
+  controls.enableZoom = true
+  landing.endPlanting(currentCradles.filter((c) => c >= 0).length)
+  requestRender()
+  wake()
 }
 /** One frame of the start page: the camera's distance and the view's centre between the page's and the app's. */
 function landingFrame(ts: number) {
@@ -1506,6 +1595,7 @@ function landingFrame(ts: number) {
   if (f.done) {
     landing = null
     landingGeom = 1
+    controls.enableZoom = true
     controls.enabled = !mapOn && !cityView.engaged
     setShortcutsEnabled(true)
     // a remembered map comes back (the start page showed the globe)

@@ -13,6 +13,9 @@
 // The orders list: each order's status as of the year shown, its one-line story once resolved (nudgeFormat.ts), a link
 // to what it produced, "remove" (re-simulates), "clear all" and "Copy link". The map marks (render/nudges.ts) are built
 // per history (none without orders); the form refreshes only when the year, the selection or the history changes.
+//
+// Hearths (at the top, ui/hearthsSection.ts): the first hearths the player planted and what became of them, and
+// "Replant the hearths", the start page's hearth picker on the main globe at year 0 (re-simulates like an order).
 
 import * as THREE from 'three'
 import { FaithKind, OrderKind, OrderReason, OrderRole, OrderStatus, encodeOrders, orderFeasible, settlementNameAt } from '../contract.ts'
@@ -23,6 +26,8 @@ import { requestRender } from '../render/invalidate.ts'
 import { ORDER_KINDS, STATUS_WORDS, actorWords, capitalAt, cellWords, orderStory, orderYears, peopleSeat, polityWords, reasonWords, setOrderPlaceNamer, setOrderPositions, statusAt, urgePhrase } from './nudgeFormat.ts'
 import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
+import { createHearthsSection, type HearthsSection } from './hearthsSection.ts'
+import type { HearthPicker } from './hearthPicker.ts'
 import './nudge.css'
 
 export interface NudgeViewDeps {
@@ -41,6 +46,12 @@ export interface NudgeViewDeps {
   onSelectPolity(p: number): void
   flyToCell(cell: number): void
   setYear(year: number): void
+  /** The hearths (HistoryOptions.cradles): the picker, the list shown or on its way, re-simulating with a new one. */
+  hearths?: HearthPicker
+  getCradles?(): number[]
+  requestCradles?(cradles: number[], keepYear: number): void
+  /** Stop the timeline playing. */
+  pause?(): void
 }
 
 export interface NudgeView {
@@ -129,7 +140,21 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   copyBtn.type = 'button'
   const copied = el('span', 'gp-note ng-copied')
   tools.append(copyBtn, clearBtn, copied)
-  // (the orders and what became of them first, the form for the next one under them)
+  // (the hearths first, then the orders and what became of them, the form for the next one under them)
+  let hearthsSection: HearthsSection | null = null
+  if (deps.hearths && deps.getCradles && deps.requestCradles) {
+    hearthsSection = createHearthsSection({
+      hearths: deps.hearths,
+      getCradles: deps.getCradles,
+      requestCradles: deps.requestCradles,
+      year: () => year,
+      setYear: (y) => { deps.pause?.(); deps.setYear(y) },
+      flyToCell: deps.flyToCell,
+      onSelectSettlement: deps.onSelectSettlement,
+      onStart: () => stopPicking(),
+    })
+    body.appendChild(hearthsSection.el)
+  }
   body.append(listHead, list, tools, form)
   root.append(head, body)
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
@@ -440,8 +465,11 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       }
     }
     for (let k = orders.length; k < rows.length; k++) rows[k].el.hidden = true
-    tools.hidden = orders.length === 0
-    count.textContent = orders.length === 0 ? 'no orders' : `${orders.length} ${orders.length === 1 ? 'order' : 'orders'}${sync && fulfilled ? ` · ${fulfilled} fulfilled` : ''}${sync ? '' : ' · re-running…'}`
+    const hw = hearthsSection?.countWords() ?? ''
+    tools.hidden = orders.length === 0 && !hw
+    clearBtn.style.display = orders.length === 0 ? 'none' : ''
+    count.textContent = (hw ? `${hw} · ` : '') + (orders.length === 0 ? 'no orders' : `${orders.length} ${orders.length === 1 ? 'order' : 'orders'}${sync && fulfilled ? ` · ${fulfilled} fulfilled` : ''}${sync ? '' : ' · re-running…'}`)
+    hearthsSection?.refresh()
   }
 
   function refresh() {
@@ -574,6 +602,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       history = h
       index = ix
       borderKey = ''
+      hearthsSection?.commit(h)
       root.classList.toggle('hidden', !h)
       if (h && world) {
         const N = world.grid.cellCount
@@ -620,7 +649,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       }
       if (!history) return
       const s = deps.selection()
-      const selKey = `${s.settlement}:${s.people}:${s.polity}:${encodeOrders(deps.getOrders()).length}:${inSync()}`
+      const selKey = `${s.settlement}:${s.people}:${s.polity}:${encodeOrders(deps.getOrders()).length}:${inSync()}:${deps.getCradles?.().join('.') ?? ''}:${deps.hearths?.active ?? false}`
       const fy = Math.floor(y + 1e-6)
       if (selKey !== lastSel) {
         lastSel = selKey
@@ -630,7 +659,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
         lastYear = fy
         dirty = true
       }
-      if (dirty && (deps.getOrders().length > 0 || !collapsed)) refresh()
+      if (dirty && (deps.getOrders().length > 0 || !collapsed || (hearthsSection?.countWords() ?? ''))) refresh()
       else if (dirty && collapsed) {
         dirty = false
         count.textContent = 'no orders'

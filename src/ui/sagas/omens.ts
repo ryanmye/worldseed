@@ -8,12 +8,13 @@
 // failed or lapsed (a sign misread or defied, with why), or not yet known at the year told. The Nudge panel and the
 // chronicle keep their plain wording (nudgeFormat.ts).
 
-import { EventType, OrderKind, OrderReason, OrderStatus, FeatureKind, type Order, type OrderOutcome } from '../../contract.ts'
+import { Biome, CradleOutcome, EventType, OrderKind, OrderReason, OrderStatus, FeatureKind, type Order, type OrderOutcome } from '../../contract.ts'
+import { cradlesOf, hearthOf, type CradleRecord } from '../cradlesData.ts'
 import { createRng } from '../../sim/rng.ts'
 import { statusAt } from '../nudgeFormat.ts'
 import { settingOf, type Ctx } from './facts.ts'
 import { warName } from './wars.ts'
-import { cap, fill, type PhraseTable, type Vars, type Voice } from './voice.ts'
+import { cap, fill, list, num, type PhraseTable, type Vars, type Voice } from './voice.ts'
 
 /** One omen: the chronicle's clause (after "in {year}"), how it was read, and the legend's telling. */
 interface Omen { c: string; read: string; l: string; coast?: boolean }
@@ -331,4 +332,111 @@ function failClause(kind: number, reason: number, legend: boolean, plural: boole
     case OrderReason.SystemOff: return legend ? 'its hour had not come' : 'nothing came of it'
   }
   return legend ? 'its hour had not come' : 'nothing came of it'
+}
+
+// ---------------------------------------------------------------------------
+// The first hearths the player planted (HistoryOptions.cradles; History.cradleWish, cradleCell, cradlePlaced, read
+// through cradlesData.ts): told as the work of the Divine, never as the player's. Set down as wished, the people
+// were placed by the Divine on their land; moved, the Divine pointed to the water (or the ice) the wish lay on and they
+// came ashore at the nearest land; rejected, the Divine marked a place no one could live and they found their own.
+// The chronicle register hedges ("It is held that..."), the legend's tells it as plain fact. Peoples whose cradle the
+// simulation chose are told as before (no sentence). Every sentence rests on cradlePlaced (the outcome), cradleWish
+// (what the wished cell was: sea, ice) and cradleCell with the people's founder (where they began); the voice's
+// seeded stream picks the wording only.
+
+export const DIVINE_T: PhraseTable = {
+  divine: [
+    ['It is held that the {people} did not wander to {home} but were set down there; the old songs say the land was chosen for them.', 'The {people}, it is said, did not come to {home} by their own wandering: they were set down there, and the old songs say the land was chosen for them.'],
+    ['In the beginning the Divine marked {land} of {home} and set the first fire of the {people} upon it.', 'Before the first year was counted the Divine chose {land} of {home}, and set the {people} down upon it, and lit their first fire.'],
+  ],
+  divineMoved: [
+    ['It is held that the place chosen for the {people} lay out on {water}, and that they came ashore at the nearest land, at {home}; the old songs say the shore was given them.', 'The old songs say a place was chosen for the {people} on {water}, and that they came ashore at the nearest land, at {home}.'],
+    ['In the beginning the Divine pointed to {water}, and the {people} came ashore at the nearest land, at {home}.', 'In the beginning the Divine set a mark upon {water}, and the {people} came ashore at the nearest land, at {home}, and lit their first fire there.'],
+  ],
+  divineRejected: [
+    ['It is told that a place was chosen for the {people} where no one could live, and that they were left to find their own.', 'The old songs say the place chosen for the {people} was one no one could live in, and that they were left to find their own.'],
+    ['In the beginning the Divine marked a place no one could live; the {people} were left to find their own.', 'The Divine marked for the {people} a place where no one could live, and left them to find their own.'],
+  ],
+  /** (a placed people set down within sight of another placed people: History.cradleCrowded) */
+  divineCrowded: [
+    ['The old songs say they were set down within sight of the {other}.', 'It is held that the {other} were set down within sight of them.'],
+    ['Within sight of them the Divine set down the {other}.', 'And the Divine set the {other} down within sight of them, so that each saw the other\'s smoke.'],
+  ],
+  /** (the chronicle's setting of a placed people's first hearth, after `divine` or `divineMoved`: the legend's sentence names the land itself) */
+  divineWhere: [['{home} lay {where}.', 'Their first hearth, {home}, lay {where}.'], []],
+  divineFew: [
+    ['Of the {n} peoples, {k} {were} set down by the Divine, as the old songs hold{which}; the rest found their own hearths.', 'The old songs hold that {k} of the {n} peoples {were} set down by the Divine{which}; the rest found their own hearths.'],
+    ['Of the {n} peoples, {k} {were} set down by the Divine{which}; the rest found their own hearths.', 'Of the {n} peoples the Divine set down {k}{which}; the rest found their own hearths.'],
+  ],
+  divineAll: [
+    ['All {n} peoples, the old songs hold, were set down by the Divine{which}.'],
+    ['All {n} peoples were set down by the Divine{which}, and none found its own hearth.'],
+  ],
+  divineNone: [
+    ['It is told that places were chosen for {k} of the peoples where no one could live; all {n} found their own hearths.'],
+    ['The Divine marked for {k} of the peoples places where no one could live, and all {n} found their own hearths.'],
+  ],
+}
+
+/** The land a cell lies in, as the sagas name it ("the grassland"), from its biome. */
+const BIOME_LAND: readonly string[] = ['the sea', 'the shallows', 'the ice', 'the tundra', 'the pinewoods', 'the woodland', 'the grassland', 'the desert’s edge', 'the savanna', 'the rainforest', 'the mountains']
+
+/** What the wished cell of a moved cradle was ("the sea", "the ice"), from the world. */
+function wishWater(c: Ctx, cell: number): string {
+  const w = c.world
+  if (!w || cell < 0 || cell >= w.grid.cellCount) return 'the waters'
+  if (w.lake[cell]) return 'the waters of a lake'
+  const b = w.biome[cell]
+  return b === Biome.Ice ? 'the ice' : b === Biome.Ocean || b === Biome.Coast || w.elevation[cell] < 0 ? 'the sea' : 'a place no one could live'
+}
+
+/** How people p's first hearth came to be, told as divine placement ('' when the simulation chose it); `replaces`: the sentence says where they began (the plain origin can go). */
+export function divineOrigin(c: Ctx, v: Voice, p: number): { text: string; replaces: boolean } {
+  const rec = cradlesOf(c.h)
+  const o = hearthOf(rec, p)
+  if (!rec || o === CradleOutcome.Chosen || p < 0 || p >= c.h.peoples.length) return { text: '', replaces: false }
+  const home = c.h.peoples[p].founder
+  const vars: Vars = { people: c.peopleName(p), home: c.place(home, 0) }
+  if (o === CradleOutcome.Placed) {
+    const w = c.world
+    const cell = rec.cell[p] >= 0 ? rec.cell[p] : c.h.settlements[home]?.cell ?? -1
+    vars.land = w && cell >= 0 && cell < w.grid.cellCount ? BIOME_LAND[w.biome[cell]] ?? 'the land' : 'the land'
+    return { text: v.p('divine', vars) + crowdedText(c, v, rec, p), replaces: true }
+  }
+  if (o === CradleOutcome.Moved) return { text: v.p('divineMoved', { ...vars, water: wishWater(c, rec.wish[p]) }) + crowdedText(c, v, rec, p), replaces: true }
+  return { text: v.p('divineRejected', vars), replaces: false }
+}
+
+/** ' They were set down within sight of the X.' for a crowded people: the nearest other crowded wished people ('' otherwise). */
+function crowdedText(c: Ctx, v: Voice, rec: CradleRecord, p: number): string {
+  if (!rec.crowded[p]) return ''
+  const P = c.h.peoples.length
+  const pos = c.world?.grid.positions
+  let best = -1, bd = -Infinity
+  for (let q = 0; q < P; q++) {
+    if (q === p || !rec.crowded[q] || (rec.placed[q] !== CradleOutcome.Placed && rec.placed[q] !== CradleOutcome.Moved)) continue
+    const a = rec.cell[p], b = rec.cell[q]
+    const d = pos ? pos[a * 3] * pos[b * 3] + pos[a * 3 + 1] * pos[b * 3 + 1] + pos[a * 3 + 2] * pos[b * 3 + 2] : -q
+    if (d > bd) { bd = d; best = q }
+  }
+  return best >= 0 ? ' ' + v.p('divineCrowded', { other: c.peopleName(best) }) : ''
+}
+
+/** One sentence on how many peoples the Divine set down ('' when none was placed); `names`: say which, and where. */
+export function divineSummary(c: Ctx, v: Voice, names: boolean): string {
+  const rec = cradlesOf(c.h)
+  if (!rec) return ''
+  const P = c.h.peoples.length
+  const set: number[] = []
+  let rejected = 0
+  for (let p = 0; p < P; p++) {
+    const o = rec.placed[p]
+    if (o === CradleOutcome.Placed || o === CradleOutcome.Moved) set.push(p)
+    else if (o === CradleOutcome.Rejected) rejected++
+  }
+  const n = num(P)
+  if (set.length === 0) return rejected ? v.p('divineNone', { n, k: num(rejected) }) : ''
+  const which = names ? ` (${list(set.slice(0, 4).map((p) => `the ${c.peopleName(p)} at ${c.place(c.h.peoples[p].founder, 0)}`))}${set.length > 4 ? `, and ${num(set.length - 4)} more` : ''})` : ''
+  if (set.length === P) return v.p('divineAll', { n, which })
+  return v.p('divineFew', { n, k: num(set.length), were: set.length === 1 ? 'was' : 'were', which })
 }

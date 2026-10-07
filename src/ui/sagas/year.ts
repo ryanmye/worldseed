@@ -6,7 +6,7 @@
 
 import { CITY_POPULATION, EventType, FeatureKind, WarKind } from '../../contract.ts'
 import { Ctx, topBy } from './facts.ts'
-import { omensOfYears, omenText, OMEN_T } from './omens.ts'
+import { DIVINE_T, divineSummary, omensOfYears, omenText, OMEN_T } from './omens.ts'
 import { Refs } from './refs.ts'
 import { warName } from './wars.ts'
 import { Book, type Saga } from './types.ts'
@@ -57,7 +57,7 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worldName: string): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T)
+  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T, DIVINE_T)
   const a = Math.max(0, a0)
   const b = Math.min(a + span - 1, c.Y)
   const kind = span === 1 ? 'year' : 'decade'
@@ -169,10 +169,12 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
   const om = omensOfYears(c, a, b).slice(0, 2).map((f) => omenText(c, v, f)).filter(Boolean)
 
   const body: string[] = [opener]
+  // year 0: the peoples the Divine set down (the hearths the player planted, omens.ts), by name
+  if (a === 0) { const dv = divineSummary(c, v, true); if (dv) body.push(dv) }
   // (the most telling nine, kept in the order of their years: the first year each names within the span)
   const yearIn = (s: string) => { for (const m of s.matchAll(/\b(\d{1,4})\b/g)) { const y = Number(m[1]); if (y >= a && y <= b) return y } return b }
   body.push(...sents.slice(0, 9).map((s, i) => [s, yearIn(s), i] as const).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map((x) => (span === 1 ? cap(x[0].replace(new RegExp(`^In ${a},? `), '').replace(new RegExp(` in ${a}(?=[.,;])`), '')) : x[0])))
-  if (sents.length === 0 && om.length === 0) body.push(v.p('quiet'))
+  if (sents.length === 0 && om.length === 0 && body.length === 1) body.push(v.p('quiet'))
   book.add(body.join(' '))
   for (const t of om) book.omen(t)
   const spanW = span === 1 ? `${a}` : b < a + span - 1 ? `${a}–${b}, told so far` : `${a}–${b}`

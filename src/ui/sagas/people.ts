@@ -9,7 +9,7 @@ import { Ctx, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
-import { OMEN_T, omenText, omensOfPeople } from './omens.ts'
+import { DIVINE_T, divineOrigin, OMEN_T, omenText, omensOfPeople } from './omens.ts'
 import { Refs } from './refs.ts'
 import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 import { warCalled } from './wars.ts'
@@ -208,7 +208,7 @@ function peopleEpithet(c: Ctx, p: number): string {
 
 export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `people:${p}`, legend, T, SCENE_T, OMEN_T)
+  const v = new Voice(c.seed, `people:${p}`, legend, T, SCENE_T, OMEN_T, DIVINE_T)
   const pn = c.peopleName(p)
   const Y = c.Y
   const mine = (id: number) => id >= 0 && id < c.N && c.peopleOf(id) === p
@@ -242,7 +242,11 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
   const home = h.peoples[p].founder
   const set = settingOf(c, h.settlements[home].cell)
   const where = set ? (set.coast ? `by the sea, ${set.where}` : set.river ? `on a river, ${set.where}` : set.where) : 'in the old lands'
-  p1.push(v.p('origin', { people: pn, home: c.place(home, 0), where }))
+  // (a hearth the player planted: told as set down by the Divine, omens.ts; in place of the plain origin when it says where they began)
+  const dv = divineOrigin(c, v, p)
+  if (!dv.replaces) p1.push(v.p('origin', { people: pn, home: c.place(home, 0), where }))
+  if (dv.text) p1.push(dv.text)
+  if (dv.replaces && !legend && set) p1.push(v.p('divineWhere', { home: c.name(home, 0), where }))
   const others = h.peoples.filter((q) => q.id !== p && q.cradle === h.peoples[p].cradle).map((q) => q.name)
   p1.push(others.length ? v.p('cradle', { others: list(others) }) : v.p('cradleAlone'))
   const named = h.features.filter((f) => f.namedYear <= Y && mine(f.namedBy)).sort((a, b) => b.size - a.size).slice(0, 3)

@@ -12,7 +12,7 @@ import { Ctx, farmingAt, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, cap, list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
-import { OMEN_T, omenText, omensOfCity } from './omens.ts'
+import { DIVINE_T, divineOrigin, OMEN_T, omenText, omensOfCity } from './omens.ts'
 import { Refs } from './refs.ts'
 import { foundingScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 
@@ -255,7 +255,7 @@ const TIER_WORD = (pop: number) => (pop >= CITY_POPULATION ? 'city' : pop >= TOW
 export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const h = c.h
   const s = h.settlements[id]
-  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T)
+  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T, DIVINE_T)
   const Y = c.Y
   const nowName = c.name(id, Y)
   const pn = c.peopleName(s.people)
@@ -283,7 +283,11 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   // ---- founding and setting ----
   const p1: string[] = []
   const isFirst = s.parent < 0
-  if (isFirst) p1.push(refs.cite(v.p('firstHearth', { name: c.place(id, born), people: pn }), { kind: 'people', id: s.people }))
+  if (isFirst) {
+    p1.push(refs.cite(v.p('firstHearth', { name: c.place(id, born), people: pn }), { kind: 'people', id: s.people }))
+    // (the first hearth of a people the player placed: set down by the Divine, omens.ts)
+    if (h.peoples[s.people]?.founder === id) p1.push(divineOrigin(c, v, s.people).text)
+  }
   else if (!scenes.some((x) => x.kind === 'founding')) {
     const fe = c.at(id, [EventType.Founded])[0]
     const group = fe !== undefined ? Math.round(c.ev(fe).value) : 0

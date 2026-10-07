@@ -14,6 +14,7 @@ import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEve
 
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 import { describeOrderEvent, describeOrderEventFor, isOrderEvent } from './nudgeFormat.ts'
+import { describeCradleEvent, describeCradleEventFor, isCradleEvent } from './cradlesFormat.ts'
 
 /**
  * Display name of a settlement (its procedural name; a numbered fallback for histories without names). renaming: the name it
@@ -347,7 +348,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
     case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted: return 'landmark'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
-    default: if (isOrderEvent(e.type as number)) return 'order'
+    default: if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number)) return 'order'
       return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (tourismEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
@@ -405,6 +406,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEvent(h, e) ?? `${name} and ${settlementName(h, e.other)} stop trading`
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       if (isOrderEvent(e.type as number)) return describeOrderEvent(h, e) ?? 'An order'
+      if (isCradleEvent(e.type as number)) return describeCradleEvent(h, e) ?? 'A first hearth'
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
@@ -482,6 +484,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEventFor(h, e, id) ?? 'Trade on a dangerous way'
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       if (isOrderEvent(e.type as number)) return describeOrderEventFor(h, e, id) ?? 'An order'
+      if (isCradleEvent(e.type as number)) return describeCradleEventFor(h, e, id) ?? 'A first hearth'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)

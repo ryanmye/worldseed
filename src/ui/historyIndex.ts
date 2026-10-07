@@ -14,6 +14,7 @@ import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isLandmarkEvent } from './landmarksFormat.ts'
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
+import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
 
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
@@ -408,6 +409,9 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
   return a - lo
 }
 
+/** A CradlePlaced event for a cradle the simulation chose: not news (only the planted ones are told). */
+const hiddenCradle = (e: { type: number; extra?: number }) => isCradleEvent(e.type) && !isShownCradleEvent(e)
+
 /** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
 function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
@@ -415,6 +419,7 @@ function isShownType(type: number): boolean {
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
   if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
+  if (isCradleEvent(type)) return true // 180: the first hearths the player planted (cradlesFormat.ts; the simulation's own choices are dropped: hiddenCradle)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
@@ -773,7 +778,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   for (const i of order) {
     const e = h.events[i]
     flushBefore(e.year)
-    if (!isShownType(e.type)) continue
+    if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
     // (ideas: a farming technique's stays, for the Ideas filter: the chronicle leaves it out of All, where the species lines say it)
@@ -817,7 +822,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const involves = (sid: number) => sid >= 0 && sid < N
   for (const i of order) {
     const e = h.events[i]
-    if (!isShownType(e.type)) continue
+    if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue // rulers: the accession line of the same year says it
     if (ideasHiddenInChronicle(h, e)) continue // ideas: a farming technique's (the species lines say it)
     if (involves(e.settlement)) counts[e.settlement]++
@@ -829,7 +834,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
   const eventList = new Int32Array(eventOffsets[N])
   for (const i of order) {
     const e = h.events[i]
-    if (!isShownType(e.type)) continue
+    if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue
     if (ideasHiddenInChronicle(h, e)) continue
     if (involves(e.settlement)) eventList[cursor[e.settlement]++] = i
