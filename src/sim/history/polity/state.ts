@@ -68,6 +68,8 @@ export interface PolityState {
   // income, pirate strength pi and lane traffic (havens), 1 once PiratesRise was logged (until suppressed), 1 once
   // SmugglingRing was logged, the fort in use (structure id, -1).
   lawless: Float64Array
+  /** Bandits (outlaw.ts bandits): their strength, which follows the lawlessness of the grip as far as rich traffic passes near (lawless is it). */
+  bandit: Float64Array
   corrupt: Float64Array
   smugYear: Float64Array
   smugSm: Float64Array
@@ -426,7 +428,7 @@ export function createPolityState(s: HistoryState): PolityState {
     },
   }
   const v2 = {
-    lawless: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
+    lawless: f64(cap), bandit: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
     hubBest: f64(cap), hubGood: i32(cap), hubPol: i32(cap, -1),
     pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
     bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
@@ -470,6 +472,7 @@ export function ensureSettlements(ps: PolityState, need: number): void {
   ps.foundZ = grow(ps.foundZ, size)
   ps.taxIn = grow(ps.taxIn, size)
   ps.lawless = grow(ps.lawless, size)
+  ps.bandit = grow(ps.bandit, size)
   ps.corrupt = grow(ps.corrupt, size)
   ps.smugYear = grow(ps.smugYear, size)
   ps.smugSm = grow(ps.smugSm, size)

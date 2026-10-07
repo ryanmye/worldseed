@@ -16,6 +16,7 @@ import { HISTORY_STATS_SEEDS, spearman } from '../stats.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import type { PairPolicy } from './policy.ts'
+import * as POLP from './params.ts'
 import { BANDIT } from './params.ts'
 
 const G = GOOD_COUNT
@@ -294,6 +295,14 @@ function main(): void {
   const yi = args.indexOf('--years')
   const years = yi >= 0 ? Number(args[yi + 1]) : 2000
   const json = args.includes('--json')
+  // --set NAME.field=value (tuning: polity params, e.g. --set WAYRISK.seaScale=false)
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== '--set') continue
+    const [k, v] = args[i + 1].split('=')
+    const [o, f] = k.split('.')
+    ;(POLP as unknown as Record<string, Record<string, unknown>>)[o][f] = v === 'true' ? true : v === 'false' ? false : Number(v)
+    args.splice(i, 2); i--
+  }
   const seeds = args.filter((a: string, i: number) => !a.startsWith('--') && (yi < 0 || i !== yi + 1)).map(Number)
   const list = seeds.length ? seeds : args.includes('--seeds40') ? SEEDS_40 : HISTORY_STATS_SEEDS
   const rows: WayRow[] = []

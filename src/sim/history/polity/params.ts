@@ -503,6 +503,15 @@ export const BANDIT = {
   tollShare: 0.1,
   /** Bandit roads: danger roadZ * lawlessness on the land cells of such routes. */
   roadZ: 0.6,
+  /**
+   * Bandits live off the traffic (outlaw.ts bandits): their strength moves rate a year toward lawlessness * (idle + (most - idle)
+   * * t / (t + trafficHalf)), t the loads passing the settlement or a neighbour. false: lawlessness alone (no traffic).
+   */
+  traffic: true,
+  idle: 0.4,
+  most: 1.4,
+  trafficHalf: 400,
+  rate: 0.05,
 }
 
 /** Civil war, partition and reunification (civil.ts). */
