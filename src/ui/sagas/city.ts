@@ -264,7 +264,8 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const book = new Book()
   const refs = new Refs(c, book, { kind: 'city', id }, legend)
   const scenes = pickScenes([
-    foundingScene(c, v, id),
+    // (a founding is a scene only for a town that became a city, the first on an empty land, or one the omens tell of)
+    c.peak(id).pop >= CITY_POPULATION || c.at(id, [EventType.Landfall]).length > 0 || (h.orderOutcomes ?? []).some((r, k) => h.orders?.[k]?.kind === OrderKind.Settle && r.product === id && r.year <= Y) ? foundingScene(c, v, id) : null,
     ...topBy(c.at(id, [EventType.Sacked]), (i) => c.ev(i).value * c.pop(id, Math.max(0, c.ev(i).year - 1)), 1).map((i) => sackScene(c, v, i)),
     ...topBy(c.at(id, [EventType.CityStricken]), (i) => (c.ev(i).extra ?? 0) + 0.001, 1).map((i) => plagueScene(c, v, i, legend)),
     ...topBy(c.at(id, [EventType.LandmarkCompleted]), (i) => { const L = h.landmarks; return L ? L.completedYear[c.ev(i).value] - L.begunYear[c.ev(i).value] : 0 }, 1).map((i) => workScene(c, v, i)),

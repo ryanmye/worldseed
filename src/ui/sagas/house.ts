@@ -19,7 +19,7 @@ const T: PhraseTable = {
   people: [[' It was a house of the {people}.'], [' Its blood was of the {people}.']],
   thrones: [
     ['In all it gave {n} to {thrones}.', 'Its members sat on {thrones}: {n} in all.'],
-    ['{n} of its blood wore the crowns of {thrones}.'],
+    ['{n} of its blood sat on {thrones}.'],
   ],
   longest: [['The longest reign of the house was that of {ruler}, {years} years.'], ['Longest of its line reigned {ruler}, {years} winters.']],
   usurper: [['{ruler} seized a throne by force in {year}.'], ['In {year} {ruler} took a crown by the sword.']],

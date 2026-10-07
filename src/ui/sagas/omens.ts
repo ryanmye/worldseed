@@ -81,8 +81,8 @@ export const OMEN_T: PhraseTable = {
   partC: [['The sign proved half true: {part}.', 'It was half fulfilled: {part}.'], []],
   partL: [[], ['But the prophecy came only half true: {part}.', 'The sign was half kept: {part}.']],
   failC: [['The sign was read, but {fail}.', 'Nothing came of it: {fail}.', 'Yet {fail}.'], []],
-  misreadL: [[], ['But {who} misread the sign, and {fail}.', 'Yet the sign was not understood, and {fail}.']],
-  defyL: [[], ['But {who} defied the sign, and {fail}.', 'But {who} would not heed it, and {fail}.']],
+  misreadL: [[], ['But it was not to be: {fail}.', 'Yet the sign came to nothing, for {fail}.', 'But the sign was misread, or false: {fail}.']],
+  defyL: [[], ['But {who} defied the sign.', 'But {who} would not heed it.']],
   openC: [['What came of it is not yet written.'], []],
   openL: [[], ['What it foretold is yet to be seen.']],
 }
@@ -284,7 +284,7 @@ function doneClause(c: Ctx, o: Order, r: OrderOutcome, legend: boolean, place: s
       return name ? `${base}: ${name}` : base
     }
     case OrderKind.Peace: return legend ? `in ${y} the war with ${c.pname(o.target ?? -1)} was ended` : `peace was made with ${c.pname(o.target ?? -1)} in ${y}`
-    case OrderKind.Seat: return legend ? `in ${y} ${who} rode into ${c.name(r.product, y)} and made it the seat of the realm` : `in ${y} the court moved to ${c.name(r.product, y)}`
+    case OrderKind.Seat: return legend ? `in ${y} the court rode into ${c.name(r.product, y)} and made it the seat of the realm` : `in ${y} the court moved to ${c.name(r.product, y)}`
     case OrderKind.Faith: {
       const ruler = c.rd && r.product >= 0 && r.product < c.rd.R ? c.ruler(r.product, y) : who
       return `${ruler} took up ${c.faith(o.target ?? -1)} in ${y}`
@@ -308,7 +308,7 @@ function partClause(c: Ctx, o: Order, r: OrderOutcome, place: string): string {
 function failClause(kind: number, reason: number, legend: boolean, plural: boolean, c: Ctx, o: Order): string {
   const were = plural ? 'were' : 'was'
   switch (reason) {
-    case OrderReason.NoActor: case OrderReason.ActorGone: return legend ? 'those it called were gone before they could answer' : 'there was no one left to answer it'
+    case OrderReason.NoActor: case OrderReason.ActorGone: return kind <= OrderKind.Idea ? (legend ? 'those it called were gone before they could answer' : 'there was no one left to answer it') : kind >= OrderKind.Fortify ? (legend ? 'the town was already dust' : 'the town was gone') : legend ? 'the realm it called was already dust' : 'the realm it called no longer stood'
     case OrderReason.TargetGone: return legend ? 'what it pointed to passed away' : 'what it pointed to was gone'
     case OrderReason.NoExpedition: return legend ? 'no ship would sail' : 'no town of theirs could fit out an expedition'
     case OrderReason.OutOfReach: return legend ? 'the sea gave back only empty water' : 'their ships found nothing new that way'
@@ -322,13 +322,13 @@ function failClause(kind: number, reason: number, legend: boolean, plural: boole
     case OrderReason.TooWeak: return kind === OrderKind.War ? (legend ? 'the spears were never enough' : 'the realm was never strong enough at the border to dare it') : 'the town was too small'
     case OrderReason.NotAtWar: return 'there was no war to end'
     case OrderReason.NotMember: return `${c.name(o.target ?? -1, o.year)} was not in the realm`
-    case OrderReason.Refused: return kind === OrderKind.Idea ? 'the faithful and the guilds would not have it' : legend ? 'nothing came of it' : 'the ruler would not'
+    case OrderReason.Refused: return kind === OrderKind.Idea ? 'the faithful and the guilds would not have it' : 'the ruler would not'
     case OrderReason.NotPort: return `${c.name(o.actor, o.year)} had no harbour${legend ? ' to close' : ''}`
     case OrderReason.Unskilled: return 'its people did not know how'
     case OrderReason.Absent: return 'too few in the realm kept that faith'
     case OrderReason.AlreadyDone: return kind === OrderKind.Fortify ? 'the walls were already up' : kind === OrderKind.Faith ? `that faith ${were} already kept at court` : 'it was so already'
     case OrderReason.Busy: return 'the realm had wars enough'
-    case OrderReason.SystemOff: return 'nothing came of it'
+    case OrderReason.SystemOff: return legend ? 'its hour had not come' : 'nothing came of it'
   }
-  return legend ? 'the sign faded' : 'nothing came of it'
+  return legend ? 'its hour had not come' : 'nothing came of it'
 }

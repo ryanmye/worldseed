@@ -105,7 +105,7 @@ const T: PhraseTable = {
   endReunified: [['In {year} it was taken back into {by}, the realm it had broken from.'], ['In {year} {by} gathered it back into itself.']],
   endAbsorbed: [['In {year} it submitted whole to {by}.'], ['In {year} it bowed its head and was swallowed by {by}.']],
   endOther: [['It ended in {year}.'], ['In {year} it passed away.']],
-  lasted: [[' It had lasted {years} years.'], [' {years} years it had endured.']],
+  lasted: [[' It had lasted {years}.'], [' For {years} it had endured.']],
   now: [
     ['In {Y} it is {an} {tier} of {pop} people in {members}, ruled from {cap}{by}.', 'In {Y} the {state} rules {pop} people in {members} from {cap}{under}.'],
     ['In {Y} it stands {an} {tier} of {pop} souls in {members}, ruled from {cap}{by}.'],
@@ -348,7 +348,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const by = byP >= 0 && byP !== p ? ` by the ${c.ptitle(byP, x.endedYear)}` : ''
     const byN = byP >= 0 && byP !== p ? `the ${c.ptitle(byP, x.endedYear)}` : 'a larger neighbour'
     const key = x.endCause === PolityEnd.Conquered ? 'endConquered' : x.endCause === PolityEnd.Fragmented ? 'endFragmented' : x.endCause === PolityEnd.Dwindled ? 'endDwindled' : x.endCause === PolityEnd.Reunified ? 'endReunified' : x.endCause === PolityEnd.Absorbed ? 'endAbsorbed' : 'endOther'
-    p5.push(v.p(key, { year: x.endedYear, by: key === 'endConquered' ? by : byN }) + v.p('lasted', { years: x.endedYear - fy }))
+    p5.push(v.p(key, { year: x.endedYear, by: key === 'endConquered' ? by : byN }) + v.p('lasted', { years: plural(x.endedYear - fy, 'year') }))
     closing = v.p('closingEnded', { state })
   } else {
     const st = c.pstat(p, c.sY)

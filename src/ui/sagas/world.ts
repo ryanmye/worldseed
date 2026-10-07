@@ -374,7 +374,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   const ge = (h.epidemics ?? []).filter((e) => e.great && e.startYear <= Y)
   if (ge.length) {
     const worst = [...ge].sort((a, b) => b.deaths - a.deaths)[0]
-    plague.push(v.p(ge.length === 1 ? 'greatEpidemic' : 'greatEpidemics', { n: cap1(num(ge.length)), year: worst.startYear, dead: people(worst.deaths) }))
+    plague.push(v.p(ge.length === 1 ? 'greatEpidemic' : 'greatEpidemics', { n: num(ge.length), year: worst.startYear, dead: people(worst.deaths) }))
   }
   add(v.p('hFaith'), (da.length && da[0].year < faithYear ? plague.concat(t6) : t6.concat(plague)).join(' '), ['plague', 'conversion'], [OrderKind.Faith, OrderKind.Quarantine])
 
@@ -407,7 +407,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   for (let id = 0; id < c.N; id++) if (c.alive(id) && !h.settlements[id].outpost) { worldPop += c.pop(id); nAlive++; alive.push(id) }
   let t8 = v.p('nowWorld', { Y, pop: people(worldPop).replace(/^some /, 'some '), n: plural(nAlive, 'town and village', 'towns and villages') })
   const bigC = topBy(alive, (id) => c.pop(id), 3)
-  if (bigC.length && c.pop(bigC[0]) >= TOWN_POPULATION) t8 += ' ' + refs.cite(v.p('nowCities', { list: list(bigC.filter((id) => c.pop(id) >= TOWN_POPULATION).map((id) => `${c.name(id, Y)} of the ${c.peopleName(c.peopleOf(id))} (${people(c.pop(id)).replace(/^some /, '')})`)) }).trim(), { kind: 'city', id: bigC[0] })
+  if (bigC.length && c.pop(bigC[0]) >= TOWN_POPULATION) t8 += v.p('nowCities', { list: list(bigC.filter((id) => c.pop(id) >= TOWN_POPULATION).map((id) => `${c.name(id, Y)} of the ${c.peopleName(c.peopleOf(id))} (${people(c.pop(id)).replace(/^some /, '')})`)) })
   if (pd) {
     const live = pd.list.filter((x) => c.plives(x.id))
     if (live.length) {

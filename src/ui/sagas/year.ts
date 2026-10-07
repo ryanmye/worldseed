@@ -19,6 +19,7 @@ const T: PhraseTable = {
     ['In the years from {a} to {b} the world held {pop} people, in {towns}{states}.', 'Between {a} and {b} {pop} people lived in the world, in {towns}{states}.'],
     ['In the years {a} to {b} {pop} souls dwelt under the sky, in {towns}{states}.'],
   ],
+  openerFirst: [['In the first ten years of the records the world held {pop} people, in {towns}{states}.'], ['In the first ten years that were counted, {pop} souls dwelt under the sky, in {towns}{states}.']],
   openerYear: [['In {a} the world held {pop} people, in {towns}{states}.'], ['In the year {a} {pop} souls dwelt under the sky, in {towns}{states}.']],
   wars: [
     ['War broke out {times}; the greatest was {war}, begun in {year}.', 'There were {n} new wars; the greatest, {war}, began in {year}.'],
@@ -26,12 +27,12 @@ const T: PhraseTable = {
   ],
   war1: [['In {year} {war} began.', '{war} broke out in {year}.'], ['In {year} {war} began.']],
   peace: [['In {year} {war} ended{how}.', '{war} came to an end in {year}{how}.'], ['In {year} {war} was ended{how}.']],
-  peaceMore: [[' {n} other wars ended too.'], [' {n} other wars were laid to rest.']],
+  peaceMore: [[' {other} ended too.'], [' {other} came to an end.']],
   sack: [['In {year} {by} sacked {town}, and {share} of its people were lost.'], ['In {year} {by} put {town} to the torch, and {share} of its people perished.']],
   founded: [['In {year} the {state} was founded at {cap}.', 'The {state} was founded at {cap} in {year}.'], ['In {year} a new crown was raised at {cap}: the {state}.']],
-  foundedMore: [[' {n} other states rose in those years.'], [' {n} other crowns were raised.']],
+  foundedMore: [[' {other} rose in those years.'], [' {other} rose too.']],
   ended: [['In {year} the {state} came to an end.', 'The {state} fell in {year}.'], ['In {year} the {state} was cast down.']],
-  endedMore: [[' {n} other states fell.'], [' {n} other crowns fell with it.']],
+  endedMore: [[' {other} fell.'], [' {other} fell with it.']],
   acceded: [['In {year} {ruler} came to the throne of the {state}.'], ['In {year} {ruler} took the crown of the {state}.']],
   disease: [['In {year} {disease} first struck, at {place}.'], ['In {year} {disease} first came out of {place}.']],
   stricken: [['In {year} {disease} reached {city} and carried off {share} of its people.'], ['In {year} {disease} came into {city} and took {share} of its people.']],
@@ -79,7 +80,7 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
   for (let id = 0; id < c.N; id++) if (c.alive(id, b) && !h.settlements[id].outpost) { pop += h.population[sb * c.N + id]; towns++ }
   let states = ''
   if (pd) { const n = pd.list.filter((x) => c.plives(x.id, b)).length; if (n) states = `, under ${plural(n, 'state')}` }
-  const opener = v.p(span === 1 ? 'openerYear' : 'opener', { a, b, pop: people(pop), towns: plural(towns, 'town and village', 'towns and villages'), states })
+  const opener = a === 0 && span > 1 ? v.p('openerFirst', { b, pop: people(pop), towns: plural(towns, 'town and village', 'towns and villages'), states }) : v.p(span === 1 ? 'openerYear' : 'opener', { a, b, pop: people(pop), towns: plural(towns, 'town and village', 'towns and villages'), states })
 
   // wars begun and ended
   if (W && pd) {
@@ -94,7 +95,7 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
     if (ended.length) {
       const big = topBy(ended, (w) => W.dead[w] + 1, 1)[0]
       const how = W.outcome[big] === 1 ? ', with nothing changed' : W.outcome[big] === 4 ? `, with ${c.pname(W.defender[big])} conquered` : W.outcome[big] === 6 ? ', in vassalage' : W.outcome[big] === 5 ? ', in tribute' : ''
-      sents.push(cap(v.p('peace', { year: W.endYear[big], war: about(big), how })) + (ended.length > 1 ? v.p('peaceMore', { n: cap(num(ended.length - 1)) }) : ''))
+      sents.push(cap(v.p('peace', { year: W.endYear[big], war: about(big), how })) + (ended.length > 1 ? v.p('peaceMore', { other: others(ended.length - 1, 'war') }) : ''))
     }
   }
   // the worst sack
@@ -110,13 +111,13 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
     if (fnd.length) {
       const big = topBy(fnd, (p) => c.ppeak(p).pop + 1, 1)[0]
       const x = pd.list[big]
-      sents.push(refs.cite(v.p('founded', { year: x.foundedYear, state: c.ptitle(big, x.foundedYear), cap: c.name(x.capitals[0], x.foundedYear) }), { kind: 'state', id: big }) + (fnd.length > 1 ? v.p('foundedMore', { n: cap(num(fnd.length - 1)) }) : ''))
+      sents.push(refs.cite(v.p('founded', { year: x.foundedYear, state: c.ptitle(big, x.foundedYear), cap: c.name(x.capitals[0], x.foundedYear) }), { kind: 'state', id: big }) + (fnd.length > 1 ? v.p('foundedMore', { other: others(fnd.length - 1, legend ? 'crown' : 'state') }) : ''))
       facts.push(`${plural(fnd.length, 'state')} founded`)
     }
     const fell = of(EventType.PolityEnded).map((e) => e.value).filter((p) => p >= 0 && p < pd.count)
     if (fell.length) {
       const big = topBy(fell, (p) => c.ppeak(p).pop + 1, 1)[0]
-      sents.push(refs.cite(v.p('ended', { year: pd.list[big].endedYear, state: c.pgreatTitle(big) }), { kind: 'state', id: big }) + (fell.length > 1 ? v.p('endedMore', { n: cap(num(fell.length - 1)) }) : ''))
+      sents.push(refs.cite(v.p('ended', { year: pd.list[big].endedYear, state: c.pgreatTitle(big) }), { kind: 'state', id: big }) + (fell.length > 1 ? v.p('endedMore', { other: others(fell.length - 1, legend ? 'crown' : 'state') }) : ''))
     }
     if (c.rd) {
       const live = pd.list.filter((x) => c.plives(x.id, b)).map((x) => x.id)
@@ -170,12 +171,15 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
   const body: string[] = [opener]
   // (the most telling nine, kept in the order of their years: the first year each names within the span)
   const yearIn = (s: string) => { for (const m of s.matchAll(/\b(\d{1,4})\b/g)) { const y = Number(m[1]); if (y >= a && y <= b) return y } return b }
-  body.push(...sents.slice(0, 9).map((s, i) => [s, yearIn(s), i] as const).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map((x) => x[0]))
+  body.push(...sents.slice(0, 9).map((s, i) => [s, yearIn(s), i] as const).sort((x, y) => x[1] - y[1] || x[2] - y[2]).map((x) => (span === 1 ? cap(x[0].replace(new RegExp(`^In ${a},? `), '').replace(new RegExp(` in ${a}(?=[.,;])`), '')) : x[0])))
   if (sents.length === 0 && om.length === 0) body.push(v.p('quiet'))
   book.add(body.join(' '))
   for (const t of om) book.omen(t)
   const spanW = span === 1 ? `${a}` : b < a + span - 1 ? `${a}–${b}, told so far` : `${a}–${b}`
-  if (!facts.length) facts.push(sents.length ? `${plural(sents.length, 'thing')} of note` : 'quiet years')
+  if (sacks.length) facts.push(sacks.length === 1 ? 'a sack' : plural(sacks.length, 'sack'))
+  if (cities.length) facts.push(plural(cities.length, 'new city', 'new cities'))
+  if (lfs.length) facts.push(plural(lfs.length, 'landfall'))
+  if (!facts.length) facts.push(sents.length ? (sents.length === 1 ? 'one thing of note' : 'a few things of note') : 'quiet years')
   return {
     kind, id: a, year: c.Y, legend,
     title: v.p(span === 1 ? 'titleYear' : 'titleDecade', { a, b: a + span - 1 }),
@@ -184,6 +188,9 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
     closing: v.p(span === 1 ? 'closingYear' : 'closingDecade', { a, b }),
   }
 }
+
+/** "One other state", "Three other states". */
+const others = (n: number, one: string) => (n === 1 ? `One other ${one}` : `${cap(num(n))} other ${one}s`)
 
 function featurePhrase(kind: number, name: string): string {
   switch (kind) {
