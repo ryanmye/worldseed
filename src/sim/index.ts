@@ -48,4 +48,6 @@ export const generateWorld: GenerateWorld = (seed: number, options?: WorldOption
 }
 
 export { createHistoryRun, simulateHistory } from './history/index.ts'
+export { cradleCount, previewCradles } from './history/cradleWish.ts' // cradle wishes
+export type { CradlePreview } from './history/cradleWish.ts'
 export type { World, WorldOptions } from '../contract.ts'

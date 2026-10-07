@@ -309,6 +309,22 @@ export const CRADLE = {
 }
 
 /**
+ * cradle wishes (cradleWish.ts; HistoryOptions.cradles): where the player wished a people to begin. A wished cell that is not
+ * baseHabitable land (sea, ice, bare rock, dry waste: land no founding tribe could live on) moves to the nearest such free cell
+ * (by chord) within radiusHops hops of it (over land or sea; at n = 48, scaled with the grid); with none there the wish is
+ * rejected and the simulation chooses. Peoples the simulation places move off when they sit within avoidChord of a wished
+ * people (redrawn among their cradle's sites, as the planner draws them). Two wishes within crowdChord (in sight of each other
+ * at founding) are kept and noted. A wished people joins a cradle whose centre is within joinChord on its landmass, else
+ * begins a cradle of its own.
+ */
+export const CRADLE_WISH = {
+  radiusHops: 3,
+  avoidChord: 0.2,
+  crowdChord: 0.14,
+  joinChord: 0.3,
+}
+
+/**
  * Knowledge (knowledge.ts): what each people knows of the world (History.knownYear) and whom it has met.
  * Hop units are n = 48 cells; costs scale with the grid.
  */
