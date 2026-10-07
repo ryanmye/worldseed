@@ -3,12 +3,16 @@
 // received), their greatest towns, states and rulers, their wars and sufferings, and where they stand at the year
 // told. Every sentence comes from the records up to that year.
 
-import { EventType, FeatureKind, IdeaHow, SpeciesCategory, WarOutcome } from '../../contract.ts'
+import { EventType, FeatureKind, IdeaHow, OrderKind, SpeciesCategory, WarOutcome } from '../../contract.ts'
 import { speciesGloss } from '../format.ts'
 import { Ctx, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
-import type { Saga } from './types.ts'
+import { Book, type Saga } from './types.ts'
+import { OMEN_T, omenText, omensOfPeople } from './omens.ts'
+import { Refs } from './refs.ts'
+import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { warCalled } from './wars.ts'
 
 const T: PhraseTable = {
   title: [['The Saga of the {people}'], ['The Saga of the {people}{ep}']],
@@ -33,7 +37,7 @@ const T: PhraseTable = {
     ['In {year} they were the first to {verb} {sp}, {gloss}, near {place}.', 'They first {verbed} {sp}, {gloss}, near {place} in {year}.'],
     ['In {year}, near {place}, they first {verbed} {sp}, {gloss}.', 'It was they who first {verbed} {sp}, {gloss}, near {place}, in {year}.'],
   ],
-  tamedMore: [['They tamed or first grew {n} kinds in all.'], ['{n} wild kinds in all they made their own.']],
+  tamedMore: [['In all they were the first to tame or grow {n} kinds, the last of them {sp}, in {year}.'], ['{n} wild kinds in all they made their own, and last of them {sp}, in {year}.']],
   adopted: [
     ['From the {from} they took {sp}.', '{sp} came to them from the {from}.'],
     ['From the {from} they received {sp}.', 'The {from} gave them {sp}.'],
@@ -85,7 +89,7 @@ const T: PhraseTable = {
     ['They were the first to work out {list}.', '{list} were first worked out among them.'],
     ['From their minds first came {list}.', 'They were the first to master {list}.'],
   ],
-  inventedMore: [[' In all they conceived {n} ideas before anyone else.'], [' {n} new things in all came first from them.']],
+  inventedMore: [[' They were first with {n} ideas in all, the latest {last}, in {year}.'], [' {n} new things in all came first from them, and last of these {last}, in {year}.']],
   received: [
     ['From others they took up {n}, the first of them {first} from the {from}, in {year}.', 'They learned {n} from other peoples, beginning with {first}, from the {from} in {year}.'],
     ['From strangers they learned {n}, and first of all {first}, from the {from}, in {year}.'],
@@ -135,7 +139,33 @@ const T: PhraseTable = {
   closing: [['Here ends the saga of the {people}.', 'So ends the saga of the {people}, told to the year {Y}.'], ['So ends the saga of the {people}; may their hearths never grow cold.', 'Here the saga of the {people} is ended, but not their story.']],
   closingGone: [['Here ends the saga of the {people}.'], ['So ends the saga of the {people}; their names live only here.']],
   epigraph: [['The {people}: {facts}.'], ['The {people}{ep}: {facts}.']],
+  receivedMany: [
+    ['From others they learned {much}: first {first}, from the {from} in {year}, and later {later}, from the {from2} in {year2}.', 'They learned {much} from other peoples, beginning with {first} from the {from} in {year}; {later} came to them from the {from2} in {year2}.'],
+    ['From strangers they learned {much}: first {first}, from the {from}, in {year}, and in time {later}, from the {from2}, in {year2}.'],
+  ],
+  warsMany: [['Their states were seldom long at peace: they fought {n} wars', 'War was never far from their states, which fought {n} of them'], ['Seldom did their spears rest: {n} wars their states fought']],
+  warsWinners: [[', and won far more often than they lost.'], [', and far more often they were the victors.']],
+  warsLosers: [[', and lost more often than they won.'], [', and more often than not they were beaten.']],
+  warsEven: [[', winning about as often as they lost.'], [', and fortune went now one way, now the other.']],
+  warsBloodiest: [['The bloodiest was {war}, begun in {year}, which cost {dead} lives.', 'Worst of them was {war}, begun in {year}: {dead} died in it.'], ['Bitterest of all was {war}, begun in {year}, in which {dead} fell.']],
+  sacksMany: [
+    ['Their towns were sacked {times}: worst of all {place} in {year}, which lost {share} of its people, and after it {place2} in {year2}.', 'Their towns were sacked {times}; {place} suffered worst, in {year}, losing {share} of its people, and {place2} next, in {year2}.'],
+    ['{times} their towns were given to the flames; worst was {place}, in {year}, where {share} of the people perished, and after it {place2}, in {year2}.'],
+  ],
+  hOrigin: [['Beginnings'], ['The First Fire']],
+  hFields: [['Fields and Herds'], ['Seed and Flock']],
+  hSpread: [['Over Land and Sea'], ['The Wide Roads']],
+  hMet: [['Strangers'], ['The Meeting of Peoples']],
+  hFaith: [['Gods'], ['The Gods of the {people}']],
+  hIdeas: [['Learning'], ['Wisdom']],
+  hTowns: [['Towns and Crowns'], ['Halls and Thrones']],
+  hWar: [['War and Sorrow'], ['Spears and Sorrows']],
+  hOmens: [['Signs and Portents'], ['Signs and Wonders']],
+  hNow: [['The {people} in {Y}'], ['As They Stand']],
+  hGone: [['The End of the {people}'], ['The Last of the {people}']],
 }
+
+const MILESTONE_KEYS = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', 'compass', 'printing', 'gunpowder', 'science']
 
 /** "the river Hulu", "the Kesh mountains", "the land of Kusemuyu". */
 export function featurePhrase(kind: number, name: string): string {
@@ -178,14 +208,34 @@ function peopleEpithet(c: Ctx, p: number): string {
 
 export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `people:${p}`, legend, T)
+  const v = new Voice(c.seed, `people:${p}`, legend, T, SCENE_T, OMEN_T)
   const pn = c.peopleName(p)
   const Y = c.Y
   const mine = (id: number) => id >= 0 && id < c.N && c.peopleOf(id) === p
   const own = c.ix.ofPeople[p].filter((id) => h.settlements[id].foundedYear <= Y)
   const ep = legend ? peopleEpithet(c, p) : ''
-  const paras: string[] = []
+  const book = new Book()
+  const refs = new Refs(c, book, { kind: 'people', id: p }, legend)
   const P = h.peoples.length
+  // scenes: their first landfall, the worst sack and plague in their towns, a conversion of one of their realms, their longest great work
+  const ofMine = (t: number) => c.type(t).filter((i) => mine(c.ev(i).settlement))
+  const lf0 = ofMine(EventType.Landfall)[0]
+  const L = h.landmarks
+  const scenes = pickScenes([
+    lf0 !== undefined ? landfallScene(c, v, lf0) : null,
+    ...topBy(ofMine(EventType.Sacked), (i) => c.ev(i).value * c.pop(c.ev(i).settlement, Math.max(0, c.ev(i).year - 1)), 1).map((i) => sackScene(c, v, i)),
+    ...topBy(ofMine(EventType.CityStricken), (i) => (c.ev(i).extra ?? 0) * c.pop(c.ev(i).settlement, c.ev(i).year), 1).map((i) => plagueScene(c, v, i, legend)),
+    ...topBy(ofMine(EventType.RulerConverted).filter((i) => { const q = c.polityOf(c.ev(i).settlement, c.ev(i).year); return q >= 0 && h.polities[q].people === p }), (i) => 1 + (c.pstat(c.polityOf(c.ev(i).settlement, c.ev(i).year), c.snap(c.ev(i).year))?.pop ?? 0), 1).map((i) => conversionScene(c, v, i)),
+    ...topBy(ofMine(EventType.LandmarkCompleted), (i) => (L ? L.completedYear[c.ev(i).value] - L.begunYear[c.ev(i).value] : 0), 1).map((i) => workScene(c, v, i)),
+  ], 3)
+  const omens = omensOfPeople(c, p)
+  const placed = new Set<number>()
+  const section = (head: string, text: string, sceneKinds: readonly Scene['kind'][] = [], omenKinds: readonly number[] = []) => {
+    book.chapter(v.p(head, { people: pn, Y }))
+    book.add(text)
+    for (const s of scenes) if (sceneKinds.includes(s.kind)) book.scene(s.title, s.text)
+    for (const f of omens) if (omenKinds.includes(f.o.kind) && !placed.has(f.k)) { placed.add(f.k); book.omen(omenText(c, v, f)) }
+  }
 
   // ---- origin and homeland ----
   const p1: string[] = []
@@ -197,7 +247,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
   p1.push(others.length ? v.p('cradle', { others: list(others) }) : v.p('cradleAlone'))
   const named = h.features.filter((f) => f.namedYear <= Y && mine(f.namedBy)).sort((a, b) => b.size - a.size).slice(0, 3)
   if (named.length) p1.push(v.p('named', { list: list(named.map((f) => featurePhrase(f.kind, f.name))) }))
-  paras.push(p1.join(' '))
+  section('hOrigin', p1.join(' '))
 
   // ---- what they grew and tamed ----
   const p2: string[] = []
@@ -215,7 +265,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const verb = x.category === SpeciesCategory.Livestock ? 'tame' : 'cultivate'
     p2.push(v.p('tamed', { year: e.year, verb, verbed: verb === 'tame' ? 'tamed' : 'cultivated', sp: `the ${x.name}`, gloss: speciesGloss(x.archetype, x.category), place: c.place(e.settlement, e.year) }))
   }
-  if (tamed.length > 2) p2.push(v.p('tamedMore', { n: num(tamed.length) }))
+  if (tamed.length > 2) { const e = tamed[tamed.length - 1], x = sp[e.value]; if (x) p2.push(v.p('tamedMore', { n: num(tamed.length), sp: `the ${x.name}`, year: e.year })) }
   const fromOthers = new Map<number, string[]>()
   for (const x of sp) {
     const y = h.speciesYear[p * S + x.id], src = h.speciesSource[p * S + x.id]
@@ -231,7 +281,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const k = h.techniques[tech.value]
     p2.push(v.p('technique', { year: tech.year, name: k.name, what: k.species >= 0 && sp[k.species] ? (legend ? ` for the ${sp[k.species].name}` : ` the ${sp[k.species].name}`) : '' }))
   }
-  if (p2.length) paras.push(p2.join(' '))
+  section('hFields', p2.join(' '), [], [OrderKind.Crop])
 
   // ---- spread and seafaring ----
   const p3: string[] = []
@@ -258,7 +308,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const what = f ? featurePhrase(f.kind, f.name) : 'the pole'
     p3.push(v.p('discovery', { from: c.place(disc.settlement, disc.year), what, year: disc.year }))
   }
-  if (p3.length) paras.push(p3.join(' '))
+  section('hSpread', p3.join(' '), ['landfall'], [OrderKind.Explore, OrderKind.Settle])
 
   // ---- whom they met ----
   const p4: string[] = []
@@ -278,7 +328,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const sick = c.type(EventType.Epidemic).map((i) => c.ev(i)).find((e) => mine(e.settlement))
     if (sick) p4.push(v.p('contactSick', { year: sick.year, from: c.peopleName(c.peopleOf(sick.other)) }))
   }
-  paras.push(p4.join(' '))
+  section('hMet', p4.join(' '))
 
   // ---- faith ----
   const p5: string[] = []
@@ -304,7 +354,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       p5y.push(1e9)
     }
   }
-  if (p5.length > 1) paras.push(p5.map((t, i) => [t, p5y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '))
+  section('hFaith', p5.length > 1 ? p5.map((t, i) => [t, p5y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' ') : '', ['conversion'], [OrderKind.Faith])
 
   // ---- ideas ----
   const p6: string[] = []
@@ -316,15 +366,19 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       if (A.how[k] === IdeaHow.Invented) { if (h.ideas[A.idea[k]]?.firstPeople === p && h.ideas[A.idea[k]]?.firstYear === A.year[k]) inv.push(k) }
       else if (A.how[k] !== IdeaHow.Lost) rec.push(k)
     }
-    if (inv.length) p6.push(v.p('invented', { list: list(inv.slice(0, 3).map((k) => h.ideas[A.idea[k]].name)) }) + (inv.length > 3 ? v.p('inventedMore', { n: num(inv.length) }) : ''))
+    if (inv.length) p6.push(v.p('invented', { list: list(inv.slice(0, 3).map((k) => h.ideas[A.idea[k]].name)) }) + (inv.length > 3 ? v.p('inventedMore', { n: num(inv.length), last: h.ideas[A.idea[inv[inv.length - 1]]].name, year: A.year[inv[inv.length - 1]] }) : ''))
     if (rec.length) {
       const k = rec[0]
-      p6.push(v.p('received', { n: plural(rec.length, 'idea'), first: h.ideas[A.idea[k]].name, from: c.peopleName(A.from[k]), year: A.year[k] }))
+      // (a count in words, and one later idea of note by name: a milestone if any came to them)
+      const later = rec.slice(1).find((x) => MILESTONE_KEYS.includes(h.ideas[A.idea[x]]?.key)) ?? (rec.length > 2 ? rec[rec.length - 1] : -1)
+      const much = rec.length >= 20 ? 'much' : rec.length >= 8 ? 'a good deal' : plural(rec.length, 'idea')
+      if (later >= 0) p6.push(v.p('receivedMany', { much, first: h.ideas[A.idea[k]].name, from: c.peopleName(A.from[k]), year: A.year[k], later: h.ideas[A.idea[later]].name, from2: c.peopleName(A.from[later]), year2: A.year[later] }))
+      else p6.push(v.p('received', { n: plural(rec.length, 'idea'), first: h.ideas[A.idea[k]].name, from: c.peopleName(A.from[k]), year: A.year[k] }))
     }
     const lostI = c.type(EventType.IdeaLost).map((i) => c.ev(i)).find((e) => mine(e.settlement))
     if (lostI) p6.push(v.p('lostIdea', { what: h.ideas[lostI.value]?.name ?? 'an art', year: lostI.year }))
   }
-  if (p6.length) paras.push(p6.join(' '))
+  section('hIdeas', p6.join(' '), [], [OrderKind.Idea])
 
   // ---- greatest towns, states, rulers ----
   const p7: string[] = []
@@ -333,7 +387,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const pk = c.peak(tops[0])
     const nowTop = c.alive(tops[0]) && pk.year >= Y - h.snapshotInterval
     const nm = legend ? `${c.name(tops[0], pk.year)}${cityEpithet(c, tops[0]) ? ` ${cityEpithet(c, tops[0])}` : ''}` : c.place(tops[0], pk.year)
-    p7.push(v.p(nowTop ? 'citiesNow' : 'cities', { top: nm, pop: people(pk.pop).replace(/^some /, ''), year: pk.year }) + (() => { const more = tops.slice(1).filter((x) => c.peak(x).pop >= 3000); return more.length ? v.p(more.length === 1 ? 'citiesMoreOne' : 'citiesMore', { list: list(more.map((x) => c.name(x, Y))) }) : '' })())
+    p7.push(refs.cite(v.p(nowTop ? 'citiesNow' : 'cities', { top: nm, pop: people(pk.pop).replace(/^some /, ''), year: pk.year }), { kind: 'city', id: tops[0] }) + (() => { const more = tops.slice(1).filter((x) => c.peak(x).pop >= 3000); return more.length ? v.p(more.length === 1 ? 'citiesMoreOne' : 'citiesMore', { list: list(more.map((x) => c.name(x, Y))) }) : '' })())
   }
   const states = (c.pd?.list ?? []).filter((x) => x.people === p && x.foundedYear <= Y)
   if (c.pd) {
@@ -342,8 +396,8 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       const best = topBy(states.map((x) => x.id), (q) => c.ppeak(q).pop, 1)[0] ?? states[0].id
       const pk = c.ppeak(best)
       const big = states.filter((x) => c.ppeak(x.id).maxTier >= 1).length
-      if (states.length === 1) p7.push(v.p('stateOne', { state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop) }))
-      else p7.push(v.p('states', { n: plural(states.length, 'state'), extra: big === states.length ? ', all of them kingdoms or greater' : big >= 2 ? `, ${num(big)} of them kingdoms or greater` : '', state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop) }))
+      if (states.length === 1) p7.push(refs.cite(v.p('stateOne', { state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop) }), { kind: 'state', id: best }))
+      else p7.push(refs.cite(v.p('states', { n: plural(states.length, 'state'), extra: big === states.length ? ', all of them kingdoms or greater' : big >= 2 ? `, ${num(big)} of them kingdoms or greater` : '', state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop) }), { kind: 'state', id: best }))
     }
     if (c.rd) {
       const reigns: number[] = []
@@ -351,11 +405,11 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       const r = topBy(reigns, (r) => c.reignYears(r), 1)[0]
       if (r !== undefined && c.reignYears(r) >= 20) {
         const who = legend ? withEpithet(c.ruler(r), rulerEpithet(reignFacts(c, r))) : `${c.ruler(r)} of ${c.pname(c.rd.rulers[r].polity)}`
-        p7.push(v.p('ruler', { ruler: who, years: c.reignYears(r) }))
+        p7.push(c.rd.rulers[r].dynasty >= 0 ? refs.cite(v.p('ruler', { ruler: who, years: c.reignYears(r) }), { kind: 'house', id: c.rd.rulers[r].dynasty }) : v.p('ruler', { ruler: who, years: c.reignYears(r) }))
       }
     }
   }
-  if (p7.length) paras.push(p7.join(' '))
+  section('hTowns', p7.join(' '), ['work'], [OrderKind.Seat])
 
   // ---- wars and sufferings ----
   const p8: string[] = []
@@ -373,12 +427,23 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       if (o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute || o === WarOutcome.Vassalage) att ? won++ : lost2++
       else if (o === WarOutcome.DefenderGains) att ? lost2++ : won++
     }
-    if (ids.size >= 2) p8.push(v.p('wars', { n: num(ids.size), winloss: won + lost2 > 0 ? `, winning ${won ? num(won) : 'none'} and losing ${lost2 ? num(lost2) : 'none'}` : '' }))
+    const all = [...ids]
+    const bloody = topBy(all, (w) => W.dead[w], 1)[0]
+    const bw = bloody !== undefined && W.dead[bloody] >= 1000 ? bloody : -1
+    const bloodiest = bw >= 0 ? v.p('warsBloodiest', { war: warCalled(c, bw, states.find((s2) => s2.id === W.attacker[bw] || s2.id === W.defender[bw])?.id ?? -1), year: W.startYear[bw], dead: people(W.dead[bw]) }) : ''
+    if (ids.size >= 10) {
+      // (many wars: the record in words, and the bloodiest by name)
+      const record = won + lost2 === 0 ? '' : won >= 2 * Math.max(1, lost2) ? 'warsWinners' : lost2 >= 2 * Math.max(1, won) ? 'warsLosers' : 'warsEven'
+      p8.push(v.p('warsMany', { n: num(ids.size) }) + (record ? v.p(record) : '') + (bloodiest ? ' ' + bloodiest : ''))
+    } else if (ids.size >= 2) p8.push(v.p('wars', { n: num(ids.size), winloss: won + lost2 > 0 ? `, winning ${won ? num(won) : 'none'} and losing ${lost2 ? num(lost2) : 'none'}` : '' }) + (bloodiest ? ' ' + bloodiest : ''))
   }
   const sacked = c.type(EventType.Sacked).map((i) => c.ev(i)).filter((e) => mine(e.settlement))
   if (sacked.length) {
-    const worst = [...sacked].sort((a, b) => b.value * c.pop(b.settlement, b.year - 5) - a.value * c.pop(a.settlement, a.year - 5))[0]
-    p8.push(v.p('sacks', { times: times(sacked.length), place: c.place(worst.settlement, worst.year), year: worst.year, share: shareWords(worst.value) }))
+    const byToll = [...sacked].sort((a, b) => b.value * c.pop(b.settlement, b.year - 5) - a.value * c.pop(a.settlement, a.year - 5))
+    const worst = byToll[0]
+    const second = byToll.find((e) => e.settlement !== worst.settlement)
+    if (sacked.length >= 4 && second) p8.push(v.p('sacksMany', { place: c.place(worst.settlement, worst.year), year: worst.year, share: shareWords(worst.value), place2: c.place(second.settlement, second.year), year2: second.year, times: sacked.length >= 20 ? 'again and again' : `${num(sacked.length)} times` }))
+    else p8.push(v.p('sacks', { times: times(sacked.length), place: c.place(worst.settlement, worst.year), year: worst.year, share: shareWords(worst.value) }))
   }
   const fam = c.type(EventType.Famine).map((i) => c.ev(i)).filter((e) => mine(e.settlement) && e.value >= 0.1)
   if (fam.length) {
@@ -391,11 +456,16 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const dn = c.disease(worst.disease, legend)
     if (dn) p8.push(v.p('epidemic', { disease: dn, year: worst.startYear }))
   }
-  if (p8.length) paras.push(p8.join(' '))
+  section('hWar', p8.join(' '), ['sack', 'plague'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
+
+  // ---- signs not told above (their kind had no chapter) ----
+  const rest = omens.filter((f) => !placed.has(f.k))
+  if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
 
   // ---- now ----
   const living = own.filter((id) => c.alive(id) && !h.settlements[id].outpost)
   let closing: string
+  book.chapter(v.p(living.length ? 'hNow' : 'hGone', { people: pn, Y }))
   if (living.length) {
     const pop = living.reduce((a, id) => a + c.pop(id), 0)
     let t = v.p('nowAlive', { Y, people: pn, pop: people(pop).replace(/^some /, ''), n: plural(living.length, 'town or village', 'towns and villages') })
@@ -406,11 +476,11 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
       const best = topBy(alive.map((x) => x.id), (q) => c.pstat(q, c.sY)?.pop ?? 0, 1)[0] ?? alive[0].id
       t += v.p('nowStates', { n: plural(alive.length, 'state'), state: c.ptitle(best) })
     } else if (states.length) t += v.p('nowStateless')
-    paras.push(t)
+    book.add(t)
     closing = v.p('closing', { people: pn, Y })
   } else {
     const last = [...own].filter((id) => !h.settlements[id].outpost).sort((a, b) => h.settlements[b].abandonedYear - h.settlements[a].abandonedYear)[0]
-    paras.push(v.p('gone', { people: pn, place: c.name(last, h.settlements[last].abandonedYear - 1), year: h.settlements[last].abandonedYear }))
+    book.add(v.p('gone', { people: pn, place: c.name(last, h.settlements[last].abandonedYear - 1), year: h.settlements[last].abandonedYear }))
     closing = v.p('closingGone', { people: pn })
   }
 
@@ -424,7 +494,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     kind: 'people', id: p, year: Y, legend,
     title: v.p('title', { people: pn, ep }),
     epigraph: v.p('epigraph', { people: pn, ep, facts: list(facts) }),
-    paragraphs: paras,
+    ...book.parts(),
     closing,
   }
 }

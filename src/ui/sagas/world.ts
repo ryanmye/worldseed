@@ -3,11 +3,15 @@
 // faith and plague, ideas and great works, and the world at the year told, naming the greatest cities, peoples, states
 // and turning points with their years. An era with nothing in the records yet is left out.
 
-import { CITY_POPULATION, EventType, FeatureKind, TOWN_POPULATION, WarKind } from '../../contract.ts'
+import { CITY_POPULATION, EventType, FeatureKind, OrderKind, OrderStatus, TOWN_POPULATION, WarKind } from '../../contract.ts'
 import { goodsOf } from '../goodsData.ts'
 import { Ctx, topBy } from './facts.ts'
 import { list, num, people, plural, shareWords, Voice, type PhraseTable } from './voice.ts'
-import type { Saga } from './types.ts'
+import { Book, type Saga } from './types.ts'
+import { OMEN_T, omenText, ordersWhere } from './omens.ts'
+import { Refs } from './refs.ts'
+import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { warName } from './wars.ts'
 
 const T: PhraseTable = {
   title: [['The Chronicle of the World of {world}'], ['The Chronicle of the World of {world}']],
@@ -40,6 +44,7 @@ const T: PhraseTable = {
   hFaith: [['Faith and Plague'], ['Gods and Pestilence']],
   hIdeas: [['Ideas and Great Works'], ['The Age of Wonders']],
   hNow: [['The World in {Y}'], ['The World as It Stands']],
+  hOmens: [['Signs and Portents'], ['Signs and Wonders']],
   beginning: [
     ['When the counting of years began, {n} peoples lived in {k}: {groups}.', 'At the beginning of the records there were {n} peoples, in {k}: {groups}.'],
     ['In the beginning {n} peoples kindled their fires in {k}: {groups}.', 'Before the first year was counted, {n} peoples dwelt in {k}: {groups}.'],
@@ -78,14 +83,14 @@ const T: PhraseTable = {
     ['The greatest state of all was the {state}, which in {year} ruled {pop} people, {share} of the world\'s people.', 'Greatest of all states was the {state}: in {year} it ruled {pop} people, {share} of all the world\'s.'],
     ['Mightiest of all realms was the {state}, which in {year} held sway over {pop} souls, {share} of all the world\'s.'],
   ],
-  rose: [[' In all {n} states rose by {Y}, and {m} of them fell.'], [' {n} crowns in all were raised by {Y}, and {m} of them were cast down.']],
+  rose: [[' In all {n} states rose by {Y}, and {m} of them fell.'], [' In all, {n} crowns were raised by {Y}, and {m} of them were cast down.']],
   wars: [
-    ['By {Y}, {n} wars had been fought{civil}.', 'By {Y} the states had fought {n} wars{civil}.'],
+    ['By {Y} the states had fought {n} wars{civil}.', 'Down to {Y} the states fought {n} wars{civil}.'],
     ['By {Y} the spear-storm had blown {n} times{civil}.'],
   ],
   bloodiest: [
-    ['The bloodiest was the war between the {a} and the {b}, {span}, which cost {dead} lives.', 'Bloodiest of all was the war of the {a} against the {b}, {span}: {dead} died in it.'],
-    ['Bitterest of all was the war of the {a} and the {b}, {span}, in which {dead} fell.'],
+    ['The bloodiest was {war}, {span}, which cost {dead} lives.', 'Bloodiest of all was {war}, {span}: {dead} died in it.'],
+    ['Bitterest of all was {war}, {span}, in which {dead} fell.'],
   ],
   worstSack: [
     ['The worst sack befell {place} in {year}, when the army of the {by} took it and {share} of its people were lost.', 'In {year} the army of the {by} sacked {place}, and {share} of its people were lost: the worst sack on record.'],
@@ -95,7 +100,7 @@ const T: PhraseTable = {
     ['Trade between towns is first recorded in {year}, between {a} and {b}.', 'The first trade route on record opened in {year}, between {a} and {b}.'],
     ['In {year} the first merchants went between {a} and {b}.'],
   ],
-  routesNow: [[' By {Y}, {n} routes were open.'], [' By {Y}, {n} roads of trade were open.']],
+  routesNow: [[' By {Y} there were {n} open routes.'], [' By {Y} there were {n} roads of trade.']],
   firstLane: [
     ['In {year} a trade expedition from {a} opened the first direct lane, to {b}{sought}.', 'The first long-haul lane was opened in {year}, from {a} to {b}{sought}.'],
     ['In {year} the ships of {a} first found the open road to {b}{sought}.'],
@@ -140,14 +145,31 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function worldSaga(c: Ctx, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, 'world', legend, T)
+  const v = new Voice(c.seed, 'world', legend, T, SCENE_T, OMEN_T)
   const Y = c.Y
   const P = h.peoples.length
-  const paras: string[] = []
-  const heads: (string | null)[] = []
-  const add = (head: string, text: string) => { if (text.trim()) { paras.push(text); heads.push(head) } }
-  const continents = h.features.filter((f) => f.kind === FeatureKind.Continent && f.namedYear <= Y).sort((a, b) => b.size - a.size)
-  const worldName = continents[0]?.name ?? `Seed ${c.seed}`
+  const book = new Book()
+  const refs = new Refs(c, book, { kind: 'world', id: 0 }, legend, 4)
+  // the scenes: the first landfall, the worst sacks, the worst plague in a city, the longest great work, the greatest conversion
+  const topEv = (t: number, key: (i: number) => number, n: number) => topBy(c.type(t), key, n)
+  const lf0 = c.type(EventType.Landfall)[0]
+  const scenes = pickScenes([
+    lf0 !== undefined ? landfallScene(c, v, lf0) : null,
+    ...topEv(EventType.Sacked, (i) => c.ev(i).value * c.pop(c.ev(i).settlement, Math.max(0, c.ev(i).year - 1)), 2).map((i) => sackScene(c, v, i)),
+    ...topEv(EventType.CityStricken, (i) => (c.ev(i).extra ?? 0) * c.pop(c.ev(i).settlement, c.ev(i).year), 2).map((i) => plagueScene(c, v, i, legend)),
+    ...topEv(EventType.LandmarkCompleted, (i) => { const L = h.landmarks; const k = c.ev(i).value; return L ? L.completedYear[k] - L.begunYear[k] : 0 }, 1).map((i) => workScene(c, v, i)),
+    ...topEv(EventType.RulerConverted, (i) => { const p = c.polityOf(c.ev(i).settlement, c.ev(i).year); return p >= 0 ? c.pstat(p, c.snap(c.ev(i).year))?.pop ?? 0 : 0 }, 1).map((i) => conversionScene(c, v, i)),
+  ], 4)
+  // the omens: four at most, those that came true (in part or whole) first
+  const omens = ordersWhere(c, () => true).sort((a, b) => Number(b.status === OrderStatus.Fulfilled || b.status === OrderStatus.Partly) - Number(a.status === OrderStatus.Fulfilled || a.status === OrderStatus.Partly)).slice(0, 4)
+  const placed = new Set<number>()
+  const add = (head: string, text: string, sceneKinds: readonly Scene['kind'][] = [], omenKinds: readonly number[] = []) => {
+    book.chapter(head)
+    book.add(text)
+    for (const s of scenes) if (sceneKinds.includes(s.kind)) book.scene(s.title, s.text)
+    for (const f of omens.filter((x) => omenKinds.includes(x.o.kind)).sort((a, b) => a.o.year - b.o.year)) { placed.add(f.k); book.omen(omenText(c, v, f)) }
+  }
+  const worldName = worldNameOf(c)
 
   // ---- the first villages ----
   const cradles = new Map<number, number[]>()
@@ -163,6 +185,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
     else if (firstC !== undefined) t1 += v.p('firstCity', { city: c.place(c.ev(firstC).settlement, c.ev(firstC).year), year: c.ev(firstC).year })
     else t1 += v.p('noCity')
   } else t1 += ' ' + v.p('noTown')
+  if (firstC !== undefined) t1 = refs.cite(t1, { kind: 'city', id: c.ev(firstC).settlement })
   add(v.p('hVillages'), t1)
 
   // ---- meetings and landfalls ----
@@ -186,7 +209,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   const lfs = c.type(EventType.Landfall).map((i) => c.ev(i))
   if (lfs.length === 1) push2(v.p('landfallsOne', { year: lfs[0].year, from: c.place(lfs[0].other, lfs[0].year), place: c.place(lfs[0].settlement, lfs[0].year), Y }), lfs[0].year)
   else if (lfs.length > 1) push2(v.p('landfalls', { year: lfs[0].year, from: c.place(lfs[0].other, lfs[0].year), place: c.place(lfs[0].settlement, lfs[0].year), n: num(lfs.length), Y }), lfs[0].year)
-  add(v.p('hContact'), t2.map((t, i) => [t, t2y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '))
+  add(v.p('hContact'), t2.map((t, i) => [t, t2y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '), ['landfall'], [OrderKind.Explore, OrderKind.Settle])
 
   // ---- states ----
   const pd = c.pd
@@ -209,10 +232,10 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
       if (best !== undefined) {
         const pk = c.ppeak(best)
         const wp = pd.worldPop[c.snap(pk.year)] || 1
-        t3 += ' ' + v.p('greatest', { state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop), share: shareWords(pk.pop / wp).replace(/^half$/, 'half') })
+        t3 += ' ' + refs.cite(v.p('greatest', { state: c.pgreatTitle(best), year: pk.year, pop: people(pk.pop), share: shareWords(pk.pop / wp) }), { kind: 'state', id: best })
       }
       t3 += v.p('rose', { n: num(live.length), m: num(live.filter((x) => x.endedYear >= 0 && x.endedYear <= Y).length), Y })
-      add(v.p('hStates'), t3)
+      add(v.p('hStates'), t3, [], [OrderKind.Seat])
     }
     // ---- wars ----
     const W = pd.wars
@@ -226,15 +249,16 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
         if (b !== undefined && W.dead[b] > 0) {
           const e = W.endYear[b]
           const sp = e >= 0 && e <= Y ? (e === W.startYear[b] ? `in ${e}` : `from ${W.startYear[b]} to ${e}`) : `begun in ${W.startYear[b]}`
-          t4 += ' ' + v.p('bloodiest', { a: c.ptitle(W.attacker[b], W.startYear[b]), b: c.ptitle(W.defender[b], W.startYear[b]), span: sp, dead: people(W.dead[b]) })
+          const wn = warName(c, b), pair = `the ${c.ptitle(W.attacker[b], W.startYear[b])} and the ${c.ptitle(W.defender[b], W.startYear[b])}`
+          t4 += ' ' + v.p('bloodiest', { war: wn ? `${wn}, between ${pair}` : `the war between ${pair}`, span: sp, dead: people(W.dead[b]) })
         }
         const sacks = c.type(EventType.Sacked).map((i) => c.ev(i))
         const worst = topBy(sacks, (e) => e.value * c.pop(e.settlement, Math.max(0, e.year - h.snapshotInterval)), 1)[0]
-        if (worst) {
+        if (worst && !scenes.some((s) => s.kind === 'sack' && s.place === worst.settlement && s.year === worst.year)) {
           const byP = c.polityOf(worst.other, worst.year)
           if (byP >= 0) t4 += ' ' + v.p('worstSack', { place: c.place(worst.settlement, worst.year), year: worst.year, by: c.ptitle(byP, worst.year), share: shareWords(worst.value) })
         }
-        add(v.p('hWar'), t4)
+        add(v.p('hWar'), t4, ['sack'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify])
       }
     }
   }
@@ -352,7 +376,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
     const worst = [...ge].sort((a, b) => b.deaths - a.deaths)[0]
     plague.push(v.p(ge.length === 1 ? 'greatEpidemic' : 'greatEpidemics', { n: cap1(num(ge.length)), year: worst.startYear, dead: people(worst.deaths) }))
   }
-  add(v.p('hFaith'), (da.length && da[0].year < faithYear ? plague.concat(t6) : t6.concat(plague)).join(' '))
+  add(v.p('hFaith'), (da.length && da[0].year < faithYear ? plague.concat(t6) : t6.concat(plague)).join(' '), ['plague', 'conversion'], [OrderKind.Faith, OrderKind.Quarantine])
 
   // ---- ideas and great works ----
   const t7: string[] = []
@@ -375,7 +399,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
       t7.push(v.p('works', { n: num(great.length), Y, list: list(pick.map((i) => `${c.landmark(i, L.begunYear[i])} (${L.begunYear[i]})`)) }).trim())
     }
   }
-  add(v.p('hIdeas'), t7.join(' '))
+  add(v.p('hIdeas'), t7.join(' '), ['work'], [OrderKind.Crop, OrderKind.Idea])
 
   // ---- now ----
   let worldPop = 0, nAlive = 0
@@ -383,7 +407,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   for (let id = 0; id < c.N; id++) if (c.alive(id) && !h.settlements[id].outpost) { worldPop += c.pop(id); nAlive++; alive.push(id) }
   let t8 = v.p('nowWorld', { Y, pop: people(worldPop).replace(/^some /, 'some '), n: plural(nAlive, 'town and village', 'towns and villages') })
   const bigC = topBy(alive, (id) => c.pop(id), 3)
-  if (bigC.length && c.pop(bigC[0]) >= TOWN_POPULATION) t8 += v.p('nowCities', { list: list(bigC.filter((id) => c.pop(id) >= TOWN_POPULATION).map((id) => `${c.name(id, Y)} of the ${c.peopleName(c.peopleOf(id))} (${people(c.pop(id)).replace(/^some /, '')})`)) })
+  if (bigC.length && c.pop(bigC[0]) >= TOWN_POPULATION) t8 += ' ' + refs.cite(v.p('nowCities', { list: list(bigC.filter((id) => c.pop(id) >= TOWN_POPULATION).map((id) => `${c.name(id, Y)} of the ${c.peopleName(c.peopleOf(id))} (${people(c.pop(id)).replace(/^some /, '')})`)) }).trim(), { kind: 'city', id: bigC[0] })
   if (pd) {
     const live = pd.list.filter((x) => c.plives(x.id))
     if (live.length) {
@@ -393,9 +417,11 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
   }
   const popOf = (p: number) => c.ix.ofPeople[p].reduce((a, id) => a + (c.alive(id) ? c.pop(id) : 0), 0)
   const topP = topBy(h.peoples.map((p) => p.id), popOf, 1)[0]
-  if (topP !== undefined) t8 += v.p('nowPeoples', { people: c.peopleName(topP) })
+  if (topP !== undefined) t8 += ' ' + refs.cite(v.p('nowPeoples', { people: c.peopleName(topP) }).trim(), { kind: 'people', id: topP })
   const gone = h.peoples.filter((p) => popOf(p.id) <= 0).map((p) => `the ${p.name}`)
   if (gone.length) t8 += v.p('nowGone', { list: list(gone) })
+  const rest = omens.filter((f) => !placed.has(f.k))
+  if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
   add(v.p('hNow', { Y }), t8)
 
   const facts = [`${Y} years`, plural(P, 'people'), pd ? plural(pd.list.filter((x) => x.foundedYear <= Y).length, 'state') : ''].filter(Boolean)
@@ -405,11 +431,17 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
     kind: 'world', id: 0, year: Y, legend,
     title: v.p('title', { world: worldName }),
     epigraph: v.p('epigraph', { world: worldName, facts: list(facts) + greatest }),
-    paragraphs: paras,
-    heads,
+    ...book.parts(),
     closing: v.p('closing', { Y }),
   }
 }
+
+/** The world's name: its largest named continent, by the year told. */
+export function worldNameOf(c: Ctx): string {
+  const continents = c.h.features.filter((f) => f.kind === FeatureKind.Continent && f.namedYear <= c.Y).sort((a, b) => b.size - a.size)
+  return continents[0]?.name ?? `Seed ${c.seed}`
+}
+export const worldName = worldNameOf
 
 const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 

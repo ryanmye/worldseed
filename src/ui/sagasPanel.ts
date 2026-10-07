@@ -41,7 +41,7 @@ export interface SagasView {
   readonly inspectorLinks: HTMLElement
 }
 
-const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House' }
+const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year' }
 /** Entries per subject list (the selected subject is always added). */
 const LIST_CAP = 80
 

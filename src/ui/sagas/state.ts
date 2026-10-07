@@ -3,12 +3,17 @@
 // (submissions, conquests, secessions, revolts, partitions), its state faith and great works, its height, and its
 // fall or its extent at the year told. Every sentence comes from the records up to that year.
 
-import { AccessionHow, BondKind, EventType, LandmarkRank, PolityEnd, PolityOrigin, ReignEnd, WarKind, WarOutcome } from '../../contract.ts'
+import { AccessionHow, BondKind, EventType, LandmarkRank, OrderKind, PolityEnd, PolityOrigin, ReignEnd, WarKind, WarOutcome } from '../../contract.ts'
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { Ctx, topBy } from './facts.ts'
 import { reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, list, num, people, plural, times, Voice, type PhraseTable } from './voice.ts'
-import type { Saga } from './types.ts'
+import { Book, type Saga } from './types.ts'
+import { OMEN_T, omenText, omensOfState } from './omens.ts'
+import { Refs } from './refs.ts'
+import { conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { warCalled, warName } from './wars.ts'
+import { reignChapters, REIGN_T } from './reigns.ts'
 
 const T: PhraseTable = {
   title: [['A History of the {state}'], ['The Saga of the {state}']],
@@ -108,6 +113,14 @@ const T: PhraseTable = {
   closing: [['Here ends the history of the {state}.', 'So stands the {state} in {Y}.'], ['So ends the saga of the {state}; long may its banners fly.', 'Here the tale of the {state} rests, but its days are not ended.']],
   closingEnded: [['Here ends the history of the {state}.'], ['So ends the saga of the {state}, whose crown is dust.']],
   epigraph: [['The {state}: {facts}.'], ['The {state}: {facts}.']],
+  hFounding: [['The Founding'], ['How It Began']],
+  revoltsMany: [['Its subjects rose against it again and again, and {most} of the risings were put down.'], ['Again and again its subjects rose against it, and {most} of the risings were crushed.']],
+  hRulers: [['Seats and Thrones'], ['Thrones and Crowns']],
+  hWar: [['War and Calamity'], ['Spear and Pestilence']],
+  hFaith: [['Faith and Great Works'], ['Gods and Stones']],
+  hOmens: [['Signs and Portents'], ['Signs and Wonders']],
+  hEnd: [['The End of {state}'], ['The Fall']],
+  hNow: [['{state} in {Y}'], ['As It Stands']],
 }
 
 function originKey(o: number): string {
@@ -144,10 +157,27 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
   const pd = c.pd!
   const x = pd.list[p]
-  const v = new Voice(c.seed, `state:${p}`, legend, T)
+  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T)
   const Y = c.Y
   const state = c.pgreatTitle(p)
-  const paras: string[] = []
+  const book = new Book()
+  const refs = new Refs(c, book, { kind: 'state', id: p }, legend)
+  const L0 = h.landmarks
+  const mineAt = (id: number, y: number) => c.polityOf(id, Math.max(0, y - 1)) === p
+  const scenes = pickScenes([
+    ...topBy(c.type(EventType.Sacked).filter((i) => mineAt(c.ev(i).settlement, c.ev(i).year)), (i) => c.ev(i).value * c.pop(c.ev(i).settlement, Math.max(0, c.ev(i).year - 1)), 1).map((i) => sackScene(c, v, i)),
+    ...c.type(EventType.RulerConverted).filter((i) => c.polityOf(c.ev(i).settlement, c.ev(i).year) === p && c.capital(p, c.ev(i).year) === c.ev(i).settlement).slice(0, 1).map((i) => conversionScene(c, v, i)),
+    ...topBy(c.type(EventType.LandmarkCompleted).filter((i) => L0 && L0.polity[c.ev(i).value] === p), (i) => L0.completedYear[c.ev(i).value] - L0.begunYear[c.ev(i).value], 1).map((i) => workScene(c, v, i)),
+    ...topBy(c.type(EventType.CityStricken).filter((i) => mineAt(c.ev(i).settlement, c.ev(i).year)), (i) => (c.ev(i).extra ?? 0) * c.pop(c.ev(i).settlement, c.ev(i).year), 1).map((i) => plagueScene(c, v, i, legend)),
+  ], 3)
+  const omens = omensOfState(c, p)
+  const placed = new Set<number>()
+  const section = (head: string, text: string, sceneKinds: readonly Scene['kind'][] = [], omenKinds: readonly number[] = []) => {
+    book.chapter(v.p(head, { state: c.pname(p), Y }))
+    book.add(text)
+    for (const s of scenes) if (sceneKinds.includes(s.kind)) book.scene(s.title, s.text)
+    for (const f of omens) if (omenKinds.includes(f.o.kind) && !placed.has(f.k)) { placed.add(f.k); book.omen(omenText(c, v, f)) }
+  }
   const rd = c.rd
   const reigns = rd ? [...h.reignIds.subarray(h.reignOffsets[p], h.reignOffsets[p + 1])].filter((r) => rd.rulers[r].acceded <= Y) : []
 
@@ -163,14 +193,15 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const d = rd.rulers[r0].dynasty
     p1 += d >= 0 ? v.p('firstRulerOf', { ruler: who, house: `House ${h.dynasties[d].name}` }) : ' ' + v.p('firstRuler', { ruler: who })
   }
-  paras.push(p1)
+  const d0 = reigns.length && rd ? rd.rulers[reigns[0]].dynasty : -1
+  section('hFounding', d0 >= 0 ? refs.cite(p1, { kind: 'house', id: d0 }) : p1)
 
   // ---- capitals ----
   const moves: string[] = []
   for (let k = 1; k < x.capitals.length && x.capitalYears[k] <= Y; k++) moves.push(`to ${c.place(x.capitals[k], x.capitalYears[k])} in ${x.capitalYears[k]}`)
   const p2: string[] = []
-  if (moves.length === 0) p2.push(v.p('oneSeat', { cap: c.name(x.capitals[0], Y) }))
-  else if (moves.length <= 4) p2.push(v.p('capitals', { times: times(moves.length), moves: list(moves) }))
+  if (moves.length === 0) p2.push(refs.cite(v.p('oneSeat', { cap: c.name(x.capitals[0], Y) }), { kind: 'city', id: x.capitals[0] }))
+  else if (moves.length <= 4) p2.push(refs.cite(v.p('capitals', { times: times(moves.length), moves: list(moves) }), { kind: 'city', id: c.capital(p, Y) }))
   else p2.push(v.p('capitals', { times: times(moves.length), moves: `${list(moves.slice(0, 2))}, and at last ${moves[moves.length - 1]}` }))
 
   // ---- houses and rulers ----
@@ -212,7 +243,8 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   }
   const crises = c.type(EventType.SuccessionCrisis).filter((i) => c.ev(i).value === p).length
   if (crises >= 2) p2.push(v.p('crises', { times: times(crises) }))
-  paras.push(p2.join(' '))
+  section('hRulers', p2.join(' '), [], [OrderKind.Seat])
+  if (rd) for (const ch of reignChapters(c, v, p, reigns)) { book.chapter(ch.head); book.add(ch.text) }
 
   // ---- wars ----
   const p3: string[] = []
@@ -231,9 +263,8 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     p3.push(v.p('wars', { n: wars.length === 1 ? 'one war' : `${num(wars.length)} wars`, times: times(wars.length), record: wars.length === 1 ? '' : record }))
     const bloody = topBy(wars, (w) => W.dead[w], 1)[0]
     if (bloody !== undefined && W.dead[bloody] >= 500) {
-      const other = W.attacker[bloody] === p ? W.defender[bloody] : W.attacker[bloody]
       const civil = W.kind[bloody] === WarKind.CivilWar
-      const war = civil ? 'the civil war' : `the war against ${c.pname(other)}`
+      const war = civil && !warName(c, bloody) ? 'the civil war' : warCalled(c, bloody, p)
       const e = W.endYear[bloody]
       const sp = e >= 0 && e <= Y ? (e === W.startYear[bloody] ? `fought in ${e}` : `fought from ${W.startYear[bloody]} to ${e}`) : `begun in ${W.startYear[bloody]}`
       p3.push(v.p('bloodiest', { war, span: sp, dead: people(W.dead[bloody]), how: warEnd(c, bloody, p) }))
@@ -258,13 +289,14 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const revolts = c.type(EventType.Revolt).map((i) => c.ev(i)).filter((e) => c.polityOf(e.other, e.year) === p && c.capital(p, e.year) === e.other)
   if (revolts.length >= 2) {
     const crushed = c.type(EventType.RevoltCrushed).map((i) => c.ev(i)).filter((e) => c.capital(p, e.year) === e.other).length
-    p3.push(v.p('revolts', { times: times(revolts.length), crushed: crushed === 0 ? 'none' : crushed >= revolts.length ? 'all' : num(crushed) }).replace('; all were put down', '; every one was put down').replace(', and all of the risings', ', and every one of the risings'))
+    if (revolts.length >= 20) p3.push(v.p('revoltsMany', { most: crushed >= revolts.length * 0.9 ? 'nearly all' : crushed >= revolts.length * 0.6 ? 'most' : crushed >= revolts.length * 0.35 ? 'many' : 'few' }))
+    else p3.push(v.p('revolts', { times: times(revolts.length), crushed: crushed === 0 ? 'none' : crushed >= revolts.length ? 'all' : num(crushed) }).replace('; all were put down', '; every one was put down').replace(', and all of the risings', ', and every one of the risings'))
   }
   const kids = (pd.children[p] ?? []).filter((q) => pd.list[q].foundedYear <= Y && (pd.list[q].origin === PolityOrigin.Revolt || pd.list[q].origin === PolityOrigin.Colonial || pd.list[q].origin === PolityOrigin.CivilWar))
   if (kids.length) p3.push(v.p('seceded', { list: kids.length <= 3 ? list(kids.map((q) => c.pname(q))) : `${kids.slice(0, 2).map((q) => c.pname(q)).join(', ')} and ${num(kids.length - 2)} others` }))
   const part = c.type(EventType.Partitioned).map((i) => c.ev(i)).find((e) => e.value === p)
   if (part) p3.push(v.p('partitioned', { year: part.year }))
-  if (p3.length) paras.push(p3.join(' '))
+  section('hWar', p3.join(' '), ['sack', 'plague'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----
   const p4: string[] = []
@@ -302,7 +334,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     if (vassals.size >= 2) p4.push(v.p('vassals', { n: plural(vassals.size, 'state') }))
     if (over >= 0) p4.push(v.p('overlord', { year: overYear, over: `the ${c.ptitle(over, overYear)}`, until: overEnd >= 0 && overEnd <= Y ? ` until ${overEnd}` : '' }))
   }
-  if (p4.length) paras.push(p4.join(' '))
+  section('hFaith', p4.join(' '), ['conversion', 'work'], [OrderKind.Faith])
 
   // ---- height, and fall or present ----
   const pk = c.ppeak(p)
@@ -331,7 +363,9 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     }))
     closing = v.p('closing', { state: c.ptitle(p), Y })
   }
-  paras.push(p5.join(' '))
+  const rest = omens.filter((f) => !placed.has(f.k))
+  if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
+  section(ended ? 'hEnd' : 'hNow', p5.join(' '))
 
   const facts: string[] = [`founded ${fy} at ${c.name(x.capitals[0], fy)}`]
   if (reigns.length >= 2) facts.push(plural(reigns.length, 'ruler'))
@@ -341,7 +375,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     kind: 'state', id: p, year: Y, legend,
     title: v.p('title', { state }),
     epigraph: v.p('epigraph', { state, facts: list(facts) }),
-    paragraphs: paras,
+    ...book.parts(),
     closing,
   }
 }
