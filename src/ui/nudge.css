@@ -226,7 +226,7 @@
 }
 .ng-pick-hint {
   position: fixed;
-  top: 14px;
+  top: 76px; /* (under the seed bar and the perf readout) */
   left: 50%;
   transform: translateX(-50%);
   z-index: 50;
