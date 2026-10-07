@@ -1,7 +1,8 @@
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { World, WorldOptions } from './contract.ts'
+import type { Order, World, WorldOptions } from './contract.ts'
+import { decodeOrders, encodeOrders } from './contract.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -48,6 +49,9 @@ import { loadPref, savePref } from './ui/panels.ts'
 // travel=0 (no travellers, visited places, resorts or sights on the map), view=scenery (when the history has scenery)
 // nocache=1 (simulate afresh instead of reading the world and history cache, and overwrite it; historyCache.ts),
 // cachecheck=1 (on a cache hit also simulate afresh and log whether the two are identical: slow, for checking)
+// o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
+// o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
+// world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
 
 const params = new URLSearchParams(window.location.search)
 
@@ -299,6 +303,11 @@ let requestId = 0
 let extending = 0
 /** Debugging (perf=1): make the next extension fail as if the simulation had thrown. */
 let failNextExtension = false
+/** The player's orders (o=, the Nudge panel), canonical; the history shown or on its way was simulated with them. */
+let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
+/** A re-simulation with new orders is on its way: the year to keep when it arrives (-1 none). */
+let resimYear = -1
+let resimLabel = ''
 
 function createWorker(): Worker {
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
@@ -318,13 +327,17 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
     overlay.setGenerating(false)
     showWorld(msg.world)
   } else if (msg.type === 'progress') {
-    historyView.setSimProgress(msg.years, msg.target)
+    historyView.setSimProgress(msg.years, msg.target, resimYear >= 0 ? resimLabel : undefined)
   } else if (msg.type === 'history') {
     console.info(`history: ${msg.history.years} years, ${msg.history.settlements.length} settlements, ${msg.history.events.length} events, ${msg.ms.toFixed(0)} ms`)
     // towns and fields flatten the ground (terrainHeight.ts) before any layer is placed on it
     if (currentWorld) setTerrainHistory(currentWorld, msg.history)
     overlay.setGoodsInUse(goodsInUse(msg.history.trade))
-    if (msg.extend) {
+    if (msg.replace) {
+      // a run with the new orders: swapped in keeping the camera, the selection and the year
+      historyView.replaceHistory(msg.history, msg.ms, resimYear)
+      resimYear = -1
+    } else if (msg.extend) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
     } else historyView.setHistory(msg.history, historyYears) // (shorter than asked: shown at once, then extended to it)
@@ -334,6 +347,11 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
   } else if (msg.stage === 'extend') {
     extending = 0
     historyView.extendFailed(msg.message)
+  } else if (resimYear >= 0) {
+    // the run with new orders failed: the history shown stays
+    resimYear = -1
+    historyView.setSimProgress(0, 0, null)
+    console.error('re-simulation with orders failed (keeping the current history):', msg.message)
   } else {
     historyView.setHistoryError(msg.message)
   }
@@ -360,13 +378,30 @@ function requestWorld(seed: number) {
     requestId: ++requestId,
     seed,
     options: WORLD_OPTIONS,
-    historyOptions: historyYears === 2000 ? undefined : { years: historyYears },
+    historyOptions: historyYears === 2000 && currentOrders.length === 0 ? undefined : { ...(historyYears === 2000 ? {} : { years: historyYears }), ...(currentOrders.length > 0 ? { orders: currentOrders } : {}) },
     // a long first run (year=6000): show the default length first, then extend to it
     firstYears: historyYears > 2000 ? 2000 : undefined,
     nocache: params.get('nocache') === '1' || undefined,
     cachecheck: params.get('cachecheck') === '1' || undefined,
   }
   worker.postMessage(req)
+}
+
+/**
+ * Re-simulate the world with a new list of orders (the Nudge panel), as long as the history shown; the history on screen
+ * stays until the new one arrives (then swapped in at year `keepYear`, see historyView.replaceHistory). Written to the URL (o=).
+ */
+function requestOrders(orders: Order[], keepYear: number) {
+  currentOrders = decodeOrders(encodeOrders(orders))
+  setUrlParam('o', currentOrders.length > 0 ? encodeOrders(currentOrders) : null)
+  resimYear = Math.max(0, keepYear)
+  extending = 0 // (an extension in flight is answered under the old requestId and dropped)
+  const years = historyView.years || historyYears
+  const req: WorkerRequest = { type: 'orders', requestId: ++requestId, orders: currentOrders, years }
+  worker.postMessage(req)
+  const n = currentOrders.length
+  resimLabel = n > 0 ? `Simulating with ${n} ${n === 1 ? 'order' : 'orders'}…` : 'Simulating without orders…'
+  historyView.setSimProgress(0, years, resimLabel)
 }
 
 function requestYears(years: number, full = false) {
@@ -391,6 +426,8 @@ function clearHistoryParams() {
   setUrlParam('polity', null)
   setUrlParam('faith', null)
   for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price', 'epidemic', 'sickness']) setUrlParam(k, null)
+  setUrlParam('o', null) // (orders belong to the world they were given in)
+  currentOrders = []
   historyYears = 2000 // a new world starts with the default history again
 }
 
@@ -495,6 +532,8 @@ const historyView = createHistoryView(
     },
     setUrlParam,
     requestYears,
+    requestOrders,
+    getOrders: () => currentOrders,
     wake: () => wake(),
     setCloudsOverFog: (on) => {
       cloudsOverFog = on
@@ -688,6 +727,7 @@ const pointerInput = attachPointer({
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
   selectFactionAt: (cell) => historyView.selectFactionAt(cell),
+  pickCell: (cell) => historyView.pickCell(cell),
   dragSun: (dir) => {
     setSunToward(dir)
     syncSun()

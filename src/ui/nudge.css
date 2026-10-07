@@ -1,0 +1,249 @@
+/* Nudge panel: the player's orders (nudgePanel.ts), the pick-a-place hint, the chronicle's order dots */
+
+.nudge {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  /* gives way with the other open panels (a factor under 1 would make the column overflow instead) */
+  flex: 0 1 auto !important;
+  max-height: max(140px, min(460px, 52vh));
+  min-height: min(300px, 40vh); /* open: the form and a few orders (collapsed: the head alone) */
+  display: flex;
+  flex-direction: column;
+}
+.nudge.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.nudge.collapsed .gp-body {
+  display: none;
+}
+.nudge.collapsed {
+  min-height: 0;
+}
+.ng-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+.ng-tools:not([hidden]) + .ng-form {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.ng-sub {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-2);
+  margin: 2px 2px 0;
+}
+.ng-sub:empty {
+  display: none;
+}
+.ng-select {
+  width: 100%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.ng-select option {
+  background: #141a22;
+  color: var(--text);
+}
+.ng-select option.ng-dim,
+.ng-select option:disabled {
+  color: #7d8590;
+}
+.ng-effect,
+.ng-cost {
+  margin: 0 2px;
+}
+.ng-cost {
+  color: #ffd27a;
+}
+.ng-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 0 2px;
+}
+.ng-label {
+  color: var(--text-faint);
+  font-size: 11px;
+  min-width: 38px;
+}
+.ng-actor {
+  color: var(--text);
+  font-weight: 600;
+}
+.ng-from {
+  margin: 0;
+}
+.ng-target-text {
+  color: var(--text);
+}
+.ng-target-text.ng-none {
+  color: var(--text-faint);
+  font-style: italic;
+}
+.ng-line .ng-select {
+  flex: 1 1 140px;
+}
+.ng-pick {
+  font-size: 11.5px;
+}
+.ng-verdict {
+  margin: 0 2px;
+  color: var(--text-2);
+}
+.ng-verdict.ng-blocked {
+  color: var(--text-faint);
+}
+.ng-urge {
+  align-self: flex-start;
+  margin: 2px 2px 0;
+  padding: 3px 14px;
+  border-radius: 5px;
+  border: 1px solid rgba(140, 235, 255, 0.5);
+  background: rgba(110, 210, 240, 0.18);
+  color: #d8f6ff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ng-urge:hover:not(:disabled) {
+  background: rgba(110, 210, 240, 0.3);
+}
+.ng-urge:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ng-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ng-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 6px;
+  row-gap: 1px;
+  align-items: start;
+  padding: 3px 4px 3px 2px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+.ng-row[hidden] {
+  display: none;
+}
+.ng-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.ng-text {
+  min-width: 0;
+}
+.ng-links {
+  grid-column: 2 / 4;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.ng-links:empty {
+  display: none;
+}
+.ng-remove {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+}
+.ng-remove:hover {
+  color: #ff9c8a;
+}
+.ng-chip {
+  margin-top: 1px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-faint);
+}
+.ng-chip.active {
+  background: rgba(110, 210, 240, 0.2);
+  color: #9fe6fa;
+}
+.ng-chip.fulfilled {
+  background: rgba(140, 220, 120, 0.22);
+  color: #b6f0a0;
+}
+.ng-chip.partly {
+  background: rgba(240, 210, 110, 0.2);
+  color: #f0da8a;
+}
+.ng-chip.failed {
+  background: rgba(240, 120, 100, 0.22);
+  color: #ffab9a;
+}
+.ng-chip.expired {
+  background: rgba(255, 255, 255, 0.06);
+  color: #a9a39a;
+}
+.ng-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 6px 2px 2px;
+  font-size: 11.5px;
+}
+.ng-tools[hidden] {
+  display: none;
+}
+.ng-copied {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* pick a place on the map */
+#globe-canvas.nudge-picking {
+  cursor: crosshair !important;
+}
+.ng-pick-hint {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  padding: 5px 12px;
+  border-radius: 6px;
+  background: rgba(10, 16, 22, 0.88);
+  border: 1px solid rgba(140, 235, 255, 0.45);
+  color: #d8f6ff;
+  font-size: 12px;
+  pointer-events: none;
+}
+.ng-pick-hint.hidden {
+  display: none;
+}
+/* chronicle dots */
+.ev-order .ev-text::before {
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: inset 0 0 0 2px #8ce8ff, 0 0 0 1px #0b2830;
+}
