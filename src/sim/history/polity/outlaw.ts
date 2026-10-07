@@ -371,9 +371,12 @@ function outlawCells(s: HistoryState, ps: PolityState, ts: TradeState): void {
     for (let k = off[c0]; k < off[c0 + 1]; k++) { const j = nb[k]; if (T.sea[j]) { mark[j] = run; ring.push(j) } }
     for (let hop = 1; hop <= H && ring.length > 0; hop++) {
       const z = X.dangerZ * x * (1 - (hop - 1) / H)
+      // (the merchants' risk at sea is on their own scale: a haven at PIRACY.rise, one that preys on the lanes, makes its
+      // waters WAYRISK.seaFull dangerous (a battlefield's or a raided frontier's risk on land), fading over the same hops; the coasts' danger z is the settlements' scale)
+      const zs = WAYRISK.seaScale ? WAYRISK.seaFull * (x >= X.rise ? 1 : x / X.rise) * (1 - (hop - 1) / H) : z
       next.length = 0
       for (const i of ring) {
-        if (z > seaZ[i]) { if (seaZ[i] === 0) seaZCells.push(i); seaZ[i] = z }
+        if (zs > seaZ[i]) { if (seaZ[i] === 0) seaZCells.push(i); seaZ[i] = zs }
         for (let k = off[i]; k < off[i + 1]; k++) {
           const j = nb[k]
           if (mark[j] === run) continue
