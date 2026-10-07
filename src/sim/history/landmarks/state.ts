@@ -84,6 +84,8 @@ export interface LandmarksState {
   lDue: number[]
   /** 1 for a seat of government (a capital's castle, a palace, a council house): neglected when its town stops being a capital. */
   lSeat: number[]
+  /** lSeat when it was begun (its name follows it: lSeat changes later, and a name must not depend on the run's length). */
+  lSeat0: number[]
   lNext: number[]
   /** The year a sack ruined it (-1; cleared when it is restored). */
   lSack: number[]
@@ -138,7 +140,7 @@ export function createLandmarksState(s: HistoryState): LandmarksState {
     legOcean: [] as number[],
     lKind: [] as number[], lRank: [] as number[], lForm: [] as number[], lVariant: [] as number[], lSett: [] as number[], lHome: [] as number[], lCell: [] as number[], lBegun: [] as number[], lDone: [] as number[],
     lPol: [] as number[], lRuler: [] as number[], lDyn: [] as number[], lFaith: [] as number[], lPeople: [] as number[], lLang: [] as number[], lSubject: [] as number[],
-    lState: [] as number[], lSince: [] as number[], lCur: [] as number[], lRef: [] as number[], lLow: [] as number[], lDue: [] as number[], lSeat: [] as number[], lNext: [] as number[], lSight: [] as number[], lSack: [] as number[],
+    lState: [] as number[], lSince: [] as number[], lCur: [] as number[], lRef: [] as number[], lLow: [] as number[], lDue: [] as number[], lSeat: [] as number[], lSeat0: [] as number[], lNext: [] as number[], lSight: [] as number[], lSack: [] as number[],
     building: [] as number[],
     cLm: [] as number[], cYear: [] as number[], cState: [] as number[], cFaith: [] as number[], cPol: [] as number[], cOther: [] as number[], cTown: [] as number[],
     evSeen: 0, greatN: 0, worldWpc: 0, top: new Float64Array(TOP_TOWNS),

@@ -36,6 +36,8 @@ export interface Probe {
   toolMul: number[]
   /** Relay income (smoothed) and wealth per head of traders at the end, and through-traffic. */
   relay: number[]; wph: number[]; through: number[]
+  /** Wealth a head of the town alone (without its merchant capital). */
+  wphTown: number[]
   /** World Treasure price index (median price / worth over traders) per decade. */
   treasure: number[]
   /** Arms per head of each polity's members per decade: [decade][polity] (mean over members). */
@@ -46,7 +48,7 @@ export interface Probe {
 const CASH_IDX: Int32Array & { n: number } = Object.assign(new Int32Array(64).fill(-1), { n: CASH.length })
 CASH.forEach((x, q) => { CASH_IDX[x] = q })
 
-export function newProbe(): Probe { return { dist: [], distW: [], price: [], toolMul: [], relay: [], wph: [], through: [], treasure: [], polArms: new Map() } }
+export function newProbe(): Probe { return { dist: [], distW: [], price: [], toolMul: [], relay: [], wph: [], wphTown: [], through: [], treasure: [], polArms: new Map() } }
 
 function chordKm(P: Float32Array, a: number, b: number): number {
   const dx = P[a * 3] - P[b * 3], dy = P[a * 3 + 1] - P[b * 3 + 1], dz = P[a * 3 + 2] - P[b * 3 + 2]
@@ -108,7 +110,9 @@ export function probeFn(pr: Probe, years: number): (s: HistoryState, t: TradeSta
     for (const id of s.living) {
       if (!t.trader[id]) continue
       pr.toolMul.push(g.toolMul[id])
-      pr.relay.push(g.relaySm[id]); pr.wph.push(s.wealth[id] / s.pop[id]); pr.through.push(s.through[id])
+      // (wealth a head: the town's and its merchant houses' capital, goods/merchants.ts; wphTown the town's alone)
+      const mc = id < g.ext.merch.cap ? g.ext.merch.mw[id] : 0
+      pr.relay.push(g.relaySm[id]); pr.wph.push((s.wealth[id] + mc) / s.pop[id]); pr.wphTown.push(s.wealth[id] / s.pop[id]); pr.through.push(s.through[id])
       for (const [m, c] of [[0, 7], [2, 10]]) {
         const off = (id * 4 + m) * 4
         for (let k = 0; k < 4; k++) {
@@ -146,7 +150,12 @@ function aggregates(h: History, row: Record<string, number>, suffix: string): vo
     let routes = 0
     for (let r = 0; r < open.length; r++) routes += open[r]
     row[`pop${y}${suffix}`] = tot; row[`living${y}${suffix}`] = living; row[`routes${y}${suffix}`] = routes
-    if (y === 2000) { row[`towns${suffix}`] = towns; row[`cities${suffix}`] = cities; row[`wph${suffix}`] = wealth / tot }
+    if (y === 2000) {
+      row[`towns${suffix}`] = towns; row[`cities${suffix}`] = cities; row[`wph${suffix}`] = wealth / tot
+      let mc = 0
+      if (h.merchantWealth.length) for (let i = 0; i < S; i++) mc += h.merchantWealth[q * S + i]
+      row[`merchShare${suffix}`] = mc / (mc + wealth)
+    }
   }
   row[`firstState${suffix}`] = h.polities.length ? h.polities[0].foundedYear : 9999
   const q = h.snapshotCount - 1
@@ -271,6 +280,7 @@ export function goodsSeedStats(seed: number, off: boolean, detail: boolean, pre?
     const top = idx.slice(0, 10).map((i) => pr.wph[i])
     const hubs = pr.wph.filter((_, i) => pr.through[i] > 3000)
     row.entrepot = med(top) / med(hubs)
+    row.entrepotTown = med(idx.slice(0, 10).map((i) => pr.wphTown[i])) / med(pr.wphTown.filter((_, i) => pr.through[i] > 3000))
   }
   // T8: bypassed marts that lose >= 30% of people or wealth within 100 years.
   {
@@ -281,9 +291,11 @@ export function goodsSeedStats(seed: number, off: boolean, detail: boolean, pre?
       const q0 = Math.floor(e.year / h.snapshotInterval)
       const q1 = Math.min(h.snapshotCount - 1, Math.floor((e.year + 100) / h.snapshotInterval))
       const i = e.settlement
-      const p0 = h.population[q0 * S + i], w0 = h.wealth[q0 * S + i]
+      // (wealth: the town's and its merchant houses', goods/merchants.ts)
+      const mwOf = (q: number): number => (h.merchantWealth.length ? h.merchantWealth[q * S + i] : 0)
+      const p0 = h.population[q0 * S + i], w0 = h.wealth[q0 * S + i] + mwOf(q0)
       let pmin = p0, wmin = w0
-      for (let q = q0; q <= q1; q++) { pmin = Math.min(pmin, h.population[q * S + i]); wmin = Math.min(wmin, h.wealth[q * S + i]) }
+      for (let q = q0; q <= q1; q++) { pmin = Math.min(pmin, h.population[q * S + i]); wmin = Math.min(wmin, h.wealth[q * S + i] + mwOf(q)) }
       if (pmin <= 0.7 * p0 || wmin <= 0.7 * w0) lost++
     }
     row.bypassed = n; row.bypassDecline = n ? lost / n : NaN
@@ -445,7 +457,7 @@ export function formatGoodsStats(rows: GoodsSeedStats[]): string {
   L.push(`  T5 posts ${m('posts')} (4-25), forts ${m('forts')}; a fort or station became a town in ${sum('fortOrStationTown')}/${rows.length} (>= 6/20), a fort in ${sum('fortTown')}/${rows.length}`)
   L.push(`  T6 secrets ${m('secrets')}, held >= 50 years ${m('secrets50')} (2-6), years to first leak species ${m('durSpecies')} craft ${m('durCraft')} chart ${m('durChart')}; never leak ${m('neverLeak')} (<= .3); leaks ${m('leaks')}, broken ${m('monoBroken')}`)
   L.push(`     leak channels seen across seeds: ${CH.map((c, i) => `${c} ${sum('ch' + i)}`).join(', ')} (>= 5 channels)`)
-  L.push(`  T7 entrepots: top-10 relay marts' wealth a head / median hub's ${m('entrepot')} (>= 2)`)
+  L.push(`  T7 entrepots: top-10 relay marts' wealth a head (town and merchants) / median hub's ${m('entrepot')} (>= 2); the towns' alone ${m('entrepotTown')}; merchant capital share of all wealth ${m('merchShare')}`)
   L.push(`  T8 bypassed ${m('bypassed')} per world, declining within 100 years ${m('bypassDecline')} (>= .5)`)
   L.push(`  T9 arms: decided wars won by the better armed (2x) side ${m('armsWin')} over ${m('armsWars')} wars (>= .6)`)
   L.push(`  T10 tools farm multiplier median ${m('toolMed')} p90 ${m('toolP90')} (gain .05-.15 where plentiful)`)

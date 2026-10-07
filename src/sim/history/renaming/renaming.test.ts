@@ -65,12 +65,16 @@ function hashRenaming(hi: History): string {
 // BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
 // e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
 // configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
+// (Re-recorded with the oceans, merchant capital and journeys in order of arrival: with OCEAN.on and MERCHANT.on false the
+// tree was checked bit-identical to main 06f352d on every History field (journeys compared in main's order; goods-on runs
+// but for the leg-record ids of goods/legHistory.ts) in every off configuration: all on, all off, and each of polities,
+// goods, disease, rulers, religion, tourism, renaming, ideas and landmarks off, at 42:1200, 3:600 and 9:800 (n = 24).)
 const GOLDEN: [number, number, number | undefined, Record<string, boolean>, string][] = [
-  [42, 2000, undefined, {}, '48c5c82c'],
-  [3, 600, undefined, {}, '8c043250'],
-  [7, 900, undefined, { polities: false, goods: false }, 'f4caba54'],
-  [1, 1500, undefined, { disease: false }, 'ece379ef'],
-  [9, 800, 24, {}, '3fde0153'],
+  [42, 2000, undefined, {}, 'e3eb93a9'],
+  [3, 600, undefined, {}, 'e08ed27b'],
+  [7, 900, undefined, { polities: false, goods: false }, '10e7bd9'],
+  [1, 1500, undefined, { disease: false }, 'c6fecbee'],
+  [9, 800, 24, {}, 'aa924e25'],
 ]
 
 const worlds = new Map<number, World>()
@@ -246,7 +250,8 @@ describe('renaming', () => {
       // Rare and meaningful: a handful to a few dozen per world, mostly places of some size. (At least 2, not 3, since the merge of
       // the ideas: seed 12345 has 2, as it has with the ideas off and the species fix.)
       // (seed 12345 is a quiet world: 0 to 5 renamings by 2000 as the danger-on-the-way switches turn on or off, its histories
-      // parting ways early; it must have its handful by 3000 instead)
+      // parting ways early; it must have its handful by 3000 instead; since the oceans, oceans.ts, its second continent lies across
+      // 9 cells of open ocean, apart until after 2000)
       if (seed === 12345) expect(simulateHistory(world(seed), { years: 3000 }).renamings.count).toBeGreaterThanOrEqual(5)
       else expect(h.renamings.count).toBeGreaterThanOrEqual(2)
       // (seed 9 is the crowded one, a few hundred wars by 2000: 24 renamings at main e06929d, 36 to 58 as the danger-on-the-way

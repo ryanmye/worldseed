@@ -224,6 +224,8 @@ export const EventType = {
   LandmarkConverted: 146, // landmark `value` (a house of worship) was rededicated to another faith (its change row says which); `other` the converting polity's capital, or -1
   // danger on the way of trade (polities; 150-159; none when HistoryOptions.polities is false).
   TradeForsaken: 150, // a major trade route (History.trade `value`, ends `settlement` and `other`) closed because its way had grown too dangerous; follows its TradeClosed; `extra` the cause: 0 danger on land (war, raids, bandits), 1 pirates at sea (a strait or coast closed by them), 2 a war front across the way
+  // goods: merchant capital (160-169).
+  MerchantsMoved: 160, // the merchant houses of the bypassed mart `settlement` began to leave for the ends of the lane that took its trade (`other` one of them, -1 if both are gone); `value` their capital then
   TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
@@ -272,7 +274,10 @@ export interface History {
   degradation: Uint8Array
   /** Roads worn by overland trade, 0 (none) to 255 (major highway), same layout as `landUse`. Fades when traffic stops. */
   road: Uint8Array
-  /** Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. */
+  /**
+   * Accumulated wealth per snapshot per settlement, in arbitrary units >= 0, same layout as `population`. The town's own;
+   * its merchant houses' capital is `merchantWealth` (goods): a town's wealth a head is (wealth + merchantWealth) / population.
+   */
   wealth: Float32Array
   trade: TradeRoutes
   /** Named geographic features, in order of naming. */
@@ -433,6 +438,12 @@ export interface History {
   secretGuard: Uint8Array
   /** Trading posts in order of founding (TradingPost.id is the index). */
   posts: TradingPost[]
+  /**
+   * Merchant capital per snapshot per settlement (the merchant houses of the marts, from the long-haul trade; kept apart from
+   * the town's `wealth`, which it feeds), same layout as `population`. High at an entrepot where legs meet; it leaves a
+   * bypassed mart for the ends of the lane that took its trade (MerchantsMoved). Empty when goods are off.
+   */
+  merchantWealth: Float32Array
 
   // disease: epidemics, endemic sickness and fever (all empty when HistoryOptions.disease is false).
   /** The diseases of this world (DiseaseInfo.id is the index); one that never appeared by the end of the run has firstYear -1 and no name. */
@@ -1025,9 +1036,12 @@ export const LegKind = { Relay: 0, Lane: 1 } as const
 export type LegKind = (typeof LegKind)[keyof typeof LegKind]
 
 /**
- * Mart-to-mart legs of the long-haul trade, struct-of-arrays, in order of first opening. A relay leg follows the
+ * Mart-to-mart legs of the long-haul trade, struct-of-arrays, in order of opening. A relay leg follows the
  * settlement links between two marts; a lane is a direct way opened by a trade expedition.
  * Leg k follows cells path[pathOffsets[k] .. pathOffsets[k + 1]) from mart a to mart b.
+ * Each entry is one spell of a leg on one way, so a longer history repeats a shorter one exactly: when the merchants
+ * between two marts take another way (the towns along it changed), or a relay leg that closed is found again, the
+ * old entry closes that year and a new entry for the same pair opens the same year. A lane is one entry all its life.
  */
 export interface LongHaul {
   count: number
@@ -1040,7 +1054,7 @@ export interface LongHaul {
   closedYear: Int16Array
   /** Lanes: the secret id of its chart (History.secrets), else -1. */
   chart: Int16Array
-  /** Main class carried a to b and b to a over the run. */
+  /** Main class carried a to b and b to a over the entry's spell (for one still open at the end: so far). */
   goodAB: Uint8Array
   goodBA: Uint8Array
   pathOffsets: Uint32Array
@@ -1410,7 +1424,16 @@ export const JourneyKind = {
 } as const
 export type JourneyKind = (typeof JourneyKind)[keyof typeof JourneyKind]
 
-/** Struct-of-arrays, sorted by departYear. Journey j follows cells path[pathOffsets[j] .. pathOffsets[j + 1]). */
+/** Longest a journey takes (History.journeys: arriveYear - departYear), in years (a migration on foot: migration.ts travelYears). */
+export const JOURNEY_MAX_TRAVEL = 10
+
+/**
+ * Struct-of-arrays in order of arrival (arriveYear ascending; journeys of one year in the order they happened), so a
+ * longer history's table begins with a shorter one's exactly: a journey index means the same journey after an
+ * extension. departYear is NOT sorted; it lies at most JOURNEY_MAX_TRAVEL years before arriveYear, so the journeys
+ * under way at year y are among those with arriveYear in [y, y + JOURNEY_MAX_TRAVEL] (a binary search on arriveYear).
+ * Journey j follows cells path[pathOffsets[j] .. pathOffsets[j + 1]).
+ */
 export interface Journeys {
   count: number
   /** Fractional year the group sets out; arriveYear - departYear grows with route length. */

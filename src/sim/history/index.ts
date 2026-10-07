@@ -124,6 +124,7 @@ import { GOODS_ON } from './goods/params.ts'
 import { createGoodsSystem, goodsProduce, goodsYear } from './goods/system.ts'
 import { assembleGoods, emptyGoodsHistory, goodsSnapshot } from './goods/assemble.ts'
 import type { GoodsDiag } from './goods/state.ts'
+import { assembleMerchants, merchantSnapshot } from './goods/merchants.ts' // goods: merchant capital
 // disease: epidemics, endemic crowd diseases, plague, camp fever and place-bound fever (disease/).
 import { DISEASE_ON } from './disease/params.ts'
 import { createDisease } from './disease/state.ts'
@@ -314,12 +315,13 @@ export interface HistoryRun {
 }
 
 /**
- * Sorts the recorded journeys by departYear (stable, so ties keep the order
- * they were recorded in during the run) and flattens them into the
- * struct-of-arrays contract shape, each array with its own buffer.
+ * Flattens the recorded journeys into the struct-of-arrays contract shape, each array with its own buffer, in the
+ * order they were recorded: every journey is recorded the year it ends (arriveYear), so the table is in order of
+ * arrival and a longer run's table begins with a shorter one's exactly. (Sorted by departYear, as it was, a journey
+ * that set out before a run's last year but arrived after it would come in between, re-indexing the later ones.)
  */
 function assembleJourneys(records: HistoryState['journeys']): Journeys {
-  const sorted = records.slice().sort((a, b) => a.departYear - b.departYear)
+  const sorted = records
   const count = sorted.length
   const departYear = new Float32Array(count)
   const arriveYear = new Float32Array(count)
@@ -488,6 +490,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     techUsed += PF
     speciesV2Snapshot(s) // species-v2: habit, storable
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
+    if (gx) merchantSnapshot(s, gx) // goods: merchant capital
     if (dz) diseaseSnapshot(dz) // disease:
     if (rel) religionSnapshot(s, rel) // religion:
   }
@@ -629,6 +632,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
         ...goodsHist, // goods:
+        merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
         ...relHist, // religion:

@@ -1,5 +1,6 @@
+import { OCEAN, oceanBottleneck, oceanGapsOf } from './oceans.ts' // oceans:
 import { describe, expect, it } from 'vitest'
-import { Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow, routePathAt } from '../../contract.ts'
+import { JOURNEY_MAX_TRAVEL, Biome, CITY_POPULATION, EventType, GOOD_COUNT, JourneyKind, RIVER_FLOW_THRESHOLD, SpeciesCategory, StructureType, TECH_FIELD_COUNT, TOWN_POPULATION, IdeaHow, routePathAt } from '../../contract.ts'
 import type { History, HistoryEvent, World } from '../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../index.ts'
 import { runHistory } from './index.ts'
@@ -346,6 +347,7 @@ function checkInvariants(w: World, h: History): void {
       case EventType.DepositFound: case EventType.MineExhausted: case EventType.Boom: case EventType.TraditionBorn: case EventType.TraditionRenowned:
       case EventType.TraditionMoved: case EventType.TraditionLost: case EventType.SecretGuarded: case EventType.SecretLeaked: case EventType.MonopolyBroken:
       case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
+      case EventType.MerchantsMoved: // (goods/merchants.ts)
         break
       // disease: epidemics, endemic sickness, quarantine, armies (checked against their tables in disease/disease.test.ts).
       case EventType.DiseaseAppeared: case EventType.GreatEpidemic: case EventType.EpidemicEnded: case EventType.CityStricken:
@@ -499,7 +501,8 @@ function checkInvariants(w: World, h: History): void {
     return false
   }
   for (let j = 0; j < J.count; j++) {
-    if (j > 0) expect(J.departYear[j]).toBeGreaterThanOrEqual(J.departYear[j - 1])
+    if (j > 0) expect(J.arriveYear[j]).toBeGreaterThanOrEqual(J.arriveYear[j - 1]) // (in order of arrival: a strict prefix)
+    expect(J.arriveYear[j] - J.departYear[j]).toBeLessThanOrEqual(JOURNEY_MAX_TRAVEL)
     expect(J.departYear[j]).toBeLessThanOrEqual(J.arriveYear[j])
     expect(J.departYear[j]).toBeGreaterThanOrEqual(h.settlements[J.from[j]].foundedYear)
     expect(J.size[j]).toBeGreaterThan(0)
@@ -977,14 +980,14 @@ function expectPrefix(short: History, long: History): void {
   for (const [x, y] of [[short.landUse, long.landUse], [short.degradation, long.degradation], [short.road, long.road]]) {
     for (let i = 0; i < short.landSnapshotCount * N; i++) if (x[i] !== y[i]) throw new Error(`land snapshot differs at ${i}`)
   }
-  // Events up to Y in the same order; journeys arriving by Y in the same order.
+  // Events up to Y in the same order; journeys arriving by Y at the same indices (the table is a strict prefix).
   const evL = long.events.filter((e) => e.year <= Y)
   expect(evL.length).toBe(short.events.length)
   for (let i = 0; i < evL.length; i++) expect(evL[i]).toEqual(short.events[i])
   const J0 = short.journeys, J1 = long.journeys
   let j1 = 0
   for (let j = 0; j < J0.count; j++) {
-    while (J1.arriveYear[j1] > Y) j1++
+    expect(j1).toBe(j)
     expect([J1.departYear[j1], J1.arriveYear[j1], J1.from[j1], J1.to[j1], J1.size[j1], J1.kind[j1]]).toEqual([J0.departYear[j], J0.arriveYear[j], J0.from[j], J0.to[j], J0.size[j], J0.kind[j]])
     expect(Array.from(J1.path.subarray(J1.pathOffsets[j1], J1.pathOffsets[j1 + 1]))).toEqual(Array.from(J0.path.subarray(J0.pathOffsets[j], J0.pathOffsets[j + 1])))
     j1++
@@ -1249,7 +1252,7 @@ describe('simulateHistory', () => {
     let innerPairs = 0, crossPairs = 0
     for (const seed of SEEDS) {
       const w = world(seed)
-      const { history: h, diag } = run(seed)
+      const { history: h, diag, terrain } = run(seed)
       const P = h.peoples.length
       const N = w.grid.cellCount
       const S = h.settlements.length
@@ -1288,7 +1291,16 @@ describe('simulateHistory', () => {
           if (cur === undefined || (y >= 0 && (cur < 0 || y < cur))) best.set(key, y)
         }
       }
-      for (const key of [...best.keys()].sort((x, y) => x - y)) { crossPairs++; const y = best.get(key) as number; if (y >= 0) cross.push(y) }
+      // (oceans: only cradles joined by narrow seas, crossed before celestial navigation, must have met; across a wide
+      // ocean they may stay apart: oceans.test.ts)
+      const gaps = oceanGapsOf(terrain, w.grid)
+      const narrow = OCEAN.base + OCEAN.keel + OCEAN.compass
+      const centres = diag.cradles?.centres ?? []
+      for (const key of [...best.keys()].sort((x, y) => x - y)) {
+        const la = terrain.landmass[centres[Math.floor(key / 8)]], lb = terrain.landmass[centres[key % 8]]
+        if (la !== lb && oceanBottleneck(terrain, gaps, w.grid, la, lb) > narrow) continue
+        crossPairs++; const y = best.get(key) as number; if (y >= 0) cross.push(y)
+      }
       // Land known to nobody.
       const unknownAt = (year: number): number => {
         let land = 0, unk = 0
@@ -1562,6 +1574,15 @@ describe('simulateHistory', () => {
       for (let m = 0; m < M; m++) if (!isCradle[m] && hab[m] > 0 && !continent(m)) { islands++; settledIslands += islandAlive[m] }
       if (settledIslands >= 0.5 * islands) islandSeeds++
       if (others === 0) continue
+      // (oceans: the worlds with a continent without a cradle across no wider sea than ships cross before celestial
+      // navigation; one across a wide ocean waits for navigation and great ships, oceans.ts)
+      const gaps = oceanGapsOf(T, world(seed).grid)
+      let near = false
+      for (let m = 0; m < M && !near; m++) {
+        if (isCradle[m] || !continent(m)) continue
+        for (let c = 0; c < M && !near; c++) if (isCradle[c] && oceanBottleneck(T, gaps, world(seed).grid, c, m) <= OCEAN.base + OCEAN.keel + OCEAN.compass) near = true
+      }
+      if (!near) continue
       eligible++
       let first = -1
       for (let id = 0; id < S && first < 0; id++) {
@@ -1578,7 +1599,7 @@ describe('simulateHistory', () => {
       // The far side is still a frontier at year 1000.
       if (claim(1000)[1] < 0.5) frontier++
     }
-    expect(eligible).toBeGreaterThanOrEqual(6)
+    expect(eligible).toBeGreaterThanOrEqual(4)
     expect(second).toBeGreaterThanOrEqual(eligible - 1)
     // (eligible - 4: with Seafaring per people, a world whose peoples are poor seafarers reaches the next continent later.)
     expect(early).toBeGreaterThanOrEqual(eligible - 4)

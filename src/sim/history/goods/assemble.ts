@@ -2,7 +2,7 @@
 // its own buffer). Ragged while the run goes (settlements, traditions, legs and secrets grow); assembly pads to the counts
 // at the end of the run asked for, so a longer run repeats a shorter one exactly.
 
-import { GOOD_COUNT, Good, IndustryBit, PRICE_INDEX_GOODS, VarietyKind } from '../../../contract.ts'
+import { GOOD_COUNT, Good, IndustryBit, PRICE_INDEX_GOODS, SecretKind, VarietyKind } from '../../../contract.ts'
 import type { Deposit, LongHaul, Secret, SecretHolds, Tradition, TradingPost, Variety } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
@@ -10,6 +10,7 @@ import { CLASS, STOCK } from './params.ts'
 import type { GoodsState } from './state.ts'
 import { Maker } from './state.ts'
 import { DK_CONTRACT } from './deposits.ts'
+import { assembleLegRecords, legRecord, legRecordVolumes } from './legHistory.ts'
 
 const G = GOOD_COUNT
 
@@ -42,7 +43,7 @@ function growF32(a: Float32Array, need: number): Float32Array { if (need <= a.le
 /** Snapshot (with the trade snapshots, every tradeInterval years). */
 export function goodsSnapshot(s: HistoryState, g: GoodsState, ts: TradeState): void {
   const S = s.count
-  const D = g.dCount, T = g.tCount, L = g.legCount, K = g.sCount
+  const D = g.dCount, T = g.tCount, L = g.ext.legHist.count, K = g.sCount // (legs: History.longHaul's records, legHistory.ts)
   g.snapS.push(S); g.snapL.push(L); g.snapT.push(T); g.snapK.push(K)
   g.snapOffS.push(g.sUsed); g.snapOffL.push(g.lvUsed); g.snapOffT.push(g.tqUsed); g.snapOffK.push(g.gUsed)
   g.snapCount++
@@ -53,7 +54,7 @@ export function goodsSnapshot(s: HistoryState, g: GoodsState, ts: TradeState): v
   for (let t = 0; t < T; t++) { const q = Math.floor(g.tQ[t] * 64 + 0.5); g.traditionQ[g.tqUsed + t] = g.tEnd[t] >= 0 ? 0 : q > 255 ? 255 : q }
   g.tqUsed += T
   g.legVolSnap = growF32(g.legVolSnap, g.lvUsed + L)
-  for (let k = 0; k < L; k++) g.legVolSnap[g.lvUsed + k] = g.legOpen[k] ? g.legVol[k] : 0
+  legRecordVolumes(g, g.legVolSnap, g.lvUsed)
   g.lvUsed += L
   g.guardSnap = growU8(g.guardSnap, g.gUsed + K)
   for (let k = 0; k < K; k++) { const x = Math.floor(g.sPsi[k] * 255 + 0.5); g.guardSnap[g.gUsed + k] = g.sLost[k] >= 0 ? 0 : x > 255 ? 255 : x < 0 ? 0 : x }
@@ -186,34 +187,14 @@ export function assembleGoods(g: GoodsState, years: number, tradeSnapshotCount: 
     priceIndex.set(g.priceIndex.subarray(o * 5, (o + n) * 5), q * S * 5)
     mart.set(g.mart.subarray(o, o + n), q * S)
   }
-  const L = g.legCount
-  let total = 0
-  for (let k = 0; k < L; k++) total += g.legPath[k].length
-  const lh: LongHaul = {
-    count: L, a: Int32Array.from(g.legA), b: Int32Array.from(g.legB), kind: Uint8Array.from(g.legKind), openedYear: Int16Array.from(g.legOpened),
-    closedYear: Int16Array.from(g.legClosed), chart: Int16Array.from(g.legChart), goodAB: new Uint8Array(L), goodBA: new Uint8Array(L), pathOffsets: new Uint32Array(L + 1), path: new Uint32Array(total),
-  }
-  let off = 0
-  for (let k = 0; k < L; k++) {
-    let ab = 7, ba = 7
-    for (const c of PRICE_INDEX_GOODS) {
-      if (g.legGood[(k * G + c) * 2] * CLASS.worth[c] > g.legGood[(k * G + ab) * 2] * CLASS.worth[ab]) ab = c
-      if (g.legGood[(k * G + c) * 2 + 1] * CLASS.worth[c] > g.legGood[(k * G + ba) * 2 + 1] * CLASS.worth[ba]) ba = c
-    }
-    if (!(g.legGood[(k * G + ab) * 2] > 0)) ab = ba
-    if (!(g.legGood[(k * G + ba) * 2 + 1] > 0)) ba = ab
-    lh.goodAB[k] = ab; lh.goodBA[k] = ba
-    lh.pathOffsets[k] = off
-    const p = g.legPath[k]
-    for (let i = 0; i < p.length; i++) lh.path[off + i] = p[i]
-    off += p.length
-  }
-  lh.pathOffsets[L] = off
+  // Legs: the records of the legs' spells (legHistory.ts), so a longer run repeats a shorter one.
+  const lh: LongHaul = assembleLegRecords(g)
+  const L = lh.count
   const longHaulVolume = new Float32Array(Q * L)
   for (let q = 0; q < Q; q++) longHaulVolume.set(g.legVolSnap.subarray(g.snapOffL[q], g.snapOffL[q] + g.snapL[q]), q * L)
   const K = g.sCount
   const secrets: Secret[] = []
-  for (let k = 0; k < K; k++) secrets.push({ id: k, kind: g.sKind[k] as Secret['kind'], subject: g.sSubject[k], foundYear: g.sFound[k], foundAt: g.sFoundAt[k], lostYear: g.sLost[k] })
+  for (let k = 0; k < K; k++) secrets.push({ id: k, kind: g.sKind[k] as Secret['kind'], subject: g.sKind[k] === SecretKind.Chart ? legRecord(g, g.sSubject[k]) : g.sSubject[k], foundYear: g.sFound[k], foundAt: g.sFoundAt[k], lostYear: g.sLost[k] })
   const H = g.hSecret.length
   const order: number[] = []
   for (let i = 0; i < H; i++) order.push(i)
@@ -227,7 +208,7 @@ export function assembleGoods(g: GoodsState, years: number, tradeSnapshotCount: 
   const secretGuard = new Uint8Array(Q * K)
   for (let q = 0; q < Q; q++) secretGuard.set(g.guardSnap.subarray(g.snapOffK[q], g.snapOffK[q] + g.snapK[q]), q * K)
   const posts: TradingPost[] = []
-  for (let i = 0; i < g.postCount; i++) posts.push({ id: i, kind: g.pKind[i] as TradingPost['kind'], owner: g.pOwner[i], host: g.pHost[i], settlement: g.pSettlement[i], leg: g.pLeg[i], foundedYear: g.pFounded[i], endedYear: g.pEnded[i] })
+  for (let i = 0; i < g.postCount; i++) posts.push({ id: i, kind: g.pKind[i] as TradingPost['kind'], owner: g.pOwner[i], host: g.pHost[i], settlement: g.pSettlement[i], leg: legRecord(g, g.pLeg[i]), foundedYear: g.pFounded[i], endedYear: g.pEnded[i] })
   void years
   void VarietyKind
   return { varieties, deposits, depositOutput, traditions, traditionQuality, industry, metal, longHaul: lh, longHaulVolume, priceIndex, mart, secrets, secretHolds: holds, secretGuard, posts }

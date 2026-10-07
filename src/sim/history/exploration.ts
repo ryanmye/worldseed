@@ -57,6 +57,7 @@ import { ContactVia, learnPath } from './knowledge.ts'
 import { speciesExpedition } from './species.ts'
 import { expeditionFinds } from './goods/deposits.ts' // goods:
 import { ideaRange } from './ideas/hooks.ts' // ideas:
+import { oceanGaps, oceanReach } from './oceans.ts' // oceans: wide oceans wait for the seafaring ideas
 
 /** Notable places (Discovery): kind of a discovery record. */
 export const Place = {
@@ -497,6 +498,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
   const run = ++es.run
   const B = buckets.length
   const rangeI = Math.floor(10 * range)
+  const gap = oceanGaps(s), reach = oceanReach(s, people) // oceans:
   bucketLen.fill(0)
   let pending = 0
   const push = (c: number, d: number): void => {
@@ -536,6 +538,7 @@ function expedition(s: HistoryState, es: ExploreState, id: number, f: number): v
         const j = nb[k]
         const step = stepOf[j]
         if (step < 0) continue
+        if (gap[j] > reach && T.deep[j]) continue // oceans: not beyond the open ocean its ships dare (oceans.ts)
         const nd = cur + step
         if (nd > rangeI || (stamp[j] === run && nd >= dist[j])) continue
         stamp[j] = run; dist[j] = nd; prev[j] = c; src[j] = src[c]

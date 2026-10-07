@@ -21,6 +21,7 @@ import { logEvent } from './state.ts'
 import type { MarketView } from './species.ts'
 import { SPECIES_TABLE, STIMULANTS } from './species.ts'
 import type { SpeciesV2 } from './speciesV2.ts'
+import { merchantResaleNet } from './goods/merchants.ts' // goods: merchant capital
 
 /** Per-people scratch (grown): consumption this year, net value, top importer / exporter settlements. */
 let NET = new Float64Array(0), TOPI = new Int32Array(0), TOPIV = new Float64Array(0), PRODACC = new Float64Array(0)
@@ -45,7 +46,8 @@ export function habitYear(s: HistoryState, v: SpeciesV2, tv: MarketView): void {
   for (let t = 0; t < v.touchedN; t++) {
     const id = touched[t]
     v.touchedMark[id] = 0
-    const paid = v.pay[id] * payShare
+    let paid = v.pay[id] * payShare
+    if (s.goods !== null) paid = merchantResaleNet(s.goods, id, paid, payShare) // goods: what its merchants sent on is their stock, not the town's purchase (goods/merchants.ts)
     v.pay[id] = 0
     if (s.abandoned[id] >= 0) { for (let k = 0; k < NK; k++) { v.imp[id * NK + k] = 0; v.exp[id * NK + k] = 0 } continue }
     // Buyers pay for luxuries and stimulants out of their wealth (at most payMax of it a year).

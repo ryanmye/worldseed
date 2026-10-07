@@ -28,6 +28,8 @@ import { abandon, canSettle, found, logEvent, logJourney } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { tradeAbandonSystem } from '../trade.ts'
 import { loseFort, loseWalls } from '../polity/danger.ts'
+import { legRecord } from './legHistory.ts' // (History.longHaul's leg records)
+import { merchantFunds, merchantPay, merchantsBypassed } from './merchants.ts' // (merchant capital)
 import type { ExploreState } from '../exploration.ts'
 import { driveTech, rangeOf } from '../exploration.ts'
 import { ContactVia, learnPath } from '../knowledge.ts'
@@ -359,7 +361,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   if (gsz > EXPLORE.groupHigh) gsz = EXPLORE.groupHigh
   const cost = X.costMul * EXPLORE.cost * gsz * (1 + path.length / EXPLORE.costCells)
   let payer = -1
-  if (s.wealth[h] >= cost) payer = h
+  if (s.wealth[h] + merchantFunds(g, h) >= cost) payer = h // (merchants.ts: its merchant houses pay first)
   else {
     const ps = s.pol
     const p = polityOf(s, h)
@@ -369,7 +371,8 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
     }
   }
   if (payer < 0) { g.urge[h] = 1; if (ck >= 0) g.urgeChart[h] = ck + 1; return }
-  s.wealth[payer] -= cost
+  if (payer === h) merchantPay(s, g, h, cost)
+  else s.wealth[payer] -= cost
   g.urge[h] = 0
   g.urgeNext[h] = s.year + X.retry
   logGoods(s, EventType.ExpeditionSent, h, -1, gsz, v + 1)
@@ -483,7 +486,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   }
   g.legOrder = g.legOrder.concat(legs)
   g.legOrder.sort((x, y) => g.legCost[x] - g.legCost[y] || x - y)
-  logGoods(s, EventType.DirectRoute, h, e, legs[0], v)
+  logGoods(s, EventType.DirectRoute, h, e, legRecord(g, legs[0]), v) // (the lane's History.longHaul record)
   if (postKind === PostKind.Factory) {
     post = addPost(s, g, PostKind.Factory, h, e, -1, legs[legs.length - 1])
     const sid = s.structures.length
@@ -697,7 +700,8 @@ export function relayYear(s: HistoryState, g: GoodsState): void {
       const lv = g.legVariety[k]
       if (lv !== tv && !(lv > 0 && g.vKind[lv] === g.vKind[tv] && g.vSource[lv] === g.vSource[tv])) continue
       g.bypassed[id] = 1
-      logGoods(s, EventType.Bypassed, id, g.legA[k], k, 1 - sm / g.relayPeak[id])
+      logGoods(s, EventType.Bypassed, id, g.legA[k], legRecord(g, k), 1 - sm / g.relayPeak[id]) // (the lane's History.longHaul record)
+      merchantsBypassed(g, id, k) // (merchants.ts: its merchants follow the trade)
       break
     }
   }

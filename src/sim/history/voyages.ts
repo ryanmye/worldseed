@@ -64,6 +64,7 @@ import { siteFactor, speciesSeaKit } from './species.ts'
 import type { VoyageLog } from './index.ts'
 import { siteFactor as politySite } from './polity/system.ts' // polities: (species has its own siteFactor)
 import { ideaRange } from './ideas/hooks.ts' // ideas:
+import { OCEAN, oceanGaps, oceanReach } from './oceans.ts' // oceans: wide oceans wait for the seafaring ideas
 
 export interface VoyageState {
   rng: Rng
@@ -278,6 +279,7 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
   const stepD = Math.max(1, Math.round(10 * (hasPort ? V.deepPort : V.deep) * T.cellScale))
   const rangeI = Math.floor(10 * range)
   const minFood = MIGRATION.foundMinRatio * g
+  const gap = oceanGaps(s), reach = oceanReach(s, people), kn = s.know.known, kb = people * s.know.N // oceans:
   const st = claimStrength(g)
 
   const { dist, stamp, prev, seen, buckets, bucketLen, visited, coast, sighted } = vs
@@ -346,6 +348,8 @@ function voyage(s: HistoryState, vs: VoyageState, from: number, hasPort: boolean
           continue
         }
         if (biome[j] === Biome.Ice) continue
+        if (T.deep[j] && gap[j] > reach) continue // oceans: not beyond the open ocean its ships dare (oceans.ts)
+        if (T.deep[j] && gap[j] > OCEAN.base && OCEAN.on && kn[kb + j] < 0) continue // oceans: settlers sail the open ocean only where it is charted (explorers find the way)
         const nd = cur + (T.deep[j] ? stepD : stepS)
         if (nd > rangeI) continue
         if (stamp[j] === run && nd >= dist[j]) continue
