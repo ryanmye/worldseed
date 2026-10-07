@@ -7,6 +7,7 @@ import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
 import { buildAtmosphere, buildClouds, buildStarfield, type Clouds } from './render/sky.ts'
+import { buildSunDisc } from './render/sunDisc.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
 import { goodsInUse } from './ui/tradePanel.ts'
 import { attachPointer } from './ui/pointer.ts'
@@ -178,6 +179,9 @@ scene.add(stars)
 const atmosphere = buildAtmosphere()
 atmosphere.setSteps(qs.atmosphereSteps)
 scene.add(atmosphere.mesh)
+// the sun itself in the sky (render/sunDisc.ts)
+const sunDisc = buildSunDisc()
+scene.add(sunDisc.mesh)
 
 const planetGroup = new THREE.Group()
 planetGroup.rotation.y = -THREE.MathUtils.degToRad(numParam('lon', 0))
@@ -1216,6 +1220,7 @@ function draw(ts: number) {
   if (target) drawSize.set(target.width, target.height)
   else renderer.getDrawingBufferSize(drawSize)
   currentRivers?.update(camera, drawSize.y)
+  sunDisc.update(camera, drawSize.y)
   const tt = performance.now()
   historyView.tick(Math.min(tickTime, 0.1), drawSize, target ? pixelRatio : renderer.getPixelRatio())
   tickTime = 0
