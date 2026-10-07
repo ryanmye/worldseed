@@ -152,6 +152,10 @@ export interface TradeState {
   rGood: Float64Array
   /** Open route ids, in order of (re)opening. */
   openList: number[]
+  /** polities: re-paths round danger (polity/reroute.ts), in order: the route, the year, its way from then on (History.trade.repath*). */
+  reRoute: number[]
+  reYear: number[]
+  rePath: number[][]
 
   // Market, per settlement (index id * G + g).
   stock: Float64Array
@@ -228,6 +232,7 @@ export function createTrade(cellCount: number): TradeState {
     rRoadAcc: new Float64Array(256),
     rGood: new Float64Array(256 * G * 2),
     openList: [],
+    reRoute: [], reYear: [], rePath: [], // polities: (re-paths)
     stock: new Float64Array(S * G),
     demand: new Float64Array(S * G),
     price: new Float64Array(S * G),
@@ -318,7 +323,7 @@ const LINK_MUL = new Float64Array(3)
 const ROUTE_MUL = new Float64Array(3)
 
 /** Deep-ocean cost of one cell for trade by settlement `id` this year (its people's Seafaring), with or without a port. */
-function oceanCost(s: HistoryState, id: number, port: boolean): number {
+export function oceanCost(s: HistoryState, id: number, port: boolean): number {
   const c = ((MIGRATION.oceanCost * s.terrain.cellScale) / Math.sqrt(techOf(s, id, TechField.Seafaring))) * (port ? TRADE.oceanPort : TRADE.oceanNoPort)
   return s.ideas !== null ? c / ideaSea(s.ideas, s.people[id]) : c // ideas: keels, rudders, the compass
 }
@@ -477,8 +482,8 @@ export function chainPath(s: HistoryState, ts: TradeState, chain: number[]): num
   return out
 }
 
-/** Trade travel cost along a route's recorded path this year. */
-function routeCost(s: HistoryState, ts: TradeState, r: number): number {
+/** Trade travel cost along a route's recorded path this year. (polities: exported for the re-paths, polity/reroute.ts) */
+export function routeCost(s: HistoryState, ts: TradeState, r: number): number {
   const T = s.terrain
   const path = ts.rPath[r]
   const pa = s.port[ts.rA[r]] >= 0, pb = s.port[ts.rB[r]] >= 0
@@ -977,8 +982,7 @@ export function tradeSystem(s: HistoryState, ts: TradeState): void {
       const oa = a * G, ob = b * G
       // polities: the share of the cargo lost on the way (WAYRISK): merchants weigh it against the goods' worth at the buyer's.
       const lv = pc !== null ? pc.lost[p] : 0
-      const keep = 1 - lv
-      // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
+      const keep = 1 - lv      // polities: (v2) a pair under a duty prices it in (only TARIFF.wedge of it: merchants pass the rest on) and sums
       // what crosses for the accounts (duty, evasion, seizure: marketClosed); one under an embargo or at war takes blocked().
       let rp = false, wAB = 0, wBA = 0
       if (pc !== null && pc.code[p] !== 0) {
@@ -1199,6 +1203,11 @@ export function assembleTrade(ts: TradeState): {
   goodBA: Uint8Array
   pathOffsets: Uint32Array
   path: Uint32Array
+  repathCount: number
+  repathRoute: Int32Array
+  repathYear: Int16Array
+  repathOffsets: Uint32Array
+  repathPath: Uint32Array
 } {
   const R = ts.routeCount
   const a = Int32Array.from(ts.rA)
@@ -1229,5 +1238,13 @@ export function assembleTrade(ts: TradeState): {
     off += p.length
   }
   pathOffsets[R] = off
-  return { count: R, a, b, openedYear, goodAB, goodBA, pathOffsets, path }
+  // polities: the re-paths round danger (polity/reroute.ts), in order.
+  const K = ts.reRoute.length
+  const repathOffsets = new Uint32Array(K + 1)
+  let rt = 0
+  for (let k = 0; k < K; k++) { repathOffsets[k] = rt; rt += ts.rePath[k].length }
+  repathOffsets[K] = rt
+  const repathPath = new Uint32Array(rt)
+  for (let k = 0; k < K; k++) repathPath.set(ts.rePath[k], repathOffsets[k])
+  return { count: R, a, b, openedYear, goodAB, goodBA, pathOffsets, path, repathCount: K, repathRoute: Int32Array.from(ts.reRoute), repathYear: Int16Array.from(ts.reYear), repathOffsets, repathPath }
 }

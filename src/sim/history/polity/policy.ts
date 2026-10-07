@@ -31,7 +31,8 @@
 // cell) costs it a share WAYRISK.loss * R of what it carries (pc.lost, with the pirates' and bandits' own share) and escorts
 // (pc.cost * (1 + WAYRISK.escort * R)); a way across a war front (from one polity's land straight into its enemy's) is
 // closed to all but contraband, like a war between the ends.
-// A major route that closes for danger is TradeForsaken; when it opens again, TradeRestored.
+// A major route that closes for danger is TradeForsaken; when it opens again, TradeRestored. Open routes re-path round danger
+// (and back when it falls) at every full refresh: reroute.ts.
 
 import { EventType, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
@@ -42,6 +43,7 @@ import { FAR, ensureRoutesP, grip, inCrisis, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
 import { zCell } from './territory.ts'
 import { atWar } from './formation.ts'
+import { rerouteStep } from './reroute.ts'
 
 /** What the market reads per candidate pair this year (index = trade pair). Directions: AB = goods from a to b (b imports). */
 export interface PairPolicy {
@@ -239,6 +241,7 @@ export function pairPolicy(s: HistoryState, ps: PolityState, ts: TradeState): Pa
   if (full) {
     // Every step (and when the pairs are rebuilt): the whole policy; the pairs between two polities are listed.
     refreshWayRisk(s, ps)
+    if (WAYRISK.on && WAYRISK.reroute && ts.openList.length > 0) rerouteStep(s, ps, ts) // (open routes re-path round danger, and back: reroute.ts)
     const priv = ps.scratchPol2
     privateers(s, ps, priv)
     const anyState = ps.alive.length > 0

@@ -223,6 +223,7 @@ export function laneMap(s: HistoryState, ps: PolityState, ts: TradeState): void 
 
 /** System part (every slow step): pirates rise and fall; routes' losses to pirates and bandits; outlaw danger on coasts and roads. */
 export function outlawStep(s: HistoryState, ps: PolityState, ts: TradeState): void {
+  if (ps.laneDirty) { ps.laneDirty = false; if (s.year % PIRACY.laneStep !== 0) laneMap(s, ps, ts) } // (routes re-pathed since the lanes were mapped: reroute.ts)
   const X = PIRACY
   const step = X.step
   const living = s.living

@@ -386,6 +386,15 @@ export const WAYRISK = {
   forsake: 0.2,
   majorLoads: 1000,
   warFront: true,
+  /**
+   * Re-paths (reroute.ts): an open route whose way the danger makes at least rerouteGain dearer looks for another way and takes
+   * it when it costs less than (1 - rerouteGain) of the current one (and goes back to its first way the same way once the
+   * danger there falls); at most once every rerouteGap years; the search visits at most rerouteVisits cells. false: fixed paths.
+   */
+  reroute: true,
+  rerouteGain: 0.15,
+  rerouteGap: 20,
+  rerouteVisits: 6000,
 }
 
 /** Smuggling (policy.ts, trade.ts): a share of the flow held back by duties or embargo moves as contraband. */

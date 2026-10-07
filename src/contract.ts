@@ -1271,7 +1271,9 @@ export const GOOD_COUNT = 13
 /**
  * Trade routes between pairs of settlements, struct-of-arrays, in order of first opening.
  * A route keeps its id for the whole run; a pair that stops and later resumes trading reuses its route.
- * Route r follows cells path[pathOffsets[r] .. pathOffsets[r + 1]) from settlement a to settlement b.
+ * Route r opened along cells path[pathOffsets[r] .. pathOffsets[r + 1]) from settlement a to settlement b. With polities a route
+ * may later change its way round danger, and back once the danger falls (the re-paths below, in order); routePathAt gives its
+ * way at a year (draw that; `path` alone is the way it opened along).
  */
 export interface TradeRoutes {
   count: number
@@ -1286,6 +1288,30 @@ export interface TradeRoutes {
   pathOffsets: Uint32Array
   /** Cell ids along each route, a's cell first, b's cell last; consecutive cells are neighbours. May include water cells. */
   path: Uint32Array
+  /**
+   * polities: re-paths, in order of year (a longer run repeats a shorter one's rows): from year repathYear[k] (inclusive) route
+   * repathRoute[k] follows cells repathPath[repathOffsets[k] .. repathOffsets[k + 1]) (a's cell first, b's last, neighbours),
+   * until its next re-path. A route goes round newly dangerous ground (war, raids, a war front, pirates' waters, bandits) and
+   * back to the way it opened along when the danger there falls. Empty (repathCount 0) without polities. Its traffic in
+   * tradeVolume and History.road follows the way it had at the time.
+   */
+  repathCount: number
+  repathRoute: Int32Array
+  repathYear: Int16Array
+  repathOffsets: Uint32Array
+  repathPath: Uint32Array
+}
+
+/**
+ * The way trade route r followed at `year`: its cells are arr[from .. to). The way it opened along (`path`) unless it had
+ * re-pathed by then (its last re-path at or before `year`). For a trade snapshot q pass year q * tradeInterval.
+ */
+export function routePathAt(t: TradeRoutes, r: number, year: number): { arr: Uint32Array; from: number; to: number } {
+  let k = -1
+  const n = t.repathCount ?? 0
+  for (let i = 0; i < n && t.repathYear[i] <= year; i++) if (t.repathRoute[i] === r) k = i
+  if (k < 0) return { arr: t.path, from: t.pathOffsets[r], to: t.pathOffsets[r + 1] }
+  return { arr: t.repathPath, from: t.repathOffsets[k], to: t.repathOffsets[k + 1] }
 }
 
 /** Population at which a settlement counts as a town, and as a city. */
