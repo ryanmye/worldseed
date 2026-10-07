@@ -16,6 +16,10 @@
 // at once); the main thread sends at most one extension at a time and drops responses
 // whose requestId is stale (a new seed).
 //
+// World only (the start page, ui/landing.ts): a generate request with worldOnly posts the world and keeps
+// it without simulating; a later `history` request for the same requestId simulates (or reads from the
+// cache) its first history with the options chosen there (the years), as a plain generate would have.
+//
 // Orders (the player's nudges, HistoryOptions.orders): a generate request may carry them in its
 // historyOptions, and an `orders` request re-simulates the kept world with a new list. Either way the
 // list is canonicalised (decodeOrders(encodeOrders(...)), dropped when empty, so [] and undefined
@@ -46,6 +50,17 @@ export type WorkerRequest =
       nocache?: boolean
       cachecheck?: boolean
       /** Without a cached history, first simulate (and post) only this many years when the requested run is longer; the UI then extends. */
+      firstYears?: number
+      /** Post the world only and keep it: its history comes with a later `history` request (the start page, ui/landing.ts). */
+      worldOnly?: boolean
+    }
+  | {
+      /** Simulate the history of the world kept by generate request `requestId` (sent with worldOnly), with these options. */
+      type: 'history'
+      requestId: number
+      historyOptions?: HistoryOptions
+      nocache?: boolean
+      cachecheck?: boolean
       firstYears?: number
     }
   | {
@@ -208,7 +223,6 @@ async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
   keptSeed = { seed, options }
   const cache = await cacheReady
   const keys = cache ? cacheKeys(cache.version, seed, options, historyOptions) : null
-  const target = historyOptions?.years ?? 2000
   kept = null
   let world: World | null = null
   try {
@@ -231,6 +245,16 @@ async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
     return
   }
   kept = { requestId, world, historyOptions, run: null, keys }
+  if (req.worldOnly) return
+  await historyOf(kept, req)
+}
+
+/** The kept world's first history: from the cache when it has it, else simulated (and posted). */
+async function historyOf(k: Kept, req: { requestId: number; nocache?: boolean; cachecheck?: boolean; firstYears?: number }) {
+  const { requestId } = req
+  const { world, historyOptions, keys } = k
+  const cache = await cacheReady
+  const target = historyOptions?.years ?? 2000
   try {
     const t0 = performance.now()
     const hit = keys && !req.nocache ? await cache!.getHistory<History>(keys, target) : null
@@ -246,10 +270,20 @@ async function generate(req: Extract<WorkerRequest, { type: 'generate' }>) {
       return
     }
     const first = req.firstYears && req.firstYears < target ? req.firstYears : undefined
-    await simulateAndPost(requestId, kept, first, false)
+    await simulateAndPost(requestId, k, first, false)
   } catch (err) {
     post({ type: 'error', requestId, stage: 'history', message: errorMessage(err) })
   }
+}
+
+/** The history of a world posted with worldOnly (the start page's Start), with the options chosen there. */
+async function historyFor(req: Extract<WorkerRequest, { type: 'history' }>) {
+  if (!kept || kept.requestId !== req.requestId || !keptSeed) return // superseded by a newer world
+  const historyOptions = canonicalOptions(req.historyOptions)
+  const cache = await cacheReady
+  const keys = cache ? cacheKeys(cache.version, keptSeed.seed, keptSeed.options, historyOptions) : null
+  kept = { requestId: req.requestId, world: kept.world, historyOptions, run: null, keys }
+  await historyOf(kept, req)
 }
 
 /** Re-simulate the kept world with new orders (a new resumable run from year 0), `years` long, from the cache when it has that run. */
@@ -295,7 +329,7 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const req = ev.data
   if (req.type === 'throttle') hidden = req.hidden
   else {
-    if (req.type !== 'extend') latestRequestId = req.requestId
-    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : generate(req)))
+    if (req.type !== 'extend' && req.type !== 'history') latestRequestId = req.requestId
+    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : req.type === 'history' ? historyFor(req) : generate(req)))
   }
 }
