@@ -24,6 +24,7 @@ import { Tier, grip, inCrisis, isCapital, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
 import { relationOf } from './relations.ts'
 import { atWar } from './formation.ts'
+import { bandits } from './outlaw.ts'
 
 
 /** Raises the danger of settlement id to at least z (an event). */
@@ -94,6 +95,7 @@ export function dangerStep(s: HistoryState, ps: PolityState): void {
       lw = D.lawless * (1 - grip(ps.dist[i], ps.pReach[pi])) * lawF[pi]
       if (lw > on) on = lw
     } else if (margin) lw = BANDIT.stateless // (v2: the shatter zone at a state's margin: bandits on its roads)
+    if (BANDIT.traffic) lw = bandits(s, ps, i, lw) // (bandits live off the traffic near them, as pirates do: outlaw.ts)
     ps.lawless[i] = lw
     // v2: pirates on this coast, bandits on this road (outlaw.ts).
     const zo = ps.cellOut[s.cell[i]]

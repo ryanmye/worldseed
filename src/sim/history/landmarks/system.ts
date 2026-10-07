@@ -44,10 +44,21 @@
 // or ruined one in a living town is restored (restore; a ruin at ruinRestore of it) when the town is back over restoreShare of the
 // peak and rich, a seat a capital again with restoreSeat of the peak, a house of worship under a pious ruler (restorePiety, the
 // town at restorePious), a shrine when its town (restoreShare) holds a traditional faith again; the ruins of an abandoned town
-// stay ruins. A house of worship is rededicated (Converted) when its town's majority (convertShare) follows another faith
+// stay ruins (unless a town is refounded on or beside them: Revival below). A house of worship is rededicated (Converted) when its town's majority (convertShare) follows another faith
 // (convertLesser, convertGreat per scan; a great one not while its realm's state faith is the one it serves), and a great one
 // when the state faith of the realm holding it changes (convertState); a folk shrine whose town took up a universal faith falls
 // into neglect instead. No change within minGap years of the last (completion, sacks, abandonment and giving up excepted).
+// A conqueror with a state faith rededicates a standing great temple or monastery of another faith in a town it takes
+// (convertConquest, at the conquest).
+// Crowding: every great work but the capital's guarantee has its chance times clamp(1 - (n - crowdFrom) / (crowdTo - crowdFrom),
+// 0, 1), n the great landmarks begun so far in the world (a crowded, long-lived world keeps a few dozen).
+// Revival: the ruins of an abandoned town wait for its heir, the first settlement founded on or beside its cell after it was
+// given up; once the heir is reviveYears old and has max(revivePop, reviveShare of the old town's peak) people, each ruin is
+// restored with chance revive per scan (a great one if the heir has none of its kind, a temple if it has fewer than templeMax;
+// shrines stay ruins) and becomes the heir's (History.landmarks.changeSettlement), rededicated to the heir's majority faith.
+// Likewise a town rebuilt after the sack that ruined a landmark (refounded, often under a new name) restores the ruin
+// reviveYears after the sack once it has max(revivePop, reviveShare of its old peak) people (revive per scan), without the
+// wealth an ordinary restoration needs.
 // Building traditions (LandmarkForm): each faith's is fixed when it first appears, from its founding settlement's lands
 // (traditionOf: mountains, hot dry lands, cold lands, rainforest, savanna, cool and warm temperate forest, grassland) and a draw
 // from 'landmarks-faith-<id>' (a universal faith draws no ziggurat or stone circle: those are the folk traditions'; a schism keeps
@@ -199,6 +210,14 @@ function need(lm: LandmarksState, min: number, rank: number): number {
   return t > min ? t : min
 }
 
+/** The world's crowding factor on the chance of a great work (LANDMARK.crowdFrom, crowdTo; the capital's guarantee aside). */
+function crowd(lm: LandmarksState): number {
+  const X = LANDMARK
+  if (!(X.crowdTo > X.crowdFrom)) return 1
+  const x = 1 - (lm.greatN - X.crowdFrom) / (X.crowdTo - X.crowdFrom)
+  return x > 1 ? 1 : x < 0 ? 0 : x
+}
+
 /**
  * The world's towns at the scan, in one pass: the TOP_TOWNS largest living towns' populations (descending; 0 where there are
  * fewer), and the mean wealth per head of the towns of 1,000 people or more.
@@ -238,10 +257,11 @@ function lacks(has: number, k: number): boolean {
 
 /** Records a change of landmark id this year. */
 function change(s: HistoryState, lm: LandmarksState, id: number, state: number, faith: number, pol: number, other: number): void {
-  lm.cLm.push(id); lm.cYear.push(s.year); lm.cState.push(state); lm.cFaith.push(faith); lm.cPol.push(pol); lm.cOther.push(other)
+  lm.cLm.push(id); lm.cYear.push(s.year); lm.cState.push(state); lm.cFaith.push(faith); lm.cPol.push(pol); lm.cOther.push(other); lm.cTown.push(lm.lSett[id])
   lm.lState[id] = state
   lm.lSince[id] = s.year
   if (state === ST.Unfinished && lm.lRank[id] === LandmarkRank.Great) lm.has[lm.lSett[id]] &= ~(1 << lm.lKind[id])
+  if (state === ST.Restored) lm.lSack[id] = -1
 }
 
 /**
@@ -262,7 +282,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   if (ruler < 0) ruler = rulerOf(s, p)
   const R = s.rul
   const dyn = ruler >= 0 && R !== null ? R.rDyn[ruler] : -1
-  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
+  lm.lKind.push(kind); lm.lRank.push(rank); lm.lForm.push(form); lm.lVariant.push(variant); lm.lSett.push(v); lm.lHome.push(v); lm.lSight.push(0); lm.lSack.push(-1); lm.lCell.push(s.cell[v]); lm.lBegun.push(s.year); lm.lDone.push(-1)
   lm.lPol.push(p); lm.lRuler.push(ruler); lm.lDyn.push(dyn); lm.lFaith.push(isWorship(kind) ? faith : stateFaith(s, p)); lm.lPeople.push(builders)
   lm.lLang.push(rank === LandmarkRank.Great && p >= 0 && ps !== null ? langSeat(s, ps, p) : v); lm.lSubject.push(subject)
   lm.lState.push(ST.Building); lm.lSince.push(s.year); lm.lCur.push(isWorship(kind) ? faith : -1); lm.lRef.push(s.pop[v]); lm.lLow.push(-1)
@@ -270,7 +290,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   if (lm.tail[v] >= 0) lm.lNext[lm.tail[v]] = id
   else lm.head[v] = id
   lm.tail[v] = id
-  if (rank === LandmarkRank.Great) lm.has[v] |= 1 << kind
+  if (rank === LandmarkRank.Great) { lm.has[v] |= 1 << kind; lm.greatN++ }
   lm.building.push(id)
   change(s, lm, id, ST.Building, -1, p, capitalOf(s, p))
   return id
@@ -282,6 +302,18 @@ function newSettlements(s: HistoryState, lm: LandmarksState): void {
   const n = s.count
   if (lm.seen >= n) return
   ensureLandmarkSettlements(lm, n)
+  // A settlement founded on or beside the ruins of an abandoned town with landmarks is its heir (the first one only).
+  if (s.year > 0) {
+    const { neighborOffsets: off, neighbors: nb } = s.world.grid
+    const ruinAt = lm.ruinAt
+    for (let v = lm.seen; v < n; v++) {
+      if (s.outpost[v] || s.abandoned[v] >= 0) continue
+      const c = s.cell[v]
+      let u = ruinAt[c]
+      for (let k = off[c]; k < off[c + 1] && !(u >= 0 && lm.heir[u] < 0); k++) u = ruinAt[nb[k]]
+      if (u >= 0 && u < v && s.abandoned[u] >= 0 && lm.heir[u] < 0) lm.heir[u] = v
+    }
+  }
   lm.seen = n
 }
 
@@ -304,6 +336,7 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
           if (st === ST.Building) change(s, lm, id, ST.Unfinished, -1, -1, -1)
           else if (st !== ST.Ruined && st !== ST.Unfinished) change(s, lm, id, ST.Ruined, -1, -1, -1)
         }
+        if (lm.head[v] >= 0) lm.ruinAt[s.cell[v]] = v // (its ruins wait for a town refounded on or beside them)
         break
       }
       case EventType.Sacked: {
@@ -317,12 +350,30 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
           lm.diag.sackRolls++
           const k = lm.lKind[id]
           const chance = lm.lRank[id] === LandmarkRank.Lesser ? X.sackLesser : k === KD.Castle ? X.sackCastle : X.sackGreat
-          if (rng.next() < chance) change(s, lm, id, ST.Ruined, -1, by, e.other)
+          if (rng.next() < chance) { change(s, lm, id, ST.Ruined, -1, by, e.other); lm.lSack[id] = year }
         }
         lm.warYear[v] = year
         break
       }
-      case EventType.Conquered: case EventType.SiegeLifted:
+      case EventType.Conquered: {
+        const v = e.settlement
+        if (v >= lm.seen) break
+        lm.warYear[v] = year
+        // A conqueror with a state faith rededicates the great houses of worship of another faith in the town it took.
+        const p = ps !== null ? ps.polity[v] : -1
+        const f = stateFaith(s, p)
+        if (f < 0 || s.abandoned[v] >= 0 || !(X.convertConquest > 0)) break
+        for (let id = lm.head[v]; id >= 0; id = lm.lNext[id]) {
+          const k = lm.lKind[id]
+          if ((k !== KD.GreatTemple && k !== KD.Monastery) || !standing(lm.lState[id]) || lm.lCur[id] === f || year - lm.lSince[id] < X.minGap) continue
+          if (rng.next() >= X.convertConquest) continue
+          lm.lCur[id] = f
+          lm.diag.conquestConversions++
+          change(s, lm, id, ST.Converted, f, p, capitalOf(s, p))
+        }
+        break
+      }
+      case EventType.SiegeLifted:
         if (e.settlement < lm.seen) lm.warYear[e.settlement] = year
         break
       case EventType.TraditionRenowned:
@@ -340,7 +391,7 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
         if (r < 0 || R.rWar[r] < X.monumentWar || lm.monuRuler[p] === r || s.abandoned[c] >= 0 || s.pop[c] < need(lm, X.monumentPop, X.monumentRank) || !lacks(lm.has[c], KD.Monument)) break
         if (o !== WarOutcome.Conquest && ps.wTaken[w] < X.monumentTaken) break
         if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) < X.monumentTier) break
-        if (rng.next() >= X.monument) break
+        if (rng.next() >= X.monument * crowd(lm)) break
         lm.monuRuler[p] = r
         begin(s, lm, c, KD.Monument, p, r, -1, -1, 0)
         break
@@ -358,7 +409,7 @@ function scanEvents(s: HistoryState, lm: LandmarksState): void {
         const founder = d >= 0 && R.dFounder[d] === r && year - R.rAcc[r] >= X.tombFounderReign && tier >= Tier.Empire
         const great = year - R.rAcc[r] >= X.tombReign && R.rAbility[r] >= X.tombAbility && tier >= Tier.Kingdom
         if (!founder && !great) break
-        if (rng.next() >= (founder ? X.tombFounder : X.tombGreat)) break
+        if (rng.next() >= (founder ? X.tombFounder : X.tombGreat) * crowd(lm)) break
         begin(s, lm, c, KD.Mausoleum, p, r, -1, -1, 0)
         break
       }
@@ -472,11 +523,11 @@ function scan(s: HistoryState, lm: LandmarksState): void {
       const people = p >= 0 && ps !== null ? ps.pPeople[p] : s.people[v]
       // Castle (the guarantee first: no draw).
       if (lacks(has, KD.Castle) && lacks(has, KD.Palace) && cap && capYears >= X.forceYears && pop >= X.forcePop) { lm.diag.forced++; begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
-      else if (lacks(has, KD.Castle) && cap && tier >= Tier.Kingdom && capYears >= X.castleYears && pop >= need(lm, X.castlePop, X.castleRank)) { if (rng.next() < X.castle) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
-      else if (lacks(has, KD.Castle) && p >= 0 && tier >= Tier.Kingdom && pop >= need(lm, X.fortPop, X.castleRank) && year - lm.warYear[v] <= X.fortWindow) { lm.diag.fortTowns++; if (rng.next() < X.fort) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 0) }
+      else if (lacks(has, KD.Castle) && cap && tier >= Tier.Kingdom && capYears >= X.castleYears && pop >= need(lm, X.castlePop, X.castleRank)) { if (rng.next() < X.castle * crowd(lm)) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 1) }
+      else if (lacks(has, KD.Castle) && p >= 0 && tier >= Tier.Kingdom && pop >= need(lm, X.fortPop, X.castleRank) && year - lm.warYear[v] <= X.fortWindow) { lm.diag.fortTowns++; if (rng.next() < X.fort * crowd(lm)) begin(s, lm, v, KD.Castle, p, -1, -1, -1, 0) }
       // Palace.
       if (lacks(has, KD.Palace) && cap && tier >= Tier.Kingdom && capYears >= (tier >= Tier.Empire ? X.palaceEmpireYears : X.palaceYears) && pop >= need(lm, X.palacePop, X.palaceRank) && rich(v, 1)) {
-        if (rng.next() < X.palace) begin(s, lm, v, KD.Palace, p, -1, -1, -1, 1)
+        if (rng.next() < X.palace * crowd(lm)) begin(s, lm, v, KD.Palace, p, -1, -1, -1, 1)
       }
       // Great temple.
       if (lacks(has, KD.GreatTemple) && rel !== null) {
@@ -485,7 +536,7 @@ function scan(s: HistoryState, lm: LandmarksState): void {
         if (lm.holyAt[v] >= 0 && pop >= need(lm, X.holyPop, X.holyRank)) { f = lm.holyAt[v]; chance = X.holy }
         else if (cap && tier >= Tier.Kingdom && sf >= 0 && sf === m && pop >= need(lm, X.seatTemplePop, X.templeRank)) { f = sf; chance = X.seatTemple }
         else if (m >= 0 && pop >= need(lm, X.piousPop, X.templeRank) && majorityShare(s, v) >= X.piousShare && ruler >= 0 && R !== null && R.rPiety[ruler] >= X.piousRuler && rich(v, 1)) { f = m; chance = X.pious }
-        if (f >= 0 && rng.next() < chance) begin(s, lm, v, KD.GreatTemple, p, -1, f, -1, 0)
+        if (f >= 0 && rng.next() < chance * crowd(lm)) begin(s, lm, v, KD.GreatTemple, p, -1, f, -1, 0)
       }
       // Monastery: the largest eligible town of each realm (judged after the loop).
       if (lacks(has, KD.Monastery) && rel !== null && R !== null && p >= 0 && ps !== null && pop >= need(lm, X.monkPop, X.monkRank) && ruler >= 0 && m >= 0 && R.rFaith[ruler] === m && R.rPiety[ruler] >= X.monkPiety && rel.org[m] >= X.monkOrg && lm.monkRuler[p] !== ruler) {
@@ -494,31 +545,31 @@ function scan(s: HistoryState, lm: LandmarksState): void {
       }
       // Market hall.
       if (lacks(has, KD.MarketHall) && g !== null) {
-        if (v < g.isMart.length && g.isMart[v] && pop >= need(lm, X.martPop, X.martRank) && rich(v, 1)) { if (rng.next() < X.mart) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
-        else if (pop >= need(lm, X.hubPop, X.hubRank) && rich(v, X.hubRich)) { if (rng.next() < X.hub) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
+        if (v < g.isMart.length && g.isMart[v] && pop >= need(lm, X.martPop, X.martRank) && rich(v, 1)) { if (rng.next() < X.mart * crowd(lm)) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
+        else if (pop >= need(lm, X.hubPop, X.hubRank) && rich(v, X.hubRich)) { if (rng.next() < X.hub * crowd(lm)) begin(s, lm, v, KD.MarketHall, p, -1, -1, -1, 0) }
       }
       // Guildhall.
       if (lacks(has, KD.Guildhall) && lm.renowned[v] >= 0 && year - lm.renowned[v] <= X.guildWindow && pop >= need(lm, X.guildPop, X.guildRank)) {
-        if (rng.next() < X.guild) begin(s, lm, v, KD.Guildhall, p, -1, -1, lm.renownT[v], 0)
+        if (rng.next() < X.guild * crowd(lm)) begin(s, lm, v, KD.Guildhall, p, -1, -1, lm.renownT[v], 0)
       }
       // Lighthouse.
       if (lacks(has, KD.Lighthouse) && s.port[v] >= 0 && lm.laneMark[v] === year && pop >= need(lm, X.lightPop, X.lightRank)) {
-        if (rng.next() < X.light) begin(s, lm, v, KD.Lighthouse, p, -1, -1, -1, 0)
+        if (rng.next() < X.light * crowd(lm)) begin(s, lm, v, KD.Lighthouse, p, -1, -1, -1, 0)
       }
       // Library.
       if (lacks(has, KD.Library) && pop >= need(lm, X.libraryPop, X.libraryRank) && rich(v, 1) && holds(s, people, I_WRITING, X.libTech)) {
         const mul = holds(s, people, I_PRINTING, X.libTech + 1) ? X.libPrinting : holds(s, people, I_PAPER, X.libTech + 0.5) ? X.libPaper : 1
-        if (rng.next() < X.library * mul) begin(s, lm, v, KD.Library, p, -1, -1, -1, 0)
+        if (rng.next() < X.library * mul * crowd(lm)) begin(s, lm, v, KD.Library, p, -1, -1, -1, 0)
       }
       // Baths.
       if (lacks(has, KD.Baths) && tz !== null && springNear(s, s.cell[v])) {
-        if (v < tz.cap && tz.resort[v]) { if (pop >= X.bathsPop && rng.next() < X.baths) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
-        else if (pop >= need(lm, X.springTownPop, X.springRank) && rich(v, 1)) { if (rng.next() < X.springTown) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
+        if (v < tz.cap && tz.resort[v]) { if (pop >= X.bathsPop && rng.next() < X.baths * crowd(lm)) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
+        else if (pop >= need(lm, X.springTownPop, X.springRank) && rich(v, 1)) { if (rng.next() < X.springTown * crowd(lm)) begin(s, lm, v, KD.Baths, p, -1, -1, -1, 0) }
       }
       // Council house.
       if (lacks(has, KD.CouncilHouse) && cap && ps !== null && capYears >= X.councilYears && pop >= need(lm, X.councilPop, X.councilRank)) {
         const elective = ps.pOrigin[p] === PolityOrigin.League || (ruler >= 0 && R !== null && (R.rDyn[ruler] < 0 || R.rLaw[ruler] === SuccessionLaw.Elective))
-        if (elective && rng.next() < X.council) begin(s, lm, v, KD.CouncilHouse, p, -1, -1, -1, 1)
+        if (elective && rng.next() < X.council * crowd(lm)) begin(s, lm, v, KD.CouncilHouse, p, -1, -1, -1, 1)
       }
     }
     // Lesser: temples and a shrine.
@@ -543,7 +594,7 @@ function scan(s: HistoryState, lm: LandmarksState): void {
       const v = lm.monkBest[p]
       if (v < 0) continue
       lm.diag.monkChances++
-      if (rng.next() >= X.monastery) continue
+      if (rng.next() >= X.monastery * crowd(lm)) continue
       const r = rulerOf(s, p)
       lm.monkRuler[p] = r
       begin(s, lm, v, KD.Monastery, p, r, majority(s, v), -1, 0)
@@ -555,7 +606,8 @@ function scan(s: HistoryState, lm: LandmarksState): void {
     const st = lm.lState[id]
     if (st === ST.Building || st === ST.Unfinished) continue
     const v = lm.lSett[id]
-    if (s.abandoned[v] >= 0 || year - lm.lSince[id] < X.minGap) continue
+    if (year - lm.lSince[id] < X.minGap) continue
+    if (s.abandoned[v] >= 0) { if (st === ST.Ruined && lm.heir[v] >= 0) revive(s, lm, id, v); continue } // (a town grown on or beside the ruins may restore them)
     const pop = s.pop[v]
     const p = ps !== null ? ps.polity[v] : -1
     const kind = lm.lKind[id]
@@ -601,9 +653,73 @@ function scan(s: HistoryState, lm: LandmarksState): void {
         change(s, lm, id, ST.Restored, f, p, capitalOf(s, p))
         continue
       }
+    } else if (st === ST.Ruined && lm.lSack[id] >= 0 && X.revive > 0 && kind !== KD.Shrine && year - lm.lSack[id] >= X.reviveYears && pop >= X.revivePop && pop >= X.reviveShare * lm.lRef[id]) {
+      // A town rebuilt after the sack that ruined it (refounded, often under a new name) restores the ruin once it has grown
+      // back enough (Revival: the same rule as an heir's), a seat only as a lord's hall unless it is a capital again.
+      if (rng.next() < X.revive) {
+        const f = worship ? (m >= 0 ? m : lm.lCur[id]) : -1
+        if (worship) lm.lCur[id] = f
+        lm.lLow[id] = -1
+        lm.lRef[id] = pop
+        if (lm.lSeat[id] === 1) { if (cap) lm.lastCap[v] = year; else lm.lSeat[id] = 0 }
+        lm.diag.revived++
+        change(s, lm, id, ST.Restored, f, p, capitalOf(s, p))
+        continue
+      }
     }
     if (st === ST.Neglected && year >= lm.lDue[id]) change(s, lm, id, ST.Ruined, -1, -1, -1)
   }
+}
+
+/**
+ * The ruin `id` of the abandoned town u: its heir (the first settlement founded on or beside u's cell after u was given up),
+ * once reviveYears old with max(revivePop, reviveShare of the peak u had) people, restores it with chance revive per scan, if it
+ * has no great landmark of the kind (a temple: fewer than templeMax; never a shrine); the landmark becomes the heir's (its
+ * change row's town), rededicated to the heir's majority faith (a house of worship), no longer a seat unless the heir is a capital.
+ */
+function revive(s: HistoryState, lm: LandmarksState, id: number, u: number): void {
+  const X = LANDMARK
+  const h = lm.heir[u]
+  if (!(X.revive > 0) || s.abandoned[h] >= 0 || s.year - s.founded[h] < X.reviveYears) return
+  const pop = s.pop[h]
+  if (pop < X.revivePop || pop < X.reviveShare * lm.lRef[id]) return
+  const kind = lm.lKind[id]
+  const great = lm.lRank[id] === LandmarkRank.Great
+  if (kind === KD.Shrine) return
+  if (great && !lacks(lm.has[h], kind)) return
+  if (!great) {
+    let have = 0
+    for (let k = lm.head[h]; k >= 0; k = lm.lNext[k]) if (lm.lKind[k] === KD.Temple && lm.lState[k] !== ST.Ruined && lm.lState[k] !== ST.Unfinished) have++
+    if (have >= X.templeMax) return
+  }
+  if (lm.rng.next() >= X.revive) return
+  // (out of u's list, onto h's)
+  let prev = -1
+  for (let k = lm.head[u]; k >= 0; prev = k, k = lm.lNext[k]) {
+    if (k !== id) continue
+    if (prev < 0) lm.head[u] = lm.lNext[k]; else lm.lNext[prev] = lm.lNext[k]
+    if (lm.tail[u] === k) lm.tail[u] = prev
+    break
+  }
+  lm.lNext[id] = -1
+  if (lm.tail[h] >= 0) lm.lNext[lm.tail[h]] = id
+  else lm.head[h] = id
+  lm.tail[h] = id
+  lm.lSett[id] = h
+  if (great) lm.has[h] |= 1 << kind
+  const ps = s.pol
+  const p = ps !== null ? ps.polity[h] : -1
+  const cap = p >= 0 && ps !== null && ps.pCapital[p] === h
+  if (lm.lSeat[id] === 1 && !cap) lm.lSeat[id] = 0
+  if (cap) lm.lastCap[h] = s.year
+  const worship = isWorship(kind)
+  const m = worship ? majority(s, h) : -1
+  const f = worship ? (m >= 0 ? m : lm.lCur[id]) : -1
+  if (worship) lm.lCur[id] = f
+  lm.lRef[id] = pop
+  lm.lLow[id] = -1
+  lm.diag.revived++
+  change(s, lm, id, ST.Restored, f, p, capitalOf(s, p))
 }
 
 /** System (yearly, at the end of the year, after renaming and before the snapshots): see the file comment. */

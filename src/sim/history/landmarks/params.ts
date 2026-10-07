@@ -26,6 +26,14 @@ export const LANDMARK = {
   tombRank: 8,
   springRank: 24,
   councilRank: 6,
+  /**
+   * The world's crowding: every great work but the capital's guarantee has its chance times
+   * clamp(1 - (n - crowdFrom) / (crowdTo - crowdFrom), 0, 1), n the great landmarks begun so far: a world that has raised many
+   * raises the next more rarely (patrons and masons are drawn to what is famous already), so a long-lived crowded world keeps
+   * a few dozen. crowdTo <= crowdFrom: no crowding.
+   */
+  crowdFrom: 18,
+  crowdTo: 36,
   /** "Rich": wealth per head at least richMul times the mean of the world's towns (pop >= 1000) at the scan. */
   richMul: 1.2,
 
@@ -165,6 +173,27 @@ export const LANDMARK = {
   convertLesser: 0.25,
   convertGreat: 0.06,
   convertState: 0.4,
+  /** A conqueror with a state faith rededicates a great house of worship of another faith in a town it takes, with this chance (at the conquest). */
+  convertConquest: 0.3,
+  /**
+   * Revival: the ruins of an abandoned town are restored by its heir (the first settlement founded on or beside its cell after it
+   * was given up) once the heir is reviveYears old and has max(revivePop, reviveShare of the old town's peak) people, with chance
+   * revive per scan (a great one if the heir has none of its kind, a temple if it has fewer than templeMax); the landmark becomes
+   * the heir's.
+   */
+  reviveYears: 30,
+  revivePop: 1500,
+  reviveShare: 0.4,
+  revive: 0.08,
+  /**
+   * Sights (tourism, sights.ts): a great landmark ruined, unfinished or sightAge years old (since it was begun) becomes a sight
+   * of its own (SightKind.Landmark) with fame sightFame[kind], times sightRuin when ruined or unfinished. false: no landmark
+   * sights (the landmarks a pure consequence layer again).
+   */
+  sights: true,
+  sightAge: 300,
+  sightFame: [0.15, 0.25, 0.25, 0.15, 0.1, 0.1, 0.2, 0.2, 0.15, 0.2, 0.15, 0.1, 0, 0],
+  sightRuin: 0.8,
   /** Years after a change before another (sack and abandonment excepted). */
   minGap: 10,
 }

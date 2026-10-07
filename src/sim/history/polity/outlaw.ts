@@ -181,6 +181,28 @@ function buildSeaNear(s: HistoryState, ps: PolityState): void {
 
 const NEAR_MAX = 24
 
+/**
+ * Bandits live off the traffic, as pirates do (danger.ts dangerStep, every POLITY.step years; BANDIT.traffic): where the grip
+ * is weak (lawlessness lw) their strength moves BANDIT.rate a year toward
+ *   lw * (idle + (most - idle) * t / (t + trafficHalf))
+ * t the traffic passing near: the most loads through the settlement or a neighbour (s.through, value-weighted: rich traffic
+ * counts more). Without traffic they dwindle to idle of it (living off the land); where rich trade passes they grow up to most
+ * times it; when trade leaves they starve. Returns their strength (the settlement's lawlessness from now on).
+ */
+export function bandits(s: HistoryState, ps: PolityState, i: number, lw: number): number {
+  const X = BANDIT
+  let t = s.through[i]
+  const nb = ps.gNb[i]
+  if (nb) for (let k = 0; k < nb.length; k++) { const v = nb[k]; if (s.abandoned[v] < 0 && s.through[v] > t) t = s.through[v] }
+  const target = lw > 0 ? lw * (X.idle + (X.most - X.idle) * (t / (t + X.trafficHalf))) : 0
+  const k = POLITY.step * X.rate < 1 ? POLITY.step * X.rate : 1
+  let x = ps.bandit[i]
+  x += k * (target - x)
+  if (x < 1e-4) x = 0
+  ps.bandit[i] = x
+  return x
+}
+
 /** Map pass: coastal settlements near each route's sea cells, and every settlement's lane traffic. */
 export function laneMap(s: HistoryState, ps: PolityState, ts: TradeState): void {
   if (ps.seaNearOff === null) buildSeaNear(s, ps)
@@ -223,6 +245,7 @@ export function laneMap(s: HistoryState, ps: PolityState, ts: TradeState): void 
 
 /** System part (every slow step): pirates rise and fall; routes' losses to pirates and bandits; outlaw danger on coasts and roads. */
 export function outlawStep(s: HistoryState, ps: PolityState, ts: TradeState): void {
+  if (ps.laneDirty) { ps.laneDirty = false; if (s.year % PIRACY.laneStep !== 0) laneMap(s, ps, ts) } // (routes re-pathed since the lanes were mapped: reroute.ts)
   const X = PIRACY
   const step = X.step
   const living = s.living
@@ -370,9 +393,12 @@ function outlawCells(s: HistoryState, ps: PolityState, ts: TradeState): void {
     for (let k = off[c0]; k < off[c0 + 1]; k++) { const j = nb[k]; if (T.sea[j]) { mark[j] = run; ring.push(j) } }
     for (let hop = 1; hop <= H && ring.length > 0; hop++) {
       const z = X.dangerZ * x * (1 - (hop - 1) / H)
+      // (the merchants' risk at sea is on their own scale: a haven at PIRACY.rise, one that preys on the lanes, makes its
+      // waters WAYRISK.seaFull dangerous (a battlefield's or a raided frontier's risk on land), fading over the same hops; the coasts' danger z is the settlements' scale)
+      const zs = WAYRISK.seaScale ? WAYRISK.seaFull * (x >= X.rise ? 1 : x / X.rise) * (1 - (hop - 1) / H) : z
       next.length = 0
       for (const i of ring) {
-        if (z > seaZ[i]) { if (seaZ[i] === 0) seaZCells.push(i); seaZ[i] = z }
+        if (zs > seaZ[i]) { if (seaZ[i] === 0) seaZCells.push(i); seaZ[i] = zs }
         for (let k = off[i]; k < off[i + 1]; k++) {
           const j = nb[k]
           if (mark[j] === run) continue

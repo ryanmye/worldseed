@@ -86,10 +86,16 @@ function hashGoods(hi: History): string {
 // (Re-recorded with the danger on the way of trade (polity/params.ts WAYRISK): with WAYRISK.on false the tree was checked
 // bit-identical to main dcf64f7 on every History field in every off configuration (goods, disease, rulers, religion, tourism,
 // renaming, ideas, landmarks, polities); only the entries with polities on changed.)
+// (Re-recorded with the danger-trade and landmark fixes (re-paths round danger, the sea risk's scale, escorts for dear goods,
+// the minimum forsaken spell, bandits living off the traffic; the landmarks' crowding, rededication on conquest, revival,
+// templates and sights): with every new switch off (WAYRISK.reroute false, escortValue 0, minForsaken 0, seaScale false;
+// BANDIT.traffic false; LANDMARK.sights false, crowdTo 0, convertConquest 0, revive 0) the tree was checked identical to main
+// e06929d on every History field (the additive ones aside: trade.repath*, landmarks.nameTemplate, changeSettlement) in these
+// configurations and in 150- and 50-year chunks; entries without polities changed only by the empty trade.repath* fields.)
 const GOLDEN: [number, number, number | undefined, boolean, string][] = [
-  [42, 2000, undefined, true, '18b06fd2'],
-  [3, 600, undefined, true, '8fe42636'],
-  [9, 800, 24, true, 'dae4a11e'],
+  [42, 2000, undefined, true, '7ee4ab41'],
+  [3, 600, undefined, true, 'ebf0126a'],
+  [9, 800, 24, true, 'd62c01c4'],
   [7, 900, undefined, false, '561d5fb4'],
 ]
 

@@ -25,8 +25,8 @@ export function emptyLandmarks(): Landmarks {
   return {
     count: 0, kind: new Uint8Array(0), rank: new Uint8Array(0), form: new Uint8Array(0), variant: new Uint8Array(0), settlement: new Int32Array(0), cell: new Int32Array(0),
     begunYear: new Int16Array(0), completedYear: new Int16Array(0), polity: new Int16Array(0), ruler: new Int32Array(0), dynasty: new Int32Array(0), faith: new Int16Array(0),
-    people: new Int16Array(0), name: [], changeCount: 0, changeLandmark: new Int32Array(0), changeYear: new Int16Array(0), changeState: new Uint8Array(0),
-    changeFaith: new Int16Array(0), changePolity: new Int16Array(0), faithForm: new Uint8Array(0), faithVariant: new Uint8Array(0),
+    people: new Int16Array(0), name: [], nameTemplate: [], changeCount: 0, changeLandmark: new Int32Array(0), changeYear: new Int16Array(0), changeState: new Uint8Array(0),
+    changeFaith: new Int16Array(0), changePolity: new Int16Array(0), changeSettlement: new Int32Array(0), faithForm: new Uint8Array(0), faithVariant: new Uint8Array(0),
   }
 }
 
@@ -82,13 +82,14 @@ export function assembleLandmarks(world: World, lm: LandmarksState, settlements:
   const taken = new Set<string>() // (lookup only)
   const endings = new Map<string, string[]>()
   const names: string[] = new Array<string>(n)
+  const templates: string[] = new Array<string>(n)
   for (let i = 0; i < n; i++) {
     const at = lm.lLang[i]
     const tribe = naming.tribe[at], level = naming.level[at]
     const lang = naming.language(tribe, level)
     const ends = cityEndings(world, naming, endings, tribe, level)
     const rng = createRng(world.seed, `names-landmark-${i}`)
-    const town = settlementNameAt(named, lm.lSett[i], lm.lBegun[i])
+    const town = settlementNameAt(named, lm.lHome[i], lm.lBegun[i])
     const r = lm.lRuler[i] >= 0 && lm.lRuler[i] < rulers.length ? rulers[lm.lRuler[i]] : null
     const ruler = r !== null ? (r.regnal > 1 ? `${r.name} ${roman(r.regnal)}` : r.name) : ''
     const house = lm.lDyn[i] >= 0 && lm.lDyn[i] < dynasties.length ? dynasties[lm.lDyn[i]].name : ''
@@ -96,27 +97,31 @@ export function assembleLandmarks(world: World, lm: LandmarksState, settlements:
     const faith = isFaithKind(lm.lKind[i]) && fi >= 0 && fi < faiths.length ? faiths[fi].name : ''
     const fresh = (): string => (rng.next() < 0.5 ? capitalizeName(buildRoot(lang, rng)) : freshPlace(lang, ends, rng))
     const honour = (x: string): string => (x ? dedicate(x, lang, ends, rng) ?? fresh() : fresh())
-    const cands = candidates(lm, i, rng, town, ruler, house, faith, fresh, honour, peoples, traditions)
-    let name = ''
+    // (the candidates are made with a placeholder for the town, which no draw depends on: the name puts the town's name of the
+    // begun year in it, the template keeps {town} for the name the town bears later)
+    const real = (c: string): string => c.split(TOWN).join(town)
+    const cands = candidates(lm, i, rng, TOWN, ruler, house, faith, fresh, honour, peoples, traditions)
+    let name = '', tpl = ''
     // (from a drawn start, the templates in turn; then fresh ones; then an ordinal of the first)
     const start = rng.int(0, Math.max(0, cands.length - 1))
-    for (let t = 0; t < cands.length && !name; t++) { const c = cands[(start + t) % cands.length]; if (c && !taken.has(c.toLowerCase())) name = c }
-    for (let t = 0; t < 12 && !name; t++) { const c = candidates(lm, i, rng, town, ruler, house, faith, fresh, honour, peoples, traditions)[rng.int(0, cands.length - 1)]; if (c && !taken.has(c.toLowerCase())) name = c }
+    for (let t = 0; t < cands.length && !name; t++) { const c = cands[(start + t) % cands.length]; if (c && !taken.has(real(c).toLowerCase())) { name = real(c); tpl = c } }
+    for (let t = 0; t < 12 && !name; t++) { const c = candidates(lm, i, rng, TOWN, ruler, house, faith, fresh, honour, peoples, traditions)[rng.int(0, cands.length - 1)]; if (c && !taken.has(real(c).toLowerCase())) { name = real(c); tpl = c } }
     const base = cands.find((c) => c !== '') ?? 'the Landmark'
-    for (let k = 0; !name; k++) { const c = ordinal(base, k); if (!taken.has(c.toLowerCase())) name = c }
+    for (let k = 0; !name; k++) { const c = ordinal(base, k); if (!taken.has(real(c).toLowerCase())) { name = real(c); tpl = c } }
     taken.add(name.toLowerCase())
     names[i] = name
+    templates[i] = tpl.split(TOWN).join('{town}')
   }
 
   const fc = faiths.length
   const out: Landmarks = {
     count: n, kind: new Uint8Array(n), rank: new Uint8Array(n), form: new Uint8Array(n), variant: new Uint8Array(n), settlement: new Int32Array(n), cell: new Int32Array(n),
     begunYear: new Int16Array(n), completedYear: new Int16Array(n), polity: new Int16Array(n), ruler: new Int32Array(n), dynasty: new Int32Array(n), faith: new Int16Array(n),
-    people: new Int16Array(n), name: names, changeCount: C, changeLandmark: new Int32Array(C), changeYear: new Int16Array(C), changeState: new Uint8Array(C),
-    changeFaith: new Int16Array(C), changePolity: new Int16Array(C), faithForm: new Uint8Array(fc).fill(255), faithVariant: new Uint8Array(fc),
+    people: new Int16Array(n), name: names, nameTemplate: templates, changeCount: C, changeLandmark: new Int32Array(C), changeYear: new Int16Array(C), changeState: new Uint8Array(C),
+    changeFaith: new Int16Array(C), changePolity: new Int16Array(C), changeSettlement: new Int32Array(C), faithForm: new Uint8Array(fc).fill(255), faithVariant: new Uint8Array(fc),
   }
   for (let i = 0; i < n; i++) {
-    out.kind[i] = lm.lKind[i]; out.rank[i] = lm.lRank[i]; out.form[i] = lm.lForm[i]; out.variant[i] = lm.lVariant[i]; out.settlement[i] = lm.lSett[i]; out.cell[i] = lm.lCell[i]
+    out.kind[i] = lm.lKind[i]; out.rank[i] = lm.lRank[i]; out.form[i] = lm.lForm[i]; out.variant[i] = lm.lVariant[i]; out.settlement[i] = lm.lHome[i]; out.cell[i] = lm.lCell[i]
     out.begunYear[i] = lm.lBegun[i]; out.completedYear[i] = lm.lDone[i]; out.polity[i] = lm.lPol[i]; out.ruler[i] = lm.lRuler[i]; out.dynasty[i] = lm.lDyn[i]; out.faith[i] = lm.lFaith[i]
     out.people[i] = lm.lPeople[i]
   }
@@ -124,12 +129,15 @@ export function assembleLandmarks(world: World, lm: LandmarksState, settlements:
   const events: HistoryEvent[] = []
   for (let k = 0; k < C; k++) {
     const id = lm.cLm[k]
-    out.changeLandmark[k] = id; out.changeYear[k] = lm.cYear[k]; out.changeState[k] = lm.cState[k]; out.changeFaith[k] = lm.cFaith[k]; out.changePolity[k] = lm.cPol[k]
+    out.changeLandmark[k] = id; out.changeYear[k] = lm.cYear[k]; out.changeState[k] = lm.cState[k]; out.changeFaith[k] = lm.cFaith[k]; out.changePolity[k] = lm.cPol[k]; out.changeSettlement[k] = lm.cTown[k]
     if (lm.lRank[id] !== LandmarkRank.Great) continue
-    events.push({ year: lm.cYear[k], type: EVENT_OF_STATE[lm.cState[k]] as HistoryEvent['type'], settlement: lm.lSett[id], other: lm.cOther[k], value: id, extra: lm.lKind[id] })
+    events.push({ year: lm.cYear[k], type: EVENT_OF_STATE[lm.cState[k]] as HistoryEvent['type'], settlement: lm.cTown[k], other: lm.cOther[k], value: id, extra: lm.lKind[id] })
   }
   return { landmarks: out, events }
 }
+
+/** The town's place in a candidate name (replaced by its name, or by {town} in the template). */
+const TOWN = '\u0000town\u0000'
 
 function isFaithKind(k: number): boolean {
   return k === KD.GreatTemple || k === KD.Monastery || k === KD.Temple || k === KD.Shrine

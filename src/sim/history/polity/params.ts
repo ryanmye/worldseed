@@ -386,6 +386,31 @@ export const WAYRISK = {
   forsake: 0.2,
   majorLoads: 1000,
   warFront: true,
+  /**
+   * Re-paths (reroute.ts): an open route whose way the danger makes at least rerouteGain dearer looks for another way and takes
+   * it when it costs less than (1 - rerouteGain) of the current one (and goes back to its first way the same way once the
+   * danger there falls); at most once every rerouteGap years; the search visits at most rerouteVisits cells. false: fixed paths.
+   */
+  reroute: true,
+  rerouteGain: 0.15,
+  rerouteGap: 20,
+  rerouteVisits: 3000,
+  /**
+   * Escorts for dear goods (the high-value classes, market.ts hvPair, and the long-haul legs): on a way of risk R they cost
+   * escortValue * R of the goods' worth at the buyer's, on top of the share lost, a cost the merchants pass on (so the goods
+   * are dearer on the far side of a dangerous way). (The bulk goods' escorts are escort * R of their transport.) 0: none.
+   */
+  escortValue: 0.3,
+  /** A route forsaken for danger that opens again within minForsaken years is not TradeRestored (nor forsaken any longer). */
+  minForsaken: 5,
+  /**
+   * The merchants' risk at sea (outlaw.ts): seaFull * min(1, pi / PIRACY.rise) of a haven of strength pi, fading over
+   * PIRACY.dangerHops sea hops (a haven that has risen, one that preys on the lanes, makes its waters seaFull dangerous), rather
+   * than the coasts' danger PIRACY.dangerZ * pi (the settlements' scale, which read low: most havens' waters under 0.1, the
+   * strongest 0.25). false: the coasts' scale.
+   */
+  seaScale: true,
+  seaFull: 0.4,
 }
 
 /** Smuggling (policy.ts, trade.ts): a share of the flow held back by duties or embargo moves as contraband. */
@@ -478,6 +503,15 @@ export const BANDIT = {
   tollShare: 0.1,
   /** Bandit roads: danger roadZ * lawlessness on the land cells of such routes. */
   roadZ: 0.6,
+  /**
+   * Bandits live off the traffic (outlaw.ts bandits): their strength moves rate a year toward lawlessness * (idle + (most - idle)
+   * * t / (t + trafficHalf)), t the loads passing the settlement or a neighbour. false: lawlessness alone (no traffic).
+   */
+  traffic: true,
+  idle: 0.4,
+  most: 1.4,
+  trafficHalf: 400,
+  rate: 0.05,
 }
 
 /** Civil war, partition and reunification (civil.ts). */
