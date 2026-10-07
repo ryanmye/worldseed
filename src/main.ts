@@ -1366,6 +1366,8 @@ function frameBody(ts: number) {
   const camMoved = moved || flying || cameraChanged
   cameraChanged = false
   const sunMoved = updateSun(camera)
+  // (the town's light and shadow fit in the city view: dioramas/layer.ts setCity)
+  activeDioramaLayer()?.setCity(cityView.engaged ? cityView.settlement : -1, qs.townShadows)
 
   // (the start page's hand-over to the app: every frame)
   const requested = consumeRenderRequest() || carryRequest || landing?.leaving === true

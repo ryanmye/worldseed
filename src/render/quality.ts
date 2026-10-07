@@ -34,12 +34,14 @@ export interface QualitySettings {
   ambientFps: number
   /** Ray-march steps of the atmosphere. */
   atmosphereSteps: number
+  /** The towns' real sun shadows (a shadow map) up close; off: their soft blob shadows only. */
+  townShadows: boolean
 }
 
 export const QUALITY_SETTINGS: Record<Quality, QualitySettings> = {
-  high: { pixelRatioCap: 2, pixelRatioMin: 1, bakeSize: 1280, cloudBakeSize: 1536, cloudsAnimate: 'always', interactFps: Infinity, playFps: 60, ambientFps: 60, atmosphereSteps: 12 },
-  balanced: { pixelRatioCap: 1.5, pixelRatioMin: 0.75, bakeSize: 1024, cloudBakeSize: 1024, cloudsAnimate: 'ride', interactFps: 60, playFps: 30, ambientFps: 30, atmosphereSteps: 12 },
-  low: { pixelRatioCap: 1, pixelRatioMin: 0.6, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 45, playFps: 20, ambientFps: 15, atmosphereSteps: 8 },
+  high: { pixelRatioCap: 2, pixelRatioMin: 1, bakeSize: 1280, cloudBakeSize: 1536, cloudsAnimate: 'always', interactFps: Infinity, playFps: 60, ambientFps: 60, atmosphereSteps: 12, townShadows: true },
+  balanced: { pixelRatioCap: 1.5, pixelRatioMin: 0.75, bakeSize: 1024, cloudBakeSize: 1024, cloudsAnimate: 'ride', interactFps: 60, playFps: 30, ambientFps: 30, atmosphereSteps: 12, townShadows: true },
+  low: { pixelRatioCap: 1, pixelRatioMin: 0.6, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 45, playFps: 20, ambientFps: 15, atmosphereSteps: 8, townShadows: false },
 }
 
 const STORAGE_KEY = 'worldseed.quality'
