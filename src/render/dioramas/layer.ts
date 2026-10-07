@@ -1641,14 +1641,17 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
     townMaskUniforms.uTownCount.value = masks
     // the shadow map redraws for a different instance set only (a rebuild for a camera step often lays out the
     // same one): an order-free signature of the batches' instances, O(instances) like the rebuild itself
+    // (in the city view only the instances over the town's shadow map count: the plan's changes further out while
+    // orbiting do not redraw it)
     let sig = 0
+    const fr2 = cityFitKey ? (cityFit.r * 1.45) ** 2 : Infinity
     for (const b of [...batches, bridgeBatch]) {
       if (!b || b.count === 0) continue
       const m = b.mesh.instanceMatrix.array as Float32Array, an = b.anim
-      sig += b.count * 7.31
       for (let k = 0; k < b.count; k++) {
         const o = k * 16, q = k * 4
-        sig += m[o + 12] * 1.13 + m[o + 13] * 2.71 + m[o + 14] * 3.37 + m[o] * 0.53 + m[o + 2] * 0.79 + m[o + 5] * 0.41 + an[q] * 1e-3 + an[q + 1] * 1.7e-3
+        if (fr2 !== Infinity && (m[o + 12] - cityFit.x) ** 2 + (m[o + 13] - cityFit.y) ** 2 + (m[o + 14] - cityFit.z) ** 2 > fr2) continue
+        sig += 7.31 + m[o + 12] * 1.13 + m[o + 13] * 2.71 + m[o + 14] * 3.37 + m[o] * 0.53 + m[o + 2] * 0.79 + m[o + 5] * 0.41 + an[q] * 1e-3 + an[q + 1] * 1.7e-3
       }
     }
     if (sig !== instanceSig) {

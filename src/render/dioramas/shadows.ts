@@ -262,7 +262,7 @@ export function createShadows(uniforms: DioramaUniforms): ShadowSystem {
       if ((globalThis as { __dioramaShadowEvery?: boolean }).__dioramaShadowEvery) last.version = -1
       // (fitted to the town: the year in steps of a twentieth of the houses' growth time, and the
       // camera only when it moved far enough to change the casters' distance fade)
-      const yearDue = fit ? Math.abs(year - last.year) >= Math.max(0.05, uniforms.uAnimYears.value * 0.05) || (year !== last.year && version !== last.version) : year !== last.year
+      const yearDue = fit ? Math.abs(year - last.year) >= Math.max(0.05, uniforms.uAnimYears.value * 0.05) : year !== last.year
       const camDue = fit ? Math.hypot(camObj.x - last.camX, camObj.y - last.camY, camObj.z - last.camZ) > 0.04 || Number.isNaN(last.camX) : false
       if (centre.x !== last.cx || centre.y !== last.cy || centre.z !== last.cz || R !== last.r || L.x !== last.sx || L.y !== last.sy || L.z !== last.sz || yearDue || camDue || version !== last.version) {
         last.cx = centre.x; last.cy = centre.y; last.cz = centre.z; last.r = R
