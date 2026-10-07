@@ -1,5 +1,6 @@
 // Chronicle and inspector lines for the goods events (types 50-65: deposits, traditions, secrets,
-// direct lanes, trading posts, bypassed marts, fleets, smuggled secrets), from ui/goodsData.ts.
+// direct lanes, trading posts, bypassed marts, fleets, smuggled secrets; and 160: merchant houses leaving a bypassed
+// mart), from ui/goodsData.ts.
 // Every function tolerates a history without goods data (null: the caller falls back).
 
 import { EventType, LeakChannel, PostKind, SecretKind, type History, type HistoryEvent } from '../contract.ts'
@@ -7,12 +8,12 @@ import { CRAFTSMEN, DEPOSIT_NOUNS, coastWord, goodsOf, secretNoun, seedWords, ty
 import { formatPopulation, peopleName, peopleOf, settlementName } from './format.ts'
 import { politiesOf, polityAtYear, polityTitle, snapAfter } from './politiesData.ts'
 
-export const isGoodsEvent = (t: number) => t >= 50 && t <= 65
+export const isGoodsEvent = (t: number) => (t >= 50 && t <= 65) || t === EventType.MerchantsMoved
 
 /** Event types whose `other` is a settlement id. */
 export function goodsOtherIsSettlement(t: number): boolean {
   return t === EventType.TraditionMoved || t === EventType.SecretGuarded || t === EventType.SecretLeaked || t === EventType.MonopolyBroken || t === EventType.DirectRoute ||
-    t === EventType.PostFounded || t === EventType.PostLost || t === EventType.Bypassed || t === EventType.FleetLost || t === EventType.SecretSmuggled
+    t === EventType.PostFounded || t === EventType.PostLost || t === EventType.Bypassed || t === EventType.FleetLost || t === EventType.SecretSmuggled || t === EventType.MerchantsMoved
 }
 
 /** Chronicle dot class of a goods event ('deposit', 'craft', 'secret', 'lane', 'post'), or null. */
@@ -31,7 +32,8 @@ export function goodsEventKind(e: HistoryEvent): string | null {
     case EventType.SecretSmuggled: return 'secret'
     case EventType.DirectRoute:
     case EventType.Bypassed:
-    case EventType.FleetLost: return 'lane'
+    case EventType.FleetLost:
+    case EventType.MerchantsMoved: return 'lane'
     case EventType.PostFounded:
     case EventType.PostLost: return 'post'
     default: return null
@@ -210,6 +212,8 @@ export function describeGoodsEvent(h: History, e: HistoryEvent): string | null {
       const from = peopleName(h, peopleOf(h, e.other)) ?? O
       return x?.kind === SecretKind.Species ? `Smugglers carry ${seedWords(gd, e.value)} out of ${from} to ${S}` : `Smugglers carry ${secretNoun(gd, e.value)} out of ${from} to ${S}`
     }
+    case EventType.MerchantsMoved:
+      return e.other >= 0 ? `Merchants leave ${S} for ${O} as the lane passes it by` : `The merchant houses of ${S} close as the lane passes it by`
   }
   return null
 }
@@ -273,15 +277,18 @@ export function describeGoodsEventFor(h: History, e: HistoryEvent, id: number): 
     case EventType.SecretSmuggled:
       if (gd.secrets[e.value]?.kind !== SecretKind.Species) return self ? `The secret of ${secretNoun(gd, e.value)} arrived with smugglers` : `Smugglers carried the secret of ${secretNoun(gd, e.value)} from here to ${S}`
       return self ? `Smuggled ${seedWords(gd, e.value)} arrived` : `Smugglers carried ${seedWords(gd, e.value)} from here to ${S}`
+    case EventType.MerchantsMoved:
+      if (!self) return `Merchants from ${S} began to settle here as the lane passed ${S} by`
+      return e.other >= 0 ? `Its merchant houses began to leave for ${O} as the lane passed it by` : 'Its merchant houses began to close as the lane passed it by'
   }
   return null
 }
 
-/** Grouping key of a goods event for the chronicle (per decade: deposit finds; per leg: bypassed towns and lost fleets), or -1 for a line of its own. */
+/** Grouping key of a goods event for the chronicle (per decade: deposit finds, merchants leaving bypassed marts; per leg: bypassed towns and lost fleets), or -1 for a line of its own. */
 export function goodsGroupKey(e: HistoryEvent): number {
   const t = e.type as number
   const decade = Math.floor(e.year / 10)
-  if (t === EventType.DepositFound) return (t * 100000 + 0) * 1000 + decade
+  if (t === EventType.DepositFound || t === EventType.MerchantsMoved) return (t * 100000 + 0) * 1000 + decade
   if (t === EventType.Bypassed || t === EventType.FleetLost) return (t * 100000 + Math.max(0, e.value) + 1) * 1000 + decade
   if (t === EventType.PostFounded || t === EventType.PostLost) return (t * 100000 + Math.max(0, e.other) + 1) * 1000 + decade
   return -1
@@ -301,6 +308,11 @@ export function describeGoodsGroup(h: History, members: readonly HistoryEvent[])
     return `Prospectors find ${n} deposits of ${what}, among them ${depositNoun(gd, e.value)} ${depositPlace(gd, e.value, name(h, e.settlement))}`
   }
   if (t === EventType.Bypassed) return `${n} towns of the old relay trade fall quiet as trade goes ${bySea(h, gd, e.value) ? 'by sea' : 'by the direct road'} from ${name(h, e.other)}, among them ${name(h, e.settlement)}`
+  if (t === EventType.MerchantsMoved) {
+    const towns = [...new Set(members.map((m) => name(h, m.settlement)))]
+    const list = towns.length <= 3 ? `${towns.slice(0, -1).join(', ')}${towns.length > 1 ? ' and ' : ''}${towns[towns.length - 1]}` : `${towns.length} bypassed marts, among them ${name(h, e.settlement)}`
+    return `Merchants leave ${list} as the lanes pass them by`
+  }
   if (t === EventType.FleetLost) return `${n} fleets of ${name(h, e.settlement)} are lost on the lane to ${name(h, e.other)}`
   if (t === EventType.PostFounded) return `${name(h, e.other)} founds ${n} trading posts, among them at ${name(h, e.settlement)}`
   if (t === EventType.PostLost) return `${name(h, e.other)} loses ${n} trading posts, among them at ${name(h, e.settlement)}`

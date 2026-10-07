@@ -5,12 +5,15 @@
 // to its side of the coast, see below). Two things are drawn from those samples:
 //
 //  - Trails: one static ribbon buffer holding every route, laid out in journey
-//    order (journeys are sorted by departYear). Each vertex knows when the group
+//    order (journeys are sorted by arriveYear, and a journey takes at most
+//    JOURNEY_MAX_TRAVEL years, so those under way at year y arrive in
+//    [y, y + JOURNEY_MAX_TRAVEL]). Each vertex knows when the group
 //    passes it, so the shader shows the travelled part with a bright head that
 //    decays behind the group and a faint thread that lingers for some tens of
 //    years after arrival. Per frame only the draw range changes: two binary
-//    searches find the journeys that can be visible, so nothing scans all
-//    journeys and scrubbing in either direction is exact.
+//    searches on arriveYear find the journeys that can be visible (the shader
+//    hides the few in range not yet set out), so nothing scans all journeys and
+//    scrubbing in either direction is exact.
 //  - Groups: one instanced screen-space marker per journey under way, a dot on
 //    land and a boat chevron pointing along the route at sea. Their positions are
 //    written each frame into preallocated instance buffers (no allocation).
@@ -24,7 +27,7 @@
 // toggle (setExpeditionsVisible).
 
 import * as THREE from 'three'
-import type { Journeys, World } from '../contract.ts'
+import { JOURNEY_MAX_TRAVEL, type Journeys, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_DIRECTION, surfaceRadius } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
@@ -97,11 +100,13 @@ function upperBound(a: Float32Array, v: number): number {
 
 /** Largest number of journeys under way at the same time. */
 function maxConcurrent(J: Journeys): number {
+  // (departYear is not sorted: sort a copy of each)
+  const depart = Float32Array.from(J.departYear).sort()
   const arrive = Float32Array.from(J.arriveYear).sort()
   let best = 0
   for (let j = 0; j < J.count; j++) {
-    // under way at departYear[j]: departed by then and not yet arrived
-    const n = upperBound(J.departYear, J.departYear[j]) - upperBound(arrive, J.departYear[j])
+    // under way at depart[j]: departed by then and not yet arrived
+    const n = upperBound(depart, depart[j]) - upperBound(arrive, depart[j])
     if (n > best) best = n
   }
   return best
@@ -675,8 +680,9 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
   const object = new THREE.Group()
   object.add(trails, highlight, groups)
 
-  // Running maximum of arriveYear, so a binary search finds the first journey that
-  // can still be under way (or still fading) at a year.
+  // Journeys are in order of arrival (contract: Journeys); a running maximum keeps the binary
+  // searches safe should two arrive out of order. The journeys under way at year y arrive in
+  // [y, y + JOURNEY_MAX_TRAVEL]; those still trailing arrived after y - threadYears.
   const maxArrive = new Float32Array(count)
   for (let j = 0, m = -Infinity; j < count; j++) {
     m = Math.max(m, J.arriveYear[j])
@@ -701,7 +707,7 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
 
   let expeditionsShown = true
   function writeGroups(year: number) {
-    const hi = upperBound(J.departYear, year)
+    const hi = upperBound(maxArrive, year + JOURNEY_MAX_TRAVEL)
     let n = 0
     for (let j = lowerBound(maxArrive, year); j < hi && n < capacity; j++) {
       const d0 = J.departYear[j], d1 = J.arriveYear[j]
@@ -749,7 +755,8 @@ export function buildJourneyLayer(world: World, J: Journeys, normYear = Infinity
     setTime(year: number, headYears: number, threadYears: number) {
       setTimeUniforms(trailMaterial, year, headYears, threadYears)
       setTimeUniforms(highlightMaterial, year, headYears, threadYears)
-      const hi = upperBound(J.departYear, year)
+      // (the range may hold journeys not yet set out: the shader hides them)
+      const hi = upperBound(maxArrive, year + JOURNEY_MAX_TRAVEL)
       const lo = Math.min(hi, lowerBound(maxArrive, year - threadYears))
       trailGeom.setDrawRange(indexOffsets[lo], indexOffsets[hi] - indexOffsets[lo])
       writeGroups(year)

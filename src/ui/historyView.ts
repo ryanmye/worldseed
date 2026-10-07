@@ -170,6 +170,8 @@ export interface HistoryView {
   readonly years: number
   /** Timing of the last swap (null before the first). */
   readonly lastSwap: SwapStats | null
+  /** Debugging (perf=1 tools): the history shown, its index and the journey layer. */
+  debug(): { history: History | null; index: HistoryIndex | null; journeys: JourneyLayer | null }
   /** Settlement markers coloured by people. */
   setPeopleTint(on: boolean): void
   /** Whether a cell is unknown in the known world shown (so the readout should not describe it). */
@@ -1257,6 +1259,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     get lastSwap() {
       return lastSwap
+    },
+    debug() {
+      return { history: index ? index.history : null, index, journeys }
     },
     pickAt(x: number, y: number) {
       if (!layer || !layer.mesh.visible) return -1

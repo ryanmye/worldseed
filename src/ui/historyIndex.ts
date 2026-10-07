@@ -139,8 +139,13 @@ export interface HistoryIndex {
   trade: TradeData | null
   /** Road levels per land snapshot, or null when the history has none. */
   roads: RoadData | null
-  /** Wealth per snapshot per settlement (layout of `population`), or null. */
+  /**
+   * Wealth per snapshot per settlement (layout of `population`): the town's own and its merchant houses' capital
+   * (History.wealth + History.merchantWealth), or null.
+   */
   wealth: Float32Array | null
+  /** Merchant capital per snapshot per settlement (History.merchantWealth, same layout), or null when the history has none. */
+  merchantWealth: Float32Array | null
   /** Largest wealth of any settlement per snapshot (0 without wealth). */
   wealthMax: Float32Array
   /** Peoples, knowledge and contact (peoplesData.ts; set by the history view), or null when the history has none. */
@@ -861,7 +866,15 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
 
   // wealth arrives with trade; tolerate histories without it
   const W = (h as Partial<History>).wealth
-  const wealth = W instanceof Float32Array && W.length >= S * N ? W : null
+  const townWealth = W instanceof Float32Array && W.length >= S * N ? W : null
+  // goods: the merchant houses' capital is kept apart from the town's; a town's wealth is the sum
+  const MW = (h as Partial<History>).merchantWealth
+  const merchantWealth = townWealth && MW instanceof Float32Array && MW.length >= S * N ? MW : null
+  let wealth = townWealth
+  if (townWealth && merchantWealth) {
+    wealth = new Float32Array(S * N)
+    for (let i = 0; i < S * N; i++) wealth[i] = townWealth[i] + merchantWealth[i]
+  }
   const wealthMax = new Float32Array(S)
   if (wealth) {
     for (let s = 0; s < S; s++) {
@@ -905,6 +918,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     trade: tradeDataOf(h, N, isWater),
     roads: roadDataOf(h),
     wealth,
+    merchantWealth,
     wealthMax,
     peoples: null,
     species: null,

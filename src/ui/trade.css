@@ -13,6 +13,14 @@
 .insp-wealth-fill {
   background: #e8c35a;
 }
+.insp-wealth-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.insp-wealth-sub:empty {
+  display: none;
+}
 
 .insp-trade {
   margin: 8px 0 0;

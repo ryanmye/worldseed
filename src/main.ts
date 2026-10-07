@@ -1249,6 +1249,8 @@ if (params.get('perf') === '1') {
     years: () => historyView.years,
     extending: () => extending,
     lastSwap: () => historyView.lastSwap,
+    /** The history shown, its index and the journey layer (journey and long-haul checks). */
+    debug: () => historyView.debug(),
     failNextExtension: () => {
       failNextExtension = true
     },

@@ -78,6 +78,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration
   if (t >= 50 && t <= 65) return TRADE
+  // merchant capital (160): merchant houses leaving a bypassed mart
+  if (t === 160) return TRADE
   // danger on the way (150-151): trade routes forsaken and trodden again
   if (t === 150 || t === 151) return TRADE
   return SETTLEMENT

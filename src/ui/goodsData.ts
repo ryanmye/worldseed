@@ -5,7 +5,7 @@
 // all of it is optional at runtime: a history without goods data gives null and the UI hides
 // what it would show.
 
-import { CraftKind, EventType, LegKind, PostKind, SecretKind, StructureType, VarietyKind, type History, type Structure } from '../contract.ts'
+import { CraftKind, EventType, LegKind, PostKind, SecretKind, StructureType, VarietyKind, type History, type LongHaul, type Structure } from '../contract.ts'
 import { politiesOf, polityAtYear } from './politiesData.ts'
 import { peopleName, settlementName } from './format.ts'
 
@@ -90,6 +90,13 @@ export interface GoodsData {
   legVolumeMax: number
   /** Legs touching each settlement (as either end). */
   legsOf: Map<number, number[]>
+  /**
+   * History.longHaul has one entry per spell of a leg on one way (a relay leg that changed its way or reopened is a new
+   * entry for the same pair; a lane is one entry for life). Per entry: the first entry of its pair (same kind, same two
+   * marts either way round), which stands for the pair in lists; and each such first entry's spells, in order of opening.
+   */
+  legPair: Int32Array
+  pairSpells: Map<number, number[]>
   /** Per leg: the route-seeking expedition (index into History.journeys) that opened it, -1. */
   legJourney: Int32Array
   /** Per leg: the DirectRoute event index that opened it, -1. */
@@ -99,6 +106,8 @@ export interface GoodsData {
   mart: Uint8Array | null
   /** Settlements that were ever a mart. */
   martSettlements: Int32Array
+  /** Merchant capital per snapshot per settlement (History.merchantWealth, layout of `population`), or null. */
+  merchantWealth: Float32Array | null
   price: Uint8Array | null
   /** Settlements that ever have a price for some class. */
   pricedSettlements: Int32Array
@@ -138,6 +147,17 @@ export function goodsOf(h: History | null | undefined): GoodsData | null {
 }
 
 const NORM_YEARS = 2000
+
+/** Index of the first element of the non-decreasing `a` that is >= v (a.length if none). */
+function lowerBoundF32(a: Float32Array, v: number): number {
+  let lo = 0, hi = a.length
+  while (lo < hi) {
+    const m = (lo + hi) >>> 1
+    if (a[m] < v) lo = m + 1
+    else hi = m
+  }
+  return lo
+}
 
 function buildGoodsData(h: History): GoodsData | null {
   const p = h as Partial<History>
@@ -235,6 +255,24 @@ function buildGoodsData(h: History): GoodsData | null {
       if (LH.kind[k] === LegKind.Lane) lanes.push(k)
     }
   }
+  const legPair = new Int32Array(L)
+  const pairSpells = new Map<number, number[]>()
+  if (LH) {
+    const firstOf = new Map<string, number>()
+    for (let k = 0; k < L; k++) {
+      const a = LH.a[k], b = LH.b[k]
+      const key = `${LH.kind[k]}:${Math.min(a, b)}:${Math.max(a, b)}`
+      const f = firstOf.get(key)
+      if (f === undefined) {
+        firstOf.set(key, k)
+        legPair[k] = k
+        pairSpells.set(k, [k])
+      } else {
+        legPair[k] = f
+        pairSpells.get(f)!.push(k)
+      }
+    }
+  }
   const legJourney = new Int32Array(L).fill(-1)
   const legEvent = new Int32Array(L).fill(-1)
 
@@ -326,7 +364,8 @@ function buildGoodsData(h: History): GoodsData | null {
       const home = LH.a[k]
       const y = LH.openedYear[k]
       let best = -1, bestD = 4
-      for (let j = 0; j < J.count; j++) {
+      // (journeys are in order of arrival: only those arriving within 4 years of the opening)
+      for (let j = lowerBoundF32(J.arriveYear, y - 4); j < J.count && J.arriveYear[j] < y + 4; j++) {
         if (J.kind[j] !== 2 || J.from[j] !== home) continue
         const d = Math.abs(J.arriveYear[j] - y)
         if (d < bestD && J.departYear[j] <= y + 0.5) {
@@ -364,11 +403,14 @@ function buildGoodsData(h: History): GoodsData | null {
     legVolume,
     legVolumeMax,
     legsOf,
+    legPair,
+    pairSpells,
     legJourney,
     legEvent,
     lanes,
     mart,
     martSettlements: Int32Array.from(martSettlements),
+    merchantWealth: okArr(p.merchantWealth, h.snapshotCount * N),
     price,
     pricedSettlements: Int32Array.from(pricedSettlements),
     secrets,
@@ -527,20 +569,89 @@ export function legOpen(gd: GoodsData, k: number, year: number): boolean {
   const L = gd.legs
   return !!L && year >= L.openedYear[k] && (L.closedYear[k] < 0 || year < L.closedYear[k])
 }
+/**
+ * Of the History.longHaul entries `entries` (spells of the legs between one pair of marts, in order of opening), the one
+ * to follow at `year`: a lane first when `lane`, then the spell open at the year, else the last opened by then, else the
+ * first; -1 when there are none. For links drawn along the leg a thing travelled (disease, ideas).
+ */
+export function longHaulEntryAt(LH: LongHaul, entries: readonly number[] | undefined, year: number, lane = false): number {
+  if (!entries || !entries.length) return -1
+  let best = -1, bestScore = -1
+  for (const r of entries) {
+    const begun = LH.openedYear[r] <= year
+    const open = begun && (LH.closedYear[r] < 0 || year < LH.closedYear[r])
+    const score = (lane && LH.kind[r] === LegKind.Lane ? 4 : 0) + (open ? 2 : 0) + (begun ? 1 : 0)
+    // (ties: the latest among those begun, the first among those not yet)
+    if (score > bestScore || (score === bestScore && begun)) {
+      best = r
+      bestScore = score
+    }
+  }
+  return best
+}
+
+/** The spell of leg k's pair (legPair) open at the year, else the last one opened by then, else the first. */
+export function pairSpellAt(gd: GoodsData, k: number, year: number): number {
+  const L = gd.legs
+  const spells = gd.pairSpells.get(gd.legPair[k]) ?? [k]
+  if (!L) return k
+  let last = spells[0]
+  for (const r of spells) {
+    if (L.openedYear[r] > year) break
+    last = r
+    if (L.closedYear[r] < 0 || year < L.closedYear[r]) return r
+  }
+  return last
+}
+/** Leg k's pair over its spells up to the year: years open in all, the first opening, the number of spells begun. */
+export function pairSpan(gd: GoodsData, k: number, year: number): { years: number; first: number; spells: number } {
+  const L = gd.legs
+  const spells = gd.pairSpells.get(gd.legPair[k]) ?? [k]
+  if (!L) return { years: 0, first: 0, spells: 0 }
+  let years = 0, n = 0
+  for (const r of spells) {
+    const o = L.openedYear[r]
+    if (o > year) break
+    n++
+    const c = L.closedYear[r] < 0 ? year : Math.min(year, L.closedYear[r])
+    years += Math.max(0, c - o)
+  }
+  return { years, first: L.openedYear[spells[0]], spells: n }
+}
+/** Long-haul trade at settlement id at the year: its volume, and the marts it trades with (spells of one pair count once). */
+export function martTrade(gd: GoodsData, id: number, year: number): { volume: number; legs: number } {
+  let v = 0
+  const pairs = new Set<number>()
+  for (const k of gd.legsOf.get(id) ?? []) {
+    const x = legVolumeAt(gd, k, year)
+    if (x > 0) {
+      v += x
+      pairs.add(gd.legPair[k])
+    }
+  }
+  return { volume: v, legs: pairs.size }
+}
+/** Merchant capital of settlement id at population snapshot s (0 without it). */
+export const merchantWealthAt = (gd: GoodsData, id: number, s: number) =>
+  gd.merchantWealth && id >= 0 && id < gd.N && s >= 0 && s < gd.history.snapshotCount ? gd.merchantWealth[s * gd.N + id] : 0
+/** The population snapshot at or before a year. */
+export const popSnapAt = (gd: GoodsData, year: number) => Math.max(0, Math.min(gd.history.snapshotCount - 1, Math.floor(year / gd.history.snapshotInterval + 1e-9)))
+/** Wealth a head of settlement id at population snapshot s: (wealth + merchantWealth) / population (0 where it has no people). */
+export function wealthPerHead(gd: GoodsData, id: number, s: number): number {
+  const h = gd.history
+  const N = gd.N
+  const pop = h.population[s * N + id] ?? 0
+  if (!(pop > 0)) return 0
+  const w = h.wealth && h.wealth.length >= (s + 1) * N ? h.wealth[s * N + id] : 0
+  return (w + merchantWealthAt(gd, id, s)) / pop
+}
+
 /** Busiest marts at the year: settlement ids by the volume of the legs at them, most first. */
 export function topMarts(gd: GoodsData, year: number, n: number): { id: number; volume: number; legs: number }[] {
   const out: { id: number; volume: number; legs: number }[] = []
   for (const id of gd.martSettlements) {
     if (!martAt(gd, id, year)) continue
-    let v = 0, m = 0
-    for (const k of gd.legsOf.get(id) ?? []) {
-      const x = legVolumeAt(gd, k, year)
-      if (x > 0) {
-        v += x
-        m++
-      }
-    }
-    out.push({ id, volume: v, legs: m })
+    out.push({ id, ...martTrade(gd, id, year) })
   }
   out.sort((a, b) => b.volume - a.volume || a.id - b.id)
   return out.slice(0, n)

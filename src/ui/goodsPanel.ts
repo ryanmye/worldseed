@@ -21,8 +21,9 @@ import { formatPopulation, settlementName } from './format.ts'
 import { namesEpoch } from './renamingData.ts'
 import {
   aliveAt, CHANNEL_WORDS, CRAFT_WORDS, DEPOSIT_WORDS, depositOutputAt, depositsNear, depositState, goodsOf, guardAt, holderName, holdersAt, industryAt, industryWords,
-  INDUSTRY_LIST, legOpen, legVolumeAt, martAt, metalAt, metalWords, mineAt, POST_WORDS, postLives, PRICE_GOODS, PRICE_WORDS, priceAt, priceSpread, qualityAt,
-  rushAt, SECRET_KIND_WORDS, secretNoun, secretTitle, seatsAt, topMarts, tradeSnapAt, traditionLives, traditionsAt, type GoodsData,
+  INDUSTRY_LIST, legOpen, legVolumeAt, martAt, martTrade, merchantWealthAt, metalAt, metalWords, mineAt, pairSpan, pairSpellAt, popSnapAt, POST_WORDS, postLives,
+  PRICE_GOODS, PRICE_WORDS, priceAt, priceSpread, qualityAt, rushAt, SECRET_KIND_WORDS, secretNoun, secretTitle, seatsAt, topMarts, tradeSnapAt, traditionLives,
+  traditionsAt, wealthPerHead, type GoodsData,
 } from './goodsData.ts'
 import { politiesOf, polityAtYear } from './politiesData.ts'
 import { setPolityGoodsNote } from './politiesPanel.ts'
@@ -348,7 +349,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       }
     } else if (sel.kind === 'lane') {
       const L = data.legs!
-      legs.push(sel.id)
+      // (the spell of its pair open at the year: a relay leg that changed its way is a new entry)
+      legs.push(pairSpellAt(data, sel.id, year))
       // the other legs of its chart (a lane through a station)
       const chart = L.chart[sel.id]
       if (chart >= 0) for (const k of data.lanes) if (k !== sel.id && L.chart[k] === chart) legs.push(k)
@@ -452,6 +454,10 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
         pane.append(el('div', 'gp-cap', 'Busiest marts'))
         for (const m of tops) {
           const b = row('mart', m.id, false, dot('#f2c14e'), span('gp-name', sname(m.id)), span('gp-sub', `${m.legs} ${m.legs === 1 ? 'leg' : 'legs'}`), span('gp-num', formatPopulation(m.volume), 'Long-haul trade a year'))
+          const ps = popSnapAt(gd, year)
+          const mw = merchantWealthAt(gd, m.id, ps)
+          const wh = wealthPerHead(gd, m.id, ps)
+          b.title = `${sname(m.id)}: ${formatPopulation(m.volume)} of long-haul trade a year` + (mw > 0 ? `; its merchants hold ${formatPopulation(mw)}` : '') + (wh > 0 ? `; wealth ${wh >= 10 ? wh.toFixed(0) : wh.toFixed(1)} a head` : '')
           b.removeAttribute('data-sel')
           b.dataset.sid = String(m.id)
           pane.append(b)
@@ -505,7 +511,14 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       }
     } else {
       const L = gd.legs
-      const list = gd.lanes.filter((k) => L && L.openedYear[k] <= year)
+      // one row per pair of marts (a pair served by several lanes over time: its spell at the year, with its whole span)
+      const seen = new Set<number>()
+      const list: number[] = []
+      for (const k of gd.lanes) {
+        if (!L || L.openedYear[k] > year || seen.has(gd.legPair[k])) continue
+        seen.add(gd.legPair[k])
+        list.push(pairSpellAt(gd, k, year))
+      }
       if (!list.length) {
         pane.append(note(gd.lanes.length ? `No direct lanes yet (the first in ${L!.openedYear[gd.lanes[0]]}).` : 'No direct lanes in this history.'))
         return
@@ -513,7 +526,10 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       for (const k of list) {
         const open = legOpen(gd, k, year)
         const v = legVolumeAt(gd, k, year)
-        const r = row('lane', k, sel.kind === 'lane' && sel.id === k, dot('#ffe9a8'), span('gp-name', `${sname(L!.a[k])} – ${sname(L!.b[k])}`), span('gp-sub', String(L!.openedYear[k])), span('gp-num', open ? formatPopulation(v) : 'closed', 'Cargo a year'))
+        const span0 = pairSpan(gd, k, year)
+        const isSel = sel.kind === 'lane' && gd.legPair[sel.id] === gd.legPair[k]
+        const r = row('lane', k, isSel, dot('#ffe9a8'), span('gp-name', `${sname(L!.a[k])} – ${sname(L!.b[k])}`), span('gp-sub', String(span0.first)), span('gp-num', open ? formatPopulation(v) : 'closed', 'Cargo a year'))
+        if (span0.spells > 1) r.title = `Opened ${span0.first}; open ${Math.round(span0.years)} years in all over ${span0.spells} spells`
         if (!open) r.classList.add('ended')
         pane.append(r)
       }
@@ -628,6 +644,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       line(`${L.kind[k] === LegKind.Lane ? 'A direct lane' : 'A relay leg'}, opened ${L.openedYear[k]} from `, settLink(L.a[k]), v >= 0 ? ` in search of ${gd.varietyNames[v] ?? 'goods'}` : '')
       const j = gd.legJourney[k]
       if (j >= 0 && H.journeys) line(`Found by an expedition from ${sname(H.journeys.from[j])} (${Math.floor(H.journeys.departYear[j])}–${Math.floor(H.journeys.arriveYear[j])}): its trail is dotted`).classList.add('gp-faint')
+      const sp = pairSpan(gd, k, year)
+      if (sp.spells > 1) line(`Open ${Math.round(sp.years)} years in all since ${sp.first}, over ${sp.spells} spells (the merchants changed their way or came back)`).classList.add('gp-faint')
       if (L.closedYear[k] >= 0 && year >= L.closedYear[k]) line(`Closed in ${L.closedYear[k]}`).classList.add('gp-faint')
       else if (year >= L.openedYear[k]) line(`Carries ${formatPopulation(legVolumeAt(gd, k, year))} a year: ${['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants', 'metalware', 'finery', 'treasure', 'wares'][L.goodAB[k]] ?? 'goods'} out, ${['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants', 'metalware', 'finery', 'treasure', 'wares'][L.goodBA[k]] ?? 'goods'} home`)
       const c = L.chart[k]
@@ -678,20 +696,20 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     const bits = industryAt(gd, id, year)
     if (bits) out.push([`Industries: ${industryWords(bits).join(', ').toLowerCase()}`])
     for (const { t, since } of traditionsAt(gd, id, year)) out.push([`Seat of ${gd.traditionNames[t]}, quality ${qualityAt(gd, t, year).toFixed(1)}, since ${since}`])
-    if (martAt(gd, id, year)) {
-      let v = 0, n = 0
-      for (const k of gd.legsOf.get(id) ?? []) {
-        const x = legVolumeAt(gd, k, year)
-        if (x > 0) {
-          v += x
-          n++
-        }
-      }
+    const isMart = martAt(gd, id, year)
+    if (isMart) {
+      const { volume: v, legs: n } = martTrade(gd, id, year)
       out.push([`A mart of the long-haul trade: ${n} ${n === 1 ? 'leg' : 'legs'}, ${formatPopulation(v)} a year`])
+    }
+    {
+      // the merchant houses' capital (kept apart from the town's wealth): at a mart, or while it leaves a bypassed one
+      const mw = merchantWealthAt(gd, id, popSnapAt(gd, year))
+      if (mw >= 1 && (isMart || (gd.bypassedOf.get(id) ?? []).some((i) => H.events[i].year <= year))) out.push([`Its merchants hold ${formatPopulation(mw)}`])
     }
     const L = gd.legs
     if (L) {
-      const lanes = (gd.legsOf.get(id) ?? []).filter((k) => L.kind[k] === LegKind.Lane && L.a[k] === id && legOpen(gd, k, year))
+      const pairs = new Set<number>()
+      const lanes = (gd.legsOf.get(id) ?? []).filter((k) => L.kind[k] === LegKind.Lane && L.a[k] === id && legOpen(gd, k, year) && !pairs.has(gd.legPair[k]) && !!pairs.add(gd.legPair[k]))
       if (lanes.length) {
         const l: (string | Node)[] = ['Home of the lanes to ']
         lanes.forEach((k, i) => {
@@ -806,7 +824,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     }
     const L = gd.legs
     if (L) {
-      const mine = gd.lanes.filter((k) => legOpen(gd, k, y) && polityAtYear(pd, L.a[k], y) === p)
+      const pairs = new Set<number>()
+      const mine = gd.lanes.filter((k) => legOpen(gd, k, y) && polityAtYear(pd, L.a[k], y) === p && !pairs.has(gd.legPair[k]) && !!pairs.add(gd.legPair[k]))
       if (mine.length) out.push([`Lanes: ${mine.slice(0, 4).map((k) => `${sname(L.a[k])} to ${sname(L.b[k])}`).join(', ')}${mine.length > 4 ? ` and ${mine.length - 4} more` : ''}`])
     }
     const posts = gd.posts.filter((x) => postLives(gd, x.id, y) && polityAtYear(pd, x.owner, y) === p)

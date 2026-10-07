@@ -28,6 +28,7 @@ import { smoothPaths } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { MARKER_SLOT_GLSL } from './markerSlots.ts'
 import { adoptionYears, HOW_RGB, type IdeasData } from '../ui/ideasData.ts'
+import { longHaulEntryAt } from '../ui/goodsData.ts'
 
 const LIFT = 0.0034
 const MARK_LIFT = 0.0047
@@ -470,10 +471,14 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
     const key = pairKey(T.a[r], T.b[r])
     if (needed.has(key) && !routeOf.has(key)) routeOf.set(key, r)
   }
-  const legOf = new Map<number, number>()
+  // (History.longHaul has one entry per spell of a leg on one way: every entry of the pair, the one of the year is picked)
+  const legsOf = new Map<number, number[]>()
   if (LH && LH.count > 0) for (let q = 0; q < LH.count; q++) {
     const key = pairKey(LH.a[q], LH.b[q])
-    if (needed.has(key) && !legOf.has(key)) legOf.set(key, q)
+    if (!needed.has(key)) continue
+    const a = legsOf.get(key)
+    if (a) a.push(q)
+    else legsOf.set(key, [q])
   }
   const pathOut: number[] = []
   /** Cells from a toward b, a step at a time along the great circle (the closest neighbour each time). */
@@ -523,8 +528,8 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
         done = true
       }
     } else if (A.how[k] === IdeaHow.Lane) {
-      const q = legOf.get(key)
-      if (q !== undefined && LH.pathOffsets[q + 1] - LH.pathOffsets[q] >= 2) {
+      const q = LH ? longHaulEntryAt(LH, legsOf.get(key), A.year[k], true) : -1
+      if (q >= 0 && LH.pathOffsets[q + 1] - LH.pathOffsets[q] >= 2) {
         copyPath(LH.path, LH.pathOffsets[q], LH.pathOffsets[q + 1], ca)
         done = true
       }

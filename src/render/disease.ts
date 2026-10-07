@@ -33,6 +33,7 @@ import { sunUniforms } from './sun.ts'
 import { smoothPaths } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { KIND_RGB, type DiseaseData } from '../ui/diseaseData.ts'
+import { longHaulEntryAt } from '../ui/goodsData.ts'
 
 const LIFT = 0.0036
 const MARK_LIFT = 0.0046
@@ -544,10 +545,14 @@ export function buildDiseaseLayer(world: World, h: History, dd: DiseaseData, max
     if (needed.has(k) && !routeOf.has(k)) routeOf.set(k, r)
   }
   const LH = h.longHaul
-  const legOf = new Map<number, number>()
+  // (History.longHaul has one entry per spell of a leg on one way: every entry of the pair, the one of the year is picked)
+  const legsOf = new Map<number, number[]>()
   if (LH && LH.count > 0) for (let k = 0; k < LH.count; k++) {
     const key = pairKey(LH.a[k], LH.b[k])
-    if (needed.has(key) && !legOf.has(key)) legOf.set(key, k)
+    if (!needed.has(key)) continue
+    const a = legsOf.get(key)
+    if (a) a.push(k)
+    else legsOf.set(key, [k])
   }
   const J = h.journeys
   const journeysOf = new Map<number, number[]>()
@@ -603,7 +608,8 @@ export function buildDiseaseLayer(world: World, h: History, dd: DiseaseData, max
     let done = false
     if (via === DiseaseVia.Route || via === DiseaseVia.Sea) {
       const r = routeOf.get(key)
-      const k = legOf.get(key)
+      const kk = LH ? longHaulEntryAt(LH, legsOf.get(key), O.year[i]) : -1
+      const k = kk >= 0 ? kk : undefined
       // a sea passage prefers a route that goes by water; the long-haul lane next
       // (along the way the route followed that year: it may have re-pathed round danger)
       const rp = r !== undefined ? routePathAt(T, r, O.year[i]) : null

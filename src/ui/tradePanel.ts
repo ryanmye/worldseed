@@ -1,4 +1,5 @@
-// The inspector's wealth and trade section: a wealth bar with the settlement's rank, its
+// The inspector's wealth and trade section: a wealth bar with the settlement's rank (the town's
+// wealth and its merchant houses' capital together: HistoryIndex.wealth) and its wealth a head, its
 // trade routes, what it mainly exports and imports, and its current partners with the
 // goods going each way and their relative volume (partners are links). Rebuilt only
 // when the population snapshot (wealth) or the nearest trade snapshot (routes) changes.
@@ -45,8 +46,10 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
   wealthEl.innerHTML = `
     <div class="readout-row">Wealth <span class="insp-wealth-val"></span></div>
     <div class="insp-bar"><div class="insp-bar-fill insp-wealth-fill"></div></div>
+    <div class="insp-wealth-sub"></div>
   `
   const wealthVal = wealthEl.querySelector('.insp-wealth-val') as HTMLSpanElement
+  const wealthSub = wealthEl.querySelector('.insp-wealth-sub') as HTMLDivElement
   const wealthFill = wealthEl.querySelector('.insp-wealth-fill') as HTMLDivElement
 
   let index: HistoryIndex | null = null
@@ -78,8 +81,10 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
     if (!isAlive(s, year)) {
       wealthVal.textContent = '—'
       wealthFill.style.width = '0%'
+      wealthSub.textContent = ''
       return
     }
+    // (the town's wealth and its merchants' capital: a town's wealth a head is (wealth + merchantWealth) / population)
     const w = W[s0 * N + id]
     const max = ix.wealthMax[s0]
     let rank = 1, alive = 0
@@ -90,7 +95,12 @@ export function createTradeSection(wealthEl: HTMLElement, tradeEl: HTMLElement, 
     }
     wealthVal.textContent = w > 0 ? `${formatPopulation(w)} · #${formatInt(rank)} of ${formatInt(alive)}` : 'none yet'
     wealthFill.style.width = `${max > 0 && w > 0 ? Math.max(3, (100 * Math.log1p(w)) / Math.log1p(max)) : 0}%`
+    // (what its merchant houses hold is the goods section's line, at a mart: goodsPanel.ts)
+    const pop = ix.history.population[s0 * N + id]
+    wealthSub.textContent = w > 0 && pop > 0 ? `${perHead(w / pop)} a head` : ''
   }
+  /** Wealth a head, to two significant figures. */
+  const perHead = (x: number) => (x >= 100 ? formatPopulation(x) : x >= 10 ? x.toFixed(0) : x >= 1 ? x.toFixed(1) : x.toFixed(2))
 
   function updateTrade(ix: HistoryIndex, id: number, t: number) {
     const td = ix.trade
