@@ -28,6 +28,7 @@ import type { GoodsState } from './state.ts'
 import { K, M, MIX_OF, density, ensureLegs, logGoods, mixFlow, mixScale, noteIncome } from './state.ts'
 import { hvPrice, moveAmt, secretSmuggled, theta } from './market.ts'
 import { ideaLand, ideaSea } from '../ideas/hooks.ts' // ideas:
+import { legRecord, legRecordEnd, legRecordOpen } from './legHistory.ts' // (History.longHaul's prefix-stable leg records)
 
 const G = GOOD_COUNT
 const KEY = 1 << 20
@@ -75,6 +76,7 @@ export function openLeg(s: HistoryState, g: GoodsState, a: number, b: number, ki
     g.legPath[k] = g.legA[k] === a ? path : path.slice().reverse() // (a relay leg's path runs from its lower end)
     g.legCost[k] = cost
     if (!g.legOpen[k]) { g.legOpen[k] = 1; g.legClosed[k] = -1 }
+    legRecordOpen(g, k, g.legPath[k], s.year) // (a new record when it reopens or its way changed)
     return k
   }
   k = g.legCount++
@@ -98,6 +100,7 @@ export function openLeg(s: HistoryState, g: GoodsState, a: number, b: number, ki
   g.legHazard.push(0)
   g.legRisk0.push(0)
   g.legProfit.push(0)
+  legRecordOpen(g, k, g.legPath[k], s.year)
   return k
 }
 
@@ -106,6 +109,7 @@ export function closeLeg(s: HistoryState, g: GoodsState, k: number): void {
   if (!g.legOpen[k]) return
   g.legOpen[k] = 0
   g.legClosed[k] = s.year
+  legRecordEnd(g, k, s.year)
 }
 
 let SD = new Float64Array(0), SP2 = new Int32Array(0), SS = new Int32Array(0)
@@ -718,7 +722,7 @@ export function laneYear(s: HistoryState, g: GoodsState, ts: TradeState): void {
     if (use > 0 && h > 0) {
       const base = laneRisk(g, k)
       g.legHazard[k] = base / (1 + g.legSailed[k] / X.riskYears)
-      if (g.rng.next() < h * X.fleetLost) logGoods(s, EventType.FleetLost, a, b, k, use * CLASS.worth[7])
+      if (g.rng.next() < h * X.fleetLost) logGoods(s, EventType.FleetLost, a, b, legRecord(g, k), use * CLASS.worth[7]) // (the lane's History.longHaul record)
     }
   }
 }

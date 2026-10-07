@@ -313,7 +313,11 @@ describe('goods', () => {
     const L0 = short.longHaul, L1 = long.longHaul
     for (let k = 0; k < L0.count; k++) {
       expect([L1.a[k], L1.b[k], L1.kind[k], L1.openedYear[k], L1.chart[k]]).toEqual([L0.a[k], L0.b[k], L0.kind[k], L0.openedYear[k], L0.chart[k]])
-      if (L0.closedYear[k] >= 0) expect(L1.closedYear[k] === -1 || L1.closedYear[k] >= L0.closedYear[k]).toBe(true) // (a relay leg found again later reopens)
+      // (a leg's record keeps its way and its closing: a relay leg found again on another way, or reopened, is a new record)
+      if (L0.closedYear[k] >= 0) expect(L1.closedYear[k]).toBe(L0.closedYear[k])
+      else expect(L1.closedYear[k] === -1 || L1.closedYear[k] > 1300).toBe(true)
+      expect(Array.from(L1.path.subarray(L1.pathOffsets[k], L1.pathOffsets[k + 1]))).toEqual(Array.from(L0.path.subarray(L0.pathOffsets[k], L0.pathOffsets[k + 1])))
+      if (L0.closedYear[k] >= 0) expect([L1.goodAB[k], L1.goodBA[k]]).toEqual([L0.goodAB[k], L0.goodBA[k]])
       for (let q = 0; q < Q0; q++) if (short.longHaulVolume[q * L0.count + k] !== long.longHaulVolume[q * L1.count + k]) throw new Error(`leg volume differs at ${q}, ${k}`)
     }
     // (A secret species nobody held from the start begins when a people first tames it: foundAt -1 until then.)

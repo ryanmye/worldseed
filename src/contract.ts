@@ -1022,9 +1022,12 @@ export const LegKind = { Relay: 0, Lane: 1 } as const
 export type LegKind = (typeof LegKind)[keyof typeof LegKind]
 
 /**
- * Mart-to-mart legs of the long-haul trade, struct-of-arrays, in order of first opening. A relay leg follows the
+ * Mart-to-mart legs of the long-haul trade, struct-of-arrays, in order of opening. A relay leg follows the
  * settlement links between two marts; a lane is a direct way opened by a trade expedition.
  * Leg k follows cells path[pathOffsets[k] .. pathOffsets[k + 1]) from mart a to mart b.
+ * Each entry is one spell of a leg on one way, so a longer history repeats a shorter one exactly: when the merchants
+ * between two marts take another way (the towns along it changed), or a relay leg that closed is found again, the
+ * old entry closes that year and a new entry for the same pair opens the same year. A lane is one entry all its life.
  */
 export interface LongHaul {
   count: number
@@ -1037,7 +1040,7 @@ export interface LongHaul {
   closedYear: Int16Array
   /** Lanes: the secret id of its chart (History.secrets), else -1. */
   chart: Int16Array
-  /** Main class carried a to b and b to a over the run. */
+  /** Main class carried a to b and b to a over the entry's spell (for one still open at the end: so far). */
   goodAB: Uint8Array
   goodBA: Uint8Array
   pathOffsets: Uint32Array

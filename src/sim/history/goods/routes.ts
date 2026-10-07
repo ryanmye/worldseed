@@ -28,6 +28,7 @@ import { abandon, canSettle, found, logEvent, logJourney } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { tradeAbandonSystem } from '../trade.ts'
 import { loseFort, loseWalls } from '../polity/danger.ts'
+import { legRecord } from './legHistory.ts' // (History.longHaul's leg records)
 import type { ExploreState } from '../exploration.ts'
 import { driveTech, rangeOf } from '../exploration.ts'
 import { ContactVia, learnPath } from '../knowledge.ts'
@@ -483,7 +484,7 @@ function tradeExpedition(s: HistoryState, g: GoodsState, ts: TradeState, es: Exp
   }
   g.legOrder = g.legOrder.concat(legs)
   g.legOrder.sort((x, y) => g.legCost[x] - g.legCost[y] || x - y)
-  logGoods(s, EventType.DirectRoute, h, e, legs[0], v)
+  logGoods(s, EventType.DirectRoute, h, e, legRecord(g, legs[0]), v) // (the lane's History.longHaul record)
   if (postKind === PostKind.Factory) {
     post = addPost(s, g, PostKind.Factory, h, e, -1, legs[legs.length - 1])
     const sid = s.structures.length
@@ -697,7 +698,7 @@ export function relayYear(s: HistoryState, g: GoodsState): void {
       const lv = g.legVariety[k]
       if (lv !== tv && !(lv > 0 && g.vKind[lv] === g.vKind[tv] && g.vSource[lv] === g.vSource[tv])) continue
       g.bypassed[id] = 1
-      logGoods(s, EventType.Bypassed, id, g.legA[k], k, 1 - sm / g.relayPeak[id])
+      logGoods(s, EventType.Bypassed, id, g.legA[k], legRecord(g, k), 1 - sm / g.relayPeak[id]) // (the lane's History.longHaul record)
       break
     }
   }
