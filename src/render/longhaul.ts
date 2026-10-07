@@ -171,6 +171,49 @@ function easeSamples(a: PathSamples, w: number, iters: number): PathSamples {
   return { count: a.count, offsets: a.offsets, pos, side, arc, frac, water: a.water, length }
 }
 
+/** Legs opened by BUNDLE_FIRST are bundled among themselves, those of each later BUNDLE_STEP years with all before them. */
+const BUNDLE_FIRST = 2000
+const BUNDLE_STEP = 500
+
+/** Samples of paths [i0, i1) of a (offsets from 0; arc lengths and fractions as they were). */
+function sliceSamples(a: PathSamples, i0: number, i1: number): PathSamples {
+  const s0 = a.offsets[i0], s1 = a.offsets[i1]
+  const offsets = new Uint32Array(i1 - i0 + 1)
+  for (let i = i0; i <= i1; i++) offsets[i - i0] = a.offsets[i] - s0
+  return {
+    count: i1 - i0, offsets, pos: a.pos.slice(s0 * 3, s1 * 3), side: a.side.slice(s0 * 3, s1 * 3), arc: a.arc.slice(s0, s1),
+    frac: a.frac.slice(s0, s1), water: a.water.slice(s0, s1), length: a.length.slice(i0, i1),
+  }
+}
+
+/**
+ * The legs' samples along bundled networks (routeCurves.ts routeNetwork), built so that extending a history does not move
+ * the legs drawn for its earlier years. A network's curves depend on every path in it (junctions, relaxed chains, sea
+ * runs snapped onto lanes), so one network over all the legs would redraw the legs of 2000 years slightly differently
+ * once a 2500-year history adds its later legs. Instead the legs (History.longHaul, in order of opening) are drawn in
+ * epochs: those opened by year BUNDLE_FIRST along the network of just those legs, those of each later BUNDLE_STEP years
+ * along the network of all the legs opened by the epoch's end. A history extended to any later year draws its legs up to
+ * the last epoch it had completed exactly as before (2000 to 2500: every leg of the first 2000 years).
+ */
+function epochLegSamples(world: World, offs: Uint32Array, path: Uint32Array, L: number, opened: Int16Array): PathSamples {
+  const parts: PathSamples[] = []
+  let i0 = 0
+  while (i0 < L) {
+    let bound = BUNDLE_FIRST
+    while (opened[i0] > bound) bound += BUNDLE_STEP
+    let i1 = i0
+    while (i1 < L && opened[i1] <= bound) i1++
+    const net = routeNetwork(world, offs, i1 === L ? path : path.subarray(0, offs[i1]), i1)
+    const all = networkRouteSamples(net, i1, LIFT)
+    parts.push(i0 === 0 ? all : sliceSamples(all, i0, i1))
+    i0 = i1
+  }
+  if (parts.length === 0) return networkRouteSamples(routeNetwork(world, offs, path, 0), 0, LIFT)
+  let out = parts[0]
+  for (let i = 1; i < parts.length; i++) out = concatSamples(out, parts[i])
+  return out
+}
+
 /** Samples of a's paths, then b's (one geometry for the legs and the trails). */
 function concatSamples(a: PathSamples, b: PathSamples): PathSamples {
   const na = a.offsets[a.count], nb = b.offsets[b.count]
@@ -682,11 +725,10 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   // sailed, every shared link is one curve), so parallel lanes through a strait or along a coast
   // draw as one bundle that brightens with its members instead of a braid of ribbons; the opening
   // expeditions' trails on their own smoothed paths
-  const legNet = routeNetwork(world, offs, path, L)
   // (every other sample of the network's half curves is plenty at a lane's few pixels: fewer triangles)
   // and eased round the hex grid's corners (a lane crosses open sea in long straight runs): the same
   // window over the same shared samples, so a bundle stays one curve
-  const legSmp = easeSamples(thinSamples(networkRouteSamples(legNet, L, LIFT)), 8, 3)
+  const legSmp = easeSamples(thinSamples(epochLegSamples(world, offs, path, L, LH ? LH.openedYear : new Int16Array(0))), 8, 3)
   const trailOffs = new Uint32Array(trails.length + 1)
   for (let i = 0; i <= trails.length; i++) trailOffs[i] = offs[L + i] - offs[L]
   const smp = concatSamples(legSmp, smoothPaths(world, trailOffs, path.subarray(offs[L]), trails.length, LIFT))
