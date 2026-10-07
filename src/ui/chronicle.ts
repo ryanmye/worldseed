@@ -23,6 +23,7 @@ import { describeRepathGroup, repathTarget } from './tradeRepath.ts'
 
 import { describeIdeasGroup, ideasHiddenInChronicle, isIdeasGroupHeadline, isIdeasHeadline, isIdeasNotable } from './ideasFormat.ts'
 import { isOrderEvent, isOrderHeadline } from './nudgeFormat.ts'
+import { isCradleEvent } from './cradlesFormat.ts'
 
 const ROWS = 40
 
@@ -385,6 +386,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     else if (kind === EntryKind.Single && isIdeasNotable(h.events[ev])) r.li.className = `ev-${ek} notable`
     // orders: a nudge fulfilled is a headline, the others notable
     else if (kind === EntryKind.Single && isOrderEvent(h.events[ev].type as number)) r.li.className = `ev-${ek} notable${isOrderHeadline(h.events[ev]) ? ' headline' : ''}`
+    // the first hearths the player planted (year 0)
+    else if (kind === EntryKind.Single && isCradleEvent(h.events[ev].type as number)) r.li.className = `ev-${ek} notable`
     r.year.textContent = yearText
     r.text.textContent = text
     r.li.title = `${kind !== EntryKind.Single && kind !== EntryKind.FamineBurst && m > 1 ? `The ${yearText}` : `Year ${yearText}`}: ${text}`

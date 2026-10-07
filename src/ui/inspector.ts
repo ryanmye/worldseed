@@ -19,6 +19,7 @@ import { namesEpoch, withEventNames } from './renamingData.ts'
 import { namesLine } from './renamingFormat.ts'
 import { landmarkLines } from './landmarksFormat.ts'
 import { requestFlyIn } from './flyIn.ts'
+import { originWords } from './cradlesFormat.ts'
 
 
 export interface InspectorCallbacks {
@@ -373,7 +374,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
       else withEventNames(s.foundedYear, () => {
         originEl.append(`Founded in year ${s.foundedYear} · `)
         if (s.parent >= 0) originEl.append('by migrants from ', link(s.parent))
-        else originEl.append('Original tribe')
+        else originEl.append(originWords(h, id))
       })
       capEl.textContent = formatInt(h.capacity[s.cell] ?? 0)
       biomeEl.textContent = (BIOME_NAMES[world.biome[s.cell]] ?? 'Unknown') + (world.lake[s.cell] === 1 ? ' (lake)' : '')
