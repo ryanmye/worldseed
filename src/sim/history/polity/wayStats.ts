@@ -45,12 +45,18 @@ export interface WayRow {
   restoredQuick: number
   repaths: number
   repathRoutes: number
+  /** Sea routes' loads through pirates' waters (3 sea hops of a haven of strength >= 0.2), as a share of all sea routes' loads, and the high-value share of those loads. */
+  pirShare: number
+  pirHv: number
   /** Bandits: Spearman of lawlessness against through-traffic (lawless settlements), mean lawlessness, bandit roads (routes at the toll). */
   banditRho: number
   lawlessMean: number
   banditRoads: number
   agg: Record<string, number>
 }
+
+/** Scratch: pirates' waters (stamped per sample). */
+let PW = new Int32Array(0), PW_RUN = 0
 
 function median(a: number[]): number {
   const b = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y)
@@ -76,6 +82,7 @@ export function wayRow(seed: number, years: number): WayRow {
   const premR: number[][] = CLASSES.map(() => []), premS: number[][] = CLASSES.map(() => [])
   const lawX: number[] = [], lawT: number[] = []
   let lawSum = 0, lawN = 0, bRoads = 0, bSamples = 0
+  let seaAll = 0, seaPir = 0, seaPirHv = 0
   const probe = (s: HistoryState, ts: TradeState): void => {
     if (s.year < 300 || s.year % 10 !== 0) return
     const ps = s.pol
@@ -114,6 +121,38 @@ export function wayRow(seed: number, years: number): WayRow {
     }
     for (const r of ts.openList) if (r < ps.rBand.length && ps.rBand[r] >= BANDIT.toll) bRoads++
     bSamples++
+    // Pirates' waters (3 sea hops of a haven of strength >= 0.2): the share of the sea routes' loads through them, and of the
+    // high-value loads among them.
+    const T = s.terrain
+    const { neighborOffsets: off, neighbors: nb } = s.world.grid
+    const run = ++PW_RUN
+    if (PW.length < T.cellCount) PW = new Int32Array(T.cellCount)
+    let any = false
+    for (const h of ps.havens) {
+      if (!(ps.pir[h] >= 0.2) || s.abandoned[h] >= 0) continue
+      any = true
+      let ring = [s.cell[h]]
+      for (let hop = 0; hop < 3; hop++) {
+        const next: number[] = []
+        for (const c of ring) for (let k = off[c]; k < off[c + 1]; k++) { const j = nb[k]; if (T.sea[j] && PW[j] !== run) { PW[j] = run; next.push(j) } }
+        ring = next
+      }
+    }
+    if (any) {
+      for (let p = 0; p < ts.pairCount && p < pc.n; p++) {
+        const r = ts.pairRoute[p]
+        if (r < 0 || !ts.rOpen[r] || !ts.rSea[r]) continue
+        const path = ts.rPath[r]
+        let hit = false
+        for (let k = 0; k < path.length && !hit; k++) if (PW[path[k]] === run) hit = true
+        const vol = ts.rVol[r]
+        seaAll += vol
+        if (!hit) continue
+        seaPir += vol
+        const o = p * G * 2
+        for (let g = 7; g < G; g++) seaPirHv += (ts.pairFlow[o + g * 2] + ts.pairFlow[o + g * 2 + 1]) * V[g]
+      }
+    }
   }
   const t = performance.now()
   const run = runHistory(w, { years }, probe)
@@ -274,6 +313,7 @@ export function wayRow(seed: number, years: number): WayRow {
   return {
     seed, ms, riskyShare: risky / tot, hvRiskyShare: hvRisky / risky, hvSafeShare: hvSafe / safe, haven, havenRaw, front, front3,
     premRisky: premR.map(median), premSafe: premS.map(median), forsaken, restored, restoredQuick: quick, repaths: nRe, repathRoutes: reRoutes.size,
+    pirShare: seaAll > 0 ? seaPir / seaAll : NaN, pirHv: seaPir > 0 ? seaPirHv / seaPir : NaN,
     banditRho: lawX.length > 2 ? spearman(lawX, lawT) : NaN, lawlessMean: lawN ? lawSum / lawN : 0, banditRoads: bSamples ? bRoads / bSamples : 0, agg,
   }
 }
