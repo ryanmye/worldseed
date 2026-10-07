@@ -52,6 +52,8 @@ export function buildSunDisc(): SunDisc {
     uGraze: { value: 0 },
     /** The wider glow: the sun at most a few degrees behind the edge. */
     uNear: { value: 1 },
+    /** 0 with the camera low in the air (the city view) .. 1 from above the air. */
+    uSpace: { value: 1 },
     /** Fades out toward the flat map. */
     uFade: { value: 1 },
   }
@@ -74,6 +76,7 @@ export function buildSunDisc(): SunDisc {
       uniform float uGraze;
       uniform float uNear;
       uniform float uFade;
+      uniform float uSpace;
       varying vec3 vWorld;
       varying vec2 vQuad;
       const float RP = ${PLANET_RADIUS.toFixed(4)};
@@ -96,10 +99,15 @@ export function buildSunDisc(): SunDisc {
         float rs = uDisc.x, px = uDisc.y;
         // the air along the ray: reddened and dimmed through the limb, near the horizon from low down
         float alt = rq - RP;
-        float cz = tc > 0.0 ? 0.0 : dot(q / rq, rd);
-        // (a grazing ray from space: the whole path through the limb; from low down: up to the sky)
-        float airmass = tc > 0.0 ? 24.0 : min(1.0 / (max(cz, 0.0) + 0.035), 28.0);
-        vec3 tr = exp(-BETA * exp(-alt / H) * H * airmass * 3.0);
+        // (a grazing ray from space: the whole path through the limb; from low down, inside
+        // the air: from the camera up to the sky, by the ray's elevation; blended by the
+        // camera's height, so the horizon below the camera's level shows no seam)
+        float airSpace = tc > 0.0 ? 24.0 : min(1.0 / (max(dot(q / rq, rd), 0.0) + 0.035), 28.0);
+        float camR = length(ro);
+        float airLow = min(1.0 / (max(dot(ro / camR, rd), 0.0) + 0.035), 28.0);
+        float odSpace = exp(-alt / H) * airSpace;
+        float odLow = exp(-max(camR - RP, 0.0) / H) * airLow;
+        vec3 tr = exp(-BETA * mix(odLow, odSpace, uSpace) * H * 3.0);
         // the disc (limb-darkened, antialiased) and its glow
         float disc = 1.0 - smoothstep(rs - px, rs + px, th);
         float mu = sqrt(max(0.0, 1.0 - (th * th) / (rs * rs)));
@@ -112,8 +120,8 @@ export function buildSunDisc(): SunDisc {
         // sunrise over the limb: the thin lit edge of the air nearest the sun, laid over the
         // atmosphere's blue limb (alpha: it covers part of what is behind, the rest adds)
         float cover = 0.0;
-        if (tc > 0.0 && uGraze > 0.0) {
-          float rim = exp(-alt / 0.008) * exp(-(th * th) / (0.11 * 0.11)) * uGraze;
+        if (tc > 0.0 && uGraze * uSpace > 0.0) {
+          float rim = exp(-alt / 0.008) * exp(-(th * th) / (0.11 * 0.11)) * uGraze * uSpace;
           col += mix(vec3(1.0, 0.3, 0.06), vec3(1.0, 0.66, 0.36), smoothstep(0.0, 0.02, alt)) * rim * 1.8;
           cover = min(0.75, rim);
         }
@@ -145,6 +153,7 @@ export function buildSunDisc(): SunDisc {
       camera.updateMatrixWorld()
       camera.getWorldPosition(camPos)
       const d = camPos.length()
+      uniforms.uSpace.value = THREE.MathUtils.smoothstep(d - PLANET_RADIUS, 0.02, 0.06)
       // the planet's angular radius, and how far the sun's centre lies outside it (negative: behind)
       const alpha = Math.asin(Math.min(1, PLANET_RADIUS / d))
       toCentre.copy(camPos).multiplyScalar(-1 / d)
