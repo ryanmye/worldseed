@@ -1687,8 +1687,13 @@ export interface Landmarks {
   faith: Int16Array
   /** The people whose language named it (the builders'). */
   people: Int16Array
-  /** Its name ("the Keep of Thesmu", "Unlafa's Great Temple at Rilko"); unique within the world. */
+  /** Its name ("the Keep of Thesmu", "Unlafa's Great Temple at Rilko"); unique within the world. The town's name in it is the one in use at its begun year. */
   name: string[]
+  /**
+   * The same with `{town}` where its town's name stands ("the Keep of {town}"; without a town part, the name itself): substitute
+   * the name its town bears at the year shown (landmarkNameAt), so a landmark follows its town's renamings.
+   */
+  nameTemplate: string[]
   /** State changes in chronological order (a year's in the order they happened): the landmark, the year, the new LandmarkState. */
   changeCount: number
   changeLandmark: Int32Array
@@ -1698,6 +1703,11 @@ export interface Landmarks {
   changeFaith: Int16Array
   /** The polity behind the change (the restorer, the converting state, the sacker), -1. */
   changePolity: Int16Array
+  /**
+   * The landmark's town after the change: `settlement` unless a town refounded on or beside its ruins (founded there after the
+   * old town was given up) restored it and took it over (a Restored change; landmarkTownAt).
+   */
+  changeSettlement: Int32Array
   /** Building tradition of each faith (LandmarkForm by faith id; 255 for a faith never seen), and its variant 0..3. */
   faithForm: Uint8Array
   faithVariant: Uint8Array
@@ -1725,14 +1735,17 @@ export function landmarksAt(h: Pick<History, 'landmarks'>, settlement: number, y
   const L = h.landmarks
   const out: LandmarkAt[] = []
   if (!L) return out
+  // (landmarks that passed to another town by the year: the town they belong to then)
+  const cs = L.changeSettlement
+  const moved = new Map<number, number>()
+  if (cs) for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) { const id = L.changeLandmark[k]; if (cs[k] >= 0 && (cs[k] !== L.settlement[id] || moved.has(id))) moved.set(id, cs[k]) }
   for (let i = 0; i < L.count && L.begunYear[i] <= year; i++) {
-    if (L.settlement[i] !== settlement) continue
+    if ((moved.get(i) ?? L.settlement[i]) !== settlement) continue
     out.push({ id: i, kind: L.kind[i] as LandmarkKind, rank: L.rank[i] as LandmarkRank, form: L.form[i] as LandmarkForm, state: LandmarkState.Building, since: L.begunYear[i], faith: L.faith[i] })
   }
   if (out.length === 0) return out
   for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) {
     const id = L.changeLandmark[k]
-    if (L.settlement[id] !== settlement) continue
     for (const x of out) {
       if (x.id !== id) continue
       x.state = L.changeState[k] as LandmarkState
@@ -1741,4 +1754,21 @@ export function landmarksAt(h: Pick<History, 'landmarks'>, settlement: number, y
     }
   }
   return out
+}
+
+/** The town landmark `id` belongs to at `year`: its `settlement`, or the town that restored its ruins and took it over (changeSettlement). */
+export function landmarkTownAt(h: Pick<History, 'landmarks'>, id: number, year: number): number {
+  const L = h.landmarks
+  let v = L.settlement[id]
+  const cs = L.changeSettlement
+  if (cs) for (let k = 0; k < L.changeCount && L.changeYear[k] <= year; k++) if (L.changeLandmark[k] === id && cs[k] >= 0) v = cs[k]
+  return v
+}
+
+/** Landmark `id`'s name at `year`: its nameTemplate with the name its town bears then (settlementNameAt), else its name. */
+export function landmarkNameAt(h: Pick<History, 'landmarks' | 'settlements' | 'renamings'>, id: number, year: number): string {
+  const L = h.landmarks
+  const t = L.nameTemplate ? L.nameTemplate[id] : undefined
+  if (!t || t.indexOf('{town}') < 0) return L.name[id]
+  return t.split('{town}').join(settlementNameAt(h, landmarkTownAt(h, id, year), year))
 }
