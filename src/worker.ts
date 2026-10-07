@@ -28,10 +28,18 @@
 // createHistoryRun from year 0 (the run before the earliest order is the same, but a run cannot be
 // forked, so it is simulated again: a full run, about 3 s for 2000 years). A newer orders or generate
 // request makes a queued orders request moot (it is skipped).
+//
+// Cradles (the first hearths the player planted, HistoryOptions.cradles: a cell per people in people order, -1 the
+// simulation's choice): carried like the orders, in a generate or history request's historyOptions or in an `orders`
+// request (which then re-simulates with that list; without the field the kept run's cradles stay). Canonical
+// (cradlesContract.ts canonicalCradles: whole cells or -1, trailing -1 dropped) and dropped when empty or all -1, so
+// [], [-1, -1] and undefined give the same run and the same cache key; part of the cache key like every history
+// option (cacheKeys serialises them all but `years`). New cradles change the history from year 0: a new run.
 
 import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, Order, World, WorldOptions } from './contract.ts'
 import { decodeOrders, encodeOrders } from './contract.ts'
 import * as sim from './sim/index.ts'
+import { canonicalCradles, type CradleOptions } from './ui/cradlesContract.ts'
 import { buffersOf, cacheKeys, hashValue, openHistoryCache, snapshot, type CacheKeys } from './historyCache.ts'
 
 const { generateWorld, simulateHistory } = sim
@@ -79,6 +87,8 @@ export type WorkerRequest =
       requestId: number
       orders: Order[]
       years: number
+      /** The planted cradles to simulate with (HistoryOptions.cradles); absent: those of the run kept. */
+      cradles?: number[]
     }
   /** The page was hidden or shown: background extensions run at a reduced duty cycle while hidden. */
   | { type: 'throttle'; hidden: boolean }
@@ -203,12 +213,18 @@ function cacheWrite(key: string, group: string, years: number, value: unknown) {
   })
 }
 
-/** History options with the orders canonical (decodeOrders(encodeOrders(...))) and dropped when there are none. */
+/** History options with the orders and the cradles canonical (see the header) and each dropped when there are none. */
 function canonicalOptions(o: HistoryOptions | undefined): HistoryOptions | undefined {
-  if (!o || o.orders === undefined) return o
-  const { orders, ...rest } = o
-  const canon = decodeOrders(encodeOrders(orders))
-  const out: HistoryOptions = canon.length > 0 ? { ...rest, orders: canon } : rest
+  const co = o as CradleOptions | undefined
+  if (!co || (co.orders === undefined && co.cradles === undefined)) return o
+  const { orders, cradles, ...rest } = co
+  const out: CradleOptions = { ...rest }
+  if (orders !== undefined) {
+    const canon = decodeOrders(encodeOrders(orders))
+    if (canon.length > 0) out.orders = canon
+  }
+  const cc = canonicalCradles(cradles)
+  if (cc.length > 0) out.cradles = cc
   return Object.keys(out).length > 0 ? out : undefined
 }
 
@@ -293,9 +309,10 @@ async function reorder(req: Extract<WorkerRequest, { type: 'orders' }>) {
     post({ type: 'error', requestId: req.requestId, stage: 'history', message: 'no world to re-simulate' })
     return
   }
-  const base = { ...(kept.historyOptions ?? {}) }
+  const base: CradleOptions = { ...(kept.historyOptions ?? {}) }
   delete base.orders
-  const historyOptions = canonicalOptions({ ...base, orders: req.orders })
+  if (req.cradles !== undefined) base.cradles = req.cradles
+  const historyOptions = canonicalOptions({ ...base, orders: req.orders } as CradleOptions)
   const cache = await cacheReady
   const keys = cache ? cacheKeys(cache.version, keptSeed.seed, keptSeed.options, historyOptions) : null
   kept = { requestId: req.requestId, world: kept.world, historyOptions, run: null, keys }
@@ -303,7 +320,7 @@ async function reorder(req: Extract<WorkerRequest, { type: 'orders' }>) {
     const t0 = performance.now()
     const hit = keys ? await cache!.getHistory<History>(keys, req.years) : null
     if (hit && hit.years === req.years) {
-      console.info(`cache: ${hit.years}-year history with ${historyOptions?.orders?.length ?? 0} orders read in ${(performance.now() - t0).toFixed(0)} ms`)
+      console.info(`cache: ${hit.years}-year history with ${historyOptions?.orders?.length ?? 0} orders and ${(historyOptions as CradleOptions | undefined)?.cradles?.length ?? 0} cradles read in ${(performance.now() - t0).toFixed(0)} ms`)
       post({ type: 'history', requestId: req.requestId, history: hit.value, ms: performance.now() - t0, extend: false, cached: true, replace: true }, buffersOf(hit.value))
       return
     }
