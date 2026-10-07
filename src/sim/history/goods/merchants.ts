@@ -39,7 +39,7 @@ export const MERCHANT = {
   /** Share of the long-haul merchant profit made at a settlement kept as merchant capital. */
   keep: 0.6,
   /** Share of the value of the cargo moved on a leg that each end's merchant houses gain (their turnover: commission, credit, freight). */
-  turnover: 0.35,
+  turnover: 0.4,
   /** Share of the merchants' resale along the legs not charged to the town's purchases (merchantResaleNet). */
   resale: 1,
   /** Share of the capital paid into the town's income a year. */
