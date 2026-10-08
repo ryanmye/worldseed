@@ -22,6 +22,9 @@
 // card's buttons), looking at the pivot. Drags rotate directly; a released drag glides on
 // briefly; the distance, height and pivot ease toward their targets. Each of these ends, and
 // update() then reports no motion, so the render loop goes back to sleep at rest.
+// Touch: one finger orbits as the mouse's drag does; two fingers pinch the view closer or
+// further and, dragged up or down together, raise or lower it; a double tap re-centres on
+// what is under it, as a double click does (the browser's own dblclick after taps is ignored).
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
@@ -31,6 +34,7 @@ import { renderedGroundRadius, located } from './terrainHeight.ts'
 import { SUN_DIRECTION } from './globe.ts'
 import { requestRender } from './invalidate.ts'
 import { traceAdd } from './perfTrace.ts'
+import { createDoubleTap } from '../ui/doubleTap.ts'
 
 export const CityState = { Off: 0, In: 1, Orbit: 2, Out: 3 } as const
 export type CityState = (typeof CityState)[keyof typeof CityState]
@@ -332,8 +336,27 @@ export function createCityView(deps: CityViewDeps): CityView {
 
   // ---- input (orbit only) ----
   let dragX = 0, dragY = 0, dragT = 0, dragId = -1
+  /** Fingers down (touch), and the pinch: the fingers' distance and mid height when it last moved. */
+  const fingers = new Map<number, { x: number; y: number }>()
+  let pinchD = 0, pinchY = 0
+  let touchPress = false
+  const pinchState = () => {
+    const [a, b] = [...fingers.values()]
+    return [Math.hypot(a.x - b.x, a.y - b.y), (a.y + b.y) / 2]
+  }
   const onDown = (e: PointerEvent) => {
+    touchPress = e.pointerType === 'touch'
     if (state !== CityState.Orbit || e.button !== 0 || e.shiftKey) return
+    if (touchPress) {
+      fingers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (fingers.size >= 2) {
+        // two fingers: the pinch takes over from the orbit drag
+        dragging = false
+        azVel = 0
+        ;[pinchD, pinchY] = pinchState()
+        return
+      }
+    }
     dragging = true
     dragId = e.pointerId
     dragX = e.clientX
@@ -342,6 +365,23 @@ export function createCityView(deps: CityViewDeps): CityView {
     azVel = 0
   }
   const onMove = (e: PointerEvent) => {
+    const f = fingers.get(e.pointerId)
+    if (f) {
+      f.x = e.clientX
+      f.y = e.clientY
+      if (fingers.size >= 2) {
+        if (state !== CityState.Orbit) return
+        const [d, my] = pinchState()
+        if (pinchD > 0 && d > 0) distTarget = THREE.MathUtils.clamp(distTarget * (pinchD / d), DIST_MIN, DIST_MAX)
+        // (dragged down together: the view rises, as a one-finger drag down does)
+        pitchTarget = THREE.MathUtils.clamp(pitchTarget + (my - pinchY) * 0.004, PITCH_MIN, PITCH_MAX)
+        pinchD = d
+        pinchY = my
+        requestRender()
+        deps.wake()
+        return
+      }
+    }
     if (!dragging || e.pointerId !== dragId) return
     const dx = e.clientX - dragX, dy = e.clientY - dragY
     dragX = e.clientX
@@ -357,6 +397,17 @@ export function createCityView(deps: CityViewDeps): CityView {
     deps.wake()
   }
   const onUp = (e: PointerEvent) => {
+    if (fingers.delete(e.pointerId) && fingers.size === 1 && state === CityState.Orbit) {
+      // from a pinch back to one finger: it orbits from where it is (no jump)
+      const [[id, p]] = [...fingers.entries()]
+      dragging = true
+      dragId = id
+      dragX = p.x
+      dragY = p.y
+      dragT = performance.now()
+      azVel = 0
+      return
+    }
     if (!dragging || e.pointerId !== dragId) return
     dragging = false
     // a drag held still before release does not glide
@@ -375,6 +426,15 @@ export function createCityView(deps: CityViewDeps): CityView {
   const ray = new THREE.Raycaster()
   const ndc = new THREE.Vector2()
   const onDbl = (e: MouseEvent) => {
+    if (touchPress) return
+    recentre(e)
+  }
+  const doubleTap = createDoubleTap()
+  const onClick = (e: MouseEvent) => {
+    if (touchPress && state === CityState.Orbit && doubleTap.tap(e.clientX, e.clientY)) recentre(e)
+  }
+  /** Re-centre the orbit on the landmark or the ground under client (x, y) (a double click or tap). */
+  const recentre = (e: MouseEvent) => {
     if (state !== CityState.Orbit) return
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left, y = e.clientY - rect.top
@@ -421,6 +481,7 @@ export function createCityView(deps: CityViewDeps): CityView {
   window.addEventListener('pointercancel', onUp)
   canvas.addEventListener('wheel', onWheel, { passive: false })
   canvas.addEventListener('dblclick', onDbl)
+  canvas.addEventListener('click', onClick)
 
   const setState = (s: CityState) => {
     state = s
