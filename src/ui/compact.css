@@ -566,7 +566,7 @@ html.compact .lib-top {
   gap: 6px;
 }
 html.compact .lib-heading {
-  flex: 1 1 100%;
+  flex: 1 1 calc(100% - 56px);
   order: -1;
   font-size: 17px;
   margin: 0;
@@ -590,7 +590,8 @@ html.compact .lib-find {
 html.compact .lib-told-input {
   width: 76px;
 }
-html.compact .lib-close {
+html.compact .lib-top .lib-close {
+  order: -1;
   font-size: 30px;
   margin-left: auto;
 }
@@ -613,7 +614,7 @@ html.compact .lib-toc {
   border: none;
   border-bottom: 1px solid var(--panel-border);
   border-radius: 0 0 14px 14px;
-  background: rgba(13, 17, 27, 0.99);
+  background: rgb(13, 17, 27);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   transform: translateY(-105%);
   visibility: hidden;
