@@ -179,6 +179,15 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     speedButtons.push(b)
     speedBox.appendChild(b)
   }
+  // the phone layout's one speed button (compact.css shows it in place of the four): the next speed, round
+  const speedCycle = document.createElement('button')
+  speedCycle.type = 'button'
+  speedCycle.className = 'btn tl-speed-cycle'
+  speedCycle.addEventListener('click', () => {
+    speed = SPEEDS[(SPEEDS.indexOf(speed as (typeof SPEEDS)[number]) + 1) % SPEEDS.length]
+    syncSpeed()
+  })
+  speedBox.appendChild(speedCycle)
 
   row.append(playBtn, yearBox, stats, speedBox)
 
@@ -244,6 +253,9 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       b.classList.toggle('active', SPEEDS[i] === speed)
       b.setAttribute('aria-pressed', String(SPEEDS[i] === speed))
     })
+    const label = speed === 0.25 ? '¼×' : `${speed}×`
+    speedCycle.textContent = label
+    speedCycle.setAttribute('aria-label', `Speed ${label}, ${Math.round(speed * YEARS_PER_SECOND)} years per second: tap for the next speed`)
   }
   syncSpeed()
 
