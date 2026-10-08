@@ -906,11 +906,14 @@ const cityView = createCityView({
 /** Fly into settlement id: from the map, by way of the globe. */
 function flyIntoCity(id: number): boolean {
   if (!showBuildings) return false
+  const fromMap = mapOn
   if (mapOn) setMapMode(false, false)
   const ok = cityView.flyIn(id)
   // (the card names the town: no selection ring and inspector over the view)
   if (ok) historyView.select(-1, false)
-  return ok
+  // from the map the 3D towns are not laid out yet: the flight starts once they are (as fly=<id>)
+  else if (fromMap) pendingFly = id
+  return ok || fromMap
 }
 setFlyInHandler((id) => {
   flyIntoCity(id)
@@ -1497,7 +1500,7 @@ function frameBody(ts: number) {
   // (a panel's fly-to takes the camera from the city view)
   if (cityView.engaged && fly.active) cityView.abort()
   // fly=<id>: once there is a history and the models are in
-  if (pendingFly >= 0 && currentWorld && historyView.debug().history && activeDioramaLayer()?.active) {
+  if (pendingFly >= 0 && currentWorld && historyView.debug().history && activeDioramaLayer()?.active && !activeDioramaLayer()?.pending) {
     const id = pendingFly
     pendingFly = -1
     flyIntoCity(id)
