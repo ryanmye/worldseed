@@ -11,7 +11,8 @@ import { buildSunDisc } from './render/sunDisc.ts'
 import { buildCitySky } from './render/citySky.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
 import { goodsInUse } from './ui/tradePanel.ts'
-import { attachPointer } from './ui/pointer.ts'
+import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
+import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
 import { createHistoryView, MAX_YEARS } from './ui/historyView.ts'
@@ -155,6 +156,14 @@ controls.maxDistance = 8
 controls.rotateSpeed = 0.6
 controls.zoomSpeed = 0.8
 controls.enablePan = false // right-drag and shift-drag move the sun instead (pointer.ts)
+// touch: one finger turns the globe; two pinch to zoom and, dragged together, turn it too (no pan: the view orbits the centre)
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+// no page scroll, pinch-zoom of the page or double-tap zoom over the canvas (and so no click delay); no long-press callout
+canvas.style.touchAction = 'none'
+canvas.style.userSelect = 'none'
+canvas.style.setProperty('-webkit-user-select', 'none')
+canvas.style.setProperty('-webkit-touch-callout', 'none')
+canvas.style.setProperty('-webkit-tap-highlight-color', 'transparent')
 /** Rendered ground radius under a world-space point (terrainHeight.ts), or 1 before the world arrives. */
 const groundTmp = new THREE.Vector3()
 let groundStart = 0
@@ -332,7 +341,24 @@ function showWorld(world: World) {
 }
 
 // ---------- planting the first hearths (ui/hearthPicker.ts): the start page's and the Nudge panel's ----------
-const hearths = createHearthPicker({ canvas, camera, planetGroup, getWorld: () => currentWorld, wake: () => wake() })
+// while hearths are being planted the sun follows the camera (the whole visible globe lit), then goes back to what it was
+let sunBeforePicking: SunMode | null = null
+function sunForPicking(on: boolean) {
+  if (on) {
+    sunBeforePicking = sunState.mode
+    // (daylight everywhere already lights it all)
+    if (sunState.mode === SunMode.Fixed) setSunMode(SunMode.Follow)
+  } else if (sunBeforePicking !== null) {
+    // (unless the sun was set by hand meanwhile)
+    if (sunState.mode === SunMode.Follow) setSunMode(sunBeforePicking)
+    sunBeforePicking = null
+  }
+  // (not syncSun: the picker's sun is not written to the address)
+  sunPanel.setSun(sunState.mode, sunState.lon, sunState.lat)
+  requestRender()
+  wake()
+}
+const hearths = createHearthPicker({ canvas, camera, planetGroup, getWorld: () => currentWorld, wake: () => wake(), onPickerActive: sunForPicking })
 
 // ---------- worker ----------
 // One request per seed; responses for superseded requests are dropped. Extensions (a longer
@@ -826,7 +852,9 @@ const pointerInput = attachPointer({
   getGlobe: () => currentGlobe,
   // (nothing is described in lands the known world shown does not include)
   setReadout: (r) => overlay.setReadout(r && r.cell !== undefined ? (historyView.isCellHidden(r.cell) ? null : { ...r, places: historyView.placesAt(r.cell) }) : r),
-  pickSettlement: (x, y) => historyView.pickAt(x, y),
+  pickSettlement: (x, y, slop) => historyView.pickAt(x, y, slop),
+  // (the city view's taps are its own: re-centring, naming a landmark)
+  tapsElsewhere: () => cityView.engaged,
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
   selectFactionAt: (cell) => historyView.selectFactionAt(cell),
@@ -893,21 +921,70 @@ let pendingFly = intParam('fly') ?? -1
 // (what was under the first press: that click selects the town and the opening inspector moves the view)
 let downPick = -1
 let downPickTs = 0
+/** The last press on the canvas was a finger (its taps: the double tap below; the browser's own dblclick is ignored). */
+let touchPress = false
 canvas.addEventListener('pointerdown', (e) => {
+  touchPress = e.pointerType === 'touch'
   if (cityView.engaged || e.button !== 0) return
   const rect = canvas.getBoundingClientRect()
   if (performance.now() - downPickTs > 600 || downPick < 0) {
-    downPick = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+    downPick = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, touchPress ? TOUCH_PICK_SLOP_PX : undefined)
     downPickTs = performance.now()
   }
 })
-canvas.addEventListener('dblclick', (e) => {
-  if (cityView.engaged) return
+function flyIntoPicked(e: MouseEvent, slop?: number) {
   const rect = canvas.getBoundingClientRect()
-  let id = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+  let id = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, slop)
   if (id < 0 && performance.now() - downPickTs < 800) id = downPick
   downPick = -1
   if (id >= 0) flyIntoCity(id)
+}
+canvas.addEventListener('dblclick', (e) => {
+  if (cityView.engaged || touchPress) return
+  flyIntoPicked(e)
+})
+// double-tap a town (touch): fly in (after the taps' own clicks, pointer.ts, selected it)
+const doubleTap = createDoubleTap()
+/** The town the first tap of a pair landed on (-1: none). */
+let firstTapTown = -1
+let swallowClickUntil = 0
+// the first tap may open something over the town (the inspector): a second tap there still completes the double tap,
+// and that element gets neither the press nor its click
+window.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch' || e.target === canvas || cityView.engaged || firstTapTown < 0 || !doubleTap.pending(e.clientX, e.clientY)) return
+  e.preventDefault()
+  e.stopPropagation()
+  swallowClickUntil = performance.now() + 700
+  doubleTap.tap(e.clientX, e.clientY)
+  const id = firstTapTown
+  firstTapTown = -1
+  flyIntoCity(id)
+}, { capture: true })
+window.addEventListener('click', (e) => {
+  if (performance.now() > swallowClickUntil) return
+  swallowClickUntil = 0
+  e.preventDefault()
+  e.stopPropagation()
+}, { capture: true })
+canvas.addEventListener('click', (e) => {
+  if (!touchPress) return
+  if (cityView.state === CityState.Orbit) {
+    // (no hover on touch: a tap names the landmark under it, a tap elsewhere clears the name)
+    const rect = canvas.getBoundingClientRect()
+    const lm = cityView.landmarkAt(e.clientX - rect.left, e.clientY - rect.top)
+    const h = historyView.debug().history
+    const layer = activeDioramaLayer()
+    cityCard.hover(lm && h && layer ? landmarkNameAt(h, lm.lm, Math.floor(layer.year)) : null, e.clientX, e.clientY)
+    return
+  }
+  if (cityView.engaged) return
+  if (doubleTap.tap(e.clientX, e.clientY)) {
+    firstTapTown = -1
+    flyIntoPicked(e, TOUCH_PICK_SLOP_PX)
+  } else {
+    const rect = canvas.getBoundingClientRect()
+    firstTapTown = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, TOUCH_PICK_SLOP_PX)
+  }
 })
 // hovering a landmark in the city view names it
 canvas.addEventListener('pointermove', (e) => {
@@ -918,7 +995,10 @@ canvas.addEventListener('pointermove', (e) => {
   const layer = activeDioramaLayer()
   cityCard.hover(lm && h && layer ? landmarkNameAt(h, lm.lm, Math.floor(layer.year)) : null, e.clientX, e.clientY)
 })
-canvas.addEventListener('pointerleave', () => cityCard.hover(null, 0, 0))
+canvas.addEventListener('pointerleave', (e) => {
+  // (a finger leaves at every lift: a tapped landmark's name stays)
+  if (e.pointerType !== 'touch') cityCard.hover(null, 0, 0)
+})
 {
   const inOrbit = () => cityView.state === CityState.Orbit
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'City view: back to the globe', group: 'View', first: true, run: () => {
