@@ -1,7 +1,9 @@
 // What kind of device the page runs on, for the default render quality (quality.ts) and the
 // start page's slow turn (main.ts): a phone (a touch screen with no fine pointer and a
 // narrow viewport), and a weak one (few cores or little memory, where the browser says).
-// The GPU itself is judged by a timing probe on the first frames (main.ts), not here.
+// The GPU itself is judged by a timing probe on the first frames (main.ts), not here. This is about
+// the device (quality); the phone layout (ui/compact.ts isCompact) is about the window size alone: a
+// phone gets both, a narrow desktop window only the layout, a tablet neither.
 
 import { Quality } from './quality.ts'
 

@@ -160,6 +160,8 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
   const hint = el('div', 'ng-pick-hint hidden')
   document.body.appendChild(hint)
+  // (a touch screen alone: tap, and no Esc to name)
+  const touchOnly = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches
 
   let collapsed = loadFlag('worldseed.nudge.collapsed', true)
   const syncCollapsed = () => {
@@ -324,7 +326,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
         target = chosen
         targetText.textContent = chosen >= 0 ? cellWords(h, chosen, y, actor.id >= 0 ? peopleSeat(h, actor.id, y - 1) : -1) : 'no place chosen'
         targetText.classList.toggle('ng-none', chosen < 0)
-        pickBtn.textContent = picking ? 'click the map… (Esc)' : chosen >= 0 ? 'choose again' : 'choose on the map'
+        pickBtn.textContent = picking ? (touchOnly ? 'tap the map…' : 'click the map… (Esc)') : chosen >= 0 ? 'choose again' : 'choose on the map'
         pickBtn.hidden = false
         targetLine.append(targetText, pickBtn)
       } else {
@@ -350,7 +352,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
             opts.push({ value: p, label: `${polityWords(h, p)}${w ? ` · ${w}` : soft ? ` · ${soft}` : bd.has(p) ? ' · neighbour' : ''}`, disabled: !!w })
           }
           target = setOptions(opts, chosen, 'choose a state…')
-          pickBtn.textContent = picking ? 'click the map… (Esc)' : 'or pick on the map'
+          pickBtn.textContent = picking ? (touchOnly ? 'tap the map…' : 'click the map… (Esc)') : 'or pick on the map'
           pickBtn.hidden = false
         } else if (tr === OrderRole.Settlement) {
           const base = snapOf(h, y - 1) * h.settlements.length
@@ -531,7 +533,8 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
     picking = true
     deps.canvas.classList.add('nudge-picking')
     const role = ORDER_KINDS[kind].target
-    hint.textContent = role === OrderRole.Polity ? 'Click a state’s land on the map · Esc to cancel' : `Click the map: where to ${ORDER_KINDS[kind].kind === OrderKind.Explore ? 'explore toward' : 'settle toward'} · Esc to cancel`
+    const [Click, esc] = touchOnly ? ['Tap', ''] : ['Click', ' · Esc to cancel']
+    hint.textContent = role === OrderRole.Polity ? `${Click} a state’s land on the map${esc}` : `${Click} the map: where to ${ORDER_KINDS[kind].kind === OrderKind.Explore ? 'explore toward' : 'settle toward'}${esc}`
     hint.classList.remove('hidden')
     refreshForm()
   }
