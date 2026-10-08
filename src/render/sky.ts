@@ -298,6 +298,8 @@ export interface Clouds {
   readonly bakeInfo: { ready: boolean; pending: boolean; count: number; lastMs: number; bytes: number; size: number }
   /** Debug: false draws the procedural shader even when the bake is ready (A/B timing). */
   setBakeUse(on: boolean): void
+  /** The small clouds seen from below (the city view): two octaves (true, the default) or one. */
+  setPuffDetail(on: boolean): void
   dispose(): void
 }
 
@@ -342,6 +344,7 @@ const CLOUD_FRAG = /* glsl */ `
   uniform float uDaylight;
   uniform float uLow;
   uniform sampler2D uPuffs;
+  uniform float uPuffDetail;
   varying vec3 vObjPos;
   ${SEAM_FRAG_GLSL}
   ${CITY_SKY_GLSL}
@@ -351,6 +354,8 @@ const CLOUD_FRAG = /* glsl */ `
     vec3 w = pow(abs(n), vec3(8.0));
     w /= w.x + w.y + w.z;
     float a = texture2D(uPuffs, p.yz * 9.0).r * w.x + texture2D(uPuffs, p.zx * 9.0).r * w.y + texture2D(uPuffs, p.xy * 9.0).r * w.z;
+    // (the second, finer octave only where the quality asks for it: three texture reads fewer)
+    if (uPuffDetail < 0.5) return a;
     float b = texture2D(uPuffs, p.yz * 23.0 + 0.37).r * w.x + texture2D(uPuffs, p.zx * 23.0 + 0.37).r * w.y + texture2D(uPuffs, p.xy * 23.0 + 0.37).r * w.z;
     return a * 0.68 + b * 0.32;
   }
@@ -473,6 +478,7 @@ export function buildClouds(seed: number): Clouds {
     uDaylight: sunUniforms.uDaylight,
     uLow: { value: 0 },
     uPuffs: { value: puffTexture(rand) },
+    uPuffDetail: { value: 1 },
     ...flatUniforms,
     uCloudTurn: { value: new THREE.Matrix3() },
   }
@@ -512,6 +518,9 @@ export function buildClouds(seed: number): Clouds {
     mesh,
     update(dt: number) {
       mesh.rotation.y += dt * 0.004
+    },
+    setPuffDetail(on: boolean) {
+      uniforms.uPuffDetail.value = on ? 1 : 0
     },
     setBakeSize(size: number) {
       if (size === bakeSize && (bake || size <= 0)) return
