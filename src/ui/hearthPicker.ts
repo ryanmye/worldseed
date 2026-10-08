@@ -21,8 +21,9 @@ import { canonicalCradles, CradleOutcome } from '../contract.ts'
 import { previewCradles } from './cradlesData.ts'
 import './hearths.css'
 
-/** A click this close (CSS px) to a hearth takes it away. */
+/** A click this close (CSS px) to a hearth takes it away (a tap: a fingertip's width). */
 const HIT_PX = 16
+const HIT_PX_TOUCH = 26
 
 export interface HearthPickerDeps {
   canvas: HTMLCanvasElement
@@ -30,6 +31,8 @@ export interface HearthPickerDeps {
   planetGroup: THREE.Group
   getWorld(): World | null
   wake(): void
+  /** The picker opened (true) or closed (false): main.ts lights the whole visible globe meanwhile. */
+  onPickerActive?(on: boolean): void
 }
 
 export interface HearthSession {
@@ -96,10 +99,11 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     }, (err) => console.error('cradle preview failed:', err))
   }
   /** The last press on the canvas (client px): a click near a hearth takes it away. */
-  const press = { x: -1e9, y: -1e9 }
+  const press = { x: -1e9, y: -1e9, touch: false }
   deps.canvas.addEventListener('pointerdown', (e) => {
     press.x = e.clientX
     press.y = e.clientY
+    press.touch = e.pointerType === 'touch'
   }, { capture: true })
 
   // ---------- the bar ----------
@@ -161,6 +165,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     deps.wake()
   }
   function end() {
+    if (session) deps.onPickerActive?.(false)
     session = null
     bar.classList.add('hidden')
     deps.canvas.classList.remove('hearth-picking')
@@ -198,7 +203,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     deps.planetGroup.updateWorldMatrix(true, false)
     const camDir = new THREE.Vector3()
     deps.camera.getWorldPosition(camDir)
-    let best = -1, bd = HIT_PX
+    let best = -1, bd = press.touch ? HIT_PX_TOUCH : HIT_PX
     for (let i = 0; i < list.length; i++) {
       const c = list[i]
       const r = Math.max(1, surfaceRadius(world, c))
@@ -223,6 +228,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
       return session !== null
     },
     start(s: HearthSession) {
+      if (!session) deps.onPickerActive?.(true)
       session = { ...s, max: Math.max(1, Math.min(HEARTH_MAX, s.max)) }
       list = s.cells.filter((c) => c >= 0).slice(0, session.max)
       bar.classList.remove('hidden')
