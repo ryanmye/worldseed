@@ -10,6 +10,7 @@ import type { History } from '../contract.ts'
 import { canonicalCradles, CradleOutcome, encodeCradles, settlementNameAt } from '../contract.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import { cradlesOf } from './cradlesData.ts'
+import { lowerSheet } from './sheet.ts'
 
 export interface HearthsSectionDeps {
   hearths: HearthPicker
@@ -128,6 +129,8 @@ export function createHearthsSection(deps: HearthsSectionDeps): HearthsSection {
     bar.classList.remove('in-landing')
     bar.classList.add('in-app')
     document.body.appendChild(bar)
+    // (the phone layout: the sheet down, the whole globe to plant on)
+    lowerSheet()
     yearBefore = Math.floor(deps.year())
     deps.setYear(0)
     const before = canonicalCradles(deps.getCradles())

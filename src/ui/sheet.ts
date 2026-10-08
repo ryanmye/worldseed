@@ -69,6 +69,13 @@ export function restoreNode(node: Node): void {
   m.parentNode?.replaceChild(node, m)
 }
 
+/** The sheet of the page (one overlay). */
+let current: Sheet | null = null
+/** In the phone layout, lowers the sheet to peek so the whole view is free (planting the hearths); else nothing. */
+export function lowerSheet(): void {
+  if (current && isCompact()) current.setState('peek')
+}
+
 export function createSheet(deps: SheetDeps): Sheet {
   const { column, root } = deps
   const handle = document.createElement('div')
@@ -163,6 +170,16 @@ export function createSheet(deps: SheetDeps): Sheet {
     for (const p of panels()) setOpen(p, keyOf(p) === active && state !== 'peek')
   }
 
+  /** Scrolls the tab strip (only it: scrollIntoView would scroll the page too) so the tab shows. */
+  function revealTab(key: string) {
+    const t = tabFor.get(key)
+    if (!t || t.hidden) return
+    const x = t.getBoundingClientRect().left - tabs.getBoundingClientRect().left + tabs.scrollLeft
+    const l = x - 10, r = x + t.offsetWidth + 10
+    if (l < tabs.scrollLeft) tabs.scrollLeft = l
+    else if (r > tabs.scrollLeft + tabs.clientWidth) tabs.scrollLeft = r - tabs.clientWidth
+  }
+
   function show(key: string, raise = true) {
     if (!panelOf(key)) return
     if (key !== active && key === 'inspector') beforeTown = active
@@ -171,7 +188,7 @@ export function createSheet(deps: SheetDeps): Sheet {
     syncActive()
     if (raise && state === 'peek') setState('half')
     else applyPanels()
-    tabFor.get(key)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    revealTab(key)
   }
 
   // ---------- heights ----------
@@ -377,7 +394,7 @@ export function createSheet(deps: SheetDeps): Sheet {
   })
   if (isCompact()) enter()
 
-  return {
+  const api: Sheet = {
     get state() {
       return state
     },
@@ -386,4 +403,6 @@ export function createSheet(deps: SheetDeps): Sheet {
     peekHeight: () => (on ? heights.peek : 0),
     measure,
   }
+  current = api
+  return api
 }
