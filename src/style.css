@@ -33,6 +33,7 @@ html, body {
   position: relative;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
 }
 
 #globe-canvas {
@@ -1187,6 +1188,17 @@ kbd {
   }
   .tl-year {
     min-width: 0;
+  }
+}
+/* a tablet held upright (a narrow desktop): the seed bar drops the word Seed (the field shows it) and closes up, so
+   Credits stays clear of the right column (the phone layout below 700 px is compact.css's) */
+@media (min-width: 561px) and (max-width: 820px) {
+  .top-bar {
+    gap: 6px;
+  }
+  .top-bar .seed-label {
+    font-size: 0;
+    gap: 0;
   }
 }
 @media (max-height: 640px) {

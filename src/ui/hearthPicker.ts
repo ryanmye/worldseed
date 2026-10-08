@@ -21,8 +21,11 @@ import { canonicalCradles, CradleOutcome } from '../contract.ts'
 import { previewCradles } from './cradlesData.ts'
 import './hearths.css'
 
-/** A click this close (CSS px) to a hearth takes it away. */
+/** A click this close (CSS px) to a hearth takes it away; a tap, less precise, from further (TOUCH_HIT_PX). */
 const HIT_PX = 16
+const TOUCH_HIT_PX = 26
+/** The words for a touch screen alone (tap) or a pointer (click). */
+const touchOnly = () => window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches
 
 export interface HearthPickerDeps {
   canvas: HTMLCanvasElement
@@ -96,10 +99,11 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     }, (err) => console.error('cradle preview failed:', err))
   }
   /** The last press on the canvas (client px): a click near a hearth takes it away. */
-  const press = { x: -1e9, y: -1e9 }
+  const press = { x: -1e9, y: -1e9, touch: false }
   deps.canvas.addEventListener('pointerdown', (e) => {
     press.x = e.clientX
     press.y = e.clientY
+    press.touch = e.pointerType === 'touch'
   }, { capture: true })
 
   // ---------- the bar ----------
@@ -121,7 +125,8 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
   function render() {
     if (!session) return
     const n = list.length, max = session.max
-    hint.textContent = n === 0 ? `Click up to ${max} places on the globe to set down the first peoples · drag to turn it` : n < max ? `${n} of ${max} placed · click to add, click a hearth to take it away` : `All ${max} placed · click a hearth to take it away`
+    const [Click, click] = touchOnly() ? ['Tap', 'tap'] : ['Click', 'click']
+    hint.textContent = n === 0 ? `${Click} up to ${max} places on the globe to set down the first peoples · drag to turn it` : n < max ? `${n} of ${max} placed · ${click} to add, ${click} a hearth to take it away` : `All ${max} placed · ${click} a hearth to take it away`
     // (the preview's outcomes once in; meanwhile the plain test of the cell)
     const P = pv && pv.key === list.join(',') ? pv : null
     const fate = (i: number) => (P ? P.placed[i] : livable(list[i]) ? CradleOutcome.Placed : CradleOutcome.Moved)
@@ -198,7 +203,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     deps.planetGroup.updateWorldMatrix(true, false)
     const camDir = new THREE.Vector3()
     deps.camera.getWorldPosition(camDir)
-    let best = -1, bd = HIT_PX
+    let best = -1, bd = press.touch ? TOUCH_HIT_PX : HIT_PX
     for (let i = 0; i < list.length; i++) {
       const c = list[i]
       const r = Math.max(1, surfaceRadius(world, c))
@@ -241,7 +246,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
       if (hit >= 0) list.splice(hit, 1)
       else if (list.length < session.max) list.push(cell)
       else {
-        hint.textContent = `All ${session.max} placed · click a hearth to take it away first`
+        hint.textContent = `All ${session.max} placed · ${touchOnly() ? 'tap' : 'click'} a hearth to take it away first`
         return true
       }
       changed()

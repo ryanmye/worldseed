@@ -94,7 +94,15 @@ export function createLibrary(deps: LibraryDeps): Library {
   const dlBtn = btn('.md', 'Download as Markdown', 'sg-btn')
   const closeBtn = btn('×', 'Close the library (Esc)', 'lib-close')
   closeBtn.setAttribute('aria-label', 'Close the library')
-  top.append(heading, regWrap, toldWrap, prevBtn, nextBtn, copyBtn, dlBtn, closeBtn)
+  // (the phone layout: the contents are a drawer from the top, this button opens it; compact.css)
+  const tocBtn = btn('Contents', 'The contents', 'sg-btn lib-toc-btn')
+  tocBtn.setAttribute('aria-expanded', 'false')
+  const setTocOpen = (open: boolean) => {
+    root.classList.toggle('toc-open', open)
+    tocBtn.setAttribute('aria-expanded', String(open))
+  }
+  tocBtn.addEventListener('click', () => setTocOpen(!root.classList.contains('toc-open')))
+  top.append(heading, tocBtn, regWrap, toldWrap, prevBtn, nextBtn, copyBtn, dlBtn, closeBtn)
   const main = document.createElement('div')
   main.className = 'lib-main'
   const toc = document.createElement('nav')
@@ -283,7 +291,7 @@ export function createLibrary(deps: LibraryDeps): Library {
       yy.className = 'lib-entry-years'
       yy.textContent = e.years
       b.append(l, yy)
-      b.addEventListener('click', () => { subject = e.s; show() })
+      b.addEventListener('click', () => { subject = e.s; setTocOpen(false); show() })
       li.appendChild(b)
       ul!.appendChild(li)
     }

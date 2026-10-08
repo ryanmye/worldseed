@@ -19,6 +19,9 @@ import { loadFlag, loadPref, saveFlag, savePref, titleWhenCut } from './panels.t
 import './trade.css'
 import { creditsButton, fillCredits } from './credits.ts'
 import './credits.css'
+import { isCompact, isCompactLandscape, onCompactChange } from './compact.ts'
+import { createSheet, relocateNode, restoreNode } from './sheet.ts'
+import './compact.css'
 
 export interface Readout {
   biome: Biome
@@ -293,6 +296,13 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   if (callbacks.onProjectionChange) topBar.append(projSwitch)
   const creditsBtn = creditsButton()
   topBar.append(settingsBtn, helpBtn, creditsBtn)
+  // (the phone layout: the menu opens the rest of the bar and the view and layers, compact.ts)
+  const menuBtn = iconBtn(
+    'menu-btn',
+    'Menu: view, layers, sun, help, credits',
+    '<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  )
+  topBar.append(menuBtn)
 
   // ---------- popovers ----------
   const makePopover = (cls: string, title: string) => {
@@ -305,6 +315,14 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     const h = document.createElement('div')
     h.className = 'popover-title'
     h.textContent = title
+    // (shown in the phone layout, where the popover is a full-screen sheet with no outside to tap)
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'popover-close'
+    close.setAttribute('aria-label', `Close ${title.toLowerCase()}`)
+    close.textContent = '×'
+    close.addEventListener('click', () => closePopover(true))
+    h.appendChild(close)
     const body = document.createElement('div')
     body.className = 'popover-body'
     p.append(h, body)
@@ -313,6 +331,12 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const settingsPop = makePopover('settings-pop', 'Sun and quality')
   const helpPop = makePopover('help-pop', 'Help')
   const creditsPop = makePopover('credits-pop', 'Credits')
+  const menuPop = makePopover('menu-pop', 'Menu')
+  const menuTools = document.createElement('div')
+  menuTools.className = 'menu-tools'
+  menuPop.body.appendChild(menuTools)
+  menuBtn.setAttribute('aria-controls', menuPop.p.id)
+  menuBtn.setAttribute('aria-expanded', 'false')
   creditsBtn.setAttribute('aria-controls', creditsPop.p.id)
   creditsBtn.setAttribute('aria-expanded', 'false')
   settingsBtn.setAttribute('aria-controls', settingsPop.p.id)
@@ -323,6 +347,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
     [settingsPop.p, settingsBtn],
     [helpPop.p, helpBtn],
     [creditsPop.p, creditsBtn],
+    [menuPop.p, menuBtn],
   ]
   let openPop: HTMLElement | null = null
   function closePopover(returnFocus: boolean) {
@@ -350,6 +375,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   settingsBtn.addEventListener('click', () => togglePopover(settingsPop.p))
   helpBtn.addEventListener('click', () => togglePopover(helpPop.p))
   creditsBtn.addEventListener('click', () => togglePopover(creditsPop.p))
+  menuBtn.addEventListener('click', () => togglePopover(menuPop.p))
   document.addEventListener(
     'pointerdown',
     (e) => {
@@ -390,14 +416,23 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       }
       body.append(h, dl)
     }
-    section('Mouse', mouse)
+    // (a touch screen alone: its gestures, and no keyboard sections)
+    const touchOnly = window.matchMedia('(pointer: coarse)').matches && !window.matchMedia('(any-pointer: fine)').matches
+    if (touchOnly) {
+      section('Touch', [
+        ['Drag', 'Turn the globe; on the map, pan'],
+        ['Pinch', 'Zoom'],
+        ['Tap', 'Select a settlement (empty ground deselects)'],
+        ['Panels', 'Tap a name in the bar at the bottom; drag the bar up or down, or tap its grip'],
+      ])
+    } else section('Mouse', mouse)
     if (callbacks.onProjectionChange) {
       const note = document.createElement('p')
       note.className = 'help-note'
       note.textContent = 'The map (M) is the same world in the Equal Earth projection, every layer and view included. It is lit from the north-west in full daylight (Day and night shows the terminator), and the 3D towns stay on the globe: the map keeps the flat settlement markers at every zoom.'
       body.appendChild(note)
     }
-    for (const g of ['Timeline', 'View', 'Panels'] as const) {
+    for (const g of touchOnly ? [] : (['Timeline', 'View', 'Panels'] as const)) {
       const rows = shortcutList().filter((s) => s.group === g).map((s) => [s.label, s.description] as [string, string])
       if (rows.length) section(g, rows)
     }
@@ -598,8 +633,28 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const bottom = document.createElement('div')
   bottom.className = 'bottom-slot'
 
-  root.append(left, right, bottom, readoutPanel, settingsPop.p, helpPop.p, creditsPop.p, loadingOverlay)
+  // the view legends' place in the phone layout (top right, under the bar: sheet.ts moves them here)
+  const legends = document.createElement('div')
+  legends.className = 'compact-legends'
+
+  root.append(left, right, bottom, legends, readoutPanel, settingsPop.p, helpPop.p, creditsPop.p, menuPop.p, loadingOverlay)
   container.appendChild(root)
+
+  // ---------- the phone layout (compact.ts) ----------
+  // the bar keeps the seed, Random, Globe / Map and the menu; the sun, help and credits buttons and the view and
+  // layers panel go into the menu sheet; the right column becomes the bottom sheet (sheet.ts)
+  const syncCompactBar = (compact: boolean) => {
+    if (compact) {
+      for (const b of [settingsBtn, helpBtn, creditsBtn]) relocateNode(b, menuTools)
+      relocateNode(mapPanel, menuPop.body)
+    } else {
+      if (openPop === menuPop.p) closePopover(false)
+      for (const b of [settingsBtn, helpBtn, creditsBtn, mapPanel]) restoreNode(b)
+    }
+  }
+  syncCompactBar(isCompact())
+  onCompactChange(syncCompactBar)
+  const sheet = createSheet({ root, column: right, left, bottom, topBar, legends, onLayout: () => queueRelayout() })
 
   // A control clicked with the mouse lets go of the focus, so Space goes back to play /
   // pause; one reached with the keyboard keeps it (and its focus ring).
@@ -622,6 +677,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   const READOUT_CLEAR = 16 + 200 + GAP
   let shiftedTo = ''
   function relayout() {
+    if (isCompact()) {
+      compactRelayout()
+      return
+    }
     // the timeline moves left out from under the right column when there is room for it there (at 1200 px wide it
     // would reach under the column's edge by a few pixels, and the column would then stop above it for nothing)
     {
@@ -663,6 +722,31 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       right: rr.width > 0 ? window.innerWidth - rr.left + GAP : 0,
       top: tbRect.height > 0 ? tbRect.bottom + GAP : 0,
       bottom: tl.height > 0 ? window.innerHeight - tl.top + GAP : 0,
+    })
+  }
+  /**
+   * The phone layout's free rect: under the top bar, above the timeline as it sits over the sheet at rest (the
+   * sheet raised covers the view rather than moving it), and on a phone on its side left of the sheet's column.
+   */
+  function compactRelayout() {
+    if (shiftedTo) {
+      shiftedTo = ''
+      bottom.style.left = ''
+    }
+    root.style.setProperty('--left-reserve', '0px')
+    root.style.setProperty('--right-reserve', '0px')
+    sheet.measure()
+    const tb = topBar.getBoundingClientRect()
+    // (what sits under the bar keeps clear of it: the legends, the pick hints, the town card; compact.css)
+    document.documentElement.style.setProperty('--compact-top', `${Math.round(tb.bottom + 4)}px`)
+    const tlH = bottom.offsetHeight
+    const landscape = isCompactLandscape()
+    const colW = landscape ? right.getBoundingClientRect().width : 0
+    setFreeViewportInset({
+      left: 0,
+      right: colW > 0 ? colW + GAP : 0,
+      top: tb.height > 0 ? tb.bottom + GAP : 0,
+      bottom: (tlH > 0 ? tlH : 0) + (landscape ? 0 : sheet.peekHeight()) + GAP,
     })
   }
   let relayoutQueued = false

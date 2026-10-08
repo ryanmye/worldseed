@@ -31,6 +31,7 @@ import { sunUniforms } from './render/sun.ts'
 import { trace, traceAdd } from './render/perfTrace.ts'
 import { createGpuTimer } from './render/gpuTimer.ts'
 import { loadPref, savePref } from './ui/panels.ts'
+import { isCompact } from './ui/compact.ts'
 import { CityState, createCityView } from './render/cityView.ts'
 import { createCityCard } from './ui/cityCard.ts'
 import { setFlyInHandler } from './ui/flyIn.ts'
@@ -1243,6 +1244,7 @@ function applySize() {
 // has not panned or zoomed away from it since the last automatic fit (mapControls.ts).
 onFreeViewportChange(() => {
   syncViewportOffset()
+  fitCompactDistance()
   if (mapOn) mapControls.refitWhole()
   requestRender()
   wake()
@@ -1489,6 +1491,35 @@ let landingGeom = showLanding ? 0 : 1
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
 const APP_DIST = 3.25
+
+/**
+ * The camera's distance in the app at rest: APP_DIST, or in the phone layout (ui/compact.ts) far enough back that
+ * the whole globe fits the free rect's narrower side (a phone held upright is far narrower than the 42° tall view,
+ * one on its side has little height left between the bars). Read by the start page's hand-over and by
+ * fitCompactDistance; the view offset (syncViewportOffset) is left as it is.
+ */
+function appDistance(): number {
+  if (!isCompact()) return APP_DIST
+  const inset = getFreeViewportInset()
+  const free = Math.min(window.innerWidth - inset.left - inset.right, window.innerHeight - inset.top - inset.bottom)
+  // the disc's radius as a fraction of the half-height, and the distance that shows it so (as landingFrame)
+  const rho = (0.47 * Math.max(120, free)) / (window.innerHeight / 2)
+  const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+  return Math.min(7.5, Math.max(APP_DIST, Math.sqrt(1 + 1 / (rho * tanHalf) ** 2)))
+}
+/** The distance fitCompactDistance last set (-1 none yet): a later fit (the phone turned) moves only a camera still there. */
+let autoDist = -1
+/** On the globe at rest at the app's distance (not zoomed by the user, no dist= in the address): back to appDistance(). */
+function fitCompactDistance() {
+  if (landing || mapOn || cityView.engaged || fly.active) return
+  const len = camera.position.length()
+  if (autoDist < 0 ? params.has('dist') || Math.abs(len - APP_DIST) > 1e-3 : Math.abs(len - autoDist) > 1e-3) return
+  const d = appDistance()
+  autoDist = d
+  if (Math.abs(d - len) < 1e-4) return
+  camera.position.setLength(d)
+  controls.update()
+}
 let landing: Landing | null = null
 if (showLanding) {
   controls.enabled = false
@@ -1584,7 +1615,8 @@ function landingFrame(ts: number) {
   landingGeom = f.geom
   // the disc's radius (a fraction of the half-height) eased between the two, and the distance that shows it so
   const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
-  const rhoApp = 1 / (Math.sqrt(APP_DIST * APP_DIST - 1) * tanHalf)
+  const appDist = appDistance()
+  const rhoApp = 1 / (Math.sqrt(appDist * appDist - 1) * tanHalf)
   const rho = landing.discRho() + (rhoApp - landing.discRho()) * f.geom
   camera.position.setLength(Math.sqrt(1 + 1 / (rho * tanHalf) ** 2))
   syncViewportOffset()
@@ -1595,6 +1627,7 @@ function landingFrame(ts: number) {
   if (f.done) {
     landing = null
     landingGeom = 1
+    autoDist = appDist // (the phone turned later: fitCompactDistance refits it)
     controls.enableZoom = true
     controls.enabled = !mapOn && !cityView.engaged
     setShortcutsEnabled(true)
@@ -1615,7 +1648,7 @@ function drawLandingSky(out: HTMLCanvasElement) {
   const len = camera.position.length()
   const geom = landingGeom
   fade.value = 1
-  camera.position.setLength(APP_DIST)
+  camera.position.setLength(appDistance())
   landingGeom = 1
   syncViewportOffset()
   skyScene.add(stars)

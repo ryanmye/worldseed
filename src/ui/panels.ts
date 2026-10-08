@@ -1,6 +1,8 @@
 // Small panel helpers: remembered UI state (localStorage, every access guarded) and a
 // drag handle that sets the width of a side column.
 
+import { isCompact } from './compact.ts'
+
 export function loadPref(key: string): string | null {
   try {
     return window.localStorage.getItem(key)
@@ -94,8 +96,8 @@ interface AccordionPanel { root: HTMLElement; isOpen(): boolean; collapse(): voi
 const accordion = new Map<string, AccordionPanel>()
 let openOrder: string[] = (loadPref(OPEN_ORDER_KEY) ?? '').split(',').filter((n) => n.length > 0)
 
-/** Open panels allowed at once: two in a window under 1000 px tall, three in a taller one. */
-export const maxOpenPanels = () => (window.innerHeight >= 1000 ? 3 : 2)
+/** Open panels allowed at once: two in a window under 1000 px tall, three in a taller one; one in the phone layout (its sheet shows one, sheet.ts). */
+export const maxOpenPanels = () => (isCompact() ? 1 : window.innerHeight >= 1000 ? 3 : 2)
 
 const shownOpen = (n: string) => {
   const p = accordion.get(n)
