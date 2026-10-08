@@ -19,7 +19,8 @@ import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
-import { loadQuality, Quality, QUALITY_SETTINGS, saveQuality } from './render/quality.ts'
+import { cheaperQuality, loadQuality, Quality, QUALITY_SETTINGS, saveAutoQuality, saveQuality } from './render/quality.ts'
+import { detectDevice } from './render/device.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
 import { addShortcut } from './ui/shortcuts.ts'
@@ -125,7 +126,12 @@ const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerH
   camera.position.set(dist * Math.sin(az) * Math.cos(lat), dist * Math.sin(lat), dist * Math.cos(az) * Math.cos(lat))
 }
 
-let quality: Quality = loadQuality(params.get('quality'))
+/** Phone, weak device (render/device.ts): the default quality, the start page's turn. */
+const device = detectDevice()
+const qualityStart = loadQuality(params.get('quality'), device.defaultQuality)
+let quality: Quality = qualityStart.quality
+/** Nothing chosen (URL or settings): the first-frame probe may step the quality down once. */
+let qualityAuto = qualityStart.auto
 let qs = QUALITY_SETTINGS[quality]
 const bakeEnabled = params.get('bake') !== '0'
 /** Pixel-ratio ceiling for the current quality, and the ratio in use (adaptive, see the render loop). */
@@ -312,6 +318,7 @@ function showWorld(world: World) {
   planetGroup.add(currentRivers.lines)
   currentClouds = buildClouds(world.seed)
   currentClouds.mesh.renderOrder = cloudsOverFog ? 9.6 : 5
+  currentClouds.setPuffDetail(qs.cloudPuffDetail)
   planetGroup.add(currentClouds.mesh)
   if (bakeEnabled) {
     currentGlobe.setBakeSize(qs.bakeSize)
@@ -961,8 +968,14 @@ function applyQuality(q: Quality) {
   quality = q
   qs = QUALITY_SETTINGS[q]
   sunPanel.setQuality(q)
-  document.body.classList.toggle('q-low', q === Quality.Low)
+  // (q-low: opaque panels, no backdrop blur)
+  document.body.classList.toggle('q-low', !qs.panelBlur)
   atmosphere.setSteps(qs.atmosphereSteps)
+  // (the stars are in random order: the first n are an even thinning)
+  stars.geometry.setDrawRange(0, Math.round((stars.geometry.getAttribute('position').count) * qs.starFraction))
+  currentClouds?.setPuffDetail(qs.cloudPuffDetail)
+  while (motionTargets.length > qs.motionTargets) motionTargets.pop()?.dispose()
+  if (motionTargets[0] && motionTargets[0].samples !== qs.motionSamples) motionTargets.splice(0).forEach((t) => t.dispose())
   if (bakeEnabled) {
     currentGlobe?.setBakeSize(qs.bakeSize)
     currentClouds?.setBakeSize(qs.cloudBakeSize)
@@ -984,6 +997,7 @@ const sunPanel = createSunPanel(
       syncSun()
     },
     onQuality(q) {
+      qualityAuto = false
       saveQuality(q)
       if (params.has('quality')) setUrlParam('quality', q)
       applyQuality(q)
@@ -1113,12 +1127,12 @@ function motionTarget(): THREE.WebGLRenderTarget | null {
   const h = Math.max(1, Math.round(window.innerHeight * pixelRatio))
   let k = motionTargets.findIndex((t) => t.width === w && t.height === h)
   if (k < 0) {
-    const rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter })
+    const rt = new THREE.WebGLRenderTarget(w, h, { samples: qs.motionSamples, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter })
     rt.texture.colorSpace = THREE.SRGBColorSpace
     rt.texture.internalFormat = 'RGBA8'
     ;(rt as unknown as { isXRRenderTarget: boolean }).isXRRenderTarget = true
     motionTargets.unshift(rt)
-    while (motionTargets.length > 2) motionTargets.pop()?.dispose()
+    while (motionTargets.length > qs.motionTargets) motionTargets.pop()?.dispose()
     k = 0
   } else if (k > 0) motionTargets.unshift(motionTargets.splice(k, 1)[0])
   return motionTargets[0]
@@ -1147,6 +1161,35 @@ function copyToCanvas(rt: THREE.WebGLRenderTarget) {
   renderer.autoClear = auto
 }
 let wasBaking = false
+
+// First-frame probe: with no quality chosen, the first still frames of the app (the bakes done, off the
+// start page) are timed, CPU and GPU, by drawing a few back to back and waiting for each; a device that
+// cannot draw them at 30 fps gets one step cheaper (remembered for the next visit, apart from the user's
+// choice, so a still slow device steps down once more next time).
+const PROBE_FRAMES = 3
+const PROBE_SLOW_MS = 34
+let probe: { ms: number[]; median: number; from: Quality; to: Quality } | null = null
+function qualityProbe(ts: number) {
+  const gl = renderer.getContext()
+  const px = new Uint8Array(4)
+  const ms: number[] = []
+  // (one draw to finish what came before)
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+  for (let i = 0; i < PROBE_FRAMES; i++) {
+    const t = performance.now()
+    draw(ts)
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+    ms.push(performance.now() - t)
+  }
+  const median = ms.slice().sort((a, b) => a - b)[PROBE_FRAMES >> 1]
+  const from = quality
+  const to = median > PROBE_SLOW_MS ? cheaperQuality(quality, device.phone || device.touchOnly) : quality
+  probe = { ms: ms.map((m) => +m.toFixed(1)), median: +median.toFixed(1), from, to }
+  if (to !== from) {
+    saveAutoQuality(to)
+    applyQuality(to)
+  }
+}
 
 function wake() {
   if (pollId) {
@@ -1424,6 +1467,10 @@ function frameBody(ts: number) {
   const playing = historyView.isPlaying()
   const ambient = spinning || cloudsDriveFrames()
   if (spinning) spinTime += dt
+  if (spinning && device.touchOnly && (turnSeconds += dt) > TOUCH_TURN_SECONDS) {
+    spinning = false
+    landingTurnOver = true
+  }
   if (cloudsDrift()) cloudTime += dt
 
   // surface and cloud bakes: one strip of a cube face per frame until done (procedural shading meanwhile)
@@ -1452,6 +1499,7 @@ function frameBody(ts: number) {
       draw(ts)
     } else if (requested) carryRequest = true
   }
+  if (qualityAuto && !probe && !baking && !landing && currentWorld && !cityView.engaged && !interacting && pixelRatio >= pixelRatioCap() && (!bakeEnabled || (currentGlobe?.bakeInfo.ready ?? false))) qualityProbe(ts)
 
   // back to full resolution once the motion has ended: a moment without any (input often
   // comes in slower than frames are drawn, and a drag held still for a frame is not over)
@@ -1488,6 +1536,10 @@ function frameBody(ts: number) {
 let landingGeom = showLanding ? 0 : 1
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
+/** Touch devices: the slow turn (a frame every few dozen ms for as long as it lasts) stops after this many seconds of it (battery). */
+const TOUCH_TURN_SECONDS = 8
+let turnSeconds = 0
+let landingTurnOver = false
 const APP_DIST = 3.25
 let landing: Landing | null = null
 if (showLanding) {
@@ -1522,12 +1574,13 @@ if (showLanding) {
       startHistory(seed)
       landingIdle = false
       spinning = numParam('spin', 1) !== 0
+      turnSeconds = 0
       overlay.relayout()
     },
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible && !hearths.active
+      spinning = visible && !hearths.active && !landingTurnOver
       wake()
     },
     onPlant(on) {
@@ -1699,6 +1752,8 @@ if (params.get('perf') === '1') {
       return l ? { aim: l.cityAim(id, l.year), pending: l.pending, detail: currentGlobe?.detailPending } : null
     },
   }
+  // device class, quality and the first-frame probe
+  ;(window as unknown as { __worldseedDevice: unknown }).__worldseedDevice = () => ({ device, quality, qualityAuto, probe, pixelRatio, cap: pixelRatioCap(), stars: stars.geometry.drawRange.count })
   // motion resolution state
   ;(window as unknown as { __worldseedMotion: unknown }).__worldseedMotion = () => ({ pixelRatio, motionPr, motionAlt, motionWasOn, samples: [...motionSamples], gpu: gpuTimer.available, mode: motionResMode, lastMotionTs })
   /** Draw at this ratio even at rest (through the motion target below the cap); 0 lets go. */
