@@ -11,7 +11,8 @@ import { buildSunDisc } from './render/sunDisc.ts'
 import { buildCitySky } from './render/citySky.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
 import { goodsInUse } from './ui/tradePanel.ts'
-import { attachPointer } from './ui/pointer.ts'
+import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
+import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
 import { createHistoryView, MAX_YEARS } from './ui/historyView.ts'
@@ -19,7 +20,8 @@ import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
-import { loadQuality, Quality, QUALITY_SETTINGS, saveQuality } from './render/quality.ts'
+import { cheaperQuality, loadQuality, Quality, QUALITY_SETTINGS, saveAutoQuality, saveQuality } from './render/quality.ts'
+import { detectDevice } from './render/device.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
 import { addShortcut } from './ui/shortcuts.ts'
@@ -126,7 +128,12 @@ const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerH
   camera.position.set(dist * Math.sin(az) * Math.cos(lat), dist * Math.sin(lat), dist * Math.cos(az) * Math.cos(lat))
 }
 
-let quality: Quality = loadQuality(params.get('quality'))
+/** Phone, weak device (render/device.ts): the default quality, the start page's turn. */
+const device = detectDevice()
+const qualityStart = loadQuality(params.get('quality'), device.defaultQuality)
+let quality: Quality = qualityStart.quality
+/** Nothing chosen (URL or settings): the first-frame probe may step the quality down once. */
+let qualityAuto = qualityStart.auto
 let qs = QUALITY_SETTINGS[quality]
 const bakeEnabled = params.get('bake') !== '0'
 /** Pixel-ratio ceiling for the current quality, and the ratio in use (adaptive, see the render loop). */
@@ -150,6 +157,14 @@ controls.maxDistance = 8
 controls.rotateSpeed = 0.6
 controls.zoomSpeed = 0.8
 controls.enablePan = false // right-drag and shift-drag move the sun instead (pointer.ts)
+// touch: one finger turns the globe; two pinch to zoom and, dragged together, turn it too (no pan: the view orbits the centre)
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE }
+// no page scroll, pinch-zoom of the page or double-tap zoom over the canvas (and so no click delay); no long-press callout
+canvas.style.touchAction = 'none'
+canvas.style.userSelect = 'none'
+canvas.style.setProperty('-webkit-user-select', 'none')
+canvas.style.setProperty('-webkit-touch-callout', 'none')
+canvas.style.setProperty('-webkit-tap-highlight-color', 'transparent')
 /** Rendered ground radius under a world-space point (terrainHeight.ts), or 1 before the world arrives. */
 const groundTmp = new THREE.Vector3()
 let groundStart = 0
@@ -313,6 +328,7 @@ function showWorld(world: World) {
   planetGroup.add(currentRivers.lines)
   currentClouds = buildClouds(world.seed)
   currentClouds.mesh.renderOrder = cloudsOverFog ? 9.6 : 5
+  currentClouds.setPuffDetail(qs.cloudPuffDetail)
   planetGroup.add(currentClouds.mesh)
   if (bakeEnabled) {
     currentGlobe.setBakeSize(qs.bakeSize)
@@ -326,7 +342,24 @@ function showWorld(world: World) {
 }
 
 // ---------- planting the first hearths (ui/hearthPicker.ts): the start page's and the Nudge panel's ----------
-const hearths = createHearthPicker({ canvas, camera, planetGroup, getWorld: () => currentWorld, wake: () => wake() })
+// while hearths are being planted the sun follows the camera (the whole visible globe lit), then goes back to what it was
+let sunBeforePicking: SunMode | null = null
+function sunForPicking(on: boolean) {
+  if (on) {
+    sunBeforePicking = sunState.mode
+    // (daylight everywhere already lights it all)
+    if (sunState.mode === SunMode.Fixed) setSunMode(SunMode.Follow)
+  } else if (sunBeforePicking !== null) {
+    // (unless the sun was set by hand meanwhile)
+    if (sunState.mode === SunMode.Follow) setSunMode(sunBeforePicking)
+    sunBeforePicking = null
+  }
+  // (not syncSun: the picker's sun is not written to the address)
+  sunPanel.setSun(sunState.mode, sunState.lon, sunState.lat)
+  requestRender()
+  wake()
+}
+const hearths = createHearthPicker({ canvas, camera, planetGroup, getWorld: () => currentWorld, wake: () => wake(), onPickerActive: sunForPicking })
 
 // ---------- worker ----------
 // One request per seed; responses for superseded requests are dropped. Extensions (a longer
@@ -820,7 +853,9 @@ const pointerInput = attachPointer({
   getGlobe: () => currentGlobe,
   // (nothing is described in lands the known world shown does not include)
   setReadout: (r) => overlay.setReadout(r && r.cell !== undefined ? (historyView.isCellHidden(r.cell) ? null : { ...r, places: historyView.placesAt(r.cell) }) : r),
-  pickSettlement: (x, y) => historyView.pickAt(x, y),
+  pickSettlement: (x, y, slop) => historyView.pickAt(x, y, slop),
+  // (the city view's taps are its own: re-centring, naming a landmark)
+  tapsElsewhere: () => cityView.engaged,
   hoverSettlement: (id) => historyView.setHover(id),
   selectSettlement: (id) => historyView.select(id, false),
   selectFactionAt: (cell) => historyView.selectFactionAt(cell),
@@ -872,11 +907,14 @@ const cityView = createCityView({
 /** Fly into settlement id: from the map, by way of the globe. */
 function flyIntoCity(id: number): boolean {
   if (!showBuildings) return false
+  const fromMap = mapOn
   if (mapOn) setMapMode(false, false)
   const ok = cityView.flyIn(id)
   // (the card names the town: no selection ring and inspector over the view)
   if (ok) historyView.select(-1, false)
-  return ok
+  // from the map the 3D towns are not laid out yet: the flight starts once they are (as fly=<id>)
+  else if (fromMap) pendingFly = id
+  return ok || fromMap
 }
 setFlyInHandler((id) => {
   flyIntoCity(id)
@@ -887,21 +925,70 @@ let pendingFly = intParam('fly') ?? -1
 // (what was under the first press: that click selects the town and the opening inspector moves the view)
 let downPick = -1
 let downPickTs = 0
+/** The last press on the canvas was a finger (its taps: the double tap below; the browser's own dblclick is ignored). */
+let touchPress = false
 canvas.addEventListener('pointerdown', (e) => {
+  touchPress = e.pointerType === 'touch'
   if (cityView.engaged || e.button !== 0) return
   const rect = canvas.getBoundingClientRect()
   if (performance.now() - downPickTs > 600 || downPick < 0) {
-    downPick = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+    downPick = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, touchPress ? TOUCH_PICK_SLOP_PX : undefined)
     downPickTs = performance.now()
   }
 })
-canvas.addEventListener('dblclick', (e) => {
-  if (cityView.engaged) return
+function flyIntoPicked(e: MouseEvent, slop?: number) {
   const rect = canvas.getBoundingClientRect()
-  let id = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top)
+  let id = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, slop)
   if (id < 0 && performance.now() - downPickTs < 800) id = downPick
   downPick = -1
   if (id >= 0) flyIntoCity(id)
+}
+canvas.addEventListener('dblclick', (e) => {
+  if (cityView.engaged || touchPress) return
+  flyIntoPicked(e)
+})
+// double-tap a town (touch): fly in (after the taps' own clicks, pointer.ts, selected it)
+const doubleTap = createDoubleTap()
+/** The town the first tap of a pair landed on (-1: none). */
+let firstTapTown = -1
+let swallowClickUntil = 0
+// the first tap may open something over the town (the inspector): a second tap there still completes the double tap,
+// and that element gets neither the press nor its click
+window.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch' || e.target === canvas || cityView.engaged || firstTapTown < 0 || !doubleTap.pending(e.clientX, e.clientY)) return
+  e.preventDefault()
+  e.stopPropagation()
+  swallowClickUntil = performance.now() + 700
+  doubleTap.tap(e.clientX, e.clientY)
+  const id = firstTapTown
+  firstTapTown = -1
+  flyIntoCity(id)
+}, { capture: true })
+window.addEventListener('click', (e) => {
+  if (performance.now() > swallowClickUntil) return
+  swallowClickUntil = 0
+  e.preventDefault()
+  e.stopPropagation()
+}, { capture: true })
+canvas.addEventListener('click', (e) => {
+  if (!touchPress) return
+  if (cityView.state === CityState.Orbit) {
+    // (no hover on touch: a tap names the landmark under it, a tap elsewhere clears the name)
+    const rect = canvas.getBoundingClientRect()
+    const lm = cityView.landmarkAt(e.clientX - rect.left, e.clientY - rect.top)
+    const h = historyView.debug().history
+    const layer = activeDioramaLayer()
+    cityCard.hover(lm && h && layer ? landmarkNameAt(h, lm.lm, Math.floor(layer.year)) : null, e.clientX, e.clientY)
+    return
+  }
+  if (cityView.engaged) return
+  if (doubleTap.tap(e.clientX, e.clientY)) {
+    firstTapTown = -1
+    flyIntoPicked(e, TOUCH_PICK_SLOP_PX)
+  } else {
+    const rect = canvas.getBoundingClientRect()
+    firstTapTown = historyView.pickAt(e.clientX - rect.left, e.clientY - rect.top, TOUCH_PICK_SLOP_PX)
+  }
 })
 // hovering a landmark in the city view names it
 canvas.addEventListener('pointermove', (e) => {
@@ -912,7 +999,10 @@ canvas.addEventListener('pointermove', (e) => {
   const layer = activeDioramaLayer()
   cityCard.hover(lm && h && layer ? landmarkNameAt(h, lm.lm, Math.floor(layer.year)) : null, e.clientX, e.clientY)
 })
-canvas.addEventListener('pointerleave', () => cityCard.hover(null, 0, 0))
+canvas.addEventListener('pointerleave', (e) => {
+  // (a finger leaves at every lift: a tapped landmark's name stays)
+  if (e.pointerType !== 'touch') cityCard.hover(null, 0, 0)
+})
 {
   const inOrbit = () => cityView.state === CityState.Orbit
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'City view: back to the globe', group: 'View', first: true, run: () => {
@@ -962,8 +1052,14 @@ function applyQuality(q: Quality) {
   quality = q
   qs = QUALITY_SETTINGS[q]
   sunPanel.setQuality(q)
-  document.body.classList.toggle('q-low', q === Quality.Low)
+  // (q-low: opaque panels, no backdrop blur)
+  document.body.classList.toggle('q-low', !qs.panelBlur)
   atmosphere.setSteps(qs.atmosphereSteps)
+  // (the stars are in random order: the first n are an even thinning)
+  stars.geometry.setDrawRange(0, Math.round((stars.geometry.getAttribute('position').count) * qs.starFraction))
+  currentClouds?.setPuffDetail(qs.cloudPuffDetail)
+  while (motionTargets.length > qs.motionTargets) motionTargets.pop()?.dispose()
+  if (motionTargets[0] && motionTargets[0].samples !== qs.motionSamples) motionTargets.splice(0).forEach((t) => t.dispose())
   if (bakeEnabled) {
     currentGlobe?.setBakeSize(qs.bakeSize)
     currentClouds?.setBakeSize(qs.cloudBakeSize)
@@ -985,6 +1081,7 @@ const sunPanel = createSunPanel(
       syncSun()
     },
     onQuality(q) {
+      qualityAuto = false
       saveQuality(q)
       if (params.has('quality')) setUrlParam('quality', q)
       applyQuality(q)
@@ -1114,12 +1211,12 @@ function motionTarget(): THREE.WebGLRenderTarget | null {
   const h = Math.max(1, Math.round(window.innerHeight * pixelRatio))
   let k = motionTargets.findIndex((t) => t.width === w && t.height === h)
   if (k < 0) {
-    const rt = new THREE.WebGLRenderTarget(w, h, { samples: 4, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter })
+    const rt = new THREE.WebGLRenderTarget(w, h, { samples: qs.motionSamples, depthBuffer: true, generateMipmaps: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter })
     rt.texture.colorSpace = THREE.SRGBColorSpace
     rt.texture.internalFormat = 'RGBA8'
     ;(rt as unknown as { isXRRenderTarget: boolean }).isXRRenderTarget = true
     motionTargets.unshift(rt)
-    while (motionTargets.length > 2) motionTargets.pop()?.dispose()
+    while (motionTargets.length > qs.motionTargets) motionTargets.pop()?.dispose()
     k = 0
   } else if (k > 0) motionTargets.unshift(motionTargets.splice(k, 1)[0])
   return motionTargets[0]
@@ -1148,6 +1245,35 @@ function copyToCanvas(rt: THREE.WebGLRenderTarget) {
   renderer.autoClear = auto
 }
 let wasBaking = false
+
+// First-frame probe: with no quality chosen, the first still frames of the app (the bakes done, off the
+// start page) are timed, CPU and GPU, by drawing a few back to back and waiting for each; a device that
+// cannot draw them at 30 fps gets one step cheaper (remembered for the next visit, apart from the user's
+// choice, so a still slow device steps down once more next time).
+const PROBE_FRAMES = 3
+const PROBE_SLOW_MS = 34
+let probe: { ms: number[]; median: number; from: Quality; to: Quality } | null = null
+function qualityProbe(ts: number) {
+  const gl = renderer.getContext()
+  const px = new Uint8Array(4)
+  const ms: number[] = []
+  // (one draw to finish what came before)
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+  for (let i = 0; i < PROBE_FRAMES; i++) {
+    const t = performance.now()
+    draw(ts)
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+    ms.push(performance.now() - t)
+  }
+  const median = ms.slice().sort((a, b) => a - b)[PROBE_FRAMES >> 1]
+  const from = quality
+  const to = median > PROBE_SLOW_MS ? cheaperQuality(quality, device.phone || device.touchOnly) : quality
+  probe = { ms: ms.map((m) => +m.toFixed(1)), median: +median.toFixed(1), from, to }
+  if (to !== from) {
+    saveAutoQuality(to)
+    applyQuality(to)
+  }
+}
 
 function wake() {
   if (pollId) {
@@ -1376,7 +1502,7 @@ function frameBody(ts: number) {
   // (a panel's fly-to takes the camera from the city view)
   if (cityView.engaged && fly.active) cityView.abort()
   // fly=<id>: once there is a history and the models are in
-  if (pendingFly >= 0 && currentWorld && historyView.debug().history && activeDioramaLayer()?.active) {
+  if (pendingFly >= 0 && currentWorld && historyView.debug().history && activeDioramaLayer()?.active && !activeDioramaLayer()?.pending) {
     const id = pendingFly
     pendingFly = -1
     flyIntoCity(id)
@@ -1426,6 +1552,10 @@ function frameBody(ts: number) {
   const playing = historyView.isPlaying()
   const ambient = spinning || cloudsDriveFrames()
   if (spinning) spinTime += dt
+  if (spinning && device.touchOnly && (turnSeconds += dt) > TOUCH_TURN_SECONDS) {
+    spinning = false
+    landingTurnOver = true
+  }
   if (cloudsDrift()) cloudTime += dt
 
   // surface and cloud bakes: one strip of a cube face per frame until done (procedural shading meanwhile)
@@ -1454,6 +1584,7 @@ function frameBody(ts: number) {
       draw(ts)
     } else if (requested) carryRequest = true
   }
+  if (qualityAuto && !probe && !baking && !landing && currentWorld && !cityView.engaged && !interacting && pixelRatio >= pixelRatioCap() && (!bakeEnabled || (currentGlobe?.bakeInfo.ready ?? false))) qualityProbe(ts)
 
   // back to full resolution once the motion has ended: a moment without any (input often
   // comes in slower than frames are drawn, and a drag held still for a frame is not over)
@@ -1490,6 +1621,10 @@ function frameBody(ts: number) {
 let landingGeom = showLanding ? 0 : 1
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
+/** Touch devices: the slow turn (a frame every few dozen ms for as long as it lasts) stops after this many seconds of it (battery). */
+const TOUCH_TURN_SECONDS = 8
+let turnSeconds = 0
+let landingTurnOver = false
 const APP_DIST = 3.25
 
 /**
@@ -1553,12 +1688,13 @@ if (showLanding) {
       startHistory(seed)
       landingIdle = false
       spinning = numParam('spin', 1) !== 0
+      turnSeconds = 0
       overlay.relayout()
     },
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible && !hearths.active
+      spinning = visible && !hearths.active && !landingTurnOver
       wake()
     },
     onPlant(on) {
@@ -1732,6 +1868,8 @@ if (params.get('perf') === '1') {
       return l ? { aim: l.cityAim(id, l.year), pending: l.pending, detail: currentGlobe?.detailPending } : null
     },
   }
+  // device class, quality and the first-frame probe
+  ;(window as unknown as { __worldseedDevice: unknown }).__worldseedDevice = () => ({ device, quality, qualityAuto, probe, pixelRatio, cap: pixelRatioCap(), stars: stars.geometry.drawRange.count })
   // motion resolution state
   ;(window as unknown as { __worldseedMotion: unknown }).__worldseedMotion = () => ({ pixelRatio, motionPr, motionAlt, motionWasOn, samples: [...motionSamples], gpu: gpuTimer.available, mode: motionResMode, lastMotionTs })
   /** Draw at this ratio even at rest (through the motion target below the cap); 0 lets go. */

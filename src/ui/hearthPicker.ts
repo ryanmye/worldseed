@@ -33,6 +33,8 @@ export interface HearthPickerDeps {
   planetGroup: THREE.Group
   getWorld(): World | null
   wake(): void
+  /** The picker opened (true) or closed (false): main.ts lights the whole visible globe meanwhile. */
+  onPickerActive?(on: boolean): void
 }
 
 export interface HearthSession {
@@ -166,6 +168,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
     deps.wake()
   }
   function end() {
+    if (session) deps.onPickerActive?.(false)
     session = null
     bar.classList.add('hidden')
     deps.canvas.classList.remove('hearth-picking')
@@ -228,6 +231,7 @@ export function createHearthPicker(deps: HearthPickerDeps): HearthPicker {
       return session !== null
     },
     start(s: HearthSession) {
+      if (!session) deps.onPickerActive?.(true)
       session = { ...s, max: Math.max(1, Math.min(HEARTH_MAX, s.max)) }
       list = s.cells.filter((c) => c >= 0).slice(0, session.max)
       bar.classList.remove('hidden')

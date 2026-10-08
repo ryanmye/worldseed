@@ -12,6 +12,13 @@
 // greedy walk over the cell graph finds the nearest cell centre (cheap even at 100k+ cells).
 // On the flat map the ray meets the map's plane and the inverse projection gives the point
 // on the sphere (mapProjection.ts mapRayHit); the same walk follows.
+//
+// Touch (pointerType 'touch'; mouse and pen keep the paths above): there is no hover, so a
+// moving finger shows no readout and highlights nothing. A tap (press and release within
+// TOUCH_SLOP_PX, one finger) selects the town within TOUCH_PICK_SLOP_PX of it; a tap on empty
+// ground shows the readout of the place tapped, and the next tap hides it. A long press
+// (LONG_PRESS_MS without moving) shows the readout there too, and its release is no tap.
+// The pick modes (hearths, the Nudge panel) take a tap as their pick, as a click.
 
 import * as THREE from 'three'
 import type { World } from '../contract.ts'
@@ -26,9 +33,11 @@ export interface PointerDeps {
   getWorld(): World | null
   getGlobe(): GlobeMesh | null
   setReadout(r: Readout | null): void
-  /** Settlement under canvas CSS pixel (x, y), or -1. */
-  pickSettlement(x: number, y: number): number
+  /** Settlement under canvas CSS pixel (x, y), or -1; `slopPx`: how far beyond a marker still counts (default: the mouse's). */
+  pickSettlement(x: number, y: number, slopPx?: number): number
   hoverSettlement(id: number): void
+  /** Taps (touch) belong to another view just now (the city view): no selection, no readout. */
+  tapsElsewhere?(): boolean
   selectSettlement(id: number): void
   /**
    * A click hit no settlement marker and landed on cell `cell`: offer it as a faction
@@ -48,6 +57,11 @@ export interface PointerInput {
 }
 
 const CLICK_SLOP_PX = 5
+/** A finger moves a little while tapping: up to this far is still a tap. */
+export const TOUCH_SLOP_PX = 10
+/** How far beyond a marker a tap still picks it (a fingertip is ~10 mm across). */
+export const TOUCH_PICK_SLOP_PX = 20
+const LONG_PRESS_MS = 500
 
 function nearestCell(world: World, x: number, y: number, z: number, start: number): number {
   const { positions: P, neighborOffsets: off, neighbors: nb } = world.grid
@@ -81,7 +95,12 @@ export function attachPointer(deps: PointerDeps): PointerInput {
   /** Cell shown in the readout, -1 = hidden (avoids rewriting identical HTML). */
   let shownCell = -1
   let shownWorld: World | null = null
-  const press = { x: 0, y: 0, down: false, moved: false }
+  const press = { x: 0, y: 0, down: false, moved: false, touch: false, longPressed: false }
+  /** Fingers on the canvas (a second one makes the press a gesture, not a tap). */
+  const touches = new Set<number>()
+  let longTimer = 0
+  /** The readout shows for a tap or a long press (hidden by the next tap, not by the finger leaving). */
+  let touchReadout = false
   const sunDrag = { active: false }
   const move = { x: 0, y: 0, scheduled: false, pending: false }
   const worldSphere = new THREE.Sphere(new THREE.Vector3(), 1)
@@ -208,11 +227,40 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     deps.hoverSettlement(deps.pickSettlement(move.x - rect.left, move.y - rect.top))
   }
 
+  const cancelLongPress = () => {
+    if (longTimer) window.clearTimeout(longTimer)
+    longTimer = 0
+  }
   canvas.addEventListener('pointerdown', (e) => {
+    const touch = e.pointerType === 'touch'
+    if (touch) {
+      touches.add(e.pointerId)
+      if (touches.size > 1) {
+        // a pinch or a two-finger drag
+        press.moved = true
+        cancelLongPress()
+        return
+      }
+    }
     press.x = e.clientX
     press.y = e.clientY
     press.down = true
     press.moved = false
+    press.touch = touch
+    press.longPressed = false
+    if (touch) {
+      cancelLongPress()
+      const x = e.clientX, y = e.clientY
+      longTimer = window.setTimeout(() => {
+        longTimer = 0
+        if (!press.down || press.moved || touches.size !== 1) return
+        press.longPressed = true
+        hideReadout()
+        updateReadout(x, y)
+        touchReadout = shownCell >= 0
+      }, LONG_PRESS_MS)
+      return
+    }
     if (deps.dragSun && (e.shiftKey || e.button === 2)) {
       sunDrag.active = true
       canvas.setPointerCapture(e.pointerId)
@@ -220,6 +268,14 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     }
   })
   canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch') {
+      // (no hover on touch: a moving finger only turns or pans the view)
+      if (press.down && press.touch && Math.hypot(e.clientX - press.x, e.clientY - press.y) > TOUCH_SLOP_PX) {
+        press.moved = true
+        cancelLongPress()
+      }
+      return
+    }
     if (press.down && Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP_PX) press.moved = true
     if (sunDrag.active) {
       placeSun(e.clientX, e.clientY)
@@ -234,6 +290,12 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     }
   })
   const endPress = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      touches.delete(e.pointerId)
+      cancelLongPress()
+      // (the last finger of a gesture lifting is no tap either)
+      if (touches.size > 0) return
+    }
     press.down = false
     if (sunDrag.active) {
       sunDrag.active = false
@@ -242,7 +304,37 @@ export function attachPointer(deps: PointerDeps): PointerInput {
   }
   window.addEventListener('pointerup', endPress)
   window.addEventListener('pointercancel', endPress)
+  /** A tap (touch): see the header. */
+  function tap(e: MouseEvent) {
+    if (press.moved || press.longPressed) return
+    if (deps.tapsElsewhere?.()) {
+      touchReadout = false
+      hideReadout()
+      return
+    }
+    const hadReadout = touchReadout
+    touchReadout = false
+    hideReadout()
+    updateReadout(e.clientX, e.clientY)
+    const cell = shownCell
+    if (cell >= 0 && deps.pickCell?.(cell)) {
+      hideReadout()
+      return
+    }
+    const [x, y] = local(e)
+    const id = deps.pickSettlement(x, y, TOUCH_PICK_SLOP_PX)
+    deps.selectSettlement(id)
+    if (id < 0 && cell >= 0) deps.selectFactionAt?.(cell)
+    // on empty ground the readout stays up (unless this tap was the one closing it)
+    if (id >= 0 || hadReadout) hideReadout()
+    else touchReadout = shownCell >= 0
+  }
+  canvas.addEventListener('contextmenu', (e) => {
+    // (a long press: the readout, not the browser's menu)
+    if (press.touch) e.preventDefault()
+  })
   canvas.addEventListener('click', (e) => {
+    if (press.touch) return tap(e)
     updateReadout(e.clientX, e.clientY)
     if (press.moved) return
     if (shownCell >= 0 && deps.pickCell?.(shownCell)) return
@@ -252,7 +344,9 @@ export function attachPointer(deps: PointerDeps): PointerInput {
     // no marker under the click: offer the cell under it (if the ray hit one) as a faction pick
     if (id < 0 && shownCell >= 0) deps.selectFactionAt?.(shownCell)
   })
-  canvas.addEventListener('pointerleave', () => {
+  canvas.addEventListener('pointerleave', (e) => {
+    // (a finger leaves at every lift: the tap's readout stays)
+    if (e.pointerType === 'touch') return
     move.pending = false
     hideReadout()
     deps.hoverSettlement(-1)
@@ -263,6 +357,7 @@ export function attachPointer(deps: PointerDeps): PointerInput {
       hoverCell = 0
       shownCell = -1
       shownWorld = null
+      touchReadout = false
     },
   }
 }

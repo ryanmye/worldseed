@@ -9,8 +9,10 @@
 //
 // Format: the value as structured clone stores it, except that every typed array of 4 KB or
 // more is gzipped (CompressionStream; about 13x smaller: a 2000-year history is ~31 MB raw,
-// ~2.4 MB stored). Budget: the most recent MAX_ENTRIES entries within MAX_BYTES (stored size);
-// entries of other code versions are deleted.
+// ~2.4 MB stored). Budget: the most recent MAX_ENTRIES entries within MAX_BYTES (stored size),
+// or within a third of the origin's storage quota where that is smaller (a phone's, a private
+// window's); entries of other code versions are deleted. A write the quota refuses halves the
+// budget, makes room and is tried once more.
 //
 // Everything is best effort: no IndexedDB (private modes, blocked storage), quota errors or a
 // corrupt entry make a lookup miss and a write a no-op, so the app works the same without it.
@@ -257,13 +259,28 @@ export async function openHistoryCache(): Promise<HistoryCache | null> {
       db?.close()
       return null
     }
-    return makeCache(db, version)
+    return makeCache(db, version, await within(quotaBudget(), 1000, MAX_BYTES))
   } catch {
     return null
   }
 }
 
-function makeCache(db: IDBDatabase, version: string): HistoryCache {
+/** The byte budget: MAX_BYTES, or a third of the origin's quota where the browser tells it and it is smaller. */
+async function quotaBudget(): Promise<number> {
+  try {
+    const est = await navigator.storage?.estimate?.()
+    const quota = est?.quota ?? 0
+    return quota > 0 ? Math.min(MAX_BYTES, quota / 3) : MAX_BYTES
+  } catch {
+    return MAX_BYTES
+  }
+}
+
+const isQuotaError = (err: unknown) => err instanceof DOMException && (err.name === 'QuotaExceededError' || err.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+
+function makeCache(db: IDBDatabase, version: string, initialBudget: number): HistoryCache {
+  /** Stored bytes allowed (shrinks when the quota refuses a write). */
+  let budget = initialBudget
   /** Bump an entry's last use (best effort, not awaited by readers). */
   const touch = (key: string) => {
     try {
@@ -298,7 +315,7 @@ function makeCache(db: IDBDatabase, version: string): HistoryCache {
     let n = 0
     let bytes = 0
     for (const m of all) {
-      const keep = m.version === version && n < MAX_ENTRIES && bytes + m.bytes <= MAX_BYTES
+      const keep = m.version === version && n < MAX_ENTRIES && bytes + m.bytes <= budget
       if (keep) {
         n++
         bytes += m.bytes
@@ -335,11 +352,22 @@ function makeCache(db: IDBDatabase, version: string): HistoryCache {
     async put(key: string, group: string, years: number, value: unknown) {
       try {
         const { packed, bytes } = await pack(value)
-        if (bytes > MAX_BYTES) return false
-        const tx = db.transaction([META, DATA], 'readwrite')
-        tx.objectStore(DATA).put(packed, key)
-        tx.objectStore(META).put({ key, group, years, version, bytes, used: Date.now() } satisfies Meta)
-        await done(tx)
+        if (bytes > budget) return false
+        const write = async () => {
+          const tx = db.transaction([META, DATA], 'readwrite')
+          tx.objectStore(DATA).put(packed, key)
+          tx.objectStore(META).put({ key, group, years, version, bytes, used: Date.now() } satisfies Meta)
+          await done(tx)
+        }
+        try {
+          await write()
+        } catch (err) {
+          if (!isQuotaError(err)) throw err
+          // the quota is smaller than the budget assumed: halve it, make room, once more
+          budget = Math.max(bytes, budget / 2)
+          await evict()
+          await write()
+        }
         await evict()
         return true
       } catch (err) {

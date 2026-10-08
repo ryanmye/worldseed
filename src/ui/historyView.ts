@@ -143,8 +143,8 @@ export interface HistoryView {
   /** The first history of the world; `target`: the length asked for, when longer (it is then extended at once, see applyInitial). */
   setHistory(history: History, target?: number): void
   setHistoryError(message: string): void
-  /** Settlement under CSS pixel (x, y) relative to the canvas, or -1. */
-  pickAt(x: number, y: number): number
+  /** Settlement under CSS pixel (x, y) relative to the canvas, or -1 (`slopPx` beyond a marker still counts: 6, a finger more). */
+  pickAt(x: number, y: number, slopPx?: number): number
   select(id: number, fly: boolean): void
   /**
    * A click that hit no settlement landed on cell `cell`: if the Factions layer or view is
@@ -1326,12 +1326,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     debug() {
       return { history: index ? index.history : null, index, journeys }
     },
-    pickAt(x: number, y: number) {
+    pickAt(x: number, y: number, slopPx = 6) {
       if (!layer || !layer.mesh.visible) return -1
       const rect = deps.canvas.getBoundingClientRect()
-      let id = layer.pick(deps.camera, x, y, rect.width, rect.height, 6)
+      let id = layer.pick(deps.camera, x, y, rect.width, rect.height, slopPx)
       // expedition bases have their own flags
-      if (id < 0 && outposts) id = outposts.pick(deps.camera, x, y, rect.width, rect.height, 5)
+      if (id < 0 && outposts) id = outposts.pick(deps.camera, x, y, rect.width, rect.height, slopPx - 1)
       // up close a settlement's whole cluster of buildings is clickable too
       const hit = id >= 0 || !dioramas ? id : dioramas.pick(deps.camera, x, y, rect.width, rect.height)
       // nothing in the unknown is clickable while a known world is shown
