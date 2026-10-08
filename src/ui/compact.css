@@ -367,7 +367,7 @@ html.compact .inspector .insp-flyin {
   padding: 0 12px;
 }
 /* touch targets in the panels: 31 px at the sheet's zoom is 40 on screen */
-html.compact .side-column.right > .panel.sheet-active :is(.btn, .sg-btn, select, .gp-tab, .chr-filter select) {
+html.compact .side-column.right > .panel.sheet-active :is(button, select) {
   min-height: 31px;
 }
 
