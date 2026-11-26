@@ -4,8 +4,11 @@
 import * as THREE from 'three'
 
 export interface CameraFly {
-  /** Start flying so the camera ends up on `dirWorld` (normalised internally) at distance `dist`. */
-  flyTo(dirWorld: THREE.Vector3, dist: number): void
+  /**
+   * Start flying so the camera ends up on `dirWorld` (normalised internally) at distance `dist`, over `seconds` (default:
+   * the fly's own duration; 0 cuts there at once, for reduced motion).
+   */
+  flyTo(dirWorld: THREE.Vector3, dist: number, seconds?: number): void
   cancel(): void
   readonly active: boolean
   /** Advance; call once per frame before controls.update(). */
@@ -22,9 +25,11 @@ export function createCameraFly(camera: THREE.Camera, duration = 0.9): CameraFly
   let toDist = 1
   let t = 0
   let active = false
+  let length = duration
 
   return {
-    flyTo(dirWorld: THREE.Vector3, dist: number) {
+    flyTo(dirWorld: THREE.Vector3, dist: number, seconds = duration) {
+      length = Math.max(0, seconds)
       fromDist = camera.position.length()
       from.copy(camera.position).normalize()
       to.copy(dirWorld).normalize()
@@ -41,7 +46,7 @@ export function createCameraFly(camera: THREE.Camera, duration = 0.9): CameraFly
     },
     update(dt: number) {
       if (!active) return
-      t = Math.min(1, t + dt / duration)
+      t = length > 0 ? Math.min(1, t + dt / length) : 1
       const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
       partial.slerpQuaternions(identity, rot, e)
       camera.position.copy(from).applyQuaternion(partial).multiplyScalar(fromDist + (toDist - fromDist) * e)
