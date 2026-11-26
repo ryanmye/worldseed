@@ -136,6 +136,8 @@ import { RULERS } from './rulers/params.ts'
 import { createRulers } from './rulers/state.ts'
 import type { RulerDiag } from './rulers/state.ts'
 import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
+// battles: the battles of the wars, their commanders (battles/).
+import { emptyBattleHistory } from './battles/assemble.ts'
 // religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
 import { RELIGION } from './religion/params.ts'
 import { createReligionSystem, religionSnapshot, religionYear } from './religion/system.ts'
@@ -643,6 +645,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
+        ...emptyBattleHistory(), // battles:
         ...relHist, // religion:
         ...tourismHist, // tourism:
         renamings: renHist.renamings, // renaming:

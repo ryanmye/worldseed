@@ -234,6 +234,15 @@ export const EventType = {
   OrderFulfilled: 171, // order `value` came to pass at `settlement`; `other` a related settlement (an expedition's sender, a war's defender's capital...) or -1; `extra` the OrderOutcome.product
   OrderFailed: 172, // order `value` failed: `settlement` the actor's seat (or -1); `other` -1; `extra` the OrderReason
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
+  // battles (220-229; none when HistoryOptions.battles is false). `value` is the History.battles or History.commanders row.
+  BattleFought: 220, // battle `value` was fought for `settlement` (its target; Naval: the enemy's main port); `other` the settlement the attackers came from; `extra` kind | winner << 3 (0 the attackers won). Logged when menA + menD >= BATTLE.logMen, or a named commander fell, or the target fell, or it is the first battle of its war
+  SiegeLaid: 221, // a siege of `settlement` began (the first assault of a siege); `other` the besiegers' base; `value` the war id. (SiegeLifted 28 or Conquered 26 ends it)
+  CommanderFell: 222, // commander `value` was killed (extra 0) or taken (extra 1) in battle at `settlement` (the battle's target); `other` -1. Logged for named commanders with >= 2 battles
+  CommanderRenowned: 223, // commander `value` won the fame of a saga's hero (fame reached BATTLE.renown) with the battle for `settlement`; `other` the capital he served
+  GeneralSeized: 224, // general `value` overthrew the ruler of the polity ruled from `settlement` and took its throne; `other` the town he came from (his last base); `extra` the new reign (History.rulers)
+  GeneralRose: 225, // general `value` led a rising from `settlement` against the realm ruled from `other` (a CivilWar event follows); `extra` the war id
+  GeneralTurned: 226, // general `value` went over to the enemy ruled from `other` with the town he held, `settlement` (Defected follows); `extra` the war id
+  CommanderDismissed: 227, // commander `value` (a general) was relieved after a defeat at `settlement`; `other` the capital; logged for commanders with fame >= BATTLE.renown / 2 only
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
 } as const
@@ -546,6 +555,10 @@ export interface History {
   cradlePlaced?: Uint8Array
   /** Per people: 1 when another wished people began within sight of it (kept, but noted), else 0. */
   cradleCrowded?: Uint8Array
+
+  // battles: the battles of the wars and their commanders (all empty when HistoryOptions.battles or polities is false).
+  battles: Battles
+  commanders: Commanders
 }
 
 /**
@@ -1265,6 +1278,136 @@ export interface Wars {
   dead: Float32Array
 }
 
+// ---------------------------------------------------------------------------
+// battles: the battles of the wars (HistoryOptions.battles; all empty when it or polities is false).
+
+/** Kinds of battle (History.battles). */
+export const BattleKind = {
+  Field: 0, // two field armies met on the way to the town struck (`target`), at `site` on the approach
+  Siege: 1, // an assault on a walled town or a capital (`siegeYear` the year of the siege it was made in, 0 the first)
+  Relief: 2, // the besieged side's army struck the besiegers' base or lines (a counterstroke while the enemy besieged one of its towns)
+  Naval: 3, // fleets fought for the sea off the enemy's main port (before a blockade); men are ships
+  Ambush: 4, // a field battle the defenders opened by surprise from cover (wood, hills, a pass)
+  Landing: 5, // an army come over the sea fought at the shore where it landed
+} as const
+export type BattleKind = (typeof BattleKind)[keyof typeof BattleKind]
+
+/** Weather on the day of a battle. */
+export const BattleWeather = { Clear: 0, Rain: 1, Fog: 2, Snow: 3, Heat: 4 } as const
+export type BattleWeather = (typeof BattleWeather)[keyof typeof BattleWeather]
+
+/** What a battle's ground and course were (History.battles flags, bits). */
+export const BattleFlag = {
+  Ford: 1, // the attackers crossed a river at `site`
+  Pass: 2, // a narrow way between heights
+  Hill: 4, // high ground at `site` (held by the side that chose the ground: GroundByDefender)
+  Wood: 8, // in or beside a forest
+  Marsh: 16,
+  Coast: 32, // on the shore (a landing) or, for a naval battle, within sight of land
+  Surprise: 64, // one side was caught unready (SurpriseByDefender says which)
+  SurpriseByDefender: 128,
+  GroundByDefender: 256, // the defenders chose where to stand
+  Flank: 512, // the winners turned a flank (cavalry or a second line)
+  Pursuit: 1024, // the beaten side was cut down in flight (rout losses at least BATTLE.pursuitLog of its men)
+  Pyrrhic: 2048, // the winners lost at least BATTLE.pyrrhic of their men
+  Outnumbered: 4096, // the winners had fewer men
+  TargetFell: 8192, // `target` was taken as a result (Conquered follows)
+  RulerLed: 16384, // a ruler led one of the armies in person (cmdA or cmdD is a ruler: Commanders.reign >= 0)
+  Feint: 32768, // the better-informed side drew the other onto ground of its choosing (beliefs: intelEdge)
+} as const
+
+/**
+ * Battles, struct-of-arrays in the order they were fought (the battle id is the index). Every contest of a war-year is
+ * one battle: the attacker's strike on its best front, the defender's counterstroke. The battle's attacker is the side
+ * that struck (for a counterstroke the war's defender: `counter` 1). The armies' figures are men under arms; `lossA` and
+ * `lossD` are their casualties (killed, wounded, taken and scattered) from the Lanchester solution (`ratio`, `breakA`,
+ * `breakD`), while `dead` is the people the front towns lost, counted in Wars.dead (the chronicler's casualties are not
+ * the realm's dead).
+ */
+export interface Battles {
+  count: number
+  /** History.wars id, and the year. */
+  war: Int32Array
+  year: Int16Array
+  kind: Uint8Array
+  counter: Uint8Array
+  /** Cell where it was fought; the town struck (Siege: the besieged); where the attackers marched from. */
+  site: Int32Array
+  target: Int32Array
+  from: Int32Array
+  /** Polity ids of the battle's attacker and defender. */
+  attacker: Int16Array
+  defender: Int16Array
+  /** History.commanders ids, or -1 (no named commander: a levy, a garrison). */
+  cmdA: Int32Array
+  cmdD: Int32Array
+  menA: Float32Array
+  menD: Float32Array
+  lossA: Float32Array
+  lossD: Float32Array
+  dead: Float32Array
+  /** 0 the attacker won (the defenders broke), 1 the defender won. */
+  winner: Uint8Array
+  /** Hours from the first clash to the break (about 0.5 to 14). */
+  hours: Float32Array
+  weather: Uint8Array
+  flags: Uint16Array
+  /** Lanchester terms as fought: x' = alpha A0^2 / (beta D0^2) with the day's luck, and the break fractions (strength left when each side would break). */
+  ratio: Float32Array
+  breakA: Float32Array
+  breakD: Float32Array
+  siegeYear: Uint8Array
+  /** "the Battle of Vebena Ford", "the Siege of Kubeta", "the Second Battle of Ashtar Field" (names at the battle's year). */
+  name: string[]
+}
+
+/** How a commander's career ended (History.commanders). */
+export const CommanderFate = {
+  Serving: 0, // still in command (or in the realm's service) at the end of the run
+  Slain: 1, // killed in battle (`fateBattle`)
+  Taken: 2, // captured in battle and never heard of in command again
+  Dismissed: 3, // relieved after a defeat
+  Retired: 4, // old age, death in bed, or (a ruler) the end of his reign
+  Seized: 5, // overthrew the ruler and took the throne (History.rulers reign `reignAfter`)
+  Rose: 6, // led a rising against the realm (a civil war, Wars id in `fateWar`)
+  Turned: 7, // went over to the enemy with the town he held (grudges: a betrayal)
+  RealmEnded: 8,
+} as const
+export type CommanderFate = (typeof CommanderFate)[keyof typeof CommanderFate]
+
+/**
+ * Commanders of armies, struct-of-arrays in order of first command. A commander is the realm's ruler leading in person
+ * (`reign` >= 0, one row per reign that led) or a general appointed for a war (`reign` -1; `dynasty` >= 0 when a kinsman of
+ * the ruling house). `skill` (about 0.6..1.5, mean 1) multiplies his army's effectiveness (Lanchester alpha; recorded only
+ * while BATTLE.neutral); `fame` grows with victories (more for a decisive one, against odds, over a famous enemy, a capital
+ * taken) and fades slowly; a commander of BATTLE.renown fame is a saga subject (CommanderRenowned).
+ */
+export interface Commanders {
+  count: number
+  polity: Int16Array
+  people: Int16Array
+  reign: Int32Array
+  dynasty: Int32Array
+  born: Int16Array
+  female: Uint8Array
+  skill: Float32Array
+  firstYear: Int16Array
+  lastYear: Int16Array
+  battles: Uint16Array
+  wins: Uint16Array
+  /** Fame at its peak, the year of the peak. */
+  fame: Float32Array
+  fameYear: Int16Array
+  fate: Uint8Array
+  fateYear: Int16Array
+  /** Battle he fell or was taken in; war he rose in; reign he founded (-1 each when not so). */
+  fateBattle: Int32Array
+  fateWar: Int32Array
+  reignAfter: Int32Array
+  /** Personal name (a ruler's: his name as ruler); epithets are the UI's. */
+  name: string[]
+}
+
 /** Kinds of bond between two polities (History.bonds). */
 export const BondKind = {
   Vassal: 0, // `a` is the vassal of overlord `b`: it keeps its own government, pays part of its revenue, never fights `b`
@@ -1465,6 +1608,13 @@ export interface HistoryOptions {
    * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
    */
   cradles?: number[]
+  /**
+   * battles: every contest of a war is a recorded battle (History.battles) with its site, armies, commanders, weather and
+   * Lanchester resolution, and the commanders of the armies (History.commanders) (needs polities). Default false for now;
+   * with BATTLE.neutral (the default while the modifiers are untuned) the battles are recorded but change nothing: every other
+   * field is the same as with battles off (events aside, which gain 220-227).
+   */
+  battles?: boolean
 }
 
 /**
