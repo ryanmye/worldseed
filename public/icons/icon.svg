@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- worldseed placeholder icon: a small planet on the night sky; full-bleed so it also works as a maskable icon -->
+  <defs>
+    <radialGradient id="sea" cx="38%" cy="34%" r="70%">
+      <stop offset="0" stop-color="#3f8fd6"/>
+      <stop offset="0.6" stop-color="#1d4f8c"/>
+      <stop offset="1" stop-color="#0b2347"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0.78" stop-color="#7fc4ff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#7fc4ff" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="ball"><circle cx="256" cy="256" r="150"/></clipPath>
+  </defs>
+  <rect width="512" height="512" fill="#05070d"/>
+  <circle cx="96" cy="104" r="3" fill="#cfd8ff"/>
+  <circle cx="420" cy="80" r="2.5" fill="#cfd8ff"/>
+  <circle cx="440" cy="400" r="3" fill="#cfd8ff"/>
+  <circle cx="70" cy="420" r="2" fill="#cfd8ff"/>
+  <circle cx="256" cy="256" r="182" fill="url(#glow)"/>
+  <circle cx="256" cy="256" r="150" fill="url(#sea)"/>
+  <g clip-path="url(#ball)">
+    <path d="M150 190c30-40 90-52 120-30 20 15 8 40 30 52 26 14 18 48-10 56-30 9-40 40-72 34-40-8-36-46-62-62-22-14-22-30-6-50z" fill="#5f9e4f"/>
+    <path d="M300 300c26-14 62-8 78 14 14 20 0 44-24 52-26 9-58-4-66-26-5-16 0-32 12-40z" fill="#7aa85a"/>
+    <path d="M330 150c18-10 44-6 54 10 8 13-4 26-20 26-18 0-40-22-34-36z" fill="#c9b27a"/>
+    <circle cx="256" cy="256" r="150" fill="none" stroke="#000" stroke-opacity="0.25" stroke-width="40" transform="translate(30 26)"/>
+  </g>
+</svg>
