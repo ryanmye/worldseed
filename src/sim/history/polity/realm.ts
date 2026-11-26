@@ -8,7 +8,8 @@
 // a group of POLITY.minState people and at least two settlements becomes a new polity (its largest
 // member the capital, parent the old polity), the rest go stateless.
 
-import { EventType } from '../../../contract.ts'
+import { EventType, RivalryPart } from '../../../contract.ts'
+import { whyRelSet } from '../why.ts' // causes:
 import type { PolityOrigin } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
@@ -81,6 +82,7 @@ export function successors(s: HistoryState, ps: PolityState, ids: readonly numbe
       for (const id of group) { ps.asab[id] = clampAsab(ps.asab[id] + POLITY.foundAsab); ps.unrest[id] = 0 }
       if (parent >= 0 && ps.pEnded[parent] < 0) {
         const r = ensureRelation(ps, parent, q)
+        if (ps.why) whyRelSet(ps.why, r, RivalryPart.Secession, ps.relR[r], RELATION.secedeR) // causes:
         ps.relR[r] = RELATION.secedeR
         ps.relTruce[r] = s.year + RELATION.truceSecede
       }

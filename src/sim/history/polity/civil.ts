@@ -18,7 +18,8 @@
 // people at peace, the one kinRatio times larger brings the other back (chance kinChance) when its projection at the
 // other's capital beats alphaKin times its defence (Reunified; the other ends Reunified).
 
-import { EventType, PolityEnd, PolityOrigin, WarKind } from '../../../contract.ts'
+import { EventType, PolityEnd, PolityOrigin, RivalryPart, WarKind } from '../../../contract.ts'
+import { whyRelSet } from '../why.ts' // causes:
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import type { TradeState } from '../trade.ts'
@@ -100,6 +101,7 @@ export function civilWar(s: HistoryState, ps: PolityState, ts: TradeState, p: nu
   controlOne(s, ps, q, ps.heap)
   controlOne(s, ps, p, ps.heap)
   const rel = ensureRelation(ps, p, q)
+  if (ps.why) whyRelSet(ps.why, rel, RivalryPart.Secession, ps.relR[rel], RELATION.secedeR) // causes:
   ps.relR[rel] = RELATION.secedeR
   ps.relTruce[rel] = s.year
   declare(s, ps, rel, q, p, WarKind.CivilWar)
@@ -140,6 +142,7 @@ export function partition(s: HistoryState, ps: PolityState, p: number, members: 
     for (const j of g) ps.unrest[j] = 0
     controlOne(s, ps, q, ps.heap)
     const rel = ensureRelation(ps, p, q)
+    if (ps.why) whyRelSet(ps.why, rel, RivalryPart.Secession, ps.relR[rel], 0.3) // causes:
     ps.relR[rel] = 0.3
     ps.relTruce[rel] = s.year + WAR.truce
     logEvent(s, EventType.Seceded, seats[i], cap, q)

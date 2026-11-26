@@ -8,6 +8,7 @@ import type { Rng } from '../rng.ts'
 import { clamp } from '../util.ts'
 import { WEATHER } from './params.ts'
 import type { HistoryState } from './state.ts'
+import { whyWeather } from './why.ts' // causes:
 
 /** Approximately standard normal (Irwin-Hall with 4 uniforms); arithmetic only. */
 export function gauss(rng: Rng): number {
@@ -77,4 +78,5 @@ export function weatherSystem(s: HistoryState, w: Weather): void {
     if (w.droughtLeft[r] === 0 && roll < W.droughtChance) { w.drought[r] = sev; w.droughtLeft[r] = len }
     s.harvest[r] = clamp(1 + w.global + w.regional[r] - w.crisis - w.drought[r], W.harvestMin, W.harvestMax)
   }
+  if (s.why !== null) whyWeather(s.why, s.year, s.harvest, w.drought, w.crisis) // causes: the year's weather row
 }

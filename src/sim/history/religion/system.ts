@@ -20,7 +20,8 @@
 // faiths, most of all on the holder of its holy city), pilgrims' wealth at holy cities, and monasteries (technology links
 // between peoples of one universal faith). Draws only from 'history-religion'.
 
-import { EventType, FaithKind, JourneyKind, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../../contract.ts'
+import { EventType, FaithKind, JourneyKind, RivalryPart, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../../contract.ts'
+import { whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
@@ -757,6 +758,7 @@ function schism(s: HistoryState, rel: ReligionState, f: number, p: number): void
     const q = a === p ? b : a
     if (ps.pEnded[q] >= 0 || (rel.state[q] !== f && polityFaith(s, rel, q) !== f)) continue
     const x = ps.relR[r] + X.rivalry
+    if (ps.why) whyRelSet(ps.why, r, RivalryPart.Faith, ps.relR[r], x > 2 ? 2 : x) // causes:
     ps.relR[r] = x > 2 ? 2 : x
   }
   rel.diag.schisms++

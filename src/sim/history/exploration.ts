@@ -419,7 +419,7 @@ function upkeep(s: HistoryState, es: ExploreState): void {
       if (keep && check && es.routeCost[id] > O.reach * rangeOf(s, parent, es.bySea[id] === 1, prosperity(s, parent))) keep = false
     }
     if (keep) { list[w++] = id; continue }
-    abandon(s, id)
+    abandon(s, id, 1) // (causes: AbandonCause.Outpost)
     es.bases[parent]--
   }
   list.length = w

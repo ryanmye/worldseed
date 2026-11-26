@@ -83,7 +83,7 @@
 // (land.ts, structures.ts), and raised by wealth and trade (trade.ts: rich
 // hubs get more from their land and import food).
 
-import { GOOD_COUNT, TECH_FIELD_COUNT } from '../../contract.ts'
+import { GOOD_COUNT, TECH_FIELD_COUNT, emptyCauseRecords } from '../../contract.ts'
 import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { nameWorld } from '../names/featureNames.ts'
@@ -164,6 +164,21 @@ import type { LandmarksDiag } from './landmarks/state.ts'
 import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
 // orders: the player's nudges (orders/).
 import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
+// causes: why things happened, for the causal explorer (why.ts).
+import { assembleWhy, createWhy } from './why.ts'
+
+/**
+ * causes: where raw event i of the run lands in History.events once `a` and then `b` (each in year order) are woven in
+ * (weaveEvents puts a woven event after the run's events of its year): i plus the woven events of earlier years.
+ */
+function wovenIndex(raw: readonly HistoryEvent[], a: readonly HistoryEvent[], b: readonly HistoryEvent[]): (i: number) => number {
+  const before = (xs: readonly HistoryEvent[], y: number): number => {
+    let lo = 0, hi = xs.length
+    while (lo < hi) { const m = (lo + hi) >> 1; if (xs[m].year < y) lo = m + 1; else hi = m }
+    return lo
+  }
+  return (i) => (i < 0 || i >= raw.length ? -1 : i + before(a, raw[i].year) + before(b, raw[i].year))
+}
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -429,6 +444,10 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
   const ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
   s.orders = ox
+  // causes: the causal explorer's recorders (recording only: nothing reads them, they draw nothing), unless switched off.
+  const why = options?.causes ? createWhy(weather.region, weather.regionCount) : null
+  s.why = why
+  if (pol) pol.why = why
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -623,10 +642,13 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
+    const events = weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events) // (renaming: PlaceRenamed woven in; landmarks: theirs after it)
+    // causes: rows name the run's raw events; woven in, an event moves up by the renaming and landmark events of earlier years.
+    const whyHist = why ? assembleWhy(why, years, polHist.wars.count, wovenIndex(s.events, renHist.events, lmHist.events), events, N) : emptyCauseRecords()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
-        events: weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), journeys, // (renaming: PlaceRenamed woven in; landmarks: theirs after it)
+        events, journeys,
         structures: s.structures.map((x) => ({ ...x })), // (later years may still mark them lost)
         landInterval, landSnapshotCount,
         landUse: landUse.slice(0, landSnapshotCount * N), degradation: degradation.slice(0, landSnapshotCount * N), road: road.slice(0, landSnapshotCount * N),
@@ -649,6 +671,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
+        why: whyHist, // causes:
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
       terrain,
