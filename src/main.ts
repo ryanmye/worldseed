@@ -190,9 +190,11 @@ const reducedMotionQuery = typeof window.matchMedia === 'function' ? window.matc
 let reducedMotion = reducedMotionQuery?.matches ?? false
 /** spin=1 in the address: an endless turn (recordings). */
 const explicitSpin = params.get('spin') !== null && numParam('spin', 1) !== 0
+/** The turn may run at all: not with reduced motion (unless spin=1), never on a preset without it (Saver, ambientFps 0). */
+const turnAllowed = () => (explicitSpin || !reducedMotion) && qs.ambientFps > 0
 /** Whether the turn starts by itself (the start page, or the app after Start). */
-const turnByDefault = () => (explicitSpin || !reducedMotion) && (numParam('spin', 1) !== 0)
-let spinning = (explicitSpin || !reducedMotion) && (showLanding || numParam('spin', 1) !== 0)
+const turnByDefault = () => turnAllowed() && numParam('spin', 1) !== 0
+let spinning = turnAllowed() && (showLanding || numParam('spin', 1) !== 0)
 const SPIN_SPEED = 0.05 // rad/s
 /** Seconds the turn has lasted since it last started or saw input, and how long it may last. */
 let turnSeconds = 0
@@ -1086,6 +1088,8 @@ function applyQuality(q: Quality) {
     currentGlobe?.setBakeSize(qs.bakeSize)
     currentClouds?.setBakeSize(qs.cloudBakeSize)
   }
+  // (a preset without the idle turn stops it; Saver)
+  if (qs.ambientFps <= 0) spinning = false
   pixelRatio = pixelRatioCap()
   sizeDirty = true
   requestRender()
@@ -1370,7 +1374,7 @@ function turnInput(restart: boolean) {
   spinFactor = 1
   if (!restart || !turnTimedOut) return
   turnTimedOut = false
-  if (landingIdle || hearths.active || cityView.engaged || (!explicitSpin && reducedMotion)) return
+  if (landingIdle || hearths.active || cityView.engaged || !turnAllowed()) return
   // (on the map, only the night's sweep turns it)
   if (mapOn ? !showMapNight : morph > 0) return
   landingTurnOver = false
@@ -1383,7 +1387,7 @@ window.addEventListener('pointermove', () => {
 for (const type of ['pointerdown', 'wheel', 'keydown'] as const) window.addEventListener(type, () => turnInput(true), { capture: true, passive: true })
 reducedMotionQuery?.addEventListener('change', (e) => {
   reducedMotion = e.matches
-  if (reducedMotion && !explicitSpin) spinning = false
+  if (!turnAllowed()) spinning = false
   requestRender()
   wake()
 })
@@ -1762,7 +1766,7 @@ if (showLanding) {
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible && !hearths.active && !landingTurnOver && (explicitSpin || !reducedMotion)
+      spinning = visible && !hearths.active && !landingTurnOver && turnAllowed()
       wake()
     },
     onPlant(on) {

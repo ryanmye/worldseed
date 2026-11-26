@@ -1,5 +1,5 @@
 // Render quality presets: pixel-ratio cap, surface bake resolution, frame-rate caps and
-// whether clouds drift. Chosen from the URL (`quality=high|balanced|phone|low`), else from
+// whether clouds drift. Chosen from the URL (`quality=high|balanced|phone|low|saver`), else from
 // localStorage (the user's choice in the settings popover), else the device's default
 // (render/device.ts: Phone on a phone, Low on a weak one, Balanced elsewhere; a slow first
 // frame steps it down once, remembered apart from the user's choice).
@@ -10,10 +10,12 @@ export const Quality = {
   /** Phones: Balanced's interaction rate, slower playback, a smaller bake, no town shadow maps, one motion target. */
   Phone: 'phone',
   Low: 'low',
+  /** Battery saver, opt-in only (the S panel, quality=saver, or the app shell's power mode): fewer frames, 1x pixels, still clouds, no idle turn. */
+  Saver: 'saver',
 } as const
 export type Quality = (typeof Quality)[keyof typeof Quality]
 
-export const QUALITIES: Quality[] = [Quality.High, Quality.Balanced, Quality.Phone, Quality.Low]
+export const QUALITIES: Quality[] = [Quality.High, Quality.Balanced, Quality.Phone, Quality.Low, Quality.Saver]
 
 export interface QualitySettings {
   /** Upper bound on the renderer pixel ratio (also bounded by devicePixelRatio). */
@@ -38,7 +40,7 @@ export interface QualitySettings {
    * draw, the 100 s intro and every later play).
    */
   playFps: number
-  /** Frame-rate cap when only the auto-rotation or cloud drift moves. */
+  /** Frame-rate cap when only the auto-rotation or cloud drift moves (0: no auto-rotation at all). */
   ambientFps: number
   /** Ray-march steps of the atmosphere. */
   atmosphereSteps: number
@@ -61,12 +63,15 @@ export const QUALITY_SETTINGS: Record<Quality, QualitySettings> = {
   // (1.5x on a 3x phone: a third of the pixels of 3x and still sharp at arm's length)
   phone: { pixelRatioCap: 1.5, pixelRatioMin: 0.5, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'ride', interactFps: 60, playFps: 24, ambientFps: 20, atmosphereSteps: 8, townShadows: false, starFraction: 0.5, cloudPuffDetail: false, panelBlur: false, motionTargets: 1, motionSamples: 2 },
   low: { pixelRatioCap: 1, pixelRatioMin: 0.6, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 45, playFps: 15, ambientFps: 15, atmosphereSteps: 8, townShadows: false, starFraction: 1, cloudPuffDetail: true, panelBlur: false, motionTargets: 2, motionSamples: 4 },
+  // (design defaults, to tune on devices: about half the pixels of 1.5x, half the playback frames of Balanced, no MSAA in motion)
+  saver: { pixelRatioCap: 1, pixelRatioMin: 0.5, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 30, playFps: 15, ambientFps: 0, atmosphereSteps: 6, townShadows: false, starFraction: 0.5, cloudPuffDetail: false, panelBlur: false, motionTargets: 1, motionSamples: 0 },
 }
 
-/** One step cheaper (the slow-first-frame probe's fallback); Low stays Low. */
+/** One step cheaper (the slow-first-frame probe's fallback); Low stays Low, Saver stays Saver (never picked automatically). */
 export function cheaperQuality(q: Quality, phone: boolean): Quality {
   if (q === Quality.High) return Quality.Balanced
   if (q === Quality.Balanced) return phone ? Quality.Phone : Quality.Low
+  if (q === Quality.Saver) return Quality.Saver
   return Quality.Low
 }
 
@@ -75,7 +80,7 @@ const STORAGE_KEY = 'worldseed.quality'
 const AUTO_KEY = 'worldseed.quality.auto'
 
 export function isQuality(s: string | null): s is Quality {
-  return s === Quality.High || s === Quality.Balanced || s === Quality.Phone || s === Quality.Low
+  return s === Quality.High || s === Quality.Balanced || s === Quality.Phone || s === Quality.Low || s === Quality.Saver
 }
 
 function read(key: string): string | null {

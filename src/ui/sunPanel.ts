@@ -24,12 +24,13 @@ const MODE_LABELS: [SunMode, string, string][] = [
   [SunMode.Follow, 'Follow', 'The sun follows the camera: whatever you look at is lit'],
   [SunMode.Full, 'Daylight', 'Daylight everywhere: no night side (city lights hidden)'],
 ]
-const QUALITY_LABELS: Record<Quality, string> = { high: 'High', balanced: 'Balanced', phone: 'Phone', low: 'Low' }
+const QUALITY_LABELS: Record<Quality, string> = { high: 'High', balanced: 'Balanced', phone: 'Phone', low: 'Low', saver: 'Saver' }
 const QUALITY_TITLES: Record<Quality, string> = {
   high: 'Sharpest: full pixel ratio, largest surface bake, display frame rate',
   balanced: 'Same look for much less work: capped pixel ratio and frame rates',
   phone: 'For phones: 1.5x pixel ratio, smaller surface bake, soft town shadows only, opaque panels',
   low: 'Least work: 1x pixel ratio, static clouds, low frame rates',
+  saver: 'Battery saver: fewer frames, lower resolution, still clouds, no idle turn',
 }
 
 export function createSunPanel(callbacks: SunPanelCallbacks, initial: { mode: SunMode; lon: number; lat: number; quality: Quality }): SunPanel {
