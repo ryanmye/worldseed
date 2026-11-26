@@ -12,8 +12,9 @@ jobs=${2:-2}; boot=${3:-0}
 shift $(( $# < 3 ? $# : 3 ))
 seeds=("$@")
 [ ${#seeds[@]} -gt 0 ] || seeds=(1 7 42 1234 2 3 4 5 6 8 9 10 11 12 13 77 99 1337 2024 31337 99999 123456)
-opts=${OPTS:-'{}'}
+export OPTS=${OPTS:-'{}'} BOOT=$boot
 : > "$out"
+# OPTS goes through the environment: xargs -I would also substitute the {} inside a JSON argument.
 printf '%s\n' "${seeds[@]}" | xargs -P "$jobs" -I{} \
-  node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts {} --boot "$boot" --opts "$opts" --json >> "$out"
+  sh -c 'node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts {} --boot "$BOOT" --opts "$OPTS" --json' >> "$out"
 node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts --from "$out"
