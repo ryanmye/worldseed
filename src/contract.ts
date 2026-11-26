@@ -236,6 +236,11 @@ export const EventType = {
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
+  // language: the languages of the world (250-259; none when HistoryOptions.language is off).
+  LanguageSplit: 250, // a language parted from its parent: `settlement` the daughter's seat (its first town), `other` the parent's seat; `value` the language id (History.languages); `extra` the LanguageSplitCause
+  LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
+  LoanWave: 252, // the language spoken at `settlement` (its largest town then) took many words from another (at least LANG.waveLoans of its visible words in LANG.waveYears): `other` the donor's seat (its largest town then); `value` the recipient language id; `extra` the donor language id
+  LanguageDied: 253, // the last town that spoke language `value` (`settlement`) gave it up or was abandoned; `other` -1; `extra` the language that replaced it there, or -1
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -532,6 +537,13 @@ export interface History {
   // landmarks: great buildings (castles, palaces, temples, ...) and the lesser houses of worship, raised as a consequence of history
   // (empty when HistoryOptions.landmarks is false). Never removed: a landmark outlives its town's fortunes in its states.
   landmarks: Landmarks
+  // language: languages that split and drift (absent when HistoryOptions.language is off: older histories and links without lang=1).
+  /** The language tree (Languages). */
+  languages?: Languages
+  /** What each settlement speaks over time (Speech). */
+  speech?: Speech
+  /** Names as underlying forms, and exonyms (NameForms); the name said at a year is spokenNameAt (names/spoken.ts). */
+  nameForms?: NameForms
   // orders: (absent when HistoryOptions.orders is undefined or empty).
   /** The orders as given (HistoryOptions.orders, a copy, in the given order). */
   orders?: Order[]
@@ -588,6 +600,106 @@ export function canonicalCradles(cells: readonly number[]): number[] {
 
 // ---------------------------------------------------------------------------
 // renaming: places renamed as a consequence of history.
+
+/** language: why a language parted from its parent (Languages.cause). */
+export const LanguageSplitCause = { Proto: 0, Overseas: 1, Distance: 2 } as const
+export type LanguageSplitCause = (typeof LanguageSplitCause)[keyof typeof LanguageSplitCause]
+
+/**
+ * language: the kinds of regular sound change (SOUND_CHANGES in names/soundChange.ts is the catalogue; Languages.ruleKind
+ * indexes it). Each is a rewrite on phoneme units with a context; a word whose result would not be euphonic keeps its form.
+ */
+export const SoundChangeKind = {
+  Lenition: 0, // a stop or fricative softens between vowels (t > d, k > g, p > b)
+  Palatalisation: 1, // a consonant before i or e becomes palatal (k > ch, s > sh, g > y)
+  VowelShift: 2, // a vowel moves everywhere (a > o, e > i), sometimes as a chain
+  Raising: 3, // a vowel rises before a nasal that closes its syllable (a > o, e > i)
+  Umlaut: 4, // a back vowel fronts when i follows in the next syllable (a > e, o > e, u > i)
+  Syncope: 5, // the vowel of the second (or the next-to-last) syllable falls between consonants in a word of 3+ syllables
+  Apocope: 6, // a final vowel falls in a word of 3+ syllables
+  FinalLoss: 7, // a final consonant falls after a vowel (or a final nasal after an unstressed vowel, the vowel opening to a)
+  ClusterSimplify: 8, // the first of two consonants assimilates to the second (kt > t, nd > n)
+  Monophthong: 9, // a diphthong becomes one vowel (ai > e, au > o)
+  HLoss: 10, // h falls (initially, between vowels)
+  Depalatalise: 11, // a palatal turns back (sh > s, ch > t, y > l)
+  Fortition: 12, // a word-initial w, y or v hardens (w > v, y > g before back vowels, v > b)
+  Prothesis: 13, // a vowel is put before an initial s-cluster (sp > esp)
+} as const
+export type SoundChangeKind = (typeof SoundChangeKind)[keyof typeof SoundChangeKind]
+
+/**
+ * language: the language tree (absent when HistoryOptions.language is off). Row i is language i, in order of appearance (a
+ * parent before its daughters; a people's proto-language when its first town is founded). A language is not a people: a people
+ * speaks one or more languages over time, and a town may shift to another people's (History.speech).
+ */
+export interface Languages {
+  count: number
+  /** Language it parted from, or -1 for a people's proto-language. */
+  parent: Int16Array
+  /** People whose tongue it is by descent (the proto-language's people), index into History.peoples. */
+  people: Int16Array
+  /** Year it parted from its parent (the founding year of its people's first town for a proto-language). */
+  splitYear: Int16Array
+  cause: Uint8Array
+  /** First settlement that spoke it (the daughter's seat; the founder for a proto-language). */
+  seat: Int32Array
+  /** Its name as its speakers say it at the end of the run ("Vashtari", "Kepian"). */
+  name: string[]
+  /** Relative pace of change (1 typical; drawn once, LANG.rateSpread). */
+  rate: Float32Array
+  /** Sound changes of language i: rows ruleStart[i] .. ruleStart[i + 1] - 1 of the rule columns, in date order (length count + 1). */
+  ruleStart: Int32Array
+  /** Rule columns: the year it took hold, its SoundChangeKind and its catalogue variant (SOUND_CHANGES[kind][variant]). */
+  ruleYear: Int16Array
+  ruleKind: Uint8Array
+  ruleVariant: Uint8Array
+  /**
+   * Core vocabulary (LANG.core meanings; 0 .. LANG.visible - 1 the words names are made of): the rows of each language by
+   * meaning, lexStart[i * core + m] .. lexStart[i * core + m + 1] - 1 of the lex columns (length count * core + 1): the year a
+   * word took the meaning (the proto-language's inherited words at its start), the donor language (-1 a native word) and the
+   * word's form (a native word's underlying form; a loan's form as borrowed).
+   */
+  lexStart: Int32Array
+  lexYear: Int16Array
+  lexDonor: Int16Array
+  lexForm: string[]
+}
+
+/**
+ * language: what each settlement speaks over time (absent when off). Each settlement has a founding row; a row is added when
+ * its region parts as a daughter language (LanguageSplit) or it shifts (LanguageShift). Rows by settlement, years ascending:
+ * rows start[id] .. start[id + 1] - 1 (start has length settlements + 1).
+ */
+export interface Speech {
+  start: Int32Array
+  year: Int16Array
+  language: Int16Array
+}
+
+/**
+ * language: names as underlying forms (absent when off). A settlement's founding name, and each renaming's name, was coined as
+ * an underlying form in a language; the name said in a year is that form through the sound changes of the speakers' line up to
+ * the year (spokenNameAt). Settlement.name stays the name as said at the founding, and Renamings.name the name as said at the
+ * renaming.
+ */
+export interface NameForms {
+  /** Underlying form (lower case) and coining language of each settlement's founding name. */
+  form: string[]
+  language: Int16Array
+  /** Per renaming row (History.renamings), its underlying form and coining language (a restored name: its earlier row's). */
+  renamingForm: string[]
+  renamingLanguage: Int16Array
+  /**
+   * Exonyms: what another people calls a town, borrowed once (`year`) from the name said then, into language `language` (the
+   * form as borrowed, worn on from then by that language's changes). Towns that reached TOWN_POPULATION, for each people in
+   * contact with the town's. Sorted by (settlement, people).
+   */
+  exoSettlement: Int32Array
+  exoPeople: Int16Array
+  exoYear: Int16Array
+  exoLanguage: Int16Array
+  exoForm: string[]
+}
 
 /** Why a settlement was renamed (History.renamings.cause, the `extra` of EventType.PlaceRenamed). */
 export const RenameCause = {
@@ -1465,6 +1577,14 @@ export interface HistoryOptions {
    * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
    */
   cradles?: number[]
+  /**
+   * language: languages that split with their speakers (overseas settlers, distant regions) and change by regular sound change,
+   * lexical replacement and contact (loans, language shift), with exonyms (History.languages, speech, nameForms); names are said
+   * as in the year shown. Default false (MASTER-PLAN R32: on only for new worlds, which write lang=1; a link without the flag keeps
+   * the names it always had). A pure consequence layer at assembly: on or off, every non-name field is the same (events aside,
+   * which gain 250-253); off, the history is exactly the one without it.
+   */
+  language?: boolean
 }
 
 /**
