@@ -42,6 +42,8 @@ import { sunUniforms } from './sun.ts'
 import { networkRouteSamples, routeNetwork, segmentWater, smoothPaths, type PathSamples } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { MARKER_SLOT_GLSL } from './markerSlots.ts'
+import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import { INDUSTRY_LIST, ownerRgb, type GoodsData } from '../ui/goodsData.ts'
 
 const LIFT = 0.0033
@@ -613,6 +615,8 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   let quads = 0
   for (let i = 0; i < count; i++) quads += Math.max(0, smp.offsets[i + 1] - smp.offsets[i] - 1)
   const lineGeom = new THREE.BufferGeometry()
+  /** Each item's first index (legs, then trails), and the end. */
+  const itemIdx = new Uint32Array(count + 1)
   {
     const V = nS * 2
     const vPos = new Float32Array(V * 3), vSide = new Float32Array(V * 4), vInfo = new Float32Array(V * 4), vYears = new Float32Array(V * 2)
@@ -644,6 +648,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     const idx = new Uint32Array(quads * 6)
     let q = 0
     for (let i = 0; i < count; i++) {
+      itemIdx[i] = q
       for (let s = smp.offsets[i]; s + 1 < smp.offsets[i + 1]; s++) {
         const b = s * 2
         idx[q++] = b; idx[q++] = b + 2; idx[q++] = b + 1
@@ -655,6 +660,18 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     lineGeom.setAttribute('aInfo', new THREE.BufferAttribute(vInfo, 4))
     lineGeom.setAttribute('aYears', new THREE.BufferAttribute(vYears, 2))
     lineGeom.setIndex(new THREE.BufferAttribute(idx, 1))
+    itemIdx[count] = q
+  }
+  // (drawn as the live items' index runs, liveRanges.ts: the whole buffer until the first year is set)
+  lineGeom.addGroup(0, itemIdx[count], 0)
+  const lineLive = createLiveRuns(itemIdx, count)
+  /** Opened / closed year per item (a trail: set out, came home), as in aYears. */
+  const itemY0 = new Float32Array(count), itemY1 = new Float32Array(count)
+  for (let i = 0; i < count; i++) {
+    const leg = i < L ? i : trails[i - L]
+    const j = i < L ? -1 : gd.legJourney[leg]
+    itemY0[i] = i < L ? LH!.openedYear[leg] : J!.departYear[j]
+    itemY1[i] = i < L ? LH!.closedYear[leg] : J!.arriveYear[j]
   }
   // the busiest lane's volume at any snapshot of the first 2000 years (as goodsData's legVolumeMax)
   let laneVolumeMax = 1
@@ -695,12 +712,14 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     blendDst: THREE.OneMinusSrcAlphaFactor,
   } as const
   const lineMat = new THREE.ShaderMaterial({ uniforms: lu, vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, ...blend, side: THREE.DoubleSide })
-  const lines = new THREE.Mesh(lineGeom, lineMat)
+  const lines = new THREE.Mesh(lineGeom, [lineMat])
   lines.frustumCulled = false
   lines.renderOrder = 6.56 // over the trade lines and the outlaw overlays, under the selected routes
   lines.name = 'long-haul legs'
   lines.visible = count > 0
   object.add(lines)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(lines, [lineGeom])
 
   // ---------- static marks ----------
   // radius of a settlement marker (CSS px before zoom scaling) at snapshot s, as render/settlements.ts
@@ -902,6 +921,8 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   let hlRgb: (readonly [number, number, number])[] = []
   let hlCells: number[] = []
   let hlDirty = true
+  /** The whole year the live items were last found for (NaN: not yet; all drawn). */
+  let liveYear = NaN
   const knownOf = (cell: number) => (knownMask && cell >= 0 ? (knownMask[cell] ?? NEVER) : 0)
   const tmpQ = new THREE.Quaternion()
   const camObj = new THREE.Vector3()
@@ -921,6 +942,28 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     }
     for (const k of hlLegs) if (k >= 0 && k < L) legData[k * 4 + 2] = 1
     legTex.needsUpdate = true
+    refreshLive()
+  }
+
+  /**
+   * The items the line shader can show at any time in [liveYear, liveYear + 1) at these
+   * snapshots (its own tests, conservatively): a leg opened and not yet closed (a relay also
+   * carrying something or selected), a trail set out and home under 40 years or selected.
+   */
+  function refreshLive() {
+    if (Number.isNaN(liveYear)) return
+    const Y = liveYear
+    const live = lineLive.live
+    for (let i = 0; i < count; i++) {
+      const y0 = itemY0[i], y1 = itemY1[i]
+      let on = y0 < Y + 1
+      if (on && i < L) {
+        on = y1 < 0 || y1 > Y
+        if (on && LH!.kind[i] !== LegKind.Lane) on = legData[i * 4] > 0 || legData[i * 4 + 1] > 0 || legData[i * 4 + 2] > 0.5
+      } else if (on) on = y1 + 40 > Y || legData[trails[i - L] * 4 + 2] > 0.5
+      live[i] = on ? 1 : 0
+    }
+    lineLive.update(lineGeom)
   }
 
   function writeValues(t0: number, t1: number) {
@@ -1058,7 +1101,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   }
 
   function syncVisibility() {
-    lines.visible = count > 0 && (shown.lanes || hlLegs.length > 0)
+    lines.visible = count > 0 && lineLive.drawn > 0 && (shown.lanes || hlLegs.length > 0)
     lu.uRelay.value = shown.lanes ? 1 : 0
     lu.uLanes.value = shown.lanes || hlLegs.length > 0 ? 1 : 0
     mu.uMarks.value = shown.marks ? 1 : 0
@@ -1126,6 +1169,11 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
         writeLegs(t0, t1)
         writeValues(t0, t1)
         shownShipYear = NaN
+      }
+      const yi = Math.floor(y)
+      if (yi !== liveYear) {
+        liveYear = yi
+        refreshLive()
       }
       if (s0 !== shownS0 || s1 !== shownS1) {
         shownS0 = s0

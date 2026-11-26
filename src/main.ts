@@ -22,6 +22,8 @@ import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
 import { cheaperQuality, loadQuality, Quality, QUALITY_SETTINGS, saveAutoQuality, saveQuality } from './render/quality.ts'
 import { detectDevice } from './render/device.ts'
+import { turnLimit, turnSpeedFactor } from './render/idleTurn.ts'
+import { hideStale, markFreedStale } from './render/freeAfterUpload.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
 import { addShortcut } from './ui/shortcuts.ts'
@@ -181,9 +183,27 @@ function groundUnder(x: number, y: number, z: number): number {
 // (never on the flat map, which is seen from straight above)
 if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings && !mapOn && flat.t === 0, groundUnder) // leans the view toward the horizon up close
 
-// The planet turns beneath a sun fixed in world space; the first drag stops it.
-let spinning = showLanding || numParam('spin', 1) !== 0
+// The planet turns beneath a sun fixed in world space; the first drag stops it, and so does
+// time (render/idleTurn.ts: after a while of turning with nobody touching anything, on every
+// device; spin=1 in the address keeps it turning). Input brings back a turn that time stopped.
+// The OS's reduced-motion setting: no turn (unless spin=1 asks for it) and no cloud drift.
+const reducedMotionQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+let reducedMotion = reducedMotionQuery?.matches ?? false
+/** spin=1 in the address: an endless turn (recordings). */
+const explicitSpin = params.get('spin') !== null && numParam('spin', 1) !== 0
+/** The turn may run at all: not with reduced motion (unless spin=1), never on a preset without it (Saver, ambientFps 0). */
+const turnAllowed = () => (explicitSpin || !reducedMotion) && qs.ambientFps > 0
+/** Whether the turn starts by itself (the start page, or the app after Start). */
+const turnByDefault = () => turnAllowed() && numParam('spin', 1) !== 0
+let spinning = turnAllowed() && (showLanding || numParam('spin', 1) !== 0)
 const SPIN_SPEED = 0.05 // rad/s
+/** Seconds the turn has lasted since it last started or saw input, and how long it may last. */
+let turnSeconds = 0
+const turnSecondsMax = turnLimit(device.touchOnly, explicitSpin)
+/** The turn stopped because time ran out (not a drag, the map or a flight): the next input starts it again. */
+let turnTimedOut = false
+/** The turn's current speed (1 full, easing to 0 as the time runs out). */
+let spinFactor = 1
 const fly = createCameraFly(camera)
 controls.addEventListener('start', () => {
   spinning = false
@@ -762,6 +782,8 @@ const mapNightBox = overlay.addLayerToggle({
     showMapNight = on
     // the night sweeps across the map as the planet turns beneath the sun
     spinning = on && mapOn
+    turnSeconds = 0
+    turnTimedOut = false
     requestRender()
   },
 })
@@ -798,6 +820,8 @@ function setMapMode(on: boolean, animate = true) {
     controls.update()
     controls.enabled = false
     spinning = showMapNight
+    turnSeconds = 0
+    turnTimedOut = false
     mapControls.sync()
     historyView.setBuildingsVisible(false)
   } else {
@@ -1065,10 +1089,34 @@ function applyQuality(q: Quality) {
     currentGlobe?.setBakeSize(qs.bakeSize)
     currentClouds?.setBakeSize(qs.cloudBakeSize)
   }
+  // (a preset without the idle turn stops it; Saver)
+  if (qs.ambientFps <= 0) spinning = false
   pixelRatio = pixelRatioCap()
   sizeDirty = true
   requestRender()
   wake()
+}
+
+// ---------- power mode: a hook for an app shell (window.__worldseed.setPowerMode) ----------
+// 'saver' switches to the Saver preset for as long as it lasts (the OS's low-power mode, on
+// battery), without remembering it as the user's choice; 'normal' goes back to the quality from
+// before, unless the user picked another one meanwhile. Rendering already stops entirely while
+// the page is hidden (frameBody, visibilitychange), so there is no 'paused' mode.
+let qualityBeforeSaver: Quality | null = null
+function setPowerMode(mode: 'normal' | 'saver') {
+  if (mode === 'saver') {
+    if (qualityBeforeSaver !== null || quality === Quality.Saver) return
+    qualityBeforeSaver = quality
+    applyQuality(Quality.Saver)
+  } else if (mode === 'normal') {
+    const back = qualityBeforeSaver
+    qualityBeforeSaver = null
+    if (back !== null && quality === Quality.Saver) applyQuality(back)
+  }
+}
+{
+  const w = window as unknown as { __worldseed?: Record<string, unknown> }
+  w.__worldseed = Object.assign(w.__worldseed ?? {}, { setPowerMode, powerMode: () => (qualityBeforeSaver !== null ? 'saver' : 'normal') })
 }
 
 const sunPanel = createSunPanel(
@@ -1083,6 +1131,8 @@ const sunPanel = createSunPanel(
     },
     onQuality(q) {
       qualityAuto = false
+      // (the user's own pick ends a power-mode switch: 'normal' leaves it alone)
+      qualityBeforeSaver = null
       saveQuality(q)
       if (params.has('quality')) setUrlParam('quality', q)
       applyQuality(q)
@@ -1316,6 +1366,21 @@ document.addEventListener('visibilitychange', () => {
     wake()
   }
 })
+// A lost WebGL context (GPU reset, a backgrounded phone tab): three.js re-creates every buffer
+// from its CPU copy once the context is back, and the static ribbons dropped theirs after upload
+// (render/freeAfterUpload.ts). Those stay hidden, and the History's layers are rebuilt in place
+// at the year shown.
+let rebuildOnRestore = false
+canvas.addEventListener('webglcontextlost', () => {
+  if (markFreedStale()) rebuildOnRestore = true
+})
+canvas.addEventListener('webglcontextrestored', () => {
+  const h = historyView.debug().history
+  if (rebuildOnRestore && h) historyView.replaceHistory(h, 0)
+  rebuildOnRestore = false
+  requestRender()
+  wake()
+})
 // any input may change something: wake the loop (it draws only if something did change);
 // discrete UI actions (clicks, keys, sliders, toggles) also request one frame
 for (const type of ['pointermove', 'pointerdown', 'wheel'] as const) window.addEventListener(type, wake, { capture: true, passive: true })
@@ -1326,14 +1391,39 @@ for (const type of ['pointerup', 'click', 'keydown', 'input', 'change'] as const
     wake()
   }, { capture: true, passive: true })
 }
+// Someone is there: the idle turn's time starts over, and a turn that time stopped turns again.
+// (Capture phase, ahead of the controls: a press that starts a drag still stops the turn.) A hover
+// only keeps a turn going; a press, the wheel or a key brings one back.
+function turnInput(restart: boolean) {
+  turnSeconds = 0
+  spinFactor = 1
+  if (!restart || !turnTimedOut) return
+  turnTimedOut = false
+  if (landingIdle || hearths.active || cityView.engaged || !turnAllowed()) return
+  // (on the map, only the night's sweep turns it)
+  if (mapOn ? !showMapNight : morph > 0) return
+  landingTurnOver = false
+  spinning = true
+  wake()
+}
+window.addEventListener('pointermove', () => {
+  if (spinning) turnSeconds = 0
+}, { capture: true, passive: true })
+for (const type of ['pointerdown', 'wheel', 'keydown'] as const) window.addEventListener(type, () => turnInput(true), { capture: true, passive: true })
+reducedMotionQuery?.addEventListener('change', (e) => {
+  reducedMotion = e.matches
+  if (!turnAllowed()) spinning = false
+  requestRender()
+  wake()
+})
 
-const cloudsDrift = () => qs.cloudsAnimate !== 'never' && currentClouds !== null && currentClouds.mesh.visible
+const cloudsDrift = () => qs.cloudsAnimate !== 'never' && !reducedMotion && currentClouds !== null && currentClouds.mesh.visible
 /** Cloud drift alone keeps the page drawing (High quality only). */
 const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift() && !cityView.engaged && !landingIdle
 
 /** Frames per second at which the auto-rotation / cloud drift moves the surface by ~0.6 CSS px per frame. */
 function ambientFps(): number {
-  const speed = (spinning ? SPIN_SPEED : 0) + (cloudsDriveFrames() ? 0.004 : 0) // rad/s, ~ surface units/s
+  const speed = (spinning ? SPIN_SPEED * spinFactor : 0) + (cloudsDriveFrames() ? 0.004 : 0) // rad/s, ~ surface units/s
   const alt = Math.max(0.02, camera.position.length() - 1)
   const pxPerUnit = window.innerHeight / (alt * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))
   return Math.min(qs.ambientFps, Math.max(2, (speed * pxPerUnit) / 0.6))
@@ -1472,6 +1562,8 @@ function draw(ts: number) {
     if (prNow === pixelRatio) gpuSample = ms
   })
   renderer.setRenderTarget(target)
+  // (layers whose freed CPU copies a lost context took with it stay hidden until rebuilt)
+  hideStale()
   renderer.render(scene, camera)
   perf.frame(ts, performance.now() - t0, renderer)
   if (target) copyToCanvas(target)
@@ -1552,10 +1644,16 @@ function frameBody(ts: number) {
   const scrubbing = inputStreak >= 3
   const playing = historyView.isPlaying()
   const ambient = spinning || cloudsDriveFrames()
-  if (spinning) spinTime += dt
-  if (spinning && device.touchOnly && (turnSeconds += dt) > TOUCH_TURN_SECONDS) {
-    spinning = false
-    landingTurnOver = true
+  if (spinning) {
+    // (eased to rest over the turn's last seconds, render/idleTurn.ts)
+    spinFactor = turnSpeedFactor(turnSeconds, turnSecondsMax)
+    spinTime += dt * spinFactor
+    if ((turnSeconds += dt) > turnSecondsMax) {
+      spinning = false
+      turnTimedOut = true
+      landingTurnOver = true
+      spinFactor = 1
+    }
   }
   if (cloudsDrift()) cloudTime += dt
 
@@ -1583,6 +1681,10 @@ function frameBody(ts: number) {
       gpuTimer.poll()
       motionResolution(ts - lastDrawTs, fps, interacting || playing || ambient || scrubbing)
       draw(ts)
+      // while history plays, what the frame's own layers asked for (the travellers' next
+      // positions, a layout step) comes with the next playback frame: not an input-rate one
+      // (else every playback frame ran at interactFps and playFps never applied)
+      if (playing && historyView.isPlaying()) consumeRenderRequest()
     } else if (requested) carryRequest = true
   }
   if (qualityAuto && !probe && !baking && !landing && currentWorld && !cityView.engaged && !interacting && pixelRatio >= pixelRatioCap() && (!bakeEnabled || (currentGlobe?.bakeInfo.ready ?? false))) qualityProbe(ts)
@@ -1622,9 +1724,6 @@ function frameBody(ts: number) {
 let landingGeom = showLanding ? 0 : 1
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
-/** Touch devices: the slow turn (a frame every few dozen ms for as long as it lasts) stops after this many seconds of it (battery). */
-const TOUCH_TURN_SECONDS = 8
-let turnSeconds = 0
 let landingTurnOver = false
 const APP_DIST = 3.25
 
@@ -1688,14 +1787,15 @@ if (showLanding) {
       historyYears = wholeChunks(years)
       startHistory(seed)
       landingIdle = false
-      spinning = numParam('spin', 1) !== 0
+      spinning = turnByDefault()
       turnSeconds = 0
+      turnTimedOut = false
       overlay.relayout()
     },
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible && !hearths.active && !landingTurnOver
+      spinning = visible && !hearths.active && !landingTurnOver && turnAllowed()
       wake()
     },
     onPlant(on) {

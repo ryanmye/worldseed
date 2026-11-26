@@ -36,6 +36,8 @@ import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { PIECE_SAMPLES, routeWayAt, type RouteNetwork } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
+import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import { blockadesAt, HUB_CONTRABAND, type BlockadeMark, type PolitiesData } from '../ui/politiesData.ts'
 
 /** Lift of the lanes above the ground (as the trade lines). */
@@ -376,6 +378,8 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
 
   const HS = PIECE_SAMPLES
   const lanesGeom = new THREE.BufferGeometry()
+  /** Each slot's first index, and the end (a slot's pieces are one run of the index buffer). */
+  const slotIdx = new Uint32Array(nSlots + 1)
   if (net && nSlots > 0) {
     // every piece of the lanes' links (the curves the trade lines and merchants follow)
     let nPieces = 0
@@ -385,6 +389,7 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     let v = 0
     for (let i = 0; i < nSlots; i++) {
       const l = slotLink[i]
+      slotIdx[i + 1] = slotIdx[i] + (net.linkPieceOffsets[l + 1] - net.linkPieceOffsets[l]) * (HS - 1) * 6
       for (let pk = net.linkPieceOffsets[l]; pk < net.linkPieceOffsets[l + 1]; pk++) {
         const hh = net.linkPieces[pk]
         const arcEnd = net.pieceArc[hh * HS + HS - 1]
@@ -445,8 +450,14 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
   } as const
   const laneMat = (mode: number) => new THREE.ShaderMaterial({ uniforms: { ...laneShared, uMode: { value: mode } }, vertexShader: LANE_VERT, fragmentShader: LANE_FRAG, ...blend })
   const smuggleMat = laneMat(0), lossMat = laneMat(1)
-  const smuggleMesh = new THREE.Mesh(lanesGeom, smuggleMat)
-  const lossMesh = new THREE.Mesh(lanesGeom, lossMat)
+  // (one set of buffers, two geometries: each mode draws only its own live slots' runs, liveRanges.ts)
+  const lossGeom = new THREE.BufferGeometry()
+  for (const [name, attr] of Object.entries(lanesGeom.attributes)) lossGeom.setAttribute(name, attr)
+  lossGeom.setIndex(lanesGeom.getIndex())
+  for (const g of [lanesGeom, lossGeom]) g.addGroup(0, slotIdx[nSlots], 0)
+  const smuggleLive = createLiveRuns(slotIdx, nSlots), lossLive = createLiveRuns(slotIdx, nSlots)
+  const smuggleMesh = new THREE.Mesh(lanesGeom, [smuggleMat])
+  const lossMesh = new THREE.Mesh(lossGeom, [lossMat])
   for (const m of [smuggleMesh, lossMesh]) {
     m.frustumCulled = false
     m.visible = false
@@ -456,6 +467,8 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
   smuggleMesh.name = 'contraband routes'
   lossMesh.name = 'preyed-upon lanes'
   object.add(smuggleMesh, lossMesh)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  if (nSlots > 0) freeAfterUpload(smuggleMesh, [lanesGeom, lossGeom], [lossMesh])
 
   // ---------- marks: havens and hubs (by snapshot), blockades (by year), ships (by frame) ----------
   const havens = pd.havenSettlements, hubs = pd.hubSettlements
@@ -593,7 +606,12 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     for (let i = 0; i < nSlots; i++) {
       slotLoss0[i] = laneData[i * 4 + 2]
       slotLoss1[i] = laneData[i * 4 + 3]
+      // what each mode's shader can show between the two snapshots
+      smuggleLive.live[i] = laneData[i * 4] > 0 || laneData[i * 4 + 1] > 0 ? 1 : 0
+      lossLive.live[i] = slotLoss0[i] > 0 || slotLoss1[i] > 0 ? 1 : 0
     }
+    smuggleLive.update(lanesGeom)
+    lossLive.update(lossGeom)
     laneTex.needsUpdate = true
   }
 
@@ -746,8 +764,9 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
 
   function syncVisibility() {
     const lanesOn = (showLanes || danger) && nSlots > 0
-    smuggleMesh.visible = lanesOn && !!SM
-    lossMesh.visible = lanesOn && !!LO
+    // (and hidden while nothing is smuggled, or nothing lost, between the snapshots shown)
+    smuggleMesh.visible = lanesOn && !!SM && smuggleLive.drawn > 0
+    lossMesh.visible = lanesOn && !!LO && lossLive.drawn > 0
     laneShared.uEmph.value = danger ? 1.45 : 1
     mu.uDanger.value = danger ? 1 : 0
     // the marks: havens, hubs, blockades with the Factions layer (and on the Danger view); ships with the lanes
@@ -863,6 +882,7 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
     },
     dispose() {
       lanesGeom.dispose()
+      lossGeom.dispose()
       geom.dispose()
       smuggleMat.dispose()
       lossMat.dispose()

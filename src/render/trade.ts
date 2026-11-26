@@ -48,6 +48,8 @@ import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
 import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { networkRouteSamples, PIECE_SAMPLES, routeWayAt, routeWaySpans, segmentWater, SHORE, tradeNetwork } from './routeCurves.ts'
+import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 
 /**
  * Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury,
@@ -457,8 +459,15 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
     `,
     ...blend,
   })
-  const lines = new THREE.Mesh(lineGeom, lineMaterial)
+  // (drawn as the runs of pieces whose link carries something at the snapshots shown, liveRanges.ts)
+  const pieceIdx = new Uint32Array(pieces + 1)
+  for (let h = 0; h <= pieces; h++) pieceIdx[h] = h * (HS - 1) * 6
+  lineGeom.addGroup(0, pieceIdx[pieces], 0)
+  const lineLive = createLiveRuns(pieceIdx, pieces)
+  const lines = new THREE.Mesh(lineGeom, [lineMaterial])
   lines.frustumCulled = false
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(lines, [lineGeom])
   lines.renderOrder = 6.5 // after clouds, under the journey trails and settlement markers
 
   // ---------- selected settlement's routes (built on selection) ----------
@@ -926,6 +935,12 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
           routeData[r * 4 + 1] = vol[s1 * R + r]
         }
         routeTex.needsUpdate = true
+        // the pieces the line shader can show between the two snapshots (it hides links carrying nothing)
+        for (let h = 0; h < pieces; h++) {
+          const l = net.pieceLink[h]
+          lineLive.live[h] = linkVol0[l] > 0 || linkVol1[l] > 0 ? 1 : 0
+        }
+        lineLive.update(lineGeom)
         shownS0 = s0
         shownS1 = s1
         dirty = true
@@ -988,7 +1003,7 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
       const alt = dist - 1
       shared.uClose.value = smooth(1.1, 1.35)
       shared.uDrop.value = LIFT * (1 - Math.min(1, Math.max(0.06, alt / 0.6)))
-      lines.visible = shared.uClose.value > 0.003
+      lines.visible = shared.uClose.value > 0.003 && lineLive.drawn > 0
     },
     merchants() {
       return view

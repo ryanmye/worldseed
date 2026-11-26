@@ -433,7 +433,9 @@ export function createPerfMonitor(enabled: boolean, container: HTMLElement): Per
           return { pixels: n, noisePerPixel: n ? +(sum / n).toFixed(2) : 0, voronoiPerPixel: n ? +(sumCells / n).toFixed(3) : 0, maxNoise: max, material: (globe.mesh.material as THREE.ShaderMaterial).fragmentShader.includes('uBake0') ? 'baked' : 'procedural' }
         },
       }
-      ;(window as unknown as { __worldseed: typeof api }).__worldseed = api
+      // (merged: main.ts puts the app shell's hooks there too, setPowerMode)
+      const w = window as unknown as { __worldseed?: object }
+      w.__worldseed = Object.assign(w.__worldseed ?? {}, api)
     },
   }
 }
