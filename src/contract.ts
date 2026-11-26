@@ -1945,7 +1945,7 @@ export interface Order {
 }
 
 /** What an actor or a target is. */
-export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7, /** seat: a decision card's option, row * 8 + option (History.seat.decisions) */ Decision: 8 } as const
+export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7, /** seat: a decision card's option, row * 8 + option (History.seat.decisions; 8-10 are reserved: registry §3.2) */ Decision: 11 } as const
 export type OrderRole = (typeof OrderRole)[keyof typeof OrderRole]
 
 /** What became of an order. */
