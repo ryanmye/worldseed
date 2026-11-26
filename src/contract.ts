@@ -1492,6 +1492,12 @@ export interface HistoryRun {
    * each chunk short of the target, then advanceTo(target) once. Absent from older simulations.
    */
   simulateTo?(years: number): number
+  /**
+   * Live append (seat-mode §3.2): adds orders to the run without re-simulating. addOrders(o) after advancing to Y - 1 gives
+   * exactly the history of a run created with the orders given so far followed by o, as long as every order of o is for year
+   * Y or later; an order for a year at or before `year` throws a RangeError (and nothing is added). Absent from older simulations.
+   */
+  addOrders?(orders: Order[]): void
 }
 export type CreateHistoryRun = (world: World, options?: HistoryOptions) => HistoryRun
 

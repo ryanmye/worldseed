@@ -84,7 +84,7 @@
 // hubs get more from their land and import food).
 
 import { GOOD_COUNT, TECH_FIELD_COUNT } from '../../contract.ts'
-import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
+import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Order, Settlement, SimulateHistory, World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { nameWorld } from '../names/featureNames.ts'
 import { createSearch, migrationSystem } from './migration.ts'
@@ -164,6 +164,7 @@ import type { LandmarksDiag } from './landmarks/state.ts'
 import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
 // orders: the player's nudges (orders/).
 import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
+import { appendOrders } from './orders/state.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -370,6 +371,12 @@ export interface HistoryRunner {
   advance(years: number): HistoryRun
   /** Simulates up to `years` (no earlier than `year`) without assembling anything (cheap progress steps; advance assembles later). */
   simulate(years: number): void
+  /**
+   * Live append (seat-mode §3.2): adds orders to the run as if they had been in HistoryOptions.orders from the start (after
+   * the ones there). Every order must be for a year after `year` (else a RangeError, and nothing changes): the run then goes on
+   * exactly as a run created with the orders so far followed by these would.
+   */
+  addOrders(orders: readonly Order[]): void
 }
 
 /**
@@ -427,7 +434,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
-  const ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
+  // (live append, seat-mode §3.2: addOrders creates it later if there are none yet; created then, it is the state a run with
+  // those orders would have had all along, because no hook acts and the stream draws nothing before an order's year)
+  let ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
   s.orders = ox
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
@@ -692,6 +701,14 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       return assemble(year)
     },
     simulate: simulateTo,
+    addOrders(orders: readonly Order[]): void {
+      if (ox) { appendOrders(ox, orders, year); return }
+      for (const o of orders) if (!(Number.isFinite(o.year) && Math.max(1, Math.floor(o.year)) > year)) throw new RangeError(`order for year ${o.year} cannot be added to a run at year ${year}`)
+      if (orders.length === 0) return
+      ox = createOrders(s, orders, createRng(seed, 'history-orders'))
+      ox.evSeen = s.events.length
+      s.orders = ox
+    },
   }
 }
 
@@ -721,6 +738,9 @@ export function createHistoryRun(world: World, options?: HistoryOptions): Requir
       const target = Math.min(32767, Math.max(0, Math.floor(years)))
       if (target > runner.year) runner.simulate(target)
       return runner.year
+    },
+    addOrders(orders: Order[]): void {
+      runner.addOrders(orders)
     },
   }
 }
