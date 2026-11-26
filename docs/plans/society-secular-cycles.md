@@ -546,3 +546,10 @@ estimate (150-250 y) and all harness targets are design defaults or [M] probe me
 - Turchin, P. (2023). *End Times: Elites, Counter-Elites, and the Path of Political Disintegration*. Penguin Press. https://www.publishersweekly.com/9780593490501 [verified; the "common theme" vs "wealth pump" wording is from a Niskanen Center interview, https://www.niskanencenter.org/are-we-overproducing-elites-and-instability/]
 - Turchin, P. & Nefedov, S. A. (2009). *Secular Cycles*. Princeton Univ. Press. https://muse.jhu.edu/book/30171 [verified (table of contents and case-cycle dates); the phase names and the fathers-and-sons cycle were confirmed only through Alexander 2019]
 - Uncited, labelled in the text: "town air makes free" (a medieval maxim) and the 1381 Peasants' Revolt (an illustration) [unverified: no source opened]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Owner of `polity/aggregates.ts`** (MASTER-PLAN D-dup 9): one O(living) pass per `POLITY.step` that court, MIR, FP and migration read instead of their own passes.
+- **Interim owner of C2's hazard multiplier** (h1) until riots lands. Then `socRevoltMul` is the only multiplicative revolt-hazard term (Ψ once).
+- Causal UnrestPart **25 Immiseration** and **26 Coercion** record the two h2 additions to the peasant term (R36).
+- Feedback F8 (the secular cycle) is an intended oscillation. Test: period 150–250 y and Ψ p90 < 6.

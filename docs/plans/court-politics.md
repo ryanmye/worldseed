@@ -1062,3 +1062,12 @@ bibliographic details of every [unverified] entry are from memory and must be ch
   *Economic History Review* 65(3): 835–861. https://ideas.repec.org/a/bla/ehsrev/v65y2012i3p835-861.html [verified]
 - Weber, M. (1922). *Wirtschaft und Gesellschaft*. Eng. *Economy and Society*, ed. G. Roth & C. Wittich. Berkeley:
   University of California Press, 1978. [unverified: search budget]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R11.** For Monarchy and Signoria, your `REGIME` values replace city-states' `GOV` on every key both define. (The 0.2 claim "never multiply the same hook twice" did not hold for Signoria.)
+- **C3.** `REGIME.overthrow·(1 + plotHeat)` is factor 4 of the overthrow stack, exclusive with MIR's `REGIME_MODS.overthrow` by Government. `REGIME.grief` is C2's form multiplier. `REGIME.reach` and the Chancellor factor are C4 factors 1–2. `courtTaxEff` is C8's form factor. `courtRate` is in C9. The faction `war(q)` replaces `rulerWar` in C1 factor 1.
+- **R10.** The estates' rising shares the `rose[i]` gate with riots and city-states.
+- Rename royal favour to **`courtFavour`** in code, to avoid confusion with divine favour. OrderKind `Favour 36` keeps its name.
+- **§2.10 gating.** Land steps 1–3 (regimes in shadow, labels) early. Step 8 (regime effects) needs an owner-reviewed regime-frequency table from step 3's `courtStats`.
+- DecisionKind 0–17 seat and 18–24 court are in MASTER-PLAN §3.2 (your open question 6).

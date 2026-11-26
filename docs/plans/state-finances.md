@@ -1004,3 +1004,10 @@ outside work; [M] numbers are measurements of this sim. Only the items below are
 
 Claims left without a source: the England price-revolution magnitude (1.8), "customs kept pace with prices while fixed rents and quotas did not" (2.4.1),
 and "credit matters from the high middle ages on" (1.7). Each is tagged in place.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Semantic owner of C3 (ruler overthrow), C8 (tax take) and C9 (borrowing rate multiplier)** (MASTER-PLAN §2.3). `finOverthrow` is factor 1 of C3. `taxMul·assessR` is the pressure factor of C8, exclusive with riots' `taxLvl`. `rateMul` is the C9 product `govRate·courtRate·ideoRate·fpRate·usuryRate·ideaCredit`, clamped [0.5, 2]. The `overthrowHazard` extraction moves to the Phase 0 scaffolding.
+- Your `finWarDrive` is factor 4 of C1, and `peaceDebt` is factor 2 of C6 (battles owns C6).
+- **R20.** Add spending kind `'welfare'`. All relief (riots dole, disasters relief, migration welfare, future-tech UBI) is booked through it exactly once.
+- Feedback F1 (debt → taxes → revolts → debt) test: no polity at taxMax for more than 50 consecutive years in more than 10% of polity-years.

@@ -396,3 +396,10 @@ are **design defaults** set around the literature points, not literature values 
 19. Taagepera, R. (1978). Size and duration of empires: systematics of size. *Social Science Research* 7, 108–127; (1979) Size and duration of empires: growth-decline curves, 600 B.C. to 600 A.D. *Social Science History* 3, 115–138; (1997) Expansion and contraction patterns of large polities: context for Russia. *International Studies Quarterly* 41, 475–504. [unverified: not fetched; titles and pages are recalled. The area and population shares are verified via Wikipedia, "List of largest empires", https://en.wikipedia.org/wiki/List_of_largest_empires, which uses Taagepera's figures]
 20. Vuong, Q. H. (1989). Likelihood ratio tests for model selection and non-nested hypotheses. *Econometrica* 57(2), 307–333. https://ideas.repec.org/a/ecm/emetrp/v57y1989i2p307-33.html [verified]
 21. Wikipedia, "World War II casualties" (60–75 M dead, ~3 % of 2.3 bn in 1940). https://en.wikipedia.org/wiki/World_War_II_casualties [verified]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Bands (MASTER-PLAN §2.7).** `epi.worstNet` and `epi.plagueWorstNet`: upper bound 0.55 → **0.60**, label "Black Death 30-60%". `pol.largestPop1500/2000`: band unchanged [0.15, 0.40] (it contains 30–37%; the metric is a fixed-year share), label "Han/Rome/Qing peaks 30-37%". Add an unscored `pol.largestPopPeak`. Recompute the 8cabf09 baseline score from `docs/realism-baseline.jsonl` in the same commit (step 4). Every later A/B uses the recomputed value.
+- **Ratchet.** The per-PR guard (Δ ≤ 0.03, no WORSE) is measured against **current main**, not 8cabf09. At each phase exit the 4-seed score must be ≤ the recomputed baseline, and the 22-seed sweep is run and recorded.
+- **Long runs.** Add `--years N` reporting of era-agnostic keys (war α, durCv, lifespans, Gibrat) for 3000-year runs. Report only: no gate until the owner accepts bands for modern eras.
+- §6's tie-break stands: battles owns war severity and duration and tunes last (C6).

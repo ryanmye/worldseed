@@ -806,3 +806,9 @@ parameters, the target ranges of section 7 and the cost/noise scales are **desig
   Powers since 1495. *International Studies Quarterly* 38(1): 139–154. https://doi.org/10.2307/2600875
   [verified: Crossref metadata and RTI publication page; the figures only via Lindley & Schildkraut]
 
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **C1 placement** (MASTER-PLAN §2.3). Beliefs replaces the drive term (â, the preventive max-term, the press semantics). It does not add a factor to the multiplier stack. `pressMul` is a calibration constant outside C1's clamp.
+- **Hard stop (§9.1).** If `pressMul` must exceed 3 to hold wars at baseline, lower `cWar` before merging.
+- Domestic precision from spies goes through riots' perception update only (MASTER-PLAN D-dup 12).

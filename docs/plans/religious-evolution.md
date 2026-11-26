@@ -620,3 +620,9 @@ Report unscored: the doctrine radar of the 3 largest faiths at 500-y steps; the 
 
 ## Addendum (central registry)
 Final values: OrderKind 83 = Council, seat DecisionKind 54 = Doctrine (all earlier overlaps were resolved: tech-tree 39–40, character 41–58, migration 59–61, modern-ideologies 62–64, future-politics 65–66, infrastructure 68–70, divine 71–82). See _CONVENTIONS.md.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R15.** `prestigeOf(s, p)` comes from migration-borders (Π_p). culture-soft-power is not written.
+- **R16.** `faithFertility` multiplies future-tech's fertility slot `F_p` (C5). It is therefore **dormant unless future (or a later demography plan) is on**. Pre-modern runs do not change growth.
+- **C9.** `usuryRate` is a factor of the borrowing-rate stack, clamped with the others. `faithLegitimacy` adds to riots' L∞ hook only.

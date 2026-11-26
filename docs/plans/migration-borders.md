@@ -896,3 +896,9 @@ score 0.404, 45/104 in range; `urb2000.u10` 0.19–0.41 (already above band), `z
 
 ## Addendum (central registry)
 Renumbered: OrderKind 59–61 (not 42–44) and DecisionKind 45–46 (not 28–29); character-mode holds 41–58 / 27–44. See _CONVENTIONS.md.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Stale numbers.** OrderKind **59–61**, DecisionKind **45–46**, as in the earlier addendum. In §0.1, GrievanceKind 14 is MIR's Subversion and 15 is FP's Drained. **Nativist = MovementKind 6** (R28).
+- **R15.** You own prestige. Add `prestigeOf(s, p) = Π_p`, which religious-evolution reads. culture-soft-power is not written.
+- **R20.** Your welfare regime is the single standing welfare policy. future-tech relief composes into generosity as `g = 1 − (1 − g_mig)(1 − r_FT)`. All costs go through `finSpend(..., 'welfare')` once.

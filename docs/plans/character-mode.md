@@ -791,3 +791,8 @@ constant used above; all PERSON values are design defaults.
   survival table the person's death reuses (3.7). [unverified: search budget exhausted]
 - Lanchester, F. W. (1916). *Aircraft in Warfare: The Dawn of the Fourth Arm*. Constable, London. The battle model
   (battles.md) that decides a general's battles (3.6.3). [unverified: search budget exhausted]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R1.** Phone speed: 3× the VM bench [G], replacing "3–5× (seat-mode)" in §9, until Phase 0 measures it.
+- **R25.** The `CityFocus` walkable-city hook (§6, §10, step 14) is dropped: the owner dropped the walkable city.

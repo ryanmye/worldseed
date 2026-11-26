@@ -792,3 +792,9 @@ The audit ran out of web-search budget near the end, so some items below were ch
 22. Wells, D. L., & Coppersmith, K. J. (1994). New empirical relationships among magnitude, rupture length, rupture width, rupture area, and surface displacement. *BSSA* 84(4), 974–1002. https://www.resolutionmineeis.us/sites/default/files/references/wells-coppersmith-1994.pdf [verified: Table 2A, RLD all slip types a = −2.44, b = 0.59]
 23. Event facts from Wikipedia articles, all fetched 2026-11-26 [verified as "Wikipedia says"; the death tolls are contested]: 1976 Tangshan earthquake; 1755 Lisbon earthquake; 526 Antioch earthquake; 2012 Indian Ocean earthquakes; 2004 Indian Ocean earthquake and tsunami; 1887 Yellow River flood; 1931 China floods; Yellow River (1855 course change); Year Without a Summer (Tambora VEI 7, Yunnan famine, citing *Fudan Journal (Social Sciences)* 2005 no. 1); Great Famine of 1315–1317 (citing Freedman 2000 and Leguay 2000 in *New Cambridge Medieval History* vol. 6, and Ruiz); Mandate of Heaven. URLs: https://en.wikipedia.org/wiki/<title>.
 24. Miles, M. G., Grainger, R. G., & Highwood, E. J. (2004). Volcanic aerosols: the significance of volcanic eruption strength and frequency for climate. *QJRMS* 130. [unverified: known only as the VEI article's citation for "VEI matters less than SO2"; not opened]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R9.** scenarios' `HistoryOptions.ensemble` re-seeds `'history-climate'` (as well as `'history-weather'`) from the scenario's start year. The shock schedule stays world-fixed. Your "orders cannot change shocks" rule is unaffected.
+- **R20.** Phase-2 relief calls riots' GrainDole concession when riots is on (its own spend otherwise). Costs go through `finSpend(..., 'welfare')`.
+- The Phase-2 disaster grievance is added to the peasant term (C2) and recorded as causal UnrestPart **24 Disaster**.

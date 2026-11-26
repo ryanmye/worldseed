@@ -847,3 +847,8 @@ of this sim, not historical facts. House and town names are fictional.
 - Ibn Khaldun, *Muqaddimah* (14th c.): the "dynastic-cycle vigour" of 2.4 / P4 echoes his view that "dynasties have a natural life span like individuals",
   about three generations, as summarised in Wikipedia, "Asabiyyah", https://en.wikipedia.org/wiki/Asabiyyah [verified: that summary; the plan's
   decay rule and parameters are design defaults, not taken from it]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R4.** `SeatKind` collides with seat-mode's `SeatKind` in contract.ts. Rename it to **`FamilySeatKind`**, and rename `SeatOpen`/`SeatClose` to **`FamilySeatOpen`/`FamilySeatClose`**. Values are unchanged: riots and migration use `FamilySeatClose.Expelled = 4`.
+- **D-dup 9.** If your pass needs per-polity aggregates, read `polity/aggregates.ts`; do not add a second pass.

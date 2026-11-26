@@ -710,3 +710,10 @@ Citation audit 2026-11-26. [verified] = a page confirming the claim was opened d
   `clone-cost.ts`, `static-parts.ts`, plus the perf agent's `/home/claude/plans/perf-scripts/fork-probe3.ts` (re-run) and
   `perf-scripts/bench-hash.log`, `bench-2000.log`. Checkpoint sizes 28.6–40.9 MB and the 30–43% share are quoted from
   perf-efficiency.md (measured there with `fork-probe3.ts` and `bench-nudge.ts`).
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R1.** Phone speed: plan with 3× the VM bench [G] until Phase 0 lane M measures it; 5× is the stress case. This replaces "3–5×" in §9 and §11.
+- **R40.** Phase 0 adds `ORDER_KINDS` rows 10–83 and `DecisionKind` rows 0–54 as reserved placeholders (`SystemOff`, no encode key). Each plan replaces only its own rows. `ORDER_KIND_COUNT` = 84 (MASTER-PLAN §3.2).
+- **The `overthrowHazard`/`contestChance`/`eligibleHeirs` extraction (step 6) moves to the Phase 0 scaffolding** (`rulers/hazards.ts`). Step 6 then only uses it.
+- **R33.** Placate (×0.35), Purge (= 0) and Ally (×4) are order factors applied **after** the C3 and C7 clamps.

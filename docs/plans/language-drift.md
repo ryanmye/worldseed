@@ -637,3 +637,7 @@ means the record was confirmed but the specific claim was not on the page read. 
 14. Swadesh, M. (1955). Towards greater accuracy in lexicostatistic dating. *International Journal of American Linguistics* 21(2), 121–137. https://doi.org/10.1086/464321 [verified: citation via concepticon. The 0.86/millennium (≈14 words per 100) rate is from Wikipedia, "Glottochronology". The DOI comes from the search-result URL; the publisher page failed to load]
 15. Fishman, J. A. (1991). *Reversing Language Shift*. Clevedon: Multilingual Matters. https://doi.org/10.21832/9781800418097 [verified: book. **Not** confirmed as the source of a three-generation rule, so the plan no longer credits it]
 16. Wikipedia, "River Avon" (afon = river), "Cologne" (Colonia), "Vienna" (Wien, from the river name), all fetched 2026-11-26. https://en.wikipedia.org/wiki/River_Avon, https://en.wikipedia.org/wiki/Cologne, https://en.wikipedia.org/wiki/Vienna [verified]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R32 ("on only for new worlds").** The carrier is `HistoryOptions.language` with URL `lang=1`. New links, saves (world-builder-divine §4.1 recipe options) and scenarios (canonical JSON) write `lang=1` explicitly. A link without the flag keeps today's names. No device-dependent default (R42).

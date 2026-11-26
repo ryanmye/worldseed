@@ -1149,3 +1149,10 @@ numeric parameter in this plan (halfLife, delta0, repCost, θ thresholds, ARMS k
 - Encyclopaedia Britannica (n.d.). Arms race: Prisoner's dilemma models. https://www.britannica.com/topic/arms-race/Prisoners-dilemma-models
   [verified: the Richardson approach "has a rather poor empirical record"; India–Pakistan partial support]
 
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Semantic owner of C1 (war declaration) and C7 (alliance chance)** (MASTER-PLAN §2.3). Stack orders, clamps ([0.1, 5] and [0.1, 4]) and tests are there. Your `mul *= 1 + drive·g` is factor 3 of C1, implemented through `compose.ts`, not inline. Arms stays inside `adv`.
+- **R8.** The rev-2 target "top-realm share p90 −5 to −20%" is replaced by: realms with top share > 0.45 reduced by ≥ 5%, and realism `pol.largestPop1500/2000` not WORSE. Realism says empire shares are already too low.
+- RivalryPart 12 **Reputation** records `repRivalry` (causal). GrievanceKind next free is 17. A slaughter grievance, if wanted, takes 17, not 9.
+- **R31.** Step 9's format-patch and bundle instructions are obsolete. Use MASTER-PLAN §8.

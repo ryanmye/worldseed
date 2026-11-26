@@ -711,3 +711,11 @@ Citation audit 2026-11-26. [verified] = a page confirming the claim was opened d
 - Frames drawn, CPU-s, JS ms per frame: `bench-render.mjs`; playback profile, uploads, census:
   `profile-playback.mjs`; scene geometry and RSS: `memory-page.mjs`; staging: `staging.mjs`;
   Q1 probe: `intro-prefetch.mjs`.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R2 (golden hashes).** `hashValue` hashes the whole History, so any new field changes it. The programme gate is **G0 = `hashBase(h)`**: hashValue over the 8cabf09 key set, with widened fields projected back to their 8cabf09 types (MASTER-PLAN §2.1). On 8cabf09 it reproduces `923881e7cd3fe59b`, `3bac8db3dfd723b5` and `2bb9f72e9e99433d`. Phase 0 adds `scripts/g0.ts`. `BENCH_ONLY=hash` stays as the G1 (current-defaults) check.
+- **R1 (phone factor).** Plan with **3×** the VM bench for D-phone [G], 5× as the floor-device stress case. Phase 0 lane M measures the real factor in the browser on the target iPhone and iPad and replaces 3× everywhere (MASTER-PLAN §2.6).
+- **P6 checkpoint store** is the single `CheckpointStore` for seat, what-if, causal, scenarios and divine branches. Its key includes the engine hash and `worldEditsHash` (world-builder-divine §0.3). Caps: 2 in total on phones, 6 on desktop.
+- **P8 (staging split) is required, not optional,** before seat mode ships on phones (MASTER-PLAN §5.2).
+- **R31.** The format-patch and bundle instructions at the end of §4 are obsolete. Use MASTER-PLAN §8 (branch per step group, one PR each).

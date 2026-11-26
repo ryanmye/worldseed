@@ -933,3 +933,10 @@ decisive battles, κ, realmShare, etc.) is a design default or a probe measureme
 - Sarkees, M. R. & Wayman, F. W. (2010). *Resort to War: A Data Guide to Inter-State, Extra-State, Intra-State, and Non-State Wars, 1816–2007*. CQ Press. https://public.websites.umich.edu/~fwayman/book_resorttowar.html [verified via catalogue listing]
 - Tullock, G. (1980). Efficient rent seeking. In Buchanan, J. M., Tollison, R. D. & Tullock, G. (eds.), *Toward a Theory of the Rent-Seeking Society*, Texas A&M Univ. Press, 97–112. Reprinted in Lockard, A. A. & Tullock, G. (eds., 2001), *Efficient Rent-Seeking*, Springer, 3–16. https://link.springer.com/978-0-7923-7242-4 [verified via the 2001 reprint; the 1980 page range not confirmed]
 - Willard, D. (1962). *Lanchester as Force in History: An Analysis of Land Battles of the Years 1618–1905*. Research Analysis Corporation, RAC-TP-74. [verified via The Dupuy Institute 2018b, which gives the number as "RAC-TD-74"; number unresolved]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R6.** The battle replay shortcut is **`R`**: `B` is the Library, and `W` and `H` are experience's. Register it through `ui/shortcuts.ts addShortcut`.
+- **R23.** GeneralTurned = 11, as in the earlier addendum. The suggested `GrievanceKind.Massacre = 9` (§9.1) is withdrawn: 9 is beliefs' SpyCaught. Use the next free value, 17, if grudges takes it.
+- **Semantic owner of C6 (war end hazard):** peaceChance tempo × finances peaceDebt × court tired factor + decisivePeace, per-year cap 0.6 (MASTER-PLAN §2.3). Tempo (step 6c) lands after grudges and finances and is the durCv tie-break.
+- The coup factor is factor 3 of C3.

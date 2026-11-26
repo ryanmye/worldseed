@@ -788,3 +788,11 @@ so not cited: Chenoweth, Epstein (2002).
 - Weber, M. (1922). *Wirtschaft und Gesellschaft*; Engl. *Economy and Society*, ed. G. Roth & C. Wittich, Berkeley: Univ. of California Press, 1978, pp. 215–216 (the three types of legitimate rule). https://en.wikipedia.org/wiki/The_Three_Types_of_Legitimate_Rule [verified via the Wikipedia reference]
 - Zipf, G. K. (1949). *Human Behavior and the Principle of Least Effort: An Introduction to Human Ecology*. Cambridge, MA: Addison-Wesley. https://www.mpi.nl/node/44454 [verified]
 - Uncited concepts, labelled in the text: *taxation populaire* (attributed to the moral-economy literature) and the SIS epidemic model [unverified]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Semantic owner of C2 (revolt) and C10 (movement spread)** (MASTER-PLAN §2.3).
+- **Terms (R13, R36).** `CAUSE_OF_TERM` gains `terms[13]` **Displaced** → RevoltCause 17 (future-tech) and `terms[14]` **Generations** → RevoltCause 18 (FP). The disasters grievance adds to term 0 (Peasant). No plan may add a multiplicative hazard term other than `socRevoltMul`.
+- **R10.** City-states' burghers draw becomes a Commune trigger (`UP.communeSpark` 0.5) when you are on. Resolution only through `govRisingResolve`. A shared `rose[i]` gate covers you, city-states and court's estates.
+- §0.1 and §0.9 `KinAttacked = 11` are stale: it is **12**. ConcessionKind is unchanged, but infrastructure's EventType 354 is renamed `ConcessionGranted` so that your `Concession: 282` stays unique (R4c).
+- **§2.6.** Store `unrestHeat` every 10 years (`UP.heatInterval = 10`) for everyone.

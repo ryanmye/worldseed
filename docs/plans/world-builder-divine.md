@@ -1113,3 +1113,10 @@ Options weighed:
 
 ## Addendum (central registry)
 Renumbered: divine OrderKinds are 71–82 (39–40 tech-tree, 41–58 character, 59–61 migration, 62–64 modern-ideologies, 65–67 future-politics, 68–70 infrastructure); OrderReason 35–38; OrderRole 9 House, 10 Scope. See _CONVENTIONS.md.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **D-dup 3.** `__WORLDSEED_ENGINE__` is the programme's single engine hash: saves, scenarios' `v=`, the cache key's sim part and the P6 checkpoint key all use it. The archive path is `/e/<engine>/`.
+- **D-dup 4.** `SaveStore` is built on the Phase 0 platform layer (`src/platform/storage`, `files`). Export and share use `platform/files`, so the native shell can map them to Files and iCloud.
+- **R32.** `SaveRecipe.history.options` carries every option explicitly, including `language`. A missing flag means off.
+- **§2.9 perf table.** The phone factor is 3× [G] until measured (R1).

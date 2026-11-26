@@ -982,3 +982,9 @@ telecom ~100–400, power ~100–300, canals ~30–100, cables ~20–80, air ~50
 
 ## Addendum (central registry)
 Renumbered: GrievanceKind 16 Expropriated (14 = modern-ideologies, 15 = future-politics), OrderKind 68–70 and DecisionKind 53 (migration-borders holds 59–61 / 45–46). See _CONVENTIONS.md.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **Semantic owner of C4 (empire reach)** (MASTER-PLAN §2.3): form × Chancellor × one network factor, clamp [0.5, 3].
+- **R4c.** Event 354 `Concession` is renamed **`ConcessionGranted`**: riots owns `Concession: 282`.
+- **§2.10 CPU gate.** Measure the planning cost (step 4) with `bench-sim.ts` on a 4000-year run before steps 6–13 start. If it exceeds +8% of history time, implement the 9.2 mitigations first.

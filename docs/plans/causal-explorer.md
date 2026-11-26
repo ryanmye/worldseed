@@ -996,3 +996,8 @@ be checked against the publisher pages before merge.
 - Carneiro's "squeeze" is named in the RivalryPart.Claim comment because `relations.ts` already cites it [V relations.ts header].
   Its source (Carneiro, R. L. 1970, A theory of the origin of the state, *Science* 169(3947): 733–738,
   https://doi.org/10.1126/science.169.3947.733) is [unverified: search budget exhausted].
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R36.** UnrestPart adds **22 Displaced** (future-tech), **23 Generations** (FP), **24 Disaster** (disasters), **25 Immiseration** and **26 Coercion** (society h2); `UNREST_PARTS` = 32. RivalryPart adds **10 TradeRival** (city-states), **11 Bloc** (MIR) and **12 Reputation** (grudges).
+- The counterfactual check (step 13) is off by default on D-phone (MASTER-PLAN §5.4).

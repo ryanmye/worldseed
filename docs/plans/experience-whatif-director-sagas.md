@@ -1016,3 +1016,10 @@ literature, so none is listed.
 **Measured here:** `/home/claude/scratch-whatif/probe/diff-probe.ts` and `probe/spread-probe.ts` (divergence, id prefix,
 matching shares, similarity per century, per-people deltas, field sizes, saga timings, naive diff timing). Sim, memory and
 checkpoint figures are quoted from perf-efficiency.md (measured there; scripts in `/home/claude/plans/perf-scripts/`).
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R5.** `Pov.kind` values: 'people', 'state', 'faction' (court), 'ideology' (MIR and FP; FP's 'movement' is dropped) and 'person' (character).
+- **R6.** Shortcuts: `W` what-if and `H` director stand. Battle replay is `R`. All keys go through `ui/shortcuts.ts addShortcut` with a duplicate test.
+- **R37.** Register drama rules for every block in MASTER-PLAN §3.1, through 419: 290–299, 300–306, 310–319, 320–329, 330–339, 340–348, 350–359, 360–369 and 380–385, besides those in the earlier addendum.
+- **§5.4.** D-phone uses the lite tier only. The compare's worker transient counts against the shared 2-checkpoint phone cap.

@@ -845,3 +845,11 @@ horizon cap 300 y, Kn/Kr, step lengths) are design defaults.
 - GitHub Docs (2026c). Creating an issue (from a URL query).
   https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/creating-an-issue **[verified]**
   (title, body, labels, template parameters; permissions; 414 when over the server limit).
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R9.** `HistoryOptions.ensemble` re-seeds `'history-weather'` and `'history-climate'` (disasters) from `from` (stream `history-climate-ens:<member>`). Natural shocks stay fixed. Disclose them as unresampled luck, with rulers' pre-drawn deaths.
+- **D-dup 3.** Use one engine hash: world-builder-divine's `__WORLDSEED_ENGINE__` (`src/sim/**` + contract.ts) as `v=`. The archive path is **`/e/<engine>/`** (not `v/<sim8>/`), built by your step 13's CI job and reused by world-builder-divine's pinning.
+- **D-dup 4.** Attempts (step 9) go through the Phase 0 platform storage layer.
+- **D-P3.** Leaderboards: none in v1. Game Center arrives with the native shell (MASTER-PLAN §1.2).
+- **§2.10.** Re-measure the luck floor with ≥ 100 runs before Ranked ships. Never bake in the browser on D-phone.

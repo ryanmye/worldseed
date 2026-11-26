@@ -72,3 +72,5 @@ These are collected from the plans' "open questions" sections.
 ## Local-only artefacts (not in the repo)
 - Probe scripts and outputs live in the original cloud session's `/home/claude/scratch-*` folders and are not preserved.
 - The realism harness scripts are included here under `realism-scripts/`, and the perf bench scripts under `perf-scripts/` (its `node_modules` is removed; run `npm i playwright` to use them).
+
+Owner decision (2026-11-26): platform = web + PWA now; native Apple shell dropped for now (no Xcode available); C++/Rust/native rebuild deferred — revisit after perf phase 1 with real-iPhone profiling (port single hotspots to WASM only if profiling shows one).

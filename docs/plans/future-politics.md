@@ -1192,3 +1192,10 @@ future-tech's, reused); GrievanceKind 15 Drained; ReignEnd 14 Recalled, 15 Decom
 66 Unplug (67 reserved); DecisionKind 50 Mandate, 51 Exit (52 reserved); Government 12–29 and GovernmentCause 23–41; PolityOrigin 9 Exit;
 PolityEnd 6 Dissolved; BondKind 4 Federal, 5 Ledger; RegimeFamily 3–8. Reuses MovementKind 5 and IdeaKind 10 Ideology (MIR), future-tech's 326/329/OffWorld/relief/alignment
 and tech-tree's bans 300–301. If an earlier plan in the build order took any of these values, shift this plan's; code uses names.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R5.** `Pov.kind 'movement'` is dropped. Use MIR's `'ideology'` (anchor = ideology id).
+- **ModernRegime ids** of your 18 forms are 7–24 in `registerRegime` order (MASTER-PLAN §3.2).
+- **§2.10 MVP.** Ship 4 forms first: Technocracy, CordonState, ArchiveRegency and EmergencyDirectorate, with their routes. Add the others only after the 6000-year harness shows leading peoples reach era 10+ on most seeds.
+- Your `fpRate` is a C9 factor; `repress`/`concede` are riots response terms; `lBase`/`lPerf` add to riots' L∞ hook; `fpBanPush` stays on `'history-innovation'`.

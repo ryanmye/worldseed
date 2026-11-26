@@ -843,3 +843,11 @@ index's page (title, author, venue, year), page not opened.
 
 ## Addendum (central registry)
 Renumbered: OrderKind 62–64 (not 41–43) and DecisionKind 47–49 (not 27–29); character-mode and migration-borders hold the earlier values. future-politics therefore uses OrderKind 65–67 and DecisionKind 50–52. See _CONVENTIONS.md.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R4b.** Event 310 is renamed **`ModernRegimeChanged`**: court-politics owns `RegimeChanged: 292`.
+- **R12.** Apply `REGIME_MODS` only for `rate, repress, concede, overthrow, export, bloc, climate, pairPeace`, and never the ConstitutionalMonarchy column (court's Constitutional supplies it). The `war`/`grief`/`tax`/`tariff` cells are documentation. GOV columns 7–11 carry those hooks.
+- **R14 and stale numbers.** OrderKind **62–64**, DecisionKind **47–49** (not 41–43 / 27–29). FP uses OrderKind 65–66, DecisionKind 50–51, Government 12–29, GovernmentCause 23–41 (not 16+ / 30+).
+- **D-dup 1.** With city-states on, `History.modernRegimes` is an extension table keyed to `History.governments` rows (franchise, contestation, stage), not a second form log.
+- `pairPeace` and `intervene` are C1 factors 5 and 6.

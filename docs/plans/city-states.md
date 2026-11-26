@@ -858,3 +858,10 @@ Florence, the Medici and the Hanse; no claim about those is made beyond what is 
 - Wikipedia, "Domini di Terraferma". https://en.wikipedia.org/wiki/Domini_di_Terraferma [verified: Venice's mainland hinterland; Mestre taken 1337, Treviso 1339]
 - Wikipedia, "House of Medici". https://en.wikipedia.org/wiki/House_of_Medici [verified: the historical pattern behind "House Medra" and "Florenza restores the republic": Cosimo's de facto rule from 1434, expulsions 1494 and 1527, returns 1512 and 1530, hereditary Duke of Florence 1532 (1531 in the page's own table), Grand Duchy 1569]
 - Ruler titles "Consul" (Republic) and "Burgomaster" (FreeCity) [unverified: chosen as design; no source opened for communal consuls or the burgomaster office]
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R10.** With `s.up !== null`, the burghers' rising draw (4.4) is kept, so G.rng stays aligned, but it no longer resolves. A hit adds a Commune trigger at the town (riots resolves through `govRisingResolve`). The charter branch is unchanged. Your gate, riots and court's estates rising share one `rose[i] = year` gate.
+- **R11.** For Monarchy and Signoria with court on, court's `REGIME` values replace `GOV` on every key both define (unrest/grief, reach, contest, overthrow). Without court, GOV applies.
+- **The GOV table is the single Government-indexed table.** MIR adds columns 7–11 and FP adds 12–29. GOV.war is factor 2 of C1, GOV.unrest is the form multiplier of C2, and GOV.reach is factor 1 of C4 (MASTER-PLAN §2.3).
+- **R38.** Event block 200–209 is yours: 200–205 used, 206–209 spare.

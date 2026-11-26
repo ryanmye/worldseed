@@ -969,3 +969,9 @@ bibliographic data (and the finding where one is quoted). **[verified-search]**,
 **Not sourced (design defaults, stated as such):** every β in KIND_BETA, the clamps, the Bass pB/qB, the ban/drive/flight constants,
 Henrich's N0/τH, the coal coverage, the wage proxy, the literacy weights, the cap and era weights, and all harness targets in 6.2–6.3
 except the literature anchors cited there.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R3.** Step 1 also widens `IdeaAdoptions.idea` to **Uint16** (contract, assemble, UI reader, cache version bump), with the G0 projection rule (MASTER-PLAN §2.1). §0.4's "future-tech must widen it" is stale.
+- **D-dup 8.** Export one `litProxy(s, p)` from `ideas/hooks.ts`: court's form × `(0.3 + 0.7·held(printing))`. Court, MIR, religious-evolution and migration use it when techTree is off.
+- **C5.** `ideaFarm` (yield, including future-tech's rows) is the supply factor, `ideaFamine` a death factor, `ideaFisc` the C8 capacity factor and `ideaCredit` a C9 factor.

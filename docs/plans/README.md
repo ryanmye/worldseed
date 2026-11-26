@@ -1,6 +1,7 @@
 # worldseed improvement plans (base commit 8cabf09)
 
-All plans are implementation-ready and self-contained. Shared rules, ID blocks and enum registry: `_CONVENTIONS.md`.
+**Start with `MASTER-PLAN.md`**: architecture, cross-plan rulings, the consolidated enum/ID registry (§3), phased roadmap, budgets, decisions and risks. Its rulings and each plan's `## Addendum (master plan)` override plan bodies.
+All plans are implementation-ready and self-contained. Shared rules: `_CONVENTIONS.md`.
 Every plan must keep its feature behind a `HistoryOptions` switch (off = bit-identical) and pass the realism scorecard (`realism-metrics.md`, scripts in `realism-scripts/`) off vs on.
 
 ## Build order
@@ -38,3 +39,5 @@ Dropped by owner (2026-11-26): walkable city view, async link multiplayer, predi
 - Cross-plan inconsistency: phone speed factor 3–5× (seat-mode) vs 1.5–3× (perf) — settle in integration review.
 
 Owner decision (2026-11-26): no extra verification pass; unverified citations are acceptable where the claim is plausible. Implementers should still check any [unverified] source before it sets a model constant.
+
+Owner decision (2026-11-26): platform = web + PWA now; native Apple shell dropped for now (no Xcode available); C++/Rust/native rebuild deferred — revisit after perf phase 1 with real-iPhone profiling (port single hotspots to WASM only if profiling shows one).

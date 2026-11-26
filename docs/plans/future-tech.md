@@ -955,3 +955,10 @@ Realism scorecard (realism-metrics.md) off vs on at 2000 years: identical (no fu
 ## Addendum (coordinator)
 Ownership resolved: infrastructure.md owns hub networks (air, rocket, gate); this plan unlocks them and sets per-mode costs/speeds. demography.md owns the demographic transition; step 4 here must use demography.md's model (keep the settlement-founding damp only if demography doesn't provide one). Owner decision pending: generalAI tier tag (Speculative vs Near).
 - Mirror of infrastructure.md §Interfaces: future-tech's `L_p` land multiplier moves onto rail/highway mode costs (edge-wide division skipped); its `sqrt(L_p)` reach factor is replaced by infrastructure's `infraHeld`; its air disease channel reads infrastructure's Air links; infrastructure's layers replace its air arcs; its `light` field is fed by infrastructure's per-settlement electrification. Infrastructure adopts future-tech's hub rule and `c_air` price.
+
+## Addendum (master plan)
+Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
+- **R13.** Displacement u_p is always grievance term 13 (RevoltCause 17) through riots' table (C2), with or without society. Drop "polity unrest += FUT.uUnrest·u_p".
+- **R16.** You own the fertility slot `F_p` (`fertMul`, C5) until demography.md exists. religious-evolution's `faithFertility` multiplies into it, with F·faith clamped to [0.15, 1.3].
+- **R27.** Stale body text: StructureType 12–20 are infrastructure's; `IdeaHow.Recovered` is **15** (§2.5.9 says 14); your seat orders take the next free values at build time (MASTER-PLAN §3.2).
+- **C1.** `deterMul` is the dyad factor 5. **C4:** your single reach multiplier is the network factor, with `√L_p` replaced by infrastructure's held share when it is on.
