@@ -5,6 +5,28 @@
 //   ... --from rows.jsonl aggregate earlier --json rows (any number of seeds) into the target table
 //   ... --opts '{"goods":false}'  HistoryOptions for the run (A/B of a feature against the targets)
 //   ... --from a.jsonl --vs b.jsonl   A/B: per-target medians and misses of B against A (the sibling plans' realism guard)
+//   ... --check ref.jsonl [--from rows.jsonl] [--tol 0.03] [--allow k1,k2]
+//                         the ratchet (MASTER-PLAN §2.7, §4.2): exit 1 if the candidate's score (rows from --from, else fresh
+//                         runs on ref's seeds) exceeds ref's by more than --tol (default 0.03), if any target is WORSE (mean
+//                         miss up > 0.1 band widths) and not in --allow, or if a ref seed has no row. Scores are recomputed
+//                         from the rows under the current TARGETS on both sides, so a band edit never fails it by itself.
+//   Full sweep (22 seeds, ~15-25 min on 2 cores): bash scripts/realism-sweep.sh out.jsonl 2 0
+//
+// Ratchet usage:
+//   - per PR (guard against current main; features ship default-off, so off = main by the off-identity rule):
+//       ... 1 7 42 1234 --json --opts '{"<feature>":false}' > off.jsonl;  ... same with true > on.jsonl
+//       ... --check off.jsonl --from on.jsonl [--allow <the plan's accepted trade-offs>]
+//   - phase exit (4-seed score <= the recomputed 8cabf09 baseline):  ... --check docs/realism-baseline.jsonl --tol 0
+//     (npm run realism:check runs it with the default tol; it runs the 4 sims, minutes on a loaded box)
+// Re-baselining docs/realism-baseline.jsonl (rows of the 8cabf09 history, --boot 0, seeds 1 7 42 1234):
+//   - a TARGETS band or label edit: no rerun. Update REALISM_BASELINE below to the score the test prints
+//     (npx vitest run src/sim/history/realismStats.test.ts) in the same commit, and state old -> new in the PR.
+//   - a new or changed measure: rerun on a tree where G0 holds, with every post-8cabf09 option off (default until R29 flips):
+//       node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts 1 7 42 1234 --json --opts '<all new
+//       options false>' > docs/realism-baseline.jsonl     (or bash scripts/realism-sweep.sh docs/realism-baseline.jsonl 2 0 1 7 42 1234)
+//     then update REALISM_BASELINE. The harness reads only 8cabf09 History fields, so those rows equal 8cabf09's.
+//   - moving the anchor itself (e.g. tightening it at a phase exit): coordinator decision, recorded in MASTER-PLAN §6.
+//   The 22-seed rows of the same history are in docs/realism-sweep22.jsonl (re-record with the sweep script, all 22 seeds).
 // Reports (realism-metrics.md section 3): Zipf rank-size of towns per era (CSN power-law MLE, not OLS on log-log), Gibrat's
 // law of town growth, Richardson's law of war severity (CSN) and war durations and onsets, polity lifespans (Arbesman) and
 // sizes (Taagepera), the largest state's share of people and land, faith shares, epidemic mortality, urbanisation, and a
@@ -19,6 +41,8 @@ import type { PowerLawFit } from './realismFit.ts'
 
 const R_KM = 6371
 export const REALISM_SEEDS = [1, 7, 42, 1234]
+/** The 22-seed sweep (realism-metrics.md section 0): the 4 named seeds and 18 more. scripts/realism-sweep.sh's default. */
+export const REALISM_SWEEP_SEEDS = [1, 7, 42, 1234, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 77, 99, 1337, 2024, 31337, 99999, 123456]
 export const ZIPF_YEARS = [500, 1000, 1500, 2000]
 const GIBRAT_ERAS: [number, number][] = [[500, 1000], [1000, 1500], [1500, 2000]]
 const GIBRAT_STEP = 50, GIBRAT_MIN = 1000
@@ -155,6 +179,7 @@ export function realism(h: History, w: World, boot = 0, seed = 0): Row {
     const peakPop = new Float64Array(NP), peakMem = new Int32Array(NP), peakTier = new Int8Array(NP), peakShare = new Float64Array(NP)
     const ppop = new Float64Array(NP), pmem = new Int32Array(NP)
     const largestPopShare = new Map<number, number>()
+    let largestPeak = 0, largestPeakYear = -1
     for (let q = 0; q < Q; q++) {
       ppop.fill(0); pmem.fill(0)
       for (let i = 0; i < S; i++) { const p = h.polity[q * S + i]; if (p < 0) continue; ppop[p] += pop(q, i); if (!out[i] && h.population[q * S + i] > 0) pmem[p]++ }
@@ -171,8 +196,13 @@ export function realism(h: History, w: World, boot = 0, seed = 0): Row {
       }
       const y = q * dt
       if (y % 100 === 0) largestPopShare.set(y, mx)
+      if (mx > largestPeak) { largestPeak = mx; largestPeakYear = y }
     }
     for (const y of CENTURIES) if (y <= h.years) row[`pol.largestPop${y}`] = largestPopShare.get(y) ?? 0
+    // MASTER-PLAN §2.7: the scored shares are at fixed years; the peak over every snapshot (unscored) is the number the
+    // Han/Rome/Qing peaks (30-37%) describe. Snapshots before the first state, or with no people, count 0.
+    row['pol.largestPopPeak'] = largestPeak
+    row['pol.largestPopPeakYear'] = largestPeakYear
     // Land: territory per land snapshot (owner settlement + 1) mapped to its polity at the matching snapshot.
     const L = h.landCells.length
     const peakArea = new Int32Array(NP), peakAreaYear = new Int32Array(NP).fill(-1)
@@ -334,13 +364,13 @@ export const TARGETS: [string, number, number, string][] = [
   ['lifeE.mean', 130, 350, 'Arbesman11 ~220y'],
   ['lifeK.mean', 100, 350, 'Arbesman11 (loose)'],
   ['lifeE.cv', 0.6, 1.4, 'Arbesman11 exponential'],
-  ['pol.largestPop1500', 0.15, 0.4, 'Han/Rome/Qing 25-35%'],
-  ['pol.largestPop2000', 0.15, 0.4, 'Han/Rome/Qing 25-35%'],
+  ['pol.largestPop1500', 0.15, 0.4, 'Han/Rome/Qing peaks 30-37%'],
+  ['pol.largestPop2000', 0.15, 0.4, 'Han/Rome/Qing peaks 30-37%'],
   ['pol.largestLand2000', 0.08, 0.25, 'Taagepera: Mongol 16%, British 24%'],
   ['faith2000.top1', 0.2, 0.4, 'Pew 2012: 31.5%'],
   ['faith2000.top4', 0.55, 0.9, 'Pew 2012: ~77%'],
-  ['epi.worstNet', 0.25, 0.55, 'Black Death 30-50%'],
-  ['epi.plagueWorstNet', 0.25, 0.55, 'Black Death 30-50%'],
+  ['epi.worstNet', 0.25, 0.6, 'Black Death 30-60%'],
+  ['epi.plagueWorstNet', 0.25, 0.6, 'Black Death 30-60%'],
   ['pop.worst50yFall', 0.08, 0.35, 'C14 Eurasia ~15-25% (approx)'],
   ['urb1500.u10', 0.03, 0.12, 'de Vries84: Europe 5.6%'],
   ['urb2000.u10', 0.05, 0.15, 'de Vries84: Europe 1800 10%'],
@@ -395,6 +425,62 @@ export function formatVs(a: Row[], b: Row[]): string {
   return L.join('\n')
 }
 
+// ---------------------------------------------------------------------------
+// Ratchet (MASTER-PLAN §2.7, §4.2). The committed baseline docs/realism-baseline.jsonl holds the 4-seed rows (--boot 0) of the
+// 8cabf09 history (any tree where G0 holds gives the same rows with default options: the harness reads only 8cabf09 fields).
+// REALISM_BASELINE is its score under the current TARGETS; realismStats.test.ts fails if the two drift apart, so a band edit
+// must re-record the number in the same commit.
+
+/** The committed baseline's score under the current TARGETS, recomputed with the MASTER-PLAN §2.7 bands: 0.399916 (it was
+ *  0.401521 under the old epi bands; the plan's quoted 0.404 does not reproduce from its own main4.jsonl rows). This is the
+ *  phase-exit cap (§4.2). */
+export const REALISM_BASELINE = { file: 'docs/realism-baseline.jsonl', seeds: REALISM_SEEDS, score: 0.399916, inRange: 45, total: 104 }
+/** The same history's 22-seed sweep (recorded, not a gate): 0.418184 (old bands 0.419233; the plan quoted 0.421). */
+export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seeds: REALISM_SWEEP_SEEDS, score: 0.418184, inRange: 212, total: 572 }
+
+/** Per-PR guard: the score may rise by at most this much over the reference (realism-metrics.md section 6). Phase exit uses 0. */
+export const REALISM_TOL = 0.03
+/** A target is WORSE when its mean miss over the seeds rises by more than this many band widths (as in formatVs). */
+export const REALISM_WORSE = 0.1
+
+export interface RealismCheck {
+  ok: boolean
+  /** Scores over the matched seeds, reference and candidate. */
+  base: number
+  score: number
+  tol: number
+  /** Seeds of the reference with no candidate row (any is a failure: the comparison would not be like for like). */
+  missing: number[]
+  /** Targets whose mean miss rose by more than REALISM_WORSE and are not in `allow`. */
+  worse: string[]
+  /** WORSE targets excused by `allow` (a plan's accepted trade-offs, listed in its PR). */
+  allowed: string[]
+  report: string
+}
+
+/** Compares candidate rows against reference rows (matched by seed): fails if the score rises by more than `tol`, if any
+ *  target is WORSE unless it is in `allow`, or if a reference seed has no candidate row. Pure: no sim runs. */
+export function realismCheck(base: Row[], rows: Row[], tol = REALISM_TOL, allow: string[] = []): RealismCheck {
+  const bySeed = new Map(rows.map((r) => [r.seed, r]))
+  const missing = base.filter((r) => !bySeed.has(r.seed)).map((r) => r.seed)
+  const pa = base.filter((r) => bySeed.has(r.seed)), pb = pa.map((r) => bySeed.get(r.seed)!)
+  const worse: string[] = [], allowed: string[] = []
+  for (const [k, lo, hi] of TARGETS) {
+    if (pa.length === 0) break
+    const ma = pa.reduce((s, r) => s + miss(r[k], lo, hi), 0) / pa.length, mb = pb.reduce((s, r) => s + miss(r[k], lo, hi), 0) / pb.length
+    if (mb > ma + REALISM_WORSE) (allow.includes(k) ? allowed : worse).push(k)
+  }
+  const sa = pa.length ? realismScore(pa).score : NaN, sb = pb.length ? realismScore(pb).score : NaN
+  const ok = pa.length > 0 && missing.length === 0 && worse.length === 0 && sb <= sa + tol + 1e-12
+  const L = [pa.length ? formatVs(pa, pb) : 'no seeds in common']
+  if (missing.length) L.push(`FAIL: no candidate row for reference seed(s) ${missing.join(' ')}`)
+  if (worse.length) L.push(`FAIL: WORSE (mean miss up > ${REALISM_WORSE} band widths): ${worse.join(', ')}`)
+  if (allowed.length) L.push(`allowed WORSE (--allow): ${allowed.join(', ')}`)
+  if (sb > sa + tol + 1e-12) L.push(`FAIL: score ${sb.toFixed(3)} > reference ${sa.toFixed(3)} + tol ${tol}`)
+  L.push(ok ? `realism check OK: ${sa.toFixed(3)} -> ${sb.toFixed(3)} (tol ${tol}, ${pa.length} seeds)` : 'realism check FAILED')
+  return { ok, base: sa, score: sb, tol, missing, worse, allowed, report: L.join('\n') }
+}
+
 /** Every key, per seed (the detail printout). */
 export function formatDetail(rows: Row[]): string {
   const keys = Object.keys(rows[0]).filter((k) => k !== 'seed')
@@ -431,12 +517,23 @@ if (typeof import.meta !== 'undefined' && (import.meta as { main?: boolean }).ma
   const boot = Number(val('--boot') ?? 0)
   const from = val('--from')
   const opts = val('--opts') ? (JSON.parse(val('--opts')!) as HistoryOptions) : {}
+  if (typeof opts !== 'object' || opts === null || Array.isArray(opts)) throw new Error(`--opts must be a JSON object of HistoryOptions, got ${val('--opts')}`)
   const vs = val('--vs')
   const skip = new Set([val('--boot'), from, val('--opts'), vs].filter((x) => x !== undefined))
   // node:fs only on the CLI path (the module itself stays browser-safe; tsconfig has no node types).
   const fs = (await import('node:' + 'fs')) as { readFileSync: (p: string, e: string) => string }
   const load = (f: string): Row[] => parseRows(fs.readFileSync(f, 'utf8'))
-  if (from && vs) console.log(formatVs(load(from), load(vs)))
+  const check = val('--check')
+  if (check !== undefined) {
+    // Ratchet: candidate rows from --from, else fresh runs on the reference's seeds (or the seeds given), against the reference.
+    skip.add(check); skip.add(val('--tol') ?? ''); skip.add(val('--allow') ?? '')
+    const base = load(check)
+    const given = argv.filter((a) => !a.startsWith('--') && !skip.has(a)).map(Number)
+    const rows = from ? load(from) : runRealismStats(given.length ? given : base.map((r) => r.seed), boot, opts)
+    const c = realismCheck(base, rows, Number(val('--tol') ?? REALISM_TOL), (val('--allow') ?? '').split(',').filter(Boolean))
+    console.log(c.report)
+    ;(globalThis as { process?: { exitCode?: number } }).process!.exitCode = c.ok ? 0 : 1
+  } else if (from && vs) console.log(formatVs(load(from), load(vs)))
   else {
     const seeds = argv.filter((a) => !a.startsWith('--') && !skip.has(a)).map(Number)
     const json = flag('--json')

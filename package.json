@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run --exclude '.claude/**'",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "realism:check": "node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts --check docs/realism-baseline.jsonl"
   },
   "devDependencies": {
     "@types/three": "^0.186.0",
