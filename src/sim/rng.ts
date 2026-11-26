@@ -107,8 +107,19 @@ export function sfc32(a: number, b: number, c: number, d: number): Rng {
   return rng
 }
 
+let streamLog: string[] | null = null
+
+/**
+ * Test hook (rng.test.ts, the stream-list test, MASTER-PLAN §3.4): while a log is set, every createRng call appends its
+ * stream name to it. Pass null to stop. Draws are unaffected.
+ */
+export function logStreams(log: string[] | null): void {
+  streamLog = log
+}
+
 /** Independent stream for one subsystem of one world. */
 export function createRng(worldSeed: number, stream: string): Rng {
+  if (streamLog !== null) streamLog.push(stream)
   const s = seedToU32(worldSeed)
   const k = hashString(stream)
   return sfc32(mix32(s ^ k), mix32(s + 0x6d2b79f5), mix32(k + 0x1b873593), mix32(s ^ (k >>> 1) ^ 0xcc9e2d51))
