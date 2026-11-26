@@ -114,6 +114,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   const kindSel = el('select', 'ng-select')
   kindSel.setAttribute('aria-label', 'What to urge')
   for (const k of ORDER_KINDS) {
+    if (k.reserved) continue // (placeholder rows of later plans, R40)
     const o = el('option', '', k.label)
     o.value = String(k.kind)
     kindSel.appendChild(o)
@@ -189,7 +190,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   let layer: NudgeLayer | null = null
   let knownMask: Float32Array | null = null
   let kind = Number(loadPref(KIND_KEY) ?? '0')
-  if (!(kind >= 0 && kind < ORDER_KINDS.length)) kind = 0
+  if (!(kind >= 0 && kind < ORDER_KINDS.length) || ORDER_KINDS[kind].reserved) kind = 0
   kindSel.value = String(kind)
   /** The target chosen per kind (-1 none). */
   const targets = new Array<number>(ORDER_KINDS.length).fill(-1)

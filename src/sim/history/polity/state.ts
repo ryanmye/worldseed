@@ -20,6 +20,7 @@ import { COHESION, FORT, POLITY, UNREST } from './params.ts'
 import { armsQuality } from '../goods/hooks.ts' // goods:
 import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
+import { c4Reach } from '../compose.ts' // C4 stack
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -635,7 +636,7 @@ export function reachOf(s: HistoryState, p: number, people: number, members: num
   const crafts = s.tech[people * TECH_FIELD_COUNT + TechField.Crafts]
   void p
   const r = (POLITY.lambda0 * s.terrain.cellScale * (1 + POLITY.reachCrafts * (crafts - 1))) / Math.sqrt(1 + members / POLITY.overload)
-  return s.ideas !== null ? r * ideaAdmin(s.ideas, people) : r // ideas: writing, law codes, roads, paper
+  return c4Reach(s.ideas !== null ? r * ideaAdmin(s.ideas, people) : r) // ideas: writing, law codes, roads, paper; C4 (compose.ts)
 }
 
 /** True while polity p is in a succession crisis. */

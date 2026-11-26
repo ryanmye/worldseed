@@ -107,9 +107,30 @@ export function sfc32(a: number, b: number, c: number, d: number): Rng {
   return rng
 }
 
+let streamLog: string[] | null = null
+
+/**
+ * Test hook (rng.test.ts, the stream-list test, MASTER-PLAN §3.4): while a log is set, every createRng call appends its
+ * stream name to it. Pass null to stop. Draws are unaffected.
+ */
+export function logStreams(log: string[] | null): void {
+  streamLog = log
+}
+
 /** Independent stream for one subsystem of one world. */
 export function createRng(worldSeed: number, stream: string): Rng {
+  if (streamLog !== null) streamLog.push(stream)
   const s = seedToU32(worldSeed)
   const k = hashString(stream)
   return sfc32(mix32(s ^ k), mix32(s + 0x6d2b79f5), mix32(k + 0x1b873593), mix32(s ^ (k >>> 1) ^ 0xcc9e2d51))
+}
+
+/**
+ * Counter-based uniform noise in [0, 1) (MASTER-PLAN D-dup 10; riots §0.5): mix32(seed ^ mix32(key + 0x9e3779b9)) / 2^32.
+ * No stream, no state: the same (seed, key) always gives the same number, so it never shifts any stream's draws. `seed` and
+ * `key` are taken as 32-bit integers (ToInt32): pass seedToU32(world.seed) (or a seed mixed with an id, e.g.
+ * seed ^ p * 7919) and an integer key (floor a year / 5 before passing it).
+ */
+export function hash01(seed: number, key: number): number {
+  return mix32(seed ^ mix32(key + 0x9e3779b9)) / 4294967296
 }

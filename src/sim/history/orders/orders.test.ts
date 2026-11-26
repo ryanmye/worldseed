@@ -166,7 +166,7 @@ describe('orders', () => {
     // Junk is skipped: unknown kinds, fractions, a missing target.
     expect(decodeOrders('1500:explore:3;12:nope:1:2;1.5:war:1:2;1600:WAR:7:9;;x')).toEqual([{ year: 1600, kind: OrderKind.War, actor: 7, target: 9 }])
     // Every kind round-trips.
-    for (const k of describeOrderKinds()) {
+    for (const k of describeOrderKinds().filter((x) => !x.reserved)) {
       const o: Order = k.target === OrderRole.None ? { year: 10, kind: k.kind, actor: 2 } : { year: 10, kind: k.kind, actor: 2, target: 4 }
       expect(decodeOrders(encodeOrders([o]))).toEqual([o])
     }
@@ -176,8 +176,9 @@ describe('orders', () => {
   it('describes the order kinds and checks feasibility from a History', () => {
     const K = describeOrderKinds()
     expect(K.length).toBe(ORDER_KIND_COUNT)
-    K.forEach((k, i) => { expect(k.kind).toBe(i); expect(k.years).toBeGreaterThan(0); expect(k.label.length).toBeGreaterThan(0) })
-    expect(new Set(K.map((k) => k.key)).size).toBe(K.length)
+    K.forEach((k, i) => { expect(k.kind).toBe(i); if (!k.reserved) { expect(k.years).toBeGreaterThan(0); expect(k.label.length).toBeGreaterThan(0) } })
+    const live = K.filter((k) => !k.reserved)
+    expect(new Set(live.map((k) => k.key)).size).toBe(live.length)
     const w = world(3)
     const h = simulateHistory(w, { years: 1100 })
     const orders = ordersOf3()
@@ -196,4 +197,15 @@ describe('orders', () => {
     expect(ho.orderOutcomes?.[0].reason).toBe(OrderReason.SystemOff)
     expect(hashPreOrders(ho)).toBe(hashPreOrders(off))
   }, 400_000)
+
+  it('a reserved kind (R40 placeholder) fails at once with SystemOff and changes nothing else', () => {
+    const w = world(3)
+    const base = simulateHistory(w, { years: 120 })
+    const o = { year: 60, kind: 30 as OrderKind, actor: 0, target: 1 }
+    expect(orderFeasible(base, o, 60)).toBe(OrderReason.SystemOff)
+    const h = simulateHistory(w, { years: 120, orders: [o] })
+    expect(h.orderOutcomes?.[0].status).toBe(OrderStatus.Failed)
+    expect(h.orderOutcomes?.[0].reason).toBe(OrderReason.SystemOff)
+    expect(hashPreOrders(h)).toBe(hashPreOrders(base))
+  }, 120_000)
 })

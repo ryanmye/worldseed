@@ -42,6 +42,7 @@ import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
 import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
 import { rulerYear } from '../rulers/system.ts' // rulers:
+import { c8Tax } from '../compose.ts' // C8 stack
 
 let mapHeap: Heap | null = null
 
@@ -212,7 +213,7 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
     const pid = s.pop[id]
     s.food[id] = s.supply[id] >= pid ? 1 : s.supply[id] / pid
     inFood[cap] += tax
-    const w = wt * g * s.wealth[id]
+    const w = c8Tax(wt * g * s.wealth[id]) // C8 (compose.ts): the tax take
     s.wealth[id] -= w
     s.wealth[cap] += w
     if (s.harvest[s.weatherRegion[s.cell[id]]] < UNREST.badHarvest) ps.badTax[id] = 1

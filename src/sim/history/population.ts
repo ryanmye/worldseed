@@ -30,6 +30,7 @@ import { stored } from './storage.ts' // species-v2
 import { harvestLeft } from './polity/system.ts' // polities:
 import { toolFarm } from './goods/hooks.ts' // goods:
 import { ideaFarm } from './ideas/hooks.ts' // ideas:
+import { c5Growth, c5Harvest, c5Shortfall, c5Supply } from './compose.ts' // C5 stack
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -172,10 +173,10 @@ export function foodSystem(s: HistoryState): void {
       s.liveFrac[id] = perLive / perStrength
     }
     const expected = perStrength * stm
-    let h = s.harvest[s.weatherRegion[c]]
+    let h = c5Harvest(s.harvest[s.weatherRegion[c]]) // C5 (compose.ts): the harvest
     if (h < 1) h = stored(h, sp.damp[id]) // species-v2: drought sensitivity and stores of its staples (storage.ts)
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
-    const supply = s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h // polities: fields ravaged by war
+    const supply = c5Supply(s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h) // polities: fields ravaged by war; C5 (compose.ts): the supply
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p
@@ -192,9 +193,9 @@ export function populationSystem(s: HistoryState): void {
     const p = s.pop[id]
     const sup = s.supply[id]
     if (sup >= p) {
-      s.pop[id] = p + P.growth * p * (1 - p / sup)
+      s.pop[id] = p + c5Growth(P.growth) * p * (1 - p / sup) // C5 (compose.ts): growth
     } else {
-      const lost = P.famineMortality * (p - sup)
+      const lost = c5Shortfall(P.famineMortality) * (p - sup) // C5 (compose.ts): shortfall deaths
       s.pop[id] = p - lost
       const frac = lost / p
       if (s.food[id] < P.famineRatio && frac >= P.famineLoss && p >= P.famineMinPop && s.year - s.lastFamine[id] >= P.famineCooldown) {

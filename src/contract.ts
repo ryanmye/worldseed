@@ -1901,7 +1901,11 @@ export const OrderKind = {
   Quarantine: 9, // a port (actor: settlement id) is urged to hold incoming ships in quarantine
 } as const
 export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind]
-export const ORDER_KIND_COUNT = 10
+/**
+ * Rows in the order-kind table (describeOrderKinds), live and reserved: 0–9 live, 10–83 reserved placeholders that later
+ * plans replace in place (MASTER-PLAN §3.2, R40). The table is array-indexed by kind, so it stays contiguous.
+ */
+export const ORDER_KIND_COUNT = 84
 
 /** One nudge. `year` >= 1 (earlier years act at year 1); `target` per kind (describeOrderKinds), absent or -1 when the kind takes none. */
 export interface Order {
@@ -1987,6 +1991,36 @@ export interface OrderKindInfo {
   years: number
   /** What it does, in a sentence (for the UI). */
   effect: string
+  /**
+   * A reserved placeholder (MASTER-PLAN R40): no encode key, years 0, never offered by the UI; given, it fails at once with
+   * OrderReason.SystemOff. Its owner replaces the row (the only allowed edit of the table, §8.6).
+   */
+  reserved?: true
+  /** The plan and the name it reserves the row for (registry §3.2), on reserved rows only. */
+  reservedFor?: string
+}
+
+/** The reserved order-kind rows 10–83 by owner and planned name (MASTER-PLAN §3.2; "" where the owner has not named it). */
+const RESERVED_ORDER_KINDS: readonly (readonly [string, readonly string[]])[] = [
+  ['seat-mode', ['Choice', 'Repudiate', 'Defy', 'Submit', 'Ally', 'Marry', 'Designate', 'Placate', 'Purge', 'Borrow', 'Levy', 'Charter', 'Betray']], // 10–22
+  ['seat-mode (Family seat follow-ups)', ['', '', '', '', '', '', '']], // 23–29
+  ['riots', ['Crackdown', 'Relief', 'Tolerate']], // 30–32
+  ['court-politics', ['SummonEstates', 'Appoint', 'Dismiss', 'Favour', 'Arrest', 'Reform']], // 33–38
+  ['tech-tree', ['BanIdea', 'InviteExperts']], // 39–40
+  ['character-mode', ['PChoice', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']], // 41–58
+  ['migration', ['Gates', 'Asylum', 'Amnesty']], // 59–61
+  ['modern-ideologies', ['Franchise', 'Sponsor', 'Censor']], // 62–64
+  ['future-politics', ['Constitute', 'Unplug', '']], // 65–67
+  ['infrastructure', ['BuildLine', 'FundWaterworks', 'Nationalise']], // 68–70
+  ['world-builder-divine', ['Portent', 'Heal', 'Feed', 'Bounty', 'Storm', 'Flood', 'Pestilence', 'Strike', 'Inspire', 'Prophet', 'Bless', 'Curse']], // 71–82
+  ['religious-evolution', ['Council']], // 83
+]
+
+function reservedRows<T>(first: number, groups: readonly (readonly [string, readonly string[]])[], row: (kind: number, reservedFor: string) => T): T[] {
+  const out: T[] = []
+  let k = first
+  for (const [owner, names] of groups) for (const n of names) out.push(row(k++, n ? `${owner}: ${n}` : owner))
+  return out
 }
 
 const ORDER_KINDS: readonly OrderKindInfo[] = [
@@ -2000,11 +2034,56 @@ const ORDER_KINDS: readonly OrderKindInfo[] = [
   { kind: OrderKind.Faith, key: 'faith', label: 'Take up a faith', actor: OrderRole.Polity, target: OrderRole.Faith, years: 40, effect: 'The ruler leans toward a universal faith already followed in the realm.' },
   { kind: OrderKind.Fortify, key: 'fortify', label: 'Fortify', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The town raises walls even without danger, if it has the people.' },
   { kind: OrderKind.Quarantine, key: 'quarantine', label: 'Quarantine', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The port holds incoming ships in quarantine, if its people knows how and can pay.' },
+  // (10–83: reserved placeholders, R40; a plan replaces its own rows with live ones)
+  ...reservedRows(10, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
+    kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
+  })),
 ]
 
-/** The order kinds with their labels, the roles of actor and target, and how long each stays in force (a fresh copy). */
+/** The order kinds with their labels, the roles of actor and target, and how long each stays in force (a fresh copy; reserved rows included, flagged). */
 export function describeOrderKinds(): OrderKindInfo[] {
   return ORDER_KINDS.map((x) => ({ ...x }))
+}
+
+/** True for a kind with a reserved placeholder row (MASTER-PLAN R40), or no row at all. */
+export function orderKindReserved(kind: number): boolean {
+  const info = ORDER_KINDS[kind]
+  return info === undefined || info.reserved === true
+}
+
+/** A row of the seat-decision table (seat-mode §3.5 `DecisionKind`), array-indexed by kind. */
+export interface DecisionKindInfo {
+  kind: number
+  /** Short key and label (filled by the owning plan). */
+  key: string
+  label: string
+  /** A reserved placeholder (MASTER-PLAN R40): never triggered. Its owner replaces the row (§8.6). */
+  reserved?: true
+  /** The plan and the name it reserves the row for (registry §3.2), on reserved rows only. */
+  reservedFor?: string
+}
+
+/** The reserved decision-kind rows 0–54 by owner and planned name (MASTER-PLAN §3.2). */
+const RESERVED_DECISION_KINDS: readonly (readonly [string, readonly string[]])[] = [
+  ['seat-mode', ['WarOnUs', 'Opening', 'Heir', 'Crisis', 'AllianceMade', 'AllianceSought', 'Overlord', 'Match', 'General', 'Plague', 'Faith', 'Revolt', 'Credit', 'Charter', 'Betrayal', 'Frontier', 'Crop', 'Idea']], // 0–17
+  ['court-politics', ['Estates', 'Council', 'Office', 'Plot', 'Reform', 'Regency', 'Exile']], // 18–24
+  ['tech-tree', ['BanIdea', 'InviteExperts']], // 25–26
+  ['character-mode', ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']], // 27–44
+  ['migration', ['Borders', 'Refugees']], // 45–46
+  ['modern-ideologies', ['Franchise', 'RevolutionAbroad', 'ArmyDemands']], // 47–49
+  ['future-politics', ['Mandate', 'Exit', '']], // 50–52
+  ['infrastructure', ['Infrastructure']], // 53
+  ['religious-evolution', ['Doctrine']], // 54
+]
+
+/** Rows in the decision-kind table: 0–54, all reserved until seat-mode and the other owners fill theirs (R40). */
+export const DECISION_KIND_COUNT = 55
+
+const DECISION_KINDS: readonly DecisionKindInfo[] = reservedRows(0, RESERVED_DECISION_KINDS, (kind, reservedFor): DecisionKindInfo => ({ kind, key: '', label: '', reserved: true, reservedFor }))
+
+/** The seat-decision kinds (a fresh copy; reserved rows included, flagged). */
+export function describeDecisionKinds(): DecisionKindInfo[] {
+  return DECISION_KINDS.map((x) => ({ ...x }))
 }
 
 /** Orders sorted by year (ties keep their list order): the order the simulation applies them in. A new array of the same objects. */
@@ -2021,7 +2100,7 @@ export function sortOrders(orders: readonly Order[]): Order[] {
 export function encodeOrders(orders: readonly Order[]): string {
   return orders.map((o) => {
     const k = ORDER_KINDS[o.kind]
-    const head = `${Math.floor(o.year)}:${k ? k.key : String(o.kind)}:${Math.floor(o.actor)}`
+    const head = `${Math.floor(o.year)}:${k && k.key ? k.key : String(o.kind)}:${Math.floor(o.actor)}`
     return o.target !== undefined && o.target >= 0 ? `${head}:${Math.floor(o.target)}` : head
   }).join(';')
 }
@@ -2034,7 +2113,7 @@ export function decodeOrders(text: string): Order[] {
     const f = item.trim().split(':')
     if (f.length < 3 || f.length > 4 || !int.test(f[0]) || !int.test(f[2]) || (f.length === 4 && !int.test(f[3]))) continue
     const key = f[1].toLowerCase()
-    const info = ORDER_KINDS.find((k) => k.key === key)
+    const info = key ? ORDER_KINDS.find((k) => k.key === key && !k.reserved) : undefined
     if (!info) continue
     const o: Order = { year: Number(f[0]), kind: info.kind, actor: Number(f[2]) }
     if (f.length === 4 && info.target !== OrderRole.None) o.target = Number(f[3])
@@ -2053,6 +2132,7 @@ export function decodeOrders(text: string): Order[] {
 export function orderFeasible(h: History, order: Order, year: number): OrderReason {
   const info = ORDER_KINDS[order.kind]
   if (!info) return OrderReason.NoTarget
+  if (info.reserved) return OrderReason.SystemOff // (a reserved kind, R40: no plan fills it yet)
   const y = (year < 1 ? 1 : year) - 1 // (an order given at a year acts on the world as it stood at the end of the year before)
   const N = h.capacity.length
   const S = h.settlements.length
