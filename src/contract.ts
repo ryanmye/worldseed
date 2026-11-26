@@ -235,6 +235,17 @@ export const EventType = {
   OrderFailed: 172, // order `value` failed: `settlement` the actor's seat (or -1); `other` -1; `extra` the OrderReason
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
+  // seat: the player's seat (seat-mode §3.7; 270-279; none when HistoryOptions.seat is undefined).
+  SeatTaken: 270, // the player took the seat (HistoryOptions.seat) at its year: `settlement` the seat polity's capital (or the people's largest town); `other` -1; `value` the seat's id; `extra` the SeatKind
+  SeatPassed: 271, // the seat passed to the polity `value` ruled from `settlement`: `other` the old capital (-1); `extra` how: 0 the house's other throne, 1 a partition heir's share, 2 the pretender's realm (civil war), 3 a seceded realm of the same house
+  SeatLost: 272, // the seat ended: `settlement` its last capital; `other` the conqueror's capital or -1; `value` the seat's id; `extra` the SeatEnd (0 realm conquered or absorbed, 1 house ended, 2 people gone, 3 overthrown with no throne left)
+  AmbitionFulfilled: 273, // the seat achieved ambition `value` (AmbitionKind) at `settlement` (its capital then); `other` -1; `extra` the years since the seat was taken
+  HeirNamed: 274, // the ruler `value` (History.rulers) of the polity ruled from `settlement` named an heir by order; `other` -1; `extra` the heir's birth year (seat step 8)
+  CourtPlacated: 275, // the court ruled from `settlement` bought off its restive (a general, magnates, rebels): `other` -1; `value` the polity id; `extra` the wealth spent (seat step 8)
+  GeneralPurged: 276, // the ruler of the polity ruled from `settlement` moved against a too-popular general: `value` the polity id; `other` -1; `extra` 0 purged, 1 the general struck first (seat step 8)
+  BondRenounced: 277, // the polity ruled from `settlement` renounced its bond with the one ruled from `other` by order: `value` the other polity's id; `extra` the BondKind (+16 when a marriage tie was ended with it) (seat step 9)
+  TributeOffered: 278, // the polity ruled from `settlement` bought peace in war `value` (History.wars) with tribute to the one ruled from `other`; `extra` the years of tribute (seat step 9)
+  LevyRaised: 279, // the crown ruled from `settlement` raised an extraordinary levy by order (the proxy without finances): `value` the polity id; `other` -1; `extra` the wealth raised (seat step 13)
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
@@ -546,6 +557,8 @@ export interface History {
   cradlePlaced?: Uint8Array
   /** Per people: 1 when another wished people began within sight of it (kept, but noted), else 0. */
   cradleCrowded?: Uint8Array
+  /** seat: the player's seat, the polity it held year by year and the decisions offered (absent when HistoryOptions.seat is undefined). */
+  seat?: SeatHistory
 }
 
 /**
@@ -1465,6 +1478,14 @@ export interface HistoryOptions {
    * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
    */
   cradles?: number[]
+  /**
+   * seat: the player's seat (seat-mode), part of the simulation's input like the seed and the orders (see SeatOptions). Default
+   * none: undefined gives exactly the history without a seat (History.seat absent). With a seat and no orders, every field but
+   * History.seat and the seat events 270-279 is identical to the run without one: the seat follows history and the watcher that
+   * offers decisions reads the state and draws nothing. The player's choices come in as orders (OrderKind.Choice and the kinds of
+   * the option chosen). encodeSeat / decodeSeat give the URL form.
+   */
+  seat?: SeatOptions
 }
 
 /**
@@ -2063,6 +2084,163 @@ export function orderKindReserved(kind: number): boolean {
   return info === undefined || info.reserved === true
 }
 
+// ---------------------------------------------------------------------------
+// seat: "Take a throne" (seat-mode). The player holds a seat; after each year a watcher (pure reads, no draws) looks for a
+// decision point and records a decision with 2-4 options, each a list of orders for the next year. The run pauses there (the
+// worker), the player picks, and the orders are appended live (HistoryRun.addOrders). A URL replay (seed, seat, orders) is one
+// run from year 0 that gives the same decisions.
+
+/** What the player rules in seat mode (HistoryOptions.seat). */
+export const SeatKind = {
+  People: 0, // a people (History.peoples id): its largest polity when it has one, else its towns (people orders only)
+  Polity: 1, // a polity (History.polities id); passes to a successor of its own house when it ends (SeatPassed), else is lost
+  House: 2, // a ruling house (History.dynasties id): the largest realm it rules; lost when the house ends (DynastyEnded)
+  Family: 3, // a merchant family (merchant-families plan): later (seat step 15)
+  Person: 4, // a person (character-mode): later
+} as const
+export type SeatKind = (typeof SeatKind)[keyof typeof SeatKind]
+
+/** How a seat ended (the `extra` of SeatLost). */
+export const SeatEnd = {
+  Conquered: 0, // its realm was conquered or absorbed, with no throne of the house left
+  HouseEnded: 1, // the house ended (DynastyEnded)
+  PeopleGone: 2, // the people died out
+  Overthrown: 3, // the house was overthrown and holds no throne
+} as const
+export type SeatEnd = (typeof SeatEnd)[keyof typeof SeatEnd]
+
+/** Ambitions the player may set (SeatOptions.ambitions), judged yearly while the seat is held; they change nothing in the run. */
+export const AmbitionKind = {
+  Endure: 0, // hold the seat for SEAT.endureYears (300) years from its year
+  Unify: 1, // rule >= 80% of the settled people of the capital's landmass, with >= 5 member towns, for 10 years running
+  Faith: 2, // a universal faith founded in a member town, or the state faith's holy city in the realm
+  Riches: 3, // the richest realm (the sum of member wealth) for 25 years running
+  Union: 4, // the house holds two thrones at once (a personal union, or two realms ruled by it)
+  Monument: 5, // a great landmark completed in the capital while the seat is held
+} as const
+export type AmbitionKind = (typeof AmbitionKind)[keyof typeof AmbitionKind]
+/** AmbitionKind rows 0-5 (seat); 6-15 character-mode (registry §3.2). */
+export const AMBITION_KIND_COUNT = 6
+
+/** seat: the player's seat, part of the simulation's input like the seed and the orders (HistoryOptions.seat). */
+export interface SeatOptions {
+  kind: SeatKind
+  id: number
+  /** The year the player takes the seat (decisions from the year after it; nothing changes before). */
+  from: number
+  /** AmbitionKind values the player set out to achieve (judged only; they change nothing in the run). */
+  ambitions?: number[]
+}
+
+/** The kinds of decision a seat is offered (the rows of describeDecisionKinds; History.seat.decisions.kind). */
+export const DecisionKind = {
+  WarOnUs: 0, // a neighbour declared war on the seat's realm
+  Opening: 1, // a contacted neighbour is weak (a succession crisis, civil war or regency) and the realm is stronger at the border
+  Heir: 2, // the ruler is old, or the succession may be contested (seat step 8)
+  Crisis: 3, // a succession crisis or a regency at home (seat step 8)
+  AllianceMade: 4, // an alliance was made with the realm as a party (seat step 9)
+  AllianceSought: 5, // a common threat: an alliance could be sought (seat step 9)
+  Overlord: 6, // the realm became a vassal or a tributary (seat step 9)
+  Match: 7, // a royal match is possible (seat step 8)
+  General: 8, // a too-popular general (seat step 8)
+  Plague: 9, // a great epidemic struck a town of the realm
+  Faith: 10, // a universal faith holds a large share of the realm but not the ruler
+  Revolt: 11, // a revolt broke out in a town of the realm
+  Credit: 12, // the treasury is short (state-finances; seat step 13)
+  Charter: 13, // a town demands a charter (city-states; seat step 13)
+  Betrayal: 14, // an ally could make a separate peace (grudges; seat step 13)
+  Frontier: 15, // an expedition came home with news of new land
+  Crop: 16, // a contacted people holds a crop or herd the seat's people lacks and could grow
+  Idea: 17, // a contacted people took up or conceived an idea the seat's people lacks and could hold
+} as const
+export type DecisionKind = (typeof DecisionKind)[keyof typeof DecisionKind]
+
+/** The options a decision offers (History.seat.decisions.optKey). */
+export const SeatOptionKey = {
+  FightOn: 0, SuePeace: 1, OfferTribute: 2, SeekAlly: 3, Strike: 4, StayOut: 5, OfferMatch: 6, NameHeir: 7, LawDecides: 8,
+  Placate: 9, CrushPretender: 10, Endure: 11, Honour: 12, Renounce: 13, Pay: 14, Defy: 15, Arrange: 16, Decline: 17, Purge: 18,
+  Ignore: 19, Quarantine: 20, MoveCourt: 21, Embrace: 22, KeepWays: 23, Fortify: 24, Crush: 25, Borrow: 26, Levy: 27,
+  Retrench: 28, Grant: 29, Refuse: 30, SeparatePeace: 31, StandBy: 32, Settle: 33, ExploreOn: 34, Stay: 35, TakeUp: 36, Seek: 37,
+} as const
+export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
+
+/** seat: the decisions offered to the player, struct-of-arrays in order (History.seat.decisions). */
+export interface SeatDecisions {
+  count: number
+  /** Year of the decision (its orders act from year + 1); the DecisionKind; the seat polity then (-1); the subject (polity, town, faith, species, idea or cell, per kind); the settlement it is told at. */
+  year: Int32Array
+  kind: Uint8Array
+  polity: Int32Array
+  subject: Int32Array
+  place: Int32Array
+  /** Options of decision d: optStart[d] .. optStart[d + 1] - 1, each an option key (SeatOptionKey) and its orders orderStart[o] .. orderStart[o + 1] - 1 (kind, actor, target; year is year[d] + 1). */
+  optStart: Uint32Array
+  optKey: Uint8Array
+  orderStart: Uint32Array
+  orderKind: Uint8Array
+  orderActor: Int32Array
+  orderTarget: Int32Array
+  /** The option chosen (from the Choice orders given at year + 1), -1 when none was (no card answered: the court's own course). */
+  chosen: Int8Array
+}
+
+/** seat: (absent when HistoryOptions.seat is undefined). */
+export interface SeatHistory {
+  seat: SeatOptions
+  /** Per year from seat.from to years: the polity the seat held (-1 none): polityAt[y - seat.from]. */
+  polityAt: Int32Array
+  /** Per year from seat.from to years: the people of the seat (its capital's, or the People seat itself; -1 gone): the fog's knower. */
+  peopleAt: Int32Array
+  decisions: SeatDecisions
+  /** Per AmbitionKind asked (seat.ambitions, in order): the year fulfilled, -1 not (yet). */
+  ambitionYear: Int32Array
+  /** The year the seat was lost, -1 while held. */
+  lostYear: number
+}
+
+/** The orders of option o of decision d (year d's year + 1), with the Choice record first (actor: the seat's people, target d * 8 + option). */
+export function decisionOrders(h: History, d: number, option: number): Order[] {
+  const D = h.seat?.decisions
+  if (!D || d < 0 || d >= D.count) return []
+  const o0 = D.optStart[d], o1 = D.optStart[d + 1]
+  if (option < 0 || o0 + option >= o1) return []
+  const year = D.year[d] + 1
+  const people = h.seat!.peopleAt[D.year[d] - h.seat!.seat.from] ?? -1
+  const out: Order[] = [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + option }]
+  const o = o0 + option
+  for (let k = D.orderStart[o]; k < D.orderStart[o + 1]; k++) {
+    const x: Order = { year, kind: D.orderKind[k] as OrderKind, actor: D.orderActor[k] }
+    if (D.orderTarget[k] >= 0) x.target = D.orderTarget[k]
+    out.push(x)
+  }
+  return out
+}
+
+const SEAT_KEYS = ['people', 'polity', 'house', 'family', 'person']
+
+/** URL form of a seat: `kind:id:from[:amb=a.b.c]`, e.g. `house:12:1180:amb=0.1`. */
+export function encodeSeat(seat: SeatOptions): string {
+  const head = `${SEAT_KEYS[seat.kind] ?? String(seat.kind)}:${Math.floor(seat.id)}:${Math.floor(seat.from)}`
+  return seat.ambitions && seat.ambitions.length > 0 ? `${head}:amb=${seat.ambitions.map((a) => Math.floor(a)).join('.')}` : head
+}
+
+/** Parses encodeSeat text; null when it does not parse (unknown kind, not whole numbers). */
+export function decodeSeat(text: string): SeatOptions | null {
+  const f = text.trim().split(':')
+  const int = /^-?\d+$/
+  if (f.length < 3 || f.length > 4 || !int.test(f[1]) || !int.test(f[2])) return null
+  const kind = SEAT_KEYS.indexOf(f[0].toLowerCase())
+  if (kind < 0 || kind > SeatKind.House) return null // (Family and Person seats are later steps)
+  const seat: SeatOptions = { kind: kind as SeatKind, id: Number(f[1]), from: Number(f[2]) }
+  if (seat.id < 0 || seat.from < 0) return null
+  if (f.length === 4) {
+    if (!f[3].startsWith('amb=')) return null
+    const a = f[3].slice(4).split('.').filter((x) => /^\d+$/.test(x)).map(Number).filter((x) => x < AMBITION_KIND_COUNT)
+    if (a.length > 0) seat.ambitions = [...new Set(a)]
+  }
+  return seat
+}
+
 /** A row of the seat-decision table (seat-mode §3.5 `DecisionKind`), array-indexed by kind. */
 export interface DecisionKindInfo {
   kind: number
@@ -2077,7 +2255,6 @@ export interface DecisionKindInfo {
 
 /** The reserved decision-kind rows 0–54 by owner and planned name (MASTER-PLAN §3.2). */
 const RESERVED_DECISION_KINDS: readonly (readonly [string, readonly string[]])[] = [
-  ['seat-mode', ['WarOnUs', 'Opening', 'Heir', 'Crisis', 'AllianceMade', 'AllianceSought', 'Overlord', 'Match', 'General', 'Plague', 'Faith', 'Revolt', 'Credit', 'Charter', 'Betrayal', 'Frontier', 'Crop', 'Idea']], // 0–17
   ['court-politics', ['Estates', 'Council', 'Office', 'Plot', 'Reform', 'Regency', 'Exile']], // 18–24
   ['tech-tree', ['BanIdea', 'InviteExperts']], // 25–26
   ['character-mode', ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']], // 27–44
@@ -2088,10 +2265,32 @@ const RESERVED_DECISION_KINDS: readonly (readonly [string, readonly string[]])[]
   ['religious-evolution', ['Doctrine']], // 54
 ]
 
-/** Rows in the decision-kind table: 0–54, all reserved until seat-mode and the other owners fill theirs (R40). */
+/** Rows in the decision-kind table: 0–54; 0–17 seat-mode's, the rest reserved until their owners fill them (R40). */
 export const DECISION_KIND_COUNT = 55
 
-const DECISION_KINDS: readonly DecisionKindInfo[] = reservedRows(0, RESERVED_DECISION_KINDS, (kind, reservedFor): DecisionKindInfo => ({ kind, key: '', label: '', reserved: true, reservedFor }))
+const DECISION_KINDS: readonly DecisionKindInfo[] = [
+  // seat-mode (0–17, §3.5): live rows (the watcher offers those whose order kinds exist; see seat/watch.ts)
+  { kind: DecisionKind.WarOnUs, key: 'warOnUs', label: 'War is declared on us' },
+  { kind: DecisionKind.Opening, key: 'opening', label: 'A neighbour is weak' },
+  { kind: DecisionKind.Heir, key: 'heir', label: 'The succession' },
+  { kind: DecisionKind.Crisis, key: 'crisis', label: 'A crisis at court' },
+  { kind: DecisionKind.AllianceMade, key: 'allianceMade', label: 'An alliance is made' },
+  { kind: DecisionKind.AllianceSought, key: 'allianceSought', label: 'A common enemy' },
+  { kind: DecisionKind.Overlord, key: 'overlord', label: 'An overlord' },
+  { kind: DecisionKind.Match, key: 'match', label: 'A royal match' },
+  { kind: DecisionKind.General, key: 'general', label: 'A popular general' },
+  { kind: DecisionKind.Plague, key: 'plague', label: 'Plague' },
+  { kind: DecisionKind.Faith, key: 'faith', label: 'A new faith' },
+  { kind: DecisionKind.Revolt, key: 'revolt', label: 'Revolt' },
+  { kind: DecisionKind.Credit, key: 'credit', label: 'The treasury' },
+  { kind: DecisionKind.Charter, key: 'charter', label: 'A town asks for a charter' },
+  { kind: DecisionKind.Betrayal, key: 'betrayal', label: 'A separate peace' },
+  { kind: DecisionKind.Frontier, key: 'frontier', label: 'News from the frontier' },
+  { kind: DecisionKind.Crop, key: 'crop', label: 'A new crop' },
+  { kind: DecisionKind.Idea, key: 'idea', label: 'A new idea' },
+  // (18–54: reserved placeholders, R40)
+  ...reservedRows(18, RESERVED_DECISION_KINDS, (kind, reservedFor): DecisionKindInfo => ({ kind, key: '', label: '', reserved: true, reservedFor })),
+]
 
 /** The seat-decision kinds (a fresh copy; reserved rows included, flagged). */
 export function describeDecisionKinds(): DecisionKindInfo[] {
