@@ -43,6 +43,7 @@ import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from '.
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
+import { startPlatform } from './platform/index.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -1893,3 +1894,6 @@ if (params.get('perf') === '1') {
     },
   }
 }
+
+// the platform (src/platform): the PWA's service worker and the first-run persistent-storage request
+startPlatform()
