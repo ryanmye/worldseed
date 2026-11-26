@@ -1,11 +1,11 @@
 // seat-mode step 2 (live append, §3.2): orders appended to a run paused at year Y - 1 give exactly the history of a run created
 // with all of them from the start (orders/state.ts appendOrders, HistoryRunner.addOrders, HistoryRun.addOrders).
 import { describe, expect, it } from 'vitest'
-import { OrderKind } from '../../../contract.ts'
+import { OrderKind, OrderReason, OrderStatus, decodeOrders, encodeOrders } from '../../../contract.ts'
 import type { History, Order, World } from '../../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts'
 import { pickOrders } from './ordersStats.ts'
-import { hashAll } from '../seat/hashing.ts'
+import { hashAll, hashWithout } from '../seat/hashing.ts'
 
 const SEED = 42
 let W: World | null = null
@@ -79,4 +79,16 @@ describe('live append (seat-mode §3.2)', () => {
     const live = run.advanceTo(1000)
     expect(hashAll(live)).toBe(hashAll(simulateHistory(world(), { years: 1000, orders: [X, ...A] })))
   }, 600_000)
+
+  it('Choice orders (seat step 3) are records only: Fulfilled at give, nothing else changes', () => {
+    const C: Order[] = [{ year: 300, kind: OrderKind.Choice, actor: 0, target: 8 * 3 + 1 }, { year: 700, kind: OrderKind.Choice, actor: 1, target: 0 }]
+    expect(decodeOrders(encodeOrders(C))).toEqual(C)
+    expect(encodeOrders(C)).toBe('300:choice:0:25;700:choice:1:0')
+    const h = simulateHistory(world(), { years: 1000, orders: C })
+    const ours = (t: number): boolean => t >= 170 && t <= 179
+    expect(hashWithout(h, ['orders', 'orderOutcomes'], ours)).toBe(hashWithout(base(), [], ours))
+    for (const r of h.orderOutcomes!) { expect(r.status).toBe(OrderStatus.Fulfilled); expect(r.reason).toBe(OrderReason.Done) }
+    expect(h.orderOutcomes![0].year).toBe(300)
+    expect(h.orderOutcomes![0].product).toBe(25)
+  }, 200_000)
 })

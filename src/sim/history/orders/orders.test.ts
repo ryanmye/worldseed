@@ -176,7 +176,7 @@ describe('orders', () => {
   it('describes the order kinds and checks feasibility from a History', () => {
     const K = describeOrderKinds()
     expect(K.length).toBe(ORDER_KIND_COUNT)
-    K.forEach((k, i) => { expect(k.kind).toBe(i); if (!k.reserved) { expect(k.years).toBeGreaterThan(0); expect(k.label.length).toBeGreaterThan(0) } })
+    K.forEach((k, i) => { expect(k.kind).toBe(i); if (!k.reserved && !k.seatOnly) { expect(k.years).toBeGreaterThan(0); expect(k.label.length).toBeGreaterThan(0) } })
     const live = K.filter((k) => !k.reserved)
     expect(new Set(live.map((k) => k.key)).size).toBe(live.length)
     const w = world(3)

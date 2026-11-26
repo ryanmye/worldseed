@@ -49,7 +49,8 @@ describe('reserved order and decision rows (R40)', () => {
       expect(k.reservedFor?.length).toBeGreaterThan(0)
     }
     // registry spot checks (§3.2)
-    expect(K[10].reservedFor).toBe('seat-mode: Choice')
+    expect(K[10].key).toBe('choice') // (seat-mode step 3: live)
+    expect(K[11].reservedFor).toBe('seat-mode: Repudiate')
     expect(K[22].reservedFor).toBe('seat-mode: Betray')
     expect(K[30].reservedFor).toBe('riots: Crackdown')
     expect(K[41].reservedFor).toBe('character-mode: PChoice')

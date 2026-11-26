@@ -53,7 +53,7 @@ function seatOfPeople(s: HistoryState, p: number): number {
   return best
 }
 
-const isPeopleKind = (k: number): boolean => k === OrderKind.Explore || k === OrderKind.Settle || k === OrderKind.Crop || k === OrderKind.Idea
+const isPeopleKind = (k: number): boolean => k === OrderKind.Choice || k === OrderKind.Explore || k === OrderKind.Settle || k === OrderKind.Crop || k === OrderKind.Idea
 const isPolityKind = (k: number): boolean => k === OrderKind.War || k === OrderKind.Peace || k === OrderKind.Seat || k === OrderKind.Faith
 const liveTown = (s: HistoryState, id: number): boolean => id >= 0 && id < s.count && s.abandoned[id] < 0
 const livePolity = (ps: PolityState, p: number): boolean => p >= 0 && p < ps.pCapital.length && ps.pEnded[p] < 0
@@ -181,6 +181,7 @@ export function ordersBegin(s: HistoryState, ox: OrdersState): void {
     const t = ox.target[k]
     push(s, EventType.OrderGiven, seat, kd === OrderKind.Seat ? t : (kd === OrderKind.War || kd === OrderKind.Peace) && s.pol !== null && t >= 0 && t < s.pol.pCapital.length ? s.pol.pCapital[t] : -1, k, kd)
     ox.place[k] = seat
+    if (kd === OrderKind.Choice) { ox.product[k] = t; ox.acted[k] = s.year; resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, seat); continue } // seat: a record of the player's choice, done at once
     const why = kd >= 0 && kd < YEARS.length ? (RESERVED[kd] ? OrderReason.SystemOff : check(s, ox, k)) : OrderReason.NoTarget // (reserved kinds, R40: never act)
     if (why !== OrderReason.None) { resolve(s, ox, k, OrderStatus.Failed, why, seat); continue }
     ox.status[k] = OrderStatus.Active

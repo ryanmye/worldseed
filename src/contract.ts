@@ -1905,6 +1905,8 @@ export const OrderKind = {
   Faith: 7, // a polity's ruler is urged to take up a universal faith (target: History.faiths id)
   Fortify: 8, // a town (actor: settlement id) is urged to raise walls
   Quarantine: 9, // a port (actor: settlement id) is urged to hold incoming ships in quarantine
+  // seat-mode (10-22, §3.6; the rest reserved until their steps land)
+  Choice: 10, // seat: records the player's choice on a decision card (actor: the seat's people; target: decision row * 8 + option); no effect, Fulfilled at give
 } as const
 export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind]
 /**
@@ -1922,7 +1924,7 @@ export interface Order {
 }
 
 /** What an actor or a target is. */
-export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7 } as const
+export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7, /** seat: a decision card's option, row * 8 + option (History.seat.decisions) */ Decision: 8 } as const
 export type OrderRole = (typeof OrderRole)[keyof typeof OrderRole]
 
 /** What became of an order. */
@@ -2004,11 +2006,13 @@ export interface OrderKindInfo {
   reserved?: true
   /** The plan and the name it reserves the row for (registry §3.2), on reserved rows only. */
   reservedFor?: string
+  /** seat-mode: given only by a decision card (never offered by the Nudge panel). */
+  seatOnly?: true
 }
 
 /** The reserved order-kind rows 10–83 by owner and planned name (MASTER-PLAN §3.2; "" where the owner has not named it). */
 const RESERVED_ORDER_KINDS: readonly (readonly [string, readonly string[]])[] = [
-  ['seat-mode', ['Choice', 'Repudiate', 'Defy', 'Submit', 'Ally', 'Marry', 'Designate', 'Placate', 'Purge', 'Borrow', 'Levy', 'Charter', 'Betray']], // 10–22
+  ['seat-mode', ['Repudiate', 'Defy', 'Submit', 'Ally', 'Marry', 'Designate', 'Placate', 'Purge', 'Borrow', 'Levy', 'Charter', 'Betray']], // 11–22
   ['seat-mode (Family seat follow-ups)', ['', '', '', '', '', '', '']], // 23–29
   ['riots', ['Crackdown', 'Relief', 'Tolerate']], // 30–32
   ['court-politics', ['SummonEstates', 'Appoint', 'Dismiss', 'Favour', 'Arrest', 'Reform']], // 33–38
@@ -2040,8 +2044,10 @@ const ORDER_KINDS: readonly OrderKindInfo[] = [
   { kind: OrderKind.Faith, key: 'faith', label: 'Take up a faith', actor: OrderRole.Polity, target: OrderRole.Faith, years: 40, effect: 'The ruler leans toward a universal faith already followed in the realm.' },
   { kind: OrderKind.Fortify, key: 'fortify', label: 'Fortify', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The town raises walls even without danger, if it has the people.' },
   { kind: OrderKind.Quarantine, key: 'quarantine', label: 'Quarantine', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The port holds incoming ships in quarantine, if its people knows how and can pay.' },
-  // (10–83: reserved placeholders, R40; a plan replaces its own rows with live ones)
-  ...reservedRows(10, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
+  // seat-mode (§3.6): 10 live; 11–22 reserved until seat steps 8, 9, 13 land
+  { kind: OrderKind.Choice, key: 'choice', label: 'Choose', actor: OrderRole.People, target: OrderRole.Decision, years: 0, effect: 'Records the choice made on a decision card; the orders of the option do the rest.', seatOnly: true },
+  // (11–83: reserved placeholders, R40; a plan replaces its own rows with live ones)
+  ...reservedRows(11, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
     kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
   })),
 ]
@@ -2154,6 +2160,7 @@ export function orderFeasible(h: History, order: Order, year: number): OrderReas
   const t = order.target ?? -1
   const a = order.actor
   switch (order.kind) {
+    case OrderKind.Choice: return OrderReason.None // (a record: always given)
     case OrderKind.Explore: case OrderKind.Settle: {
       if (a < 0 || a >= h.peoples.length || !peopleAlive(a)) return OrderReason.NoActor
       if (t < 0 || t >= N) return OrderReason.NoTarget
