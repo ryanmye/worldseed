@@ -28,7 +28,8 @@
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { BondKind, BondEnd, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
+import { BondKind, BondEnd, EventType, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
+import { grudgeSection } from './grudgesPanel.ts' // oaths, balance, arms:
 import { buildPolityLayer, PolityView, type PolityLayer } from '../render/polities.ts'
 import { buildOutlawLayer, type OutlawLayer } from '../render/outlaws.ts'
 import { tradeNetwork } from '../render/routeCurves.ts'
@@ -752,7 +753,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       for (const b of shown) {
         const o = other(b)
         const kind = B.kind[b]
-        const endW = B.end[b] === BondEnd.Freed ? (B.a[b] === selected ? ', thrown off' : ', which threw it off') : B.end[b] === BondEnd.Absorbed ? ', absorbed' : ''
+        const endW = B.end[b] === BondEnd.Freed ? (B.a[b] === selected ? ', thrown off' : ', which threw it off') : B.end[b] === BondEnd.Absorbed ? ', absorbed' : B.end[b] === BondEnd.Betrayed ? (betrayerOf(b) === selected ? ', it betrayed' : ', betrayed by it') : ''
         const d = line()
         d.classList.add('fp-faint')
         if (kind === BondKind.Alliance) d.append('Allied with ', polityLink(o, pd.names[o]))
@@ -762,6 +763,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       }
       if (past.length > shown.length) line(`and ${past.length - shown.length} earlier bonds`).classList.add('fp-faint')
     }
+    // oaths, balance, arms: grudges held and borne, faithlessness, arms and races, coalitions (grudgesPanel.ts)
+    grudgeSection(h, pd, selected, year, s0, { cap, line, polityLink })
     // family tree: ancestors, this, successors (founded by now), each successor with its origin
     const anc: number[] = []
     for (let a = x.parent; a >= 0 && anc.length < 8; a = pd.list[a].parent) anc.unshift(a)
@@ -850,6 +853,20 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const r = line(`Revolts: ${revolts}` + (crushed ? `, ${crushed} crushed` : '') + (seceded ? `, ${seceded} broke away` : '') + ' · last at ')
       r.append(settLink(e.settlement), ` (${e.year})`)
     }
+  }
+
+  /** oaths: the polity that broke alliance bond b (BondEnd.Betrayed): the Betrayal or OathBroken (extra 1) of its end year (-1 unknown). */
+  function betrayerOf(b: number): number {
+    const pd = data!
+    const B = pd.bonds!
+    const h = pd.history
+    for (const q of [B.a[b], B.b[b]]) for (const i of pd.eventsOf[q]) {
+      const e = h.events[i]
+      if (e.year !== B.endYear[b] || !(e.type === EventType.Betrayal || (e.type === EventType.OathBroken && e.extra === 1))) continue
+      const p = polityAtYear(pd, e.settlement, e.year)
+      if (p === B.a[b] || p === B.b[b]) return p
+    }
+    return -1
   }
 
   /** The common rival of alliance bond b: from the Alliance event that made it (-1 unknown). */

@@ -431,6 +431,7 @@ function buildPolitiesData(h: History): PolitiesData | null {
     const e = h.events[i]
     const t = e.type as number
     if (!isPolityEventType(t)) {
+      if (t >= 190 && t <= 194) { for (const q of eventPolities(pd, e)) addTo(q, i); continue } // oaths, balance, arms: both sides
       if ((t === EventType.Built || t === EventType.StructureLost) && h.structures?.[e.other]?.type === StructureType.Walls) addTo(polityAt(pd, e.settlement, snapAfter(pd, e.year)), i)
       continue
     }
@@ -535,6 +536,12 @@ export function eventPolities(pd: PolitiesData, e: HistoryEvent): number[] {
       return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
     case PolityEvent.PiratesRise:
       return [polityAt(pd, e.settlement, a)]
+    // oaths, balance, arms (190-194): the polities ruled from `settlement` and `other`; a betrayal also the common enemy
+    case 190: case 191: case 192: case 193: case 194: {
+      const out = [polityAt(pd, e.settlement, b), e.other >= 0 ? polityAt(pd, e.other, b) : -1]
+      if (t === 190 && W && e.value >= 0 && e.value < W.count) out.push(W.defender[e.value])
+      return out
+    }
     case PolityEvent.PiratesSuppressed:
       return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
     default:
