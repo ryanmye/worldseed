@@ -1058,9 +1058,9 @@ All plan numbers are the plans' own: [M] measured, [A] estimated by the plan, [G
 **Programme and platform**
 | id | question | recommendation |
 |---|---|---|
-| D-P1 | Stay web, ship a PWA in Phase 0, add a thin SwiftUI/WKWebView shell later (§1.2)? | yes |
-| D-B1 | Run battles, disasters, language and the director in parallel with the grudges → finances chain (§1.3)? | yes |
-| D-R1 | Default run length: 2000 plus a "Modern (3000 y)" preset, or a 3000 default (§4.4; tech-tree §11.10a, MIR open question 1)? | 2000 plus the preset |
+| D-P1 | Stay web, ship a PWA in Phase 0, add a thin SwiftUI/WKWebView shell later (§1.2)? | yes — DECIDED 2026-11-26 |
+| D-B1 | Run battles, disasters, language and the director in parallel with the grudges → finances chain (§1.3)? | yes — DECIDED 2026-11-26 |
+| D-R1 | Default run length: 2000 plus a "Modern (3000 y)" preset, or a 3000 default (§4.4; tech-tree §11.10a, MIR open question 1)? | 2000 plus the preset — DECIDED 2026-11-26 |
 | D-P2 | Archive engine builds (`/e/<engine>/`) so old saves and scenario links open in their engine (world-builder-divine §6.2.1, scenarios open question 6)? | yes, one CI job, prune to 20 (D-dup 3) |
 | D-P3 | Leaderboards: GitHub Issues (scenarios §3.12), or wait for Game Center in the native shell? | neither in v1; Game Center with the shell |
 | D-P4 | Embed the History in exported `.worldseed` files (world-builder-divine §6.2.5)? | v2 only |
