@@ -58,6 +58,12 @@ export interface World {
   flow: Float32Array
   /** 1 where a land cell is covered by a lake (a filled depression), else 0. Lake cells keep a land biome. */
   lake: Uint8Array
+  /**
+   * disasters: plate-boundary stress per cell after propagation from the boundaries, in about [-1, 1]: > 0 convergent (mountain
+   * belts, island arcs, trenches), < 0 divergent (rifts, ridges), near 0 within plates. The elevation stage's own field (no new
+   * draws: every other field is unchanged); history uses it to place volcanoes and earthquakes.
+   */
+  tectonic: Float32Array
 }
 
 /** Flow at or above this is a river. Flow is scaled to be independent of grid resolution. */

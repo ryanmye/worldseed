@@ -19,7 +19,7 @@ export const generateWorld: GenerateWorld = (seed: number, options?: WorldOption
   const continentalFraction = 1 - oceanFraction + worldRng.range(0.0, 0.08)
 
   const plates = generatePlates(grid, createRng(seed, 'plates'), { continentalFraction })
-  const { elevation } = generateElevation(grid, plates, createRng(seed, 'elevation'), { oceanFraction })
+  const { elevation, tectonic } = generateElevation(grid, plates, createRng(seed, 'elevation'), { oceanFraction })
   const { temperature, rainfall } = generateClimate(grid, elevation, createRng(seed, 'climate'))
   const biome = classifyBiomes(elevation, temperature, rainfall)
   const { riverTo, flow, filled } = computeRivers(grid, elevation, rainfall)
@@ -44,6 +44,7 @@ export const generateWorld: GenerateWorld = (seed: number, options?: WorldOption
     riverTo,
     flow,
     lake,
+    tectonic: Float32Array.from(tectonic), // disasters: the elevation stage's boundary stress (no new draws)
   }
 }
 
