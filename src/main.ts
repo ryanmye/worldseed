@@ -1680,6 +1680,10 @@ function frameBody(ts: number) {
       gpuTimer.poll()
       motionResolution(ts - lastDrawTs, fps, interacting || playing || ambient || scrubbing)
       draw(ts)
+      // while history plays, what the frame's own layers asked for (the travellers' next
+      // positions, a layout step) comes with the next playback frame: not an input-rate one
+      // (else every playback frame ran at interactFps and playFps never applied)
+      if (playing && historyView.isPlaying()) consumeRenderRequest()
     } else if (requested) carryRequest = true
   }
   if (qualityAuto && !probe && !baking && !landing && currentWorld && !cityView.engaged && !interacting && pixelRatio >= pixelRatioCap() && (!bakeEnabled || (currentGlobe?.bakeInfo.ready ?? false))) qualityProbe(ts)
