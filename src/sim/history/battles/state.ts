@@ -63,6 +63,8 @@ export interface BattleState {
   cBorn: number[]
   cFemale: number[]
   cSkill: number[]
+  /** Skill at appointment (veterancy is capped above it). */
+  cSkill0: number[]
   cFirst: number[]
   cLast: number[]
   cBattles: number[]
@@ -95,7 +97,7 @@ export function createBattles(s: HistoryState): BattleState {
     bMenA: [], bMenD: [], bLossA: [], bLossD: [], bDead: [], bWinner: [], bHours: [], bWeather: [], bFlags: [], bRatio: [],
     bBreakA: [], bBreakD: [], bSiegeYear: [],
     wCmd: [], wBattles: [], pVeteran: [],
-    cPolity: [], cPeople: [], cReign: [], cDyn: [], cBorn: [], cFemale: [], cSkill: [], cFirst: [], cLast: [], cBattles: [], cWins: [],
+    cPolity: [], cPeople: [], cReign: [], cDyn: [], cBorn: [], cFemale: [], cSkill: [], cSkill0: [], cFirst: [], cLast: [], cBattles: [], cWins: [],
     cFame: [], cFameYear: [], cPeak: [], cPeakYear: [], cFate: [], cFateYear: [], cFateBattle: [], cFateWar: [], cReignAfter: [],
     cRetire: [], cBase: [], cLastBattle: [], cRenowned: [],
     reignCmd: new Map(),
