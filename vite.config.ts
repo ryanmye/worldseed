@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
+import { pwaPlugin } from './build/pwa.ts'
 
 const ROOT = import.meta.dirname
 /** Files and directories whose contents make up the version (directories recursively). */
@@ -64,5 +65,6 @@ function simVersionPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [simVersionPlugin()],
+  // the PWA (build/pwa.ts): manifest, icons and an offline service worker; build only
+  plugins: [simVersionPlugin(), pwaPlugin()],
 })
