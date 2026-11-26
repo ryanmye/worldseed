@@ -22,6 +22,7 @@ import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
 import { cheaperQuality, loadQuality, Quality, QUALITY_SETTINGS, saveAutoQuality, saveQuality } from './render/quality.ts'
 import { detectDevice } from './render/device.ts'
+import { turnLimit, turnSpeedFactor } from './render/idleTurn.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
 import { addShortcut } from './ui/shortcuts.ts'
@@ -180,9 +181,25 @@ function groundUnder(x: number, y: number, z: number): number {
 // (never on the flat map, which is seen from straight above)
 if (params.get('tilt') !== '0') installCameraTilt(camera, controls, () => showBuildings && !mapOn && flat.t === 0, groundUnder) // leans the view toward the horizon up close
 
-// The planet turns beneath a sun fixed in world space; the first drag stops it.
-let spinning = showLanding || numParam('spin', 1) !== 0
+// The planet turns beneath a sun fixed in world space; the first drag stops it, and so does
+// time (render/idleTurn.ts: after a while of turning with nobody touching anything, on every
+// device; spin=1 in the address keeps it turning). Input brings back a turn that time stopped.
+// The OS's reduced-motion setting: no turn (unless spin=1 asks for it) and no cloud drift.
+const reducedMotionQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+let reducedMotion = reducedMotionQuery?.matches ?? false
+/** spin=1 in the address: an endless turn (recordings). */
+const explicitSpin = params.get('spin') !== null && numParam('spin', 1) !== 0
+/** Whether the turn starts by itself (the start page, or the app after Start). */
+const turnByDefault = () => (explicitSpin || !reducedMotion) && (numParam('spin', 1) !== 0)
+let spinning = (explicitSpin || !reducedMotion) && (showLanding || numParam('spin', 1) !== 0)
 const SPIN_SPEED = 0.05 // rad/s
+/** Seconds the turn has lasted since it last started or saw input, and how long it may last. */
+let turnSeconds = 0
+const turnSecondsMax = turnLimit(device.touchOnly, explicitSpin)
+/** The turn stopped because time ran out (not a drag, the map or a flight): the next input starts it again. */
+let turnTimedOut = false
+/** The turn's current speed (1 full, easing to 0 as the time runs out). */
+let spinFactor = 1
 const fly = createCameraFly(camera)
 controls.addEventListener('start', () => {
   spinning = false
@@ -761,6 +778,8 @@ const mapNightBox = overlay.addLayerToggle({
     showMapNight = on
     // the night sweeps across the map as the planet turns beneath the sun
     spinning = on && mapOn
+    turnSeconds = 0
+    turnTimedOut = false
     requestRender()
   },
 })
@@ -797,6 +816,8 @@ function setMapMode(on: boolean, animate = true) {
     controls.update()
     controls.enabled = false
     spinning = showMapNight
+    turnSeconds = 0
+    turnTimedOut = false
     mapControls.sync()
     historyView.setBuildingsVisible(false)
   } else {
@@ -1325,14 +1346,39 @@ for (const type of ['pointerup', 'click', 'keydown', 'input', 'change'] as const
     wake()
   }, { capture: true, passive: true })
 }
+// Someone is there: the idle turn's time starts over, and a turn that time stopped turns again.
+// (Capture phase, ahead of the controls: a press that starts a drag still stops the turn.) A hover
+// only keeps a turn going; a press, the wheel or a key brings one back.
+function turnInput(restart: boolean) {
+  turnSeconds = 0
+  spinFactor = 1
+  if (!restart || !turnTimedOut) return
+  turnTimedOut = false
+  if (landingIdle || hearths.active || cityView.engaged || (!explicitSpin && reducedMotion)) return
+  // (on the map, only the night's sweep turns it)
+  if (mapOn ? !showMapNight : morph > 0) return
+  landingTurnOver = false
+  spinning = true
+  wake()
+}
+window.addEventListener('pointermove', () => {
+  if (spinning) turnSeconds = 0
+}, { capture: true, passive: true })
+for (const type of ['pointerdown', 'wheel', 'keydown'] as const) window.addEventListener(type, () => turnInput(true), { capture: true, passive: true })
+reducedMotionQuery?.addEventListener('change', (e) => {
+  reducedMotion = e.matches
+  if (reducedMotion && !explicitSpin) spinning = false
+  requestRender()
+  wake()
+})
 
-const cloudsDrift = () => qs.cloudsAnimate !== 'never' && currentClouds !== null && currentClouds.mesh.visible
+const cloudsDrift = () => qs.cloudsAnimate !== 'never' && !reducedMotion && currentClouds !== null && currentClouds.mesh.visible
 /** Cloud drift alone keeps the page drawing (High quality only). */
 const cloudsDriveFrames = () => qs.cloudsAnimate === 'always' && cloudsDrift() && !cityView.engaged && !landingIdle
 
 /** Frames per second at which the auto-rotation / cloud drift moves the surface by ~0.6 CSS px per frame. */
 function ambientFps(): number {
-  const speed = (spinning ? SPIN_SPEED : 0) + (cloudsDriveFrames() ? 0.004 : 0) // rad/s, ~ surface units/s
+  const speed = (spinning ? SPIN_SPEED * spinFactor : 0) + (cloudsDriveFrames() ? 0.004 : 0) // rad/s, ~ surface units/s
   const alt = Math.max(0.02, camera.position.length() - 1)
   const pxPerUnit = window.innerHeight / (alt * 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))
   return Math.min(qs.ambientFps, Math.max(2, (speed * pxPerUnit) / 0.6))
@@ -1551,10 +1597,16 @@ function frameBody(ts: number) {
   const scrubbing = inputStreak >= 3
   const playing = historyView.isPlaying()
   const ambient = spinning || cloudsDriveFrames()
-  if (spinning) spinTime += dt
-  if (spinning && device.touchOnly && (turnSeconds += dt) > TOUCH_TURN_SECONDS) {
-    spinning = false
-    landingTurnOver = true
+  if (spinning) {
+    // (eased to rest over the turn's last seconds, render/idleTurn.ts)
+    spinFactor = turnSpeedFactor(turnSeconds, turnSecondsMax)
+    spinTime += dt * spinFactor
+    if ((turnSeconds += dt) > turnSecondsMax) {
+      spinning = false
+      turnTimedOut = true
+      landingTurnOver = true
+      spinFactor = 1
+    }
   }
   if (cloudsDrift()) cloudTime += dt
 
@@ -1621,9 +1673,6 @@ function frameBody(ts: number) {
 let landingGeom = showLanding ? 0 : 1
 /** The page is scrolled away from the planet: no slow turn, no cloud drift. */
 let landingIdle = false
-/** Touch devices: the slow turn (a frame every few dozen ms for as long as it lasts) stops after this many seconds of it (battery). */
-const TOUCH_TURN_SECONDS = 8
-let turnSeconds = 0
 let landingTurnOver = false
 const APP_DIST = 3.25
 
@@ -1687,14 +1736,15 @@ if (showLanding) {
       historyYears = wholeChunks(years)
       startHistory(seed)
       landingIdle = false
-      spinning = numParam('spin', 1) !== 0
+      spinning = turnByDefault()
       turnSeconds = 0
+      turnTimedOut = false
       overlay.relayout()
     },
     onVisible(visible) {
       if (landing?.leaving) return
       landingIdle = !visible
-      spinning = visible && !hearths.active && !landingTurnOver
+      spinning = visible && !hearths.active && !landingTurnOver && (explicitSpin || !reducedMotion)
       wake()
     },
     onPlant(on) {
