@@ -1,0 +1,83 @@
+[
+ {
+  "seed": 1,
+  "years": 2000,
+  "worldMs": 915,
+  "historyMs": 22180,
+  "hash": "923881e7cd3fe59b",
+  "historyBytes": 35499055,
+  "top": [
+   "landUse=2.33MB",
+   "degradation=2.33MB",
+   "road=2.33MB",
+   "crop=2.33MB",
+   "herd=2.33MB",
+   "cash=2.33MB",
+   "population=2.06MB",
+   "food=2.06MB",
+   "wealth=2.06MB",
+   "merchantWealth=2.06MB",
+   "territory=1.66MB",
+   "priceIndex=1.29MB",
+   "polity=1.03MB",
+   "claimed=0.83MB",
+   "danger=0.83MB"
+  ],
+  "worldBytes": 2027628,
+  "resimMs": 18312
+ },
+ {
+  "seed": 42,
+  "years": 2000,
+  "worldMs": 1762,
+  "historyMs": 19254,
+  "hash": "3bac8db3dfd723b5",
+  "historyBytes": 34998619,
+  "top": [
+   "landUse=2.33MB",
+   "degradation=2.33MB",
+   "road=2.33MB",
+   "crop=2.33MB",
+   "herd=2.33MB",
+   "cash=2.33MB",
+   "population=1.90MB",
+   "food=1.90MB",
+   "wealth=1.90MB",
+   "merchantWealth=1.90MB",
+   "territory=1.54MB",
+   "priceIndex=1.19MB",
+   "longHaulVolume=1.06MB",
+   "polity=0.95MB",
+   "claimed=0.77MB"
+  ],
+  "worldBytes": 2027628,
+  "resimMs": 13575
+ },
+ {
+  "seed": 1234,
+  "years": 2000,
+  "worldMs": 1897,
+  "historyMs": 14130,
+  "hash": "2bb9f72e9e99433d",
+  "historyBytes": 39474408,
+  "top": [
+   "population=2.35MB",
+   "food=2.35MB",
+   "wealth=2.35MB",
+   "merchantWealth=2.35MB",
+   "landUse=2.33MB",
+   "degradation=2.33MB",
+   "road=2.33MB",
+   "crop=2.33MB",
+   "herd=2.33MB",
+   "cash=2.33MB",
+   "territory=1.80MB",
+   "priceIndex=1.47MB",
+   "longHaulVolume=1.23MB",
+   "polity=1.17MB",
+   "claimed=0.90MB"
+  ],
+  "worldBytes": 2027628,
+  "resimMs": 16167
+ }
+]
