@@ -1175,3 +1175,6 @@ Apple), Q4 (memory headroom), Q5 (iPad cores).
 - Overthrow draw: gate on `overthrowExposed`, never on x > 0 (keeps the rulers stream aligned).
 - `eligibleHeirs` takes a 5th `cognatic` param; reserved OrderKind rows 10–83 return SystemOff; DECISION_KIND_COUNT 55 reserved.
 - Test suite: ~40 min on the 2-core VM; 5 tests time out at the 5 s default under load (pre-existing). Use `--testTimeout=900000` on loaded machines; consider raising per-test timeouts in a small PR.
+
+## Addendum (phase0/realism implementation)
+Baseline recomputed: 4-seed score 0.399916 (§2.7 bands), 22-seed 0.418184; the plan's 0.404/0.421 do not reproduce (old-band scores are 0.401521/0.419233). Ratchet: `npm run realism:check` (`--tol 0.03` per PR, `--tol 0` at phase exit) against the fixed 8cabf09 anchor `docs/realism-baseline.jsonl`; per-PR "vs main" is satisfied by off/on A/B since features ship default-off. `--years N` deferred to Phase 4.

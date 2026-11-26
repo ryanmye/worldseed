@@ -403,3 +403,6 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **Ratchet.** The per-PR guard (Δ ≤ 0.03, no WORSE) is measured against **current main**, not 8cabf09. At each phase exit the 4-seed score must be ≤ the recomputed baseline, and the 22-seed sweep is run and recorded.
 - **Long runs.** Add `--years N` reporting of era-agnostic keys (war α, durCv, lifespans, Gibrat) for 3000-year runs. Report only: no gate until the owner accepts bands for modern eras.
 - §6's tie-break stands: battles owns war severity and duration and tunes last (C6).
+
+## Addendum (phase0/realism implementation)
+Baseline recomputed: 4-seed score 0.399916 (§2.7 bands), 22-seed 0.418184; the plan's 0.404/0.421 do not reproduce (old-band scores are 0.401521/0.419233). Ratchet: `npm run realism:check` (`--tol 0.03` per PR, `--tol 0` at phase exit) against the fixed 8cabf09 anchor `docs/realism-baseline.jsonl`; per-PR "vs main" is satisfied by off/on A/B since features ship default-off. `--years N` deferred to Phase 4.
