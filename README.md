@@ -232,6 +232,14 @@ planet), `src/sim/history/stats.ts` (settlement history), `speciesStats.ts`,
 `orders/ordersStats.ts` and `polity/wayStats.ts` (danger on trade routes). Most
 take `--off` to compare against the same worlds with the system switched off.
 
+`src/sim/history/realismStats.ts` scores a run against regularities of real
+history (Zipf, Gibrat, Richardson's law of wars, empire lifespans, epidemic
+tolls, the gravity model of trade) and prints a realism score (mean miss in
+band widths, lower is better). `scripts/realism-sweep.sh` runs it on the
+22-seed sweep, and `--check docs/realism-baseline.jsonl` is the ratchet that
+fails when a change makes the score worse; see the header comment of
+`realismStats.ts` for the run lines and how to re-baseline.
+
 ## How it is built
 
 The planet is an icosphere cell graph: an icosahedron with each face subdivided
