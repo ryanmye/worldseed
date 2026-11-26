@@ -60,7 +60,8 @@ export interface Timeline {
   /** Playing but held at the end until a longer history arrives. */
   readonly waiting: boolean
   readonly speed: number
-  /** Years advanced per second of real time at the current speed (accounts for the intro's own, unscaled rate); YEARS_PER_SECOND while paused. */
+  /** Years advanced per second of real time at the current speed (accounts for the intro's own, unscaled rate, and the
+   * story director's slow-down, setSlow); YEARS_PER_SECOND while paused. */
   readonly yearsPerSecond: number
   /** True while the user drags the slider. */
   readonly scrubbing: boolean
@@ -95,6 +96,18 @@ export interface Timeline {
   setStats(alive: number, population: number, towns?: number, cities?: number, routes?: number, states?: number, wars?: number, largest?: string): void
   /** Thin marks under the slider (great epidemics), or null for none; kept across extendRange. */
   setMarks(marks: readonly TimelineMark[] | null): void
+  /**
+   * A transient factor on playback speed (the story director's slow-down at a beat), eased to `k` over `easeSeconds` of
+   * real time. It does not change the speed buttons; 1 is normal.
+   */
+  setSlow(k: number, easeSeconds: number): void
+  /**
+   * The story director's beats as thin ticks under the slider, or null for none: beat i at `years[i]` shows at the
+   * current speed when `prominence[i] >= perSpeed · max(1, speed)` (ui/story/plan.ts beatKept).
+   */
+  setBeats(years: Float64Array | null, prominence: Float32Array | null, perSpeed?: number): void
+  /** Put a control (the director's Follow button) in the bar's row, before the speed buttons. */
+  addControl(el: HTMLElement): void
   /** A faint sparkline behind the slider: one value per snapshot from year 0 (the world's people), or null for none. */
   setSparkline(values: ArrayLike<number> | null, interval: number): void
   /**
@@ -244,6 +257,15 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   let shownTiers = ''
   let shownBloc = ''
   let marks: readonly TimelineMark[] = []
+  /** The director's slow-down factor (setSlow), its target and its easing rate per second. */
+  let slow = 1
+  let slowTarget = 1
+  let slowRate = 0
+  let beats: { years: Float64Array; prominence: Float32Array; perSpeed: number } | null = null
+  const beatBox = document.createElement('div')
+  beatBox.className = 'tl-beats'
+  beatBox.setAttribute('aria-hidden', 'true')
+  let beatSpeed = -1
   let spark: { values: ArrayLike<number>; interval: number } | null = null
   const sparkCanvas = document.createElement('canvas')
   sparkCanvas.className = 'tl-spark'
@@ -344,12 +366,33 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       ticks.appendChild(sparkCanvas)
       drawSpark()
     }
+    // the story director's beats (shown while Follow is on)
+    if (beats) {
+      ticks.appendChild(beatBox)
+      drawBeats()
+    }
     if (years > BASE_YEARS) {
       const m = document.createElement('i')
       m.className = 'tl-mark'
       m.title = `Year ${BASE_YEARS}: the end of the initial history`
       m.style.left = `${(100 * BASE_YEARS) / years}%`
       ticks.appendChild(m)
+    }
+  }
+
+  /** The director's beat ticks kept at the current speed (redrawn when the speed or the range changes). */
+  function drawBeats() {
+    beatSpeed = speed
+    beatBox.textContent = ''
+    if (!beats || years <= 0) return
+    const min = beats.perSpeed * Math.max(1, speed)
+    for (let i = 0; i < beats.years.length; i++) {
+      const y = beats.years[i]
+      if (y > years || !(beats.prominence[i] >= min)) continue
+      const t = document.createElement('i')
+      t.className = 'tl-beat'
+      t.style.left = `${(100 * y) / years}%`
+      beatBox.appendChild(t)
     }
   }
 
@@ -562,12 +605,14 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     get yearsPerSecond() {
       if (!playing) return YEARS_PER_SECOND
       const introNow = softStop !== null && year < softStop
-      return speed * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
+      return speed * slow * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
     },
     tick(dt: number) {
+      if (slow !== slowTarget) slow = slowRate > 0 ? (slow < slowTarget ? Math.min(slowTarget, slow + slowRate * dt) : Math.max(slowTarget, slow - slowRate * dt)) : slowTarget
+      if (beats && beatSpeed !== speed) drawBeats()
       if (playing && !waiting && !scrubbing && enabled) {
         const introNow = softStop !== null && year < softStop
-        const next = year + dt * speed * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
+        const next = year + dt * speed * slow * (introNow ? INTRO_YEARS_PER_SECOND : YEARS_PER_SECOND)
         if (softStop !== null && year < softStop && next >= softStop) {
           // the end of the initial animation
           const at = Math.min(softStop, years)
@@ -599,6 +644,18 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     setMarks(m: readonly TimelineMark[] | null) {
       marks = m ? m.slice() : []
       buildTicks()
+    },
+    setSlow(k: number, easeSeconds: number) {
+      slowTarget = Math.max(0.01, k)
+      slowRate = easeSeconds > 0 ? Math.abs(slowTarget - slow) / easeSeconds : 0
+      if (slowRate === 0) slow = slowTarget
+    },
+    setBeats(y: Float64Array | null, prominence: Float32Array | null, perSpeed = 25) {
+      beats = y && prominence ? { years: y, prominence, perSpeed } : null
+      buildTicks()
+    },
+    addControl(el: HTMLElement) {
+      row.insertBefore(el, speedBox)
     },
     setSparkline(values: ArrayLike<number> | null, iv: number) {
       spark = values && values.length > 1 ? { values, interval: Math.max(1, iv) } : null
