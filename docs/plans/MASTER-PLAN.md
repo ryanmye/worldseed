@@ -1178,3 +1178,6 @@ Apple), Q4 (memory headroom), Q5 (iPad cores).
 
 ## Addendum (phase0/realism implementation)
 Baseline recomputed: 4-seed score 0.399916 (§2.7 bands), 22-seed 0.418184; the plan's 0.404/0.421 do not reproduce (old-band scores are 0.401521/0.419233). Ratchet: `npm run realism:check` (`--tol 0.03` per PR, `--tol 0` at phase exit) against the fixed 8cabf09 anchor `docs/realism-baseline.jsonl`; per-PR "vs main" is satisfied by off/on A/B since features ship default-off. `--years N` deferred to Phase 4.
+
+## Addendum (phase0/director implementation)
+Key R is already bound by existing code — battle replay must pick another free key (check main.ts key map; not B, H, W, R). Director tuning changed from plan defaults: τ_cat 150, θ_n 9.5, beat kept at speed k when prominence ≥ 18·k, DynastyEnded base 5 (results: 28–30 beats at 1×, 11–14 at 4×, 3–5 at 16×, 82–132 notices). Turning Follow on ends the intro. `follow=1` URL param; H toggles.

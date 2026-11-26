@@ -1023,3 +1023,6 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R6.** Shortcuts: `W` what-if and `H` director stand. Battle replay is `R`. All keys go through `ui/shortcuts.ts addShortcut` with a duplicate test.
 - **R37.** Register drama rules for every block in MASTER-PLAN §3.1, through 419: 290–299, 300–306, 310–319, 320–329, 330–339, 340–348, 350–359, 360–369 and 380–385, besides those in the earlier addendum.
 - **§5.4.** D-phone uses the lite tier only. The compare's worker transient counts against the shared 2-checkpoint phone cap.
+
+## Addendum (phase0/director implementation)
+Key R is already bound by existing code — battle replay must pick another free key (check main.ts key map; not B, H, W, R). Director tuning changed from plan defaults: τ_cat 150, θ_n 9.5, beat kept at speed k when prominence ≥ 18·k, DynastyEnded base 5 (results: 28–30 beats at 1×, 11–14 at 4×, 3–5 at 16×, 82–132 notices). Turning Follow on ends the intro. `follow=1` URL param; H toggles.
