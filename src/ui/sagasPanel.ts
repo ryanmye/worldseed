@@ -41,6 +41,8 @@ export interface SagasView {
   tick(year: number): void
   /** The inspector's link row (placed by the history view). */
   readonly inspectorLinks: HTMLElement
+  /** The register chosen in the panel (legend, or the plain chronicle): the story director's captions follow it. */
+  readonly legend: boolean
 }
 
 const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year' }
@@ -398,6 +400,9 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
 
   const api: SagasView = {
     inspectorLinks: links,
+    get legend() {
+      return legend
+    },
     commit(h, w, extend) {
       history = h
       library.commit(h, w, extend)

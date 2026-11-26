@@ -675,6 +675,8 @@ const historyView = createHistoryView(
     // (each object compiled in place, with the scene's lights: nothing is re-parented)
     precompile: (objects) => Promise.all(objects.map((o) => renderer.compileAsync(o, camera, scene))),
     addLayerToggle: (t) => overlay.addLayerToggle(t),
+    // (the story director, ui/story, never flies while the city view is engaged; cityView is created below)
+    cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
 )

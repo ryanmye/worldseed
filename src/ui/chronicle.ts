@@ -43,6 +43,12 @@ export interface Chronicle {
    */
   setIndex(index: HistoryIndex | null, keep?: boolean): void
   update(year: number): void
+  /**
+   * Entry `entry` worded as its chronicle row would be at `year` (its members up to then, at least the first): the
+   * year text, the line, and the settlement a click selects. For the story director's captions and notices (one
+   * wording source). Null without an index.
+   */
+  describe(entry: number, year: number): { year: string; text: string; target: number } | null
 }
 
 export function createChronicle(container: HTMLElement, callbacks: ChronicleCallbacks): Chronicle {
@@ -432,7 +438,17 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     filterRow.classList.toggle('hidden', politics === 0)
   }
 
+  /** A row never attached, for describe(). */
+  const scratchRow: Row = { li: document.createElement('li'), year: document.createElement('span'), text: document.createElement('span'), entry: -1, shown: 0, target: -1 }
   const api: Chronicle = {
+    describe(entry: number, year: number) {
+      const ix = index
+      if (!ix || entry < 0 || entry >= ix.notableKind.length) return null
+      const lo = ix.notableOffsets[entry], hi = ix.notableOffsets[entry + 1]
+      const m = Math.max(1, countUpTo(ix.notableMemberYear, year, lo, hi))
+      withEventNames(ix.notableMemberYear[lo + m - 1], () => render(ix, scratchRow, entry, m))
+      return { year: scratchRow.year.textContent ?? '', text: scratchRow.text.textContent ?? '', target: scratchRow.target }
+    },
     setIndex(ix: HistoryIndex | null, keep = false) {
       index = ix
       shownMembers = -1

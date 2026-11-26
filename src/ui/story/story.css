@@ -1,0 +1,289 @@
+/* The story director (ui/story/storyCard.ts): caption card, notices, the paused chip, the Follow button, beat ticks. */
+
+.story-root {
+  --story-left: 14px;
+  --story-right: 14px;
+  --story-bottom: 120px;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+.story-root > * {
+  pointer-events: auto;
+}
+
+/* ---------- caption card: lower left, above the timeline ---------- */
+.story-card {
+  position: absolute;
+  left: var(--story-left);
+  bottom: var(--story-bottom);
+  max-width: 360px;
+  padding: 12px 14px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid rgba(255, 196, 92, 0.75);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  color: var(--text);
+}
+.story-card:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.story-card.hidden,
+.story-chip.hidden {
+  display: none;
+}
+.story-card.enter {
+  animation: story-in 0.35s ease-out;
+}
+@keyframes story-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.story-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffd68a;
+  margin-bottom: 3px;
+}
+.story-title {
+  margin: 0 18px 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.story-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.story-expand {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.story-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.story-actions .btn[hidden],
+.story-expand[hidden] {
+  display: none;
+}
+.story-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.story-close:hover {
+  color: var(--text);
+}
+
+/* ---------- the paused chip: above the card's place ---------- */
+.story-chip {
+  position: absolute;
+  left: var(--story-left);
+  bottom: var(--story-bottom);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.story-chip .btn {
+  padding: 4px 10px;
+}
+
+/* ---------- notices: lower right of the free rect ---------- */
+.story-toasts {
+  position: absolute;
+  right: var(--story-right);
+  bottom: var(--story-bottom);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 320px;
+  pointer-events: none;
+}
+.story-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  animation: story-in 0.3s ease-out;
+}
+.story-toast-icon {
+  flex: none;
+}
+.story-toast-text {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.story-go {
+  flex: none;
+  padding: 3px 9px;
+}
+
+/* ---------- a ring where a beat happens in view ---------- */
+.story-pulse {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid rgba(255, 214, 138, 0.9);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: story-pulse 1.5s ease-out forwards;
+}
+@keyframes story-pulse {
+  from {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  to {
+    transform: scale(4);
+    opacity: 0;
+  }
+}
+
+/* ---------- the timeline: Follow button and beat ticks ---------- */
+.tl-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.tl-follow.on {
+  background: rgba(255, 196, 92, 0.18);
+  border-color: rgba(255, 196, 92, 0.5);
+  color: #ffd68a;
+}
+.tl-follow:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tl-ticks .tl-beats {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.tl-ticks .tl-beat {
+  position: absolute;
+  top: -8px;
+  width: 2px;
+  height: 5px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: rgba(255, 214, 138, 0.8);
+}
+
+/* ---------- phone (compact.ts): a two-line strip above the timeline, one notice ---------- */
+.story-root.compact .story-card {
+  left: var(--story-left);
+  right: var(--story-right);
+  max-width: none;
+  padding: 8px 34px 8px 12px;
+  border-radius: 10px;
+}
+.story-root.compact .story-card:not(.expanded) .story-eyebrow,
+.story-root.compact .story-card:not(.expanded) .story-actions,
+.story-root.compact .story-card:not(.expanded) .story-expand {
+  display: none;
+}
+.story-root.compact .story-card:not(.expanded) .story-title {
+  font-size: 14px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.story-root.compact .story-card:not(.expanded) .story-body {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.story-root.compact .story-card.expanded {
+  max-height: 55vh;
+  overflow-y: auto;
+}
+.story-root.compact .story-actions .btn,
+.story-root.compact .story-chip .btn {
+  min-height: 40px;
+  min-width: 44px;
+  font-size: 14px;
+}
+.story-root.compact .story-close {
+  width: 44px;
+  height: 44px;
+  top: 0;
+  right: 0;
+}
+.story-root.compact .story-toasts {
+  left: var(--story-left);
+  right: var(--story-right);
+  /* above the strip */
+  bottom: calc(var(--story-bottom) + 60px);
+  max-width: none;
+  align-items: stretch;
+}
+.story-root.compact .story-go {
+  min-height: 40px;
+  min-width: 44px;
+}
+html.compact .tl-follow {
+  width: 44px;
+  height: 40px;
+  justify-content: center;
+  padding: 0;
+}
+html.compact .tl-follow .tl-follow-label {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-card.enter,
+  .story-toast {
+    animation: none;
+  }
+  .story-pulse {
+    animation-duration: 0.01s;
+  }
+}

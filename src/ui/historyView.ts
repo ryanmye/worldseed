@@ -71,6 +71,8 @@ import type { LayerToggle } from './overlay.ts'
 import { createNudgeView } from './nudgePanel.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
+import { createStoryView, type StoryView } from './story/storyView.ts'
+import { polityAtYear, politiesOf } from './politiesData.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -104,6 +106,8 @@ export interface HistoryViewDeps {
   requestCradles?(cradles: number[], keepYear: number): void
   getCradles?(): number[]
   hearths?: HearthPicker
+  /** The city view is engaged (the story director never flies then). */
+  cityEngaged?(): boolean
 }
 
 export interface InitialHistoryState {
@@ -385,7 +389,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   /** Fly the camera to a cell (and stop the spin). */
   const goodsFly = (cell: number) => {
     if (!world || cell < 0 || cell >= world.grid.cellCount) return
-    deps.onFly()
+    onUserFly()
     deps.planetGroup.updateWorldMatrix(true, false)
     const P = world.grid.positions
     const r = surfaceRadius(world, cell)
@@ -478,6 +482,30 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   inspector.peopleSlot.before(sagas.inspectorLinks)
   // orders: the Nudge panel and its map marks (nudgePanel.ts, render/nudges.ts)
   const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() }, hearths: deps.hearths, getCradles: deps.getCradles, requestCradles: deps.requestCradles, pause: () => timeline.pause() })
+  // the story director: drama scores, the story plan, Follow the story (H), captions and notices (ui/story)
+  const story: StoryView = createStoryView({
+    host: deps.bottom.parentElement ?? document.body,
+    canvas: deps.canvas,
+    camera: deps.camera,
+    planetGroup: deps.planetGroup,
+    fly: deps.fly,
+    timeline,
+    chronicle,
+    stopSpin: () => deps.onFly(),
+    cityEngaged: () => deps.cityEngaged?.() ?? false,
+    legend: () => sagas.legend,
+    openSaga: (subject) => sagas.open(subject),
+    addLayerToggle: deps.addLayerToggle,
+    setUrlParam: deps.setUrlParam,
+    requestRender,
+    wake: () => deps.wake(),
+    initialOn: new URLSearchParams(window.location.search).get('follow') === '1',
+  })
+  /** A fly-to the user asked for (a panel, a chronicle row, a selection): the director lets go. */
+  function onUserFly() {
+    story.userMoved()
+    deps.onFly()
+  }
   addShortcut({
     keys: ['Escape'],
     label: 'Esc',
@@ -659,6 +687,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     ideas.commit(null, false, null)
     cities.commit(null, null, null)
     sagas.commit(null, null, false)
+    story.commit(null, null, null, false)
     nudge.commit(null, null)
     timeline.setSparkline(null, 1)
     polityLayer = null
@@ -886,6 +915,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     buildPopLegend(popDensity?.densityMax ?? 0)
     popLegend.classList.toggle('hidden', viewMode !== ViewMode.Population || !popDensity)
     chronicle.setIndex(index, extend)
+    story.commit(h, w, index, extend)
     // the feature regions are geography (kept); which History feature each is may have grown
     if (geo) geo = { map: geo.map, feature: featureOfRegions(geo.map, index.history) }
     shownS0 = shownS1 = -1
@@ -1360,13 +1390,18 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       ideas.showSettlement(selected)
       cities.showSettlement(selected)
       sagas.showSettlement(selected)
+      {
+        // the story plan's focus: the selected town's realm and the selected faction
+        const pd = politiesOf(index.history)
+        story.setFocus([selected >= 0 && pd ? polityAtYear(pd, selected, timeline.year) : -1, polities.selected])
+      }
       if (selected < 0) {
         inspector.hide()
         return
       }
       inspector.show(index, world, selected)
       if (fly && layer) {
-        deps.onFly()
+        onUserFly()
         deps.planetGroup.updateWorldMatrix(true, false)
         layer.centerLocal(selected, tmp)
         tmp.applyMatrix4(deps.planetGroup.matrixWorld)
@@ -1586,6 +1621,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         roads?.setYield(near, far)
       }
       chronicle.update(year)
+      story.tick(Math.min(dt, 0.1), year)
       peoples.tick(year, pos.s0, pulseYears, deps.camera, drawSize, pixelRatio)
       // factions: effects step back at high playback speed (as the merchants do)
       const fx = !timeline.playing ? 1 : timeline.speed >= 16 ? 0.35 : timeline.speed >= 4 ? 0.75 : 1
