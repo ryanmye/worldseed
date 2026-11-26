@@ -1168,3 +1168,10 @@ Apple), Q4 (memory headroom), Q5 (iPad cores).
    Implementers do not edit §2 rulings. They propose changes in the PR description.
 9. **Parallel agents.** Lane leads run as background agents after the phase's serial setup merges. Two lanes may not
    touch the same hot file in the same phase without a stack (§4.1 assigns them). Rebase on main before each PR.
+
+## Addendum (scaffold implementation, 2026-11-26)
+- §2.3 clamp rule — RULED: the global clamp bounds the PRODUCT OF THE NEW MULTIPLIERS only, applied only when ≥1 new factor is present; the neutral case is the exact 8cabf09 expression (unclamped). Pre-existing terms (e.g. holy-war drive, ORDERS.warMul in C1) stay outside the clamp.
+- §3.4 stream list — replaced by the measured list in `src/sim/streams.test.ts` (adds history-expeditions, -frontier, -landmarks, -ore, -renaming, -tourism-springs, -voyages, -disease-pool, history-species-{origins,spread,hazard,techniques}, names-draw, landmarks-faith-<id>; history-orders only when orders exist).
+- Overthrow draw: gate on `overthrowExposed`, never on x > 0 (keeps the rulers stream aligned).
+- `eligibleHeirs` takes a 5th `cognatic` param; reserved OrderKind rows 10–83 return SystemOff; DECISION_KIND_COUNT 55 reserved.
+- Test suite: ~40 min on the 2-core VM; 5 tests time out at the 5 s default under load (pre-existing). Use `--testTimeout=900000` on loaded machines; consider raising per-test timeouts in a small PR.
