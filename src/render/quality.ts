@@ -7,7 +7,7 @@
 export const Quality = {
   High: 'high',
   Balanced: 'balanced',
-  /** Phones: Balanced's frame rates at a smaller bake, no town shadow maps, one motion target. */
+  /** Phones: Balanced's interaction rate, slower playback, a smaller bake, no town shadow maps, one motion target. */
   Phone: 'phone',
   Low: 'low',
 } as const
@@ -32,7 +32,11 @@ export interface QualitySettings {
   cloudsAnimate: 'always' | 'ride' | 'never'
   /** Frame-rate cap while the camera moves (Infinity = display rate). */
   interactFps: number
-  /** Frame-rate cap while history plays back. */
+  /**
+   * Frame-rate cap while history plays back. The layers interpolate between snapshots, so a
+   * lower cap still shows continuous motion (Phone 24, Low 15: playback is the longest-running
+   * draw, the 100 s intro and every later play).
+   */
   playFps: number
   /** Frame-rate cap when only the auto-rotation or cloud drift moves. */
   ambientFps: number
@@ -55,8 +59,8 @@ export const QUALITY_SETTINGS: Record<Quality, QualitySettings> = {
   high: { pixelRatioCap: 2, pixelRatioMin: 1, bakeSize: 1280, cloudBakeSize: 1536, cloudsAnimate: 'always', interactFps: Infinity, playFps: 60, ambientFps: 60, atmosphereSteps: 12, townShadows: true, starFraction: 1, cloudPuffDetail: true, panelBlur: true, motionTargets: 2, motionSamples: 4 },
   balanced: { pixelRatioCap: 1.5, pixelRatioMin: 0.75, bakeSize: 1024, cloudBakeSize: 1024, cloudsAnimate: 'ride', interactFps: 60, playFps: 30, ambientFps: 30, atmosphereSteps: 12, townShadows: true, starFraction: 1, cloudPuffDetail: true, panelBlur: true, motionTargets: 2, motionSamples: 4 },
   // (1.5x on a 3x phone: a third of the pixels of 3x and still sharp at arm's length)
-  phone: { pixelRatioCap: 1.5, pixelRatioMin: 0.5, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'ride', interactFps: 60, playFps: 30, ambientFps: 20, atmosphereSteps: 8, townShadows: false, starFraction: 0.5, cloudPuffDetail: false, panelBlur: false, motionTargets: 1, motionSamples: 2 },
-  low: { pixelRatioCap: 1, pixelRatioMin: 0.6, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 45, playFps: 20, ambientFps: 15, atmosphereSteps: 8, townShadows: false, starFraction: 1, cloudPuffDetail: true, panelBlur: false, motionTargets: 2, motionSamples: 4 },
+  phone: { pixelRatioCap: 1.5, pixelRatioMin: 0.5, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'ride', interactFps: 60, playFps: 24, ambientFps: 20, atmosphereSteps: 8, townShadows: false, starFraction: 0.5, cloudPuffDetail: false, panelBlur: false, motionTargets: 1, motionSamples: 2 },
+  low: { pixelRatioCap: 1, pixelRatioMin: 0.6, bakeSize: 768, cloudBakeSize: 768, cloudsAnimate: 'never', interactFps: 45, playFps: 15, ambientFps: 15, atmosphereSteps: 8, townShadows: false, starFraction: 1, cloudPuffDetail: true, panelBlur: false, motionTargets: 2, motionSamples: 4 },
 }
 
 /** One step cheaper (the slow-first-frame probe's fallback); Low stays Low. */
