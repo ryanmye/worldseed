@@ -23,6 +23,7 @@ import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIs
 import { cheaperQuality, loadQuality, Quality, QUALITY_SETTINGS, saveAutoQuality, saveQuality } from './render/quality.ts'
 import { detectDevice } from './render/device.ts'
 import { turnLimit, turnSpeedFactor } from './render/idleTurn.ts'
+import { hideStale, markFreedStale } from './render/freeAfterUpload.ts'
 import { createSunPanel } from './ui/sunPanel.ts'
 import { createPerfMonitor } from './render/perfTools.ts'
 import { addShortcut } from './ui/shortcuts.ts'
@@ -1336,6 +1337,21 @@ document.addEventListener('visibilitychange', () => {
     wake()
   }
 })
+// A lost WebGL context (GPU reset, a backgrounded phone tab): three.js re-creates every buffer
+// from its CPU copy once the context is back, and the static ribbons dropped theirs after upload
+// (render/freeAfterUpload.ts). Those stay hidden, and the History's layers are rebuilt in place
+// at the year shown.
+let rebuildOnRestore = false
+canvas.addEventListener('webglcontextlost', () => {
+  if (markFreedStale()) rebuildOnRestore = true
+})
+canvas.addEventListener('webglcontextrestored', () => {
+  const h = historyView.debug().history
+  if (rebuildOnRestore && h) historyView.replaceHistory(h, 0)
+  rebuildOnRestore = false
+  requestRender()
+  wake()
+})
 // any input may change something: wake the loop (it draws only if something did change);
 // discrete UI actions (clicks, keys, sliders, toggles) also request one frame
 for (const type of ['pointermove', 'pointerdown', 'wheel'] as const) window.addEventListener(type, wake, { capture: true, passive: true })
@@ -1517,6 +1533,8 @@ function draw(ts: number) {
     if (prNow === pixelRatio) gpuSample = ms
   })
   renderer.setRenderTarget(target)
+  // (layers whose freed CPU copies a lost context took with it stay hidden until rebuilt)
+  hideStale()
   renderer.render(scene, camera)
   perf.frame(ts, performance.now() - t0, renderer)
   if (target) copyToCanvas(target)

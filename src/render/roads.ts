@@ -26,6 +26,7 @@
 // town draws its own).
 
 import * as THREE from 'three'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import { RIVER_FLOW_THRESHOLD, type TradeRoutes, type World } from '../contract.ts'
 import { isWaterCell, lakeArray, SUN_COLOR, SUN_DIRECTION } from './globe.ts'
 import { RELIEF_GLSL, reliefUniforms } from './terrainHeight.ts'
@@ -432,6 +433,8 @@ export function buildRoadLayer(world: World, input: RoadInput): RoadLayer {
     polygonOffsetUnits: -6,
   })
   const roads = new THREE.Mesh(geometry, material)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(roads, [geometry])
   roads.renderOrder = 2.5 // over the rivers, under the clouds
   roads.name = 'roads'
 

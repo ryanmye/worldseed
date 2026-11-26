@@ -18,6 +18,7 @@
 //  - Known world: marks in cells not yet known are hidden; the links lie under the mist.
 
 import * as THREE from 'three'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import type { History, World } from '../contract.ts'
 import { CITY_POPULATION, IdeaHow, routePathAt, TOWN_POPULATION } from '../contract.ts'
 import { SUN_DIRECTION, surfaceRadius } from './globe.ts'
@@ -609,6 +610,8 @@ export function buildIdeasLayer(world: World, h: History, dd: IdeasData, maxPopu
   }
   const lineMat = new THREE.ShaderMaterial({ uniforms: lu, vertexShader: LINE_VERT, fragmentShader: LINE_FRAG, ...blend, side: THREE.DoubleSide })
   const lines = new THREE.Mesh(lineGeom, lineMat)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(lines, [lineGeom])
   lines.frustumCulled = false
   lines.renderOrder = 6.61 // over the trade lines, the long-haul legs and the sickness links, under the known-world mist
   lines.name = 'ideas links'

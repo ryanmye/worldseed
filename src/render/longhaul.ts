@@ -43,6 +43,7 @@ import { networkRouteSamples, routeNetwork, segmentWater, smoothPaths, type Path
 import { requestRender } from './invalidate.ts'
 import { MARKER_SLOT_GLSL } from './markerSlots.ts'
 import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import { INDUSTRY_LIST, ownerRgb, type GoodsData } from '../ui/goodsData.ts'
 
 const LIFT = 0.0033
@@ -717,6 +718,8 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   lines.name = 'long-haul legs'
   lines.visible = count > 0
   object.add(lines)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(lines, [lineGeom])
 
   // ---------- static marks ----------
   // radius of a settlement marker (CSS px before zoom scaling) at snapshot s, as render/settlements.ts

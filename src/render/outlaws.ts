@@ -37,6 +37,7 @@ import { flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { PIECE_SAMPLES, routeWayAt, type RouteNetwork } from './routeCurves.ts'
 import { requestRender } from './invalidate.ts'
 import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 import { blockadesAt, HUB_CONTRABAND, type BlockadeMark, type PolitiesData } from '../ui/politiesData.ts'
 
 /** Lift of the lanes above the ground (as the trade lines). */
@@ -466,6 +467,8 @@ export function buildOutlawLayer(world: World, h: History, pd: PolitiesData, net
   smuggleMesh.name = 'contraband routes'
   lossMesh.name = 'preyed-upon lanes'
   object.add(smuggleMesh, lossMesh)
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  if (nSlots > 0) freeAfterUpload(smuggleMesh, [lanesGeom, lossGeom], [lossMesh])
 
   // ---------- marks: havens and hubs (by snapshot), blockades (by year), ships (by frame) ----------
   const havens = pd.havenSettlements, hubs = pd.hubSettlements

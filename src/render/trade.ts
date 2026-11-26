@@ -49,6 +49,7 @@ import { flat, flatUniforms, SEAM_FRAG_GLSL } from './mapProjection.ts'
 import { sunUniforms } from './sun.ts'
 import { networkRouteSamples, PIECE_SAMPLES, routeWayAt, routeWaySpans, segmentWater, SHORE, tradeNetwork } from './routeCurves.ts'
 import { createLiveRuns } from './liveRanges.ts'
+import { freeAfterUpload } from './freeAfterUpload.ts'
 
 /**
  * Good colours (sRGB hex), indexed by Good: grain, fish, livestock, timber, ore, salt, cloth, luxury,
@@ -465,6 +466,8 @@ export function buildTradeLayer(world: World, input: TradeInput): TradeLayer {
   const lineLive = createLiveRuns(pieceIdx, pieces)
   const lines = new THREE.Mesh(lineGeom, [lineMaterial])
   lines.frustumCulled = false
+  // (static once built: the CPU copy goes after upload, freeAfterUpload.ts)
+  freeAfterUpload(lines, [lineGeom])
   lines.renderOrder = 6.5 // after clouds, under the journey trails and settlement markers
 
   // ---------- selected settlement's routes (built on selection) ----------
