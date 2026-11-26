@@ -4,14 +4,15 @@
 // the shown year. Hidden items still cost vertex work every frame, so the live items' index runs
 // become the geometry's draw groups (drawn with a one-entry material array): the same triangles
 // in the same order as drawing the whole buffer, minus ones the shader would have hidden. Runs
-// are merged at their smallest gaps down to a few groups (each group is a draw call); merging
+// are merged at their smallest gaps down to a few groups (each group is a draw call: 4 keeps the
+// extra calls to ~12 over the four ribbons, against ~28 at 8, for ~15% more legs triangles); merging
 // only draws hidden triangles again, so the picture never changes. No buffer is re-uploaded.
 // The live sets change with the year or the trade snapshot, not per frame.
 
 import type * as THREE from 'three'
 
 /** Most draw groups per geometry (one draw call each). */
-export const MAX_LIVE_RUNS = 8
+export const MAX_LIVE_RUNS = 4
 
 /**
  * The index runs of the live items, merged to at most `maxRuns`: items 0..n-1 occupy
