@@ -31,6 +31,7 @@ import { createOrdersState } from './state.ts'
 import type { OrdersState } from './state.ts'
 
 const YEARS = describeOrderKinds().map((k) => k.years)
+const RESERVED = describeOrderKinds().map((k) => k.reserved === true)
 
 export function createOrders(s: HistoryState, orders: readonly Order[], rng: Rng): OrdersState {
   return createOrdersState(orders, s.know.P, 1.12 / s.terrain.n, rng)
@@ -180,7 +181,7 @@ export function ordersBegin(s: HistoryState, ox: OrdersState): void {
     const t = ox.target[k]
     push(s, EventType.OrderGiven, seat, kd === OrderKind.Seat ? t : (kd === OrderKind.War || kd === OrderKind.Peace) && s.pol !== null && t >= 0 && t < s.pol.pCapital.length ? s.pol.pCapital[t] : -1, k, kd)
     ox.place[k] = seat
-    const why = kd >= 0 && kd < YEARS.length ? check(s, ox, k) : OrderReason.NoTarget
+    const why = kd >= 0 && kd < YEARS.length ? (RESERVED[kd] ? OrderReason.SystemOff : check(s, ox, k)) : OrderReason.NoTarget // (reserved kinds, R40: never act)
     if (why !== OrderReason.None) { resolve(s, ox, k, OrderStatus.Failed, why, seat); continue }
     ox.status[k] = OrderStatus.Active
     ox.until[k] = s.year + YEARS[kd]

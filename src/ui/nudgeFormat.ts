@@ -150,7 +150,7 @@ export function urgePhrase(h: History, o: Order): string {
     case OrderKind.Fortify: return 'raise walls'
     case OrderKind.Quarantine: return 'hold ships in quarantine'
   }
-  return ORDER_KINDS[o.kind]?.label.toLowerCase() ?? 'act'
+  return ORDER_KINDS[o.kind]?.label.toLowerCase() || 'act'
 }
 
 /** The order's actor by name: "the Krakinoth", "Temukuntin", "the ruler of Temukuntin", "Thimin", "the port of Thimin". */
