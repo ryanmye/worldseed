@@ -30,6 +30,7 @@ import type { PolityState } from './state.ts'
 import { PolityEnd, PolityOrigin } from '../../../contract.ts'
 import { tied, unionBond } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
+import { c7Alliance } from '../compose.ts' // C7 stack
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -250,7 +251,7 @@ export function allianceStep(s: HistoryState, ps: PolityState): void {
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
       if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
-      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= X.chance * (s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1)) continue // (rulers: houses tied by marriage ally more readily)
+      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1)) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }
   }

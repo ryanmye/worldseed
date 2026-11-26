@@ -44,6 +44,7 @@ import type { PolityState } from './state.ts'
 import { rulerCapitalFell, rulerWar } from '../rulers/system.ts' // rulers:
 import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
 import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
+import { c1WarDeclare, c6Peace } from '../compose.ts' // C1, C6 stacks
 import { ORDERS } from '../orders/params.ts' // orders:
 
 // --- Declarations ------------------------------------------------------------------------------------
@@ -85,7 +86,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = (s.rul !== null ? rulerWar(s.rul, p) : 1) * (s.rel !== null ? holyDrive(s, s.rel, p, q) : 1) * ((wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1) // rulers: a warlike ruler; religion: holy war; orders:
+      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       const w0 = ps.wKind.length
       declare(s, ps, r, p, q)
@@ -410,7 +411,7 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     if (ps.wTaken[w] > takenBefore) ps.wLastGain[w] = s.year
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
-    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < WAR.peaceChance) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
+    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < c6Peace(WAR.peaceChance)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
     if (spent || tired) {
       const t = ps.wTaken[w], b = ps.wRetaken[w]
       closeWar(s, ps, w, t > b ? WarOutcome.AttackerGains : b > t ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)

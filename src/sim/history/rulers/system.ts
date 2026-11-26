@@ -32,6 +32,7 @@ import { Ctx, deathYear, drawLaw, ensureRulerPolities } from './state.ts'
 import type { RulerState } from './state.ts'
 import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim } from './marriage.ts'
 import { capitalFaith } from '../religion/system.ts' // religion:
+import { c3Overthrow } from '../compose.ts' // C3 stack
 
 const H = RULERS.heirs
 
@@ -437,7 +438,7 @@ export function rulerYear(s: HistoryState, ps: PolityState, R: RulerState, ts: T
       if (weak > 0 && year - R.rAcc[r] >= 2) {
         let e = ps.pExh[p]
         if (e > 1) e = 1
-        const x = RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))
+        const x = c3Overthrow(RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))) // C3 (compose.ts)
         if (rng.next() < x) cause = rng.next() < RULERS.overthrowKill ? ReignEnd.Overthrown : ReignEnd.Deposed
       }
     }

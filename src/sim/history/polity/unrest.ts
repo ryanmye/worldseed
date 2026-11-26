@@ -32,6 +32,7 @@ import { chooseCapital, membersOf, successors } from './realm.ts'
 import { FAR, clampAsab, endPolity, grip, inCrisis, moveCapital, projAt, setPolity, submits } from './state.ts'
 import type { PolityState } from './state.ts'
 import { faithGrievance } from '../religion/system.ts' // religion:
+import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
 
 /** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
@@ -64,8 +65,8 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
-  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; return peasant + provincial + ethnic + colonial + r } // religion: a ruler of another faith, persecution
-  return peasant + provincial + ethnic + colonial
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; return c2Grievance(peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
+  return c2Grievance(peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
 }
 
 function causeOf(): number {
@@ -168,7 +169,7 @@ export function revoltStep(s: HistoryState, ps: PolityState): void {
     const i = living[t]
     const p = ps.polity[i]
     if (p < 0 || ps.pCapital[p] === i || ps.unrest[i] < U.revolt || ps.rose[i] === s.year || s.abandoned[i] >= 0) continue
-    if (rng.next() >= U.chance) continue
+    if (rng.next() >= c2RevoltChance(U.chance)) continue // C2 (compose.ts): the revolt hazard
     revolt(s, ps, i, p)
   }
 }
