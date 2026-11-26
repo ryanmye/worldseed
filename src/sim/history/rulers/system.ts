@@ -32,7 +32,7 @@ import { Ctx, deathYear, drawLaw, ensureRulerPolities } from './state.ts'
 import type { RulerState } from './state.ts'
 import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim } from './marriage.ts'
 import { capitalFaith } from '../religion/system.ts' // religion:
-import { c3Overthrow } from '../compose.ts' // C3 stack
+import { contestChanceOf, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
 
 const H = RULERS.heirs
 
@@ -120,30 +120,7 @@ function founderSiblings(R: RulerState, p: number, born: number, year: number): 
   }
 }
 
-/**
- * The heir of p's pool under law `law` (cognatic: women after men), or -1. Primogeniture and partible: legitimate children
- * by age, then siblings; seniority: adults first, siblings before children; elective: as seniority among adults. Bastards last.
- */
-export function pickHeir(R: RulerState, p: number, law: number, cognatic: boolean, year: number): number {
-  const o = p * H
-  const n = R.hN[p]
-  let best = -1, bestK = 1e9
-  const senior = law === 2 || law === 3
-  for (let k = 0; k < n; k++) {
-    const i = o + k
-    if (R.hDeath[i] <= year) continue
-    const female = R.hFemale[i] === 1
-    if (female && !cognatic) continue
-    const adult = year - R.hBorn[i] >= RULERS.majority
-    // A lexicographic key (lower first): bastard, woman, [seniority: minor], [seniority: child before sibling inverted], birth.
-    let key = (R.hLegit[i] ? 0 : 8) + (female ? 4 : 0)
-    if (senior) key += (adult ? 0 : 2) + (R.hChild[i] ? 1 : 0)
-    else key += R.hChild[i] ? 0 : 1
-    const kk = key * 100000 + (R.hBorn[i] + 50000)
-    if (kk < bestK) { bestK = kk; best = k }
-  }
-  return best
-}
+export { pickHeir } // (moved to hazards.ts, re-exported for existing importers)
 
 /** Adult legitimate sons of reign `dead` in p's pool, other than slot `heir`. */
 function adultSons(R: RulerState, p: number, dead: number, heir: number, year: number): number {
@@ -154,14 +131,6 @@ function adultSons(R: RulerState, p: number, dead: number, heir: number, year: n
     if (k === heir || R.hDeath[i] <= year || !R.hLegit[i] || R.hFemale[i] || R.hParent[i] !== dead || year - R.hBorn[i] < RULERS.majority) continue
     n++
   }
-  return n
-}
-
-/** Adults in p's pool other than slot `skip` (rivals in the house). */
-function adultsIn(R: RulerState, p: number, skip: number, year: number): number {
-  const o = p * H
-  let n = 0
-  for (let k = 0; k < R.hN[p]; k++) if (k !== skip && R.hDeath[o + k] > year && year - R.hBorn[o + k] >= RULERS.majority) n++
   return n
 }
 
@@ -434,11 +403,9 @@ export function rulerYear(s: HistoryState, ps: PolityState, R: RulerState, ts: T
     else if (year >= R.rDeath[r]) cause = ReignEnd.Natural
     else if (ps.pWars[p] > 0 && rng.next() < RULERS.battle * (0.4 + R.rWar[r]) * (R.rFemale[r] ? RULERS.womanBattle : 1)) cause = ReignEnd.Battle
     else {
-      const weak = RULERS.overthrowAbility - R.rAbility[r]
-      if (weak > 0 && year - R.rAcc[r] >= 2) {
-        let e = ps.pExh[p]
-        if (e > 1) e = 1
-        const x = c3Overthrow(RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))) // C3 (compose.ts)
+      // (the draw is made whenever the ruler is exposed, even if an order sets x to 0: the stream stays aligned)
+      if (overthrowExposed(R, r, year)) {
+        const x = overthrowHazard(s, ps, R, p) // hazards.ts, through C3 (compose.ts)
         if (rng.next() < x) cause = rng.next() < RULERS.overthrowKill ? ReignEnd.Overthrown : ReignEnd.Deposed
       }
     }
@@ -494,14 +461,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
     } else {
       const i = p * H + heir
       const S = SUCCESSION
-      const age = year - R.hBorn[i]
-      let rivals = law === 2 || law === 3 ? adultsIn(R, p, heir, year) - 1 : 0
-      if (rivals < 0) rivals = 0
-      let rv = S.rival * rivals
-      if (rv > S.rivalMax) rv = S.rivalMax
-      const weak = 1 - R.rAbility[dead]
-      const chance = S.base[law] + S.cohesion * (1 - ps.pAsab[p]) + (ps.pMulti[p] ? S.multi : 0) + (age < RULERS.majority ? S.minor : 0) +
-        (R.hLegit[i] ? 0 : S.bastard) + (R.hFemale[i] ? S.woman : 0) + (weak > 0 ? S.weak * weak : 0) + rv
+      const chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
         clean = false
