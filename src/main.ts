@@ -1096,6 +1096,28 @@ function applyQuality(q: Quality) {
   wake()
 }
 
+// ---------- power mode: a hook for an app shell (window.__worldseed.setPowerMode) ----------
+// 'saver' switches to the Saver preset for as long as it lasts (the OS's low-power mode, on
+// battery), without remembering it as the user's choice; 'normal' goes back to the quality from
+// before, unless the user picked another one meanwhile. Rendering already stops entirely while
+// the page is hidden (frameBody, visibilitychange), so there is no 'paused' mode.
+let qualityBeforeSaver: Quality | null = null
+function setPowerMode(mode: 'normal' | 'saver') {
+  if (mode === 'saver') {
+    if (qualityBeforeSaver !== null || quality === Quality.Saver) return
+    qualityBeforeSaver = quality
+    applyQuality(Quality.Saver)
+  } else if (mode === 'normal') {
+    const back = qualityBeforeSaver
+    qualityBeforeSaver = null
+    if (back !== null && quality === Quality.Saver) applyQuality(back)
+  }
+}
+{
+  const w = window as unknown as { __worldseed?: Record<string, unknown> }
+  w.__worldseed = Object.assign(w.__worldseed ?? {}, { setPowerMode, powerMode: () => (qualityBeforeSaver !== null ? 'saver' : 'normal') })
+}
+
 const sunPanel = createSunPanel(
   {
     onSunMode(mode) {
@@ -1108,6 +1130,8 @@ const sunPanel = createSunPanel(
     },
     onQuality(q) {
       qualityAuto = false
+      // (the user's own pick ends a power-mode switch: 'normal' leaves it alone)
+      qualityBeforeSaver = null
       saveQuality(q)
       if (params.has('quality')) setUrlParam('quality', q)
       applyQuality(q)
