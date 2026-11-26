@@ -6,7 +6,7 @@
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
 //   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
 //   v2 bonds (vassals, tribute, alliances), coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
-//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, v2 alliances, v2 kin
+//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances, v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
 //   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger; [claims every mapStep years:
 //   the land states claim beyond their settlements' (claims.ts)].
@@ -43,6 +43,7 @@ import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
 import { rulerYear } from '../rulers/system.ts' // rulers:
 import { c8Tax } from '../compose.ts' // C8 stack
+import { grievanceStep } from './grievances.ts' // oaths:
 
 let mapHeap: Heap | null = null
 
@@ -156,6 +157,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     const long = s.year % POLITY.mapStep === 0
     if (long) overawe(s, ps) // v2 (every mapStep years)
     relationStep(s, ps, ts)
+    if (ps.og !== null) grievanceStep(s, ps, ps.og) // oaths: holy cities, decay, avenging, the faithless score
     allianceStep(s, ps) // v2
     if (long) kinStep(s, ps) // v2: kindred successor states reunified (every mapStep years)
     hubStep(s, ps) // v2: smugglers' hubs, corruption

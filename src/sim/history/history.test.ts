@@ -377,6 +377,9 @@ function checkInvariants(w: World, h: History): void {
       // claims: border disputes (checked against History.polities in claims.test.ts).
       case EventType.BorderDispute:
         break
+      // oaths, balance, arms (checked against their tables in polity/grudges.test.ts).
+      case EventType.Betrayal: case EventType.OathBroken: case EventType.Avenged: case EventType.Bandwagon: case EventType.ArmsRace:
+        break
       // danger on the way of trade: a route forsaken right after it closed, restored right after it reopened.
       case EventType.TradeForsaken: case EventType.TradeRestored: {
         const r = e.value

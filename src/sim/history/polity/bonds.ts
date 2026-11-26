@@ -16,14 +16,15 @@
 // Buffer states: attacking a small polity next to a rival of the attacker alarms that rival (rivalry + bufferR), which
 // may take the victim under its protection (an alliance).
 
-import { BondEnd, BondKind, EventType, TOWN_POPULATION } from '../../../contract.ts'
+import { BondEnd, BondKind, EventType, GrievanceKind, TOWN_POPULATION } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { distTo } from './control.ts'
 import { atWar } from './formation.ts'
-import { ALLIANCE, POLITY, RELATION, VASSAL } from './params.ts'
+import { ALLIANCE, OATH, POLITY, RELATION, VASSAL } from './params.ts'
+import { recordGrievance } from './grievances.ts' // oaths:
 import { ensureRelation, relIdx, relationOf } from './relations.ts'
 import { FAR, Tier, endPolity, grainShare, inContact, localOf, projAt, setPolity, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
@@ -96,6 +97,7 @@ export function endBond(s: HistoryState, ps: PolityState, k: number, cause: numb
   if (i >= 0) ps.activeBonds.splice(i, 1)
   if (ps.bKind[k] !== BondKind.Alliance && ps.pSub[ps.bA[k]] === k) ps.pSub[ps.bA[k]] = -1
   if (cause === BondEnd.Freed) logX(s, EventType.BecameVassal, ps.pCapital[ps.bA[k]], ps.pCapital[ps.bB[k]], ps.bB[k] + (ps.bKind[k] === BondKind.Tribute ? 1000 : 0), 1)
+  if (cause === BondEnd.Freed && ps.og !== null) recordGrievance(s, ps, ps.og, GrievanceKind.BondThrownOff, ps.bB[k], ps.bA[k], OATH.wBond, ps.pCapital[ps.bA[k]], -1) // oaths: the overlord holds it
 }
 
 /** Polity a becomes the vassal (tribute: tributary for a term) of b; its own subjects pass to b. */

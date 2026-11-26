@@ -24,7 +24,7 @@
 // success L_u^2 / (L_u^2 + D_v^2): the raiders take a fifth of the target's wealth and a hundredth of
 // its people; a failed raid costs the raiders. Raids on settlements of WAR.raidLog or more are logged.
 
-import { EventType, JourneyKind, PolityEnd, PolityOrigin, WarKind, WarOutcome } from '../../../contract.ts'
+import { EventType, GrievanceKind, JourneyKind, PolityEnd, PolityOrigin, WarKind, WarOutcome } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent, logJourney, loseStructure } from '../state.ts'
@@ -32,7 +32,7 @@ import { prosperity } from '../migration.ts'
 import { learnPath } from '../knowledge.ts'
 import { controlOne, distTo } from './control.ts'
 import { loseFort, loseWalls, spike } from './danger.ts'
-import { ALLIANCE, CIVIL, COHESION, POLITY, VASSAL, WAR } from './params.ts'
+import { ALLIANCE, CIVIL, COHESION, OATH, POLITY, VASSAL, WAR } from './params.ts'
 import { blockade } from './outlaw.ts'
 import { bound } from './policy.ts'
 import { bufferAlarm, overlordOf, peaceTerms, protectorsOf, subject } from './bonds.ts'
@@ -46,6 +46,7 @@ import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
 import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
 import { c1WarDeclare, c6Peace } from '../compose.ts' // C1, C6 stacks
 import { ORDERS } from '../orders/params.ts' // orders:
+import { grievConquered, recordGrievance } from './grievances.ts' // oaths:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -259,7 +260,9 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
   // Sack.
   const rng = ps.rngWar
   const chance = WAR.sack * (wasCap && s.people[u] !== s.people[v] ? WAR.sackCapital : 1)
-  if (rng.next() < chance) {
+  const sacked = rng.next() < chance
+  if (ps.og !== null) grievConquered(s, ps, ps.og, w, p, q, v, wasCap, sacked) // oaths: the town, its sack, the capital
+  if (sacked) {
     const lost = WAR.sackPop * s.pop[v]
     s.pop[v] -= lost
     ps.wDead[w] += lost
@@ -308,6 +311,7 @@ function capitalFalls(s: HistoryState, ps: PolityState, w: number, p: number, q:
       ps.conqueredAt[j] = s.year
       ps.wTaken[w]++
       logEvent(s, EventType.Conquered, j, -1, w)
+      if (ps.og !== null) recordGrievance(s, ps, ps.og, GrievanceKind.TownConquered, q, p, OATH.wTown, j, w) // oaths:
     } else keep.push(j)
   }
   for (const j of keep) ps.asab[j] = clampAsab(ps.asab[j] + COHESION.capitalLost)

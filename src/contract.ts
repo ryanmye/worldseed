@@ -236,6 +236,13 @@ export const EventType = {
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
+  // oaths (polities; grudges-and-oaths): broken truces, betrayed allies, bandwagoning and arms races (190-199; none when
+  // HistoryOptions.oaths, balance and arms are false).
+  Betrayal: 190, // the polity ruled from `settlement` broke faith with its ally ruled from `other` in a war they fought together (the bond ends BondEnd.Betrayed): `value` is the war the betrayer left (History.wars; its attacker the betrayer, its defender the common enemy); `extra` is 0 when it made a separate peace, 1 when it also turned on its ally (a WarDeclared follows that year). Towns the enemy ceded follow as Joined
+  OathBroken: 191, // the polity ruled from `settlement` declared war on the one ruled from `other` against its oath: `value` is the war (WarDeclared the same year, just before); `extra` is 0 when a truce sworn at the end of an earlier war still held, 1 when the two were allies (the bond ends BondEnd.Betrayed)
+  Avenged: 192, // the polity ruled from `settlement` took back or repaid the wrong of grievance `value` (History.grievances) done by the one ruled from `other` (-1 if it has ended); `extra` the GrievanceKind (logged for broken truces, betrayals, holy cities and capitals only)
+  Bandwagon: 193, // the polity ruled from `settlement`, too weak to balance, sided with the far stronger one ruled from `other` (HistoryOptions.balance): `value` the stronger polity; `extra` 0 an alliance against the stronger one's rival (Alliance follows), 1 tribute offered unasked (BecameVassal, value + 1000, follows)
+  ArmsRace: 194, // the polities ruled from `settlement` and `other` armed against each other (HistoryOptions.arms): `value` the race (History.armsRaces); `extra` 0 it began, 1 it ended in war (WarDeclared the same year, just before), 2 it eased
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -408,6 +415,17 @@ export interface History {
   bonds: Bonds
   /** Embargoes between polities short of war. */
   embargoes: Embargoes
+  /** oaths: wrongs one polity holds against another (empty when HistoryOptions.oaths or polities is false). */
+  grievances: Grievances
+  /**
+   * oaths: each polity's name for faithlessness per snapshot, 0..255 for 0..OATH.repMax, row-major like `tariff`
+   * (faithless[s * polities.length + id]); all 0 when oaths is off.
+   */
+  faithless: Uint8Array
+  /** arms: each polity's armament M_p per snapshot, 0..255 for 0..1, laid out like `tariff`; all 0 when HistoryOptions.arms is false. */
+  arms: Uint8Array
+  /** arms: arms races between rival polities (empty when HistoryOptions.arms is false). */
+  armsRaces: ArmsRaces
 
   // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
   /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
@@ -1263,6 +1281,15 @@ export interface Wars {
   /** Settlements that changed hands either way, and people killed on both sides (battles, sieges, sacks). */
   taken: Uint16Array
   dead: Float32Array
+  /**
+   * oaths: the grievance row (History.grievances) that drove the declaration (the strongest of the attacker's grudges against
+   * the defender when its grudge g >= OATH.revengeMin), or -1: a revenge war has cause >= 0. All -1 when HistoryOptions.oaths is false.
+   */
+  cause: Int32Array
+  /** oaths: for a war an ally joined in defence of its ally, the war it joined (whose defender it came to help); otherwise -1. */
+  ally: Int32Array
+  /** arms: the arms race (History.armsRaces) between the two sides open at the declaration, or ended <= ARMS.precede years before it; -1 otherwise. */
+  race: Int32Array
 }
 
 /** Kinds of bond between two polities (History.bonds). */
@@ -1277,10 +1304,88 @@ export const BondEnd = {
   Ongoing: 0,
   Freed: 1, // the vassal or tributary threw it off
   Absorbed: 2, // the vassal was absorbed into its overlord (PolityEnded with PolityEnd.Absorbed)
-  Lapsed: 3, // the tribute's term ran out, or the common threat faded, or the allies fell out
+  Lapsed: 3, // the tribute's term ran out, or the common threat faded, or the allies fell out (with oaths on, allies who fight each other end Betrayed instead)
   Ended: 4, // one of the two polities ended, or the vassal passed to its overlord's overlord
+  Betrayed: 5, // oaths: one ally broke faith: made a separate peace with the common enemy, turned on its ally, or attacked it (EventType.Betrayal / OathBroken extra 1); bA or bB, the one whose capital is the event's `settlement`, is the betrayer
 } as const
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
+
+/** oaths: kinds of grievance one polity holds against another (History.grievances). Other plans add theirs (MASTER-PLAN §3.2). */
+export const GrievanceKind = {
+  TruceBroken: 0, // the offender declared war while a truce sworn after a war between them held (EventType.OathBroken, extra 0)
+  AllyBetrayed: 1, // the offender, its ally, made a separate peace with their common enemy or turned on it (EventType.Betrayal), or attacked it while allied (OathBroken, extra 1)
+  BondThrownOff: 2, // the offender, its vassal or tributary, threw off the bond (BecameVassal, extra 1); the overlord holds it
+  TownConquered: 3, // the offender took `settlement` from it in war (the Conquered towns of one war merged: `towns`)
+  TownSacked: 4, // the offender sacked `settlement` (Sacked)
+  HolyCityTaken: 5, // the offender, of another faith, took the holy city `settlement` (HolyCityFell); the polity that lost it holds it
+  CapitalTaken: 6, // the offender took its capital `settlement`
+  CrownDefault: 7, // (state-finances) the offender's crown defaulted on a loan from a lender seated in the wronged polity
+} as const
+export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
+
+/**
+ * oaths: grievances between polities, struct-of-arrays in order of recording (one row per wrong; the towns one war took from one
+ * polity merge into one TownConquered row). A grievance's weight w0 fades with age: w(y) = w0 * 0.5^((y - year) / halfLife),
+ * applied every POLITY.slowStep years, and it is put aside (endYear) once w < OATH.forget, when it is avenged (the town taken
+ * back, or a won revenge war: the weight * OATH.avenged), or when either polity ends. A successor state inherits its parent's
+ * grievances at OATH.inherit of their weight (`heir` is the row it came from); a realm that absorbs or reunifies another takes up
+ * its quarrels. The grudge of p against q is G = the sum of w over p's open rows against q; it raises rivalry and p's will to
+ * make war on q (g = G / (G + OATH.half)).
+ */
+export interface Grievances {
+  count: number
+  kind: Uint8Array
+  /** Polity ids: the wronged and the offender. */
+  wronged: Int16Array
+  offender: Int16Array
+  year: Int16Array
+  /** Weight when recorded (after merging), and the year it was put aside (-1: still held at the end of the run). */
+  weight: Float32Array
+  endYear: Int16Array
+  /** 0 faded, 1 avenged, 2 a polity ended, 3 passed to an heir (see `heir`), 4 the two became one realm. */
+  endCause: Uint8Array
+  /** Settlement it concerns (town, capital, holy city) or -1; the war it came from (History.wars) or -1; towns merged. */
+  settlement: Int32Array
+  war: Int32Array
+  towns: Uint16Array
+  /** Row this one was inherited from, or -1. */
+  heir: Int32Array
+  /** OATH.halfLife (years), for readers that compute w(y). */
+  halfLife: number
+}
+
+/** arms: how an arms race between two polities ended (History.armsRaces). */
+export const ArmsRaceEnd = {
+  Ongoing: 0,
+  War: 1, // one declared war on the other
+  Eased: 2, // both fell back below ARMS.raceOff
+  Ended: 3, // a polity ended or became the other's vassal
+} as const
+export type ArmsRaceEnd = (typeof ArmsRaceEnd)[keyof typeof ArmsRaceEnd]
+
+/**
+ * arms: arms races, struct-of-arrays in order of starting. Each pair of rival polities carries two arms levels x (a against b)
+ * and y (b against a) in 0..1, a share of the realm's strength kept under arms against that rival, moving by Richardson's
+ * equations every POLITY.slowStep years: dx/dt = k_a * y - a_a * x + g_a (reaction, fatigue, grievance). A race is open from
+ * the step min(x, y) >= ARMS.raceOn with both rising until min(x, y) < ARMS.raceOff, war, or the end of either. `level` holds
+ * min(x, y) at each slow step of the race, 0..255 for 0..1 (level[levelOff[i] .. levelOff[i + 1])).
+ */
+export interface ArmsRaces {
+  count: number
+  /** Polity ids. */
+  a: Int16Array
+  b: Int16Array
+  start: Int16Array
+  /** Year it ended (-1 open at the end of the run), how (ArmsRaceEnd), and the war it ended in (History.wars) or -1. */
+  end: Int16Array
+  endCause: Uint8Array
+  war: Int32Array
+  /** Peak of min(x, y), 0..255, and its year. */
+  peak: Uint8Array
+  peakYear: Int16Array
+  levelOff: Int32Array
+  level: Uint8Array
+}
 
 /**
  * Embargoes short of war, struct-of-arrays in order of declaration (one entry per embargo; the same pair may embargo
@@ -1465,6 +1570,17 @@ export interface HistoryOptions {
    * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
    */
   cradles?: number[]
+  /**
+   * oaths (grudges-and-oaths; needs polities): grievances between polities that fade over generations and feed rivalry and revenge
+   * wars, truces sworn as oaths that may be broken, allies who desert or turn on each other, a name for faithlessness, and the
+   * ruler's shadow of the future (old, heirless or embattled rulers keep faith less). Default false; false leaves
+   * History.grievances empty, faithless 0 and wars.cause / wars.ally -1, and every other field as without it.
+   */
+  oaths?: boolean
+  /** balance (grudges-and-oaths; needs polities): alliances weighed by threat (power, proximity and intent), coalitions against the hegemon, and weak states that bandwagon. Default false. */
+  balance?: boolean
+  /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
+  arms?: boolean
 }
 
 /**

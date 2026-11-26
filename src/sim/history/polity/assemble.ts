@@ -12,6 +12,7 @@ import { namePolities } from '../../names/polityNames.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from './state.ts'
 import { fillCellDanger } from './territory.ts'
+import { warLinks } from './grudgeAssemble.ts' // oaths, arms: Wars.cause / ally / race
 
 export interface PolitySnaps {
   pol: Int16Array<ArrayBuffer>
@@ -194,7 +195,7 @@ export function emptyPolityHistory(): PolityHistory {
     bonds: { count: 0, kind: new Uint8Array(0), a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), end: new Uint8Array(0) },
     embargoes: { count: 0, a: new Int16Array(0), b: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0) },
     polities: [], polity: new Int16Array(0), landCells: new Uint32Array(0), territory: new Uint16Array(0), claimed: new Uint8Array(0), danger: new Uint8Array(0),
-    wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0) },
+    wars: { count: 0, kind: new Uint8Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), startYear: new Int16Array(0), endYear: new Int16Array(0), outcome: new Uint8Array(0), taken: new Uint16Array(0), dead: new Float32Array(0), cause: new Int32Array(0), ally: new Int32Array(0), race: new Int32Array(0) },
     raids: { count: 0, decade: new Int16Array(0), settlement: new Int32Array(0), raids: new Uint16Array(0), wealth: new Float32Array(0) },
   }
 }
@@ -273,7 +274,7 @@ export function assemblePolityHistory(world: World, s: HistoryState, ps: PolityS
   const wars: Wars = {
     count: W, kind: Uint8Array.from(ps.wKind), attacker: Int16Array.from(ps.wAtt), defender: Int16Array.from(ps.wDef),
     startYear: Int16Array.from(ps.wStart), endYear: Int16Array.from(ps.wEnd), outcome: Uint8Array.from(ps.wOutcome),
-    taken: new Uint16Array(W), dead: Float32Array.from(ps.wDead),
+    taken: new Uint16Array(W), dead: Float32Array.from(ps.wDead), ...warLinks(ps, W),
   }
   for (let w = 0; w < W; w++) { const t = ps.wTaken[w] + ps.wRetaken[w]; wars.taken[w] = t > 65535 ? 65535 : t }
   // Raids of complete decades, by decade then settlement.

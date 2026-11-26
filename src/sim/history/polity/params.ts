@@ -651,3 +651,153 @@ export const CLAIM = {
   dispute: 0.2,
   disputeMin: 4,
 }
+
+/**
+ * Grudges and oaths (grievances.ts, shadow.ts; HistoryOptions.oaths). Every number here is a design default, not a sourced
+ * fact; the models are cited in grievances.ts and shadow.ts. Weights are in grudge units: g = G / (G + half).
+ */
+export const OATH = {
+  /** Oaths off by default (HistoryOptions.oaths overrides it). */
+  enabled: false,
+  /** Half-life of a grievance in years, and its per-slow-step factor 0.5^(slowStep / halfLife) written as a literal (no pow in the sim). */
+  halfLife: 30,
+  keep: 0.7937005259840998,
+  /** A grievance is put aside below this weight. */
+  forget: 0.05,
+  /** Weights by GrievanceKind: a broken truce, a betrayed ally, a bond thrown off, a town (per town, merged per war; capped), a sack, a holy city, a capital. */
+  wTruce: 1.0,
+  wAlly: 1.5,
+  wBond: 0.5,
+  wTown: 0.12,
+  capTown: 0.6,
+  wSack: 0.35,
+  wHoly: 0.9,
+  wCapital: 0.8,
+  /** Saturation of the grudge: g = G / (G + half). */
+  half: 1.0,
+  /** dR per year += rivalry * (g(a, b) + g(b, a)). */
+  rivalry: 0.03,
+  /** C1 grudge factor: 1 + drive * g(p, q). */
+  drive: 1.5,
+  /** g at which a declaration counts as revenge (Wars.cause). */
+  revengeMin: 0.3,
+  /** Weight multiplier on the grudges behind a won revenge war. */
+  avenged: 0.3,
+  /** Share of a parent's grievances each successor state inherits. */
+  inherit: 0.5,
+  /** Oath-breaking chance multiplier (on the declaration chance) and the smoothstep width of the excess E (shadow.ts). */
+  breakMul: 0.12,
+  breakSpan: 0.1,
+  /** Faithless score added per broken truce and per betrayal (or attack on an ally); its per-slow-step decay 0.5^(10 / 50) (literal), and its cap (and the snapshot scale). */
+  faithTruce: 0.6,
+  faithAlly: 1.0,
+  repHalfLife: 50,
+  repKeep: 0.8705505632961241,
+  repMax: 3,
+  /** One-off rivalry with the breaker for each witness (bordering it, allied with the victim, or of the victim's people). */
+  witnessR: 0.08,
+  /** Per year, rivalry of a faithless realm's neighbours += repRivalry * f / (f + 1). */
+  repRivalry: 0.004,
+  /** Alliance and join chances / (1 + repAlliance * f). */
+  repAlliance: 1.5,
+  /** Yearly base defection chance of an ally in a defensive war when its excess is full; towns the enemy may cede for a separate peace; rivalry with its ally above which a defector also turns on it. */
+  defect: 0.12,
+  cedeMax: 2,
+  turnR: 0.5,
+  // Shadow of the future (shadow.ts), payoffs in realm shares per period (POLITY.slowStep years).
+  /** Base patience per period, before the ruler. */
+  delta0: 0.9,
+  /** Heir-security weight lambda by law of succession (Primogeniture, Partible, Elective, Seniority). */
+  lawSec: [0.9, 0.6, 0.3, 0.7] as readonly number[],
+  /** lambda multiplier when the best heir is a minor or a bastard, or when there is no heir. */
+  heirMinor: 0.6,
+  heirNone: 0.25,
+  /** lambda multiplier during a succession crisis. */
+  crisisSec: 0.5,
+  /** delta * (1 - dDanger * smoothed danger at the capital). */
+  dDanger: 0.3,
+  deltaMin: 0.05,
+  deltaMax: 0.95,
+  /** delta without rulers (a 44-year-old with a secure heir and moderate danger). */
+  deltaNoRulers: 0.72,
+  /** Border towns counted in the gain of a broken truce (the capital excluded). */
+  takeMax: 3,
+  /** c_w: the cost of a war per period in realm share; h: expected wars per period once enemies for good (grim trigger). */
+  warCost: 0.04,
+  hostile: 0.5,
+  /** Trade lost with the partner: tradeW * v / (v + 200); an alliance's worth: allyW * threat it balances; a marriage tie; removing a threat: threatW * theta(q -> p). */
+  tradeW: 0.05,
+  allyW: 0.15,
+  tieW: 0.03,
+  threatW: 0.1,
+  /** Value lost per period per unit of faithless score (fewer alliances and joins). */
+  repCost: 0.03,
+  /** Defection: value of the old reasons to stay, per unit. */
+  bondW: 0.05,
+}
+
+/** Balance of threat and bandwagoning (align.ts; HistoryOptions.balance). Design defaults. */
+export const ALIGN = {
+  enabled: false,
+  /** theta is computed only for pairs with R >= preR or a grudge > 0. */
+  preR: 0.3,
+  /** The alliance chance ramps smoothstep(thetaMin, thetaFull, min(theta_x, theta_y)). */
+  thetaMin: 0.25,
+  thetaFull: 0.6,
+  /** intent = clamp01(wR * smoothstep(0.3, 1.2, R) + wG * g(x, c) + wF * f_c / (1 + f_c) + wA * aggr_c). */
+  wR: 0.6,
+  wG: 0.4,
+  wF: 0.3,
+  wA: 0.3,
+  /** aggr_c = n / (n + 2), n the conquest wars c started within aggrYears. */
+  aggrYears: 50,
+  /** Alliance chance * (1 + coalition) against the hegemon. */
+  coalition: 1.5,
+  /** Alliances a polity may hold when the new one is against a threat one of its alliances already faces (else 2). */
+  maxAlliances: 3,
+  /** Join chance = ALLIANCE.join * (joinBase + joinTheta * theta(attacker -> ally)), at most joinMax. */
+  joinBase: 0.6,
+  joinTheta: 0.8,
+  joinMax: 0.95,
+  /** The top realm by mass is a hegemon when it holds >= this share of the polities' people. */
+  hegemonMin: 0.25,
+  /** A bandwagoner: a Chiefdom, or fewer than weak times the hegemon's people. */
+  weak: 0.15,
+  /** theta(h -> x) needed to bandwagon; the chance per slow step band * smoothstep(bandTheta, 1, theta) * (1 - f_h / (1 + f_h)); rivalry with h after it. */
+  bandTheta: 0.5,
+  band: 0.08,
+  bandR: 0.2,
+}
+
+/** Richardson arms races (arms.ts; HistoryOptions.arms). Rates per year; design defaults. */
+export const ARMS = {
+  enabled: false,
+  /** Explicit-Euler substeps per slow step (dt = slowStep / substeps). */
+  substeps: 2,
+  /** Fatigue a_x = a * (1 + fatigue * need_x); reaction k_x = k * rulerWar(x). */
+  a: 0.05,
+  k: 0.025,
+  fatigue: 1,
+  /** g_x = gR * smoothstep(0.5, 1.2, R) + gG * g(x, y) + gT * theta(y -> x) - gTrade * v / (v + 200). */
+  gR: 0.006,
+  gG: 0.008,
+  gT: 0.006,
+  gTrade: 0.004,
+  /** x in [0, max]. */
+  max: 1,
+  /** War power on the pair's fronts * (1 + proj * x). */
+  proj: 0.3,
+  /** M_p = min(1, max_q x_pq + pool * (sum_q x_pq - max)). */
+  pool: 0.3,
+  /** finances: garrison * (1 + costMul * M_p) (replacing rivalArmy). */
+  costMul: 2,
+  /** Without finances: the capital's wealth -= drain * M_p * WEALTH.decay * wealth a year. */
+  drain: 0.3,
+  /** A race opens at min(x, y) >= raceOn with both rising and closes below raceOff. */
+  raceOn: 0.3,
+  raceOff: 0.18,
+  /** x, y * peace at the war's end (demobilisation). */
+  peace: 0.5,
+  /** Years a closed race still counts as a war's precursor (Wars.race). */
+  precede: 10,
+}
