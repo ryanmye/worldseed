@@ -73,6 +73,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (isOrderEvent(t)) return orderEventIsPolitics(h, first) ? POLITICS : TRADE
   // claims (130): border disputes between states
   if (t === 130) return POLITICS
+  // seat (270-279): the player's seat and its court
+  if (t >= 270 && t <= 279) return POLITICS
   // landmarks (140-146): great buildings are the settlements' (a house of worship rededicated, the faiths')
   if (t === 146) return FAITHS
   if (t >= 140 && t <= 145) return SETTLEMENT

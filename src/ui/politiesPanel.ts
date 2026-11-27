@@ -68,6 +68,8 @@ export interface PolitiesViewDeps {
   layerOn: boolean
   /** polity=<id> from the URL. */
   initialPolity: number | null
+  /** seat mode: "Take this throne" on a living faction's detail (absent: no button). */
+  onTakeSeat?(polity: number, year: number): void
 }
 
 export interface PolitiesView {
@@ -618,6 +620,16 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     })
     titleEl.append(close)
     detail.append(titleEl)
+    if (deps.onTakeSeat && exists && lives) {
+      // seat: play on as this faction's ruler from the year shown (ui/seat)
+      const take = document.createElement('button')
+      take.type = 'button'
+      take.className = 'seat-take'
+      take.textContent = 'Take this throne'
+      const p = selected, y = Math.floor(year)
+      take.addEventListener('click', (e) => { e.stopPropagation(); deps.onTakeSeat?.(p, y) })
+      detail.append(take)
+    }
     const line = (...parts: (string | Node)[]) => {
       const d = document.createElement('div')
       d.className = 'fp-d-line'

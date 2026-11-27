@@ -109,6 +109,8 @@ export interface HistoryViewDeps {
   hearths?: HearthPicker
   /** The city view is engaged (the story director never flies then). */
   cityEngaged?(): boolean
+  /** seat mode: the Factions panel's "Take this throne" (ui/seat). */
+  onTakeSeat?(polity: number, year: number): void
 }
 
 export interface InitialHistoryState {
@@ -188,6 +190,8 @@ export interface HistoryView {
   pickCell(cell: number): boolean
   /** Length of the current history in years (0 while there is none). */
   readonly years: number
+  /** The year the timeline shows (seat mode waits for it to reach a pause). */
+  readonly year: number
   /** Timing of the last swap (null before the first). */
   readonly lastSwap: SwapStats | null
   /** Debugging (perf=1 tools): the history shown, its index and the journey layer. */
@@ -389,6 +393,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setViewModeAvailable: deps.setViewModeAvailable,
     layerOn: initial.factions ?? true,
     initialPolity: initial.polity ?? null,
+    onTakeSeat: deps.onTakeSeat,
   })
   /** Fly the camera to a cell (and stop the spin). */
   const goodsFly = (cell: number) => {
@@ -1352,6 +1357,9 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const end = index ? index.history.years : 0
       console.error('history extension failed (keeping the current history):', message)
       timeline.setMore(More.No, `Could not simulate past year ${end}; the history ends there`, true)
+    },
+    get year() {
+      return timeline.year
     },
     get years() {
       return index ? index.history.years : 0

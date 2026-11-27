@@ -325,6 +325,12 @@ I(T.LeisureTravel, T.ResortFounded, T.ResortInFashion, T.ResortDeclined, T.Resor
 R(T.IdeaConceived, { cat: DramaCat.Culture, base: 4, gate: (_c, e) => (e.extra ?? 0) === 0 })
 I(T.IdeaAdopted, T.IdeaLost, T.IdeaResisted, T.BorderDispute)
 
+// --- language (250-253, language-drift: present only with HistoryOptions.language) ---
+R(T.LanguageSplit, { cat: DramaCat.Culture, base: 2 })
+R(T.LanguageShift, { cat: DramaCat.Culture, base: 2, scale: DramaScale.Town })
+I(T.LoanWave)
+R(T.LanguageDied, { cat: DramaCat.Culture, base: 4 })
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })

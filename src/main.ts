@@ -2,7 +2,8 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, World, WorldOptions } from './contract.ts'
-import { canonicalCradles, decodeCradles, decodeOrders, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
+import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
+import { createSeatController, type SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -15,7 +16,7 @@ import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
 import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
-import { createHistoryView, MAX_YEARS } from './ui/historyView.ts'
+import { createHistoryView, MAX_YEARS, nextHistoryLength } from './ui/historyView.ts'
 import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
@@ -67,6 +68,8 @@ import { startPlatform } from './platform/index.ts'
 // fly=<settlement id> (fly down into that town: the city view, render/cityView.ts),
 // nocache=1 (simulate afresh instead of reading the world and history cache, and overwrite it; historyCache.ts),
 // cachecheck=1 (on a cache hit also simulate afresh and log whether the two are identical: slow, for checking)
+// seat=<kind:id:from[:amb=a.b]> (seat mode, contract.ts encodeSeat, e.g. seat=polity:12:800): the player holds a seat and
+// history pauses at each decision (ui/seat); with o= (the choices so far) a reload replays the same reign to its last pause.
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
@@ -398,6 +401,10 @@ let extending = 0
 let failNextExtension = false
 /** The player's orders (o=, the Nudge panel), canonical; the history shown or on its way was simulated with them. */
 let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
+/** seat=: the seat to resume once the world is in (null none). */
+let pendingSeat = decodeSeat(params.get('seat') ?? '')
+/** seat mode (ui/seat/seatController.ts; created with the history view below). */
+let seatCtl: SeatController | null = null
 /** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
 let currentCradles: number[] = canonicalCradles(decodeCradles(params.get('c') ?? ''))
 /** The history options of the history asked for: its length, the orders and the cradles (undefined: all default). */
@@ -440,6 +447,18 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
     overlay.setGenerating(false)
     showWorld(msg.world)
     landing?.setLoading(false)
+    if (pendingSeat && seatCtl) {
+      // seat= on load: the world was asked for alone; the seat's run replays the reign to its next pause
+      const s = pendingSeat
+      pendingSeat = null
+      worldOnlyId = -1
+      seatCtl.start(s, currentCradles)
+    }
+  } else if (msg.type === 'seatPause') {
+    if (currentWorld) setTerrainHistory(currentWorld, msg.history)
+    overlay.setGoodsInUse(goodsInUse(msg.history.trade))
+    console.info(`seat: pause at ${msg.history.years}, ${msg.cards.length} decision(s)${msg.lost ? ', seat lost' : ''}, ${msg.ms.toFixed(0)} ms`)
+    seatCtl?.onPause(msg.history, msg.ms, msg.cards, msg.lost)
   } else if (msg.type === 'progress') {
     historyView.setSimProgress(msg.years, msg.target, resimYear >= 0 ? resimLabel : undefined)
   } else if (msg.type === 'history') {
@@ -563,6 +582,7 @@ function requestCradles(cradles: number[], keepYear: number) {
 }
 
 function requestYears(years: number, full = false) {
+  if (seatCtl?.active) return // (seat mode: the history grows pause by pause, ui/seat)
   extending = years
   const req: WorkerRequest = { type: 'extend', requestId, years, fail: failNextExtension || undefined, full: full || undefined }
   failNextExtension = false
@@ -587,6 +607,8 @@ function clearHistoryParams() {
   for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price', 'epidemic', 'sickness']) setUrlParam(k, null)
   setUrlParam('o', null) // (orders belong to the world they were given in)
   currentOrders = []
+  setUrlParam('seat', null) // (and the seat)
+  pendingSeat = null
   setUrlParam('c', null) // (and so do the hearths planted)
   currentCradles = []
   historyYears = 2000 // a new world starts with the default history again
@@ -711,11 +733,32 @@ const historyView = createHistoryView(
     // (each object compiled in place, with the scene's lights: nothing is re-parented)
     precompile: (objects) => Promise.all(objects.map((o) => renderer.compileAsync(o, camera, scene))),
     addLayerToggle: (t) => overlay.addLayerToggle(t),
+    onTakeSeat: (p, y) => seatCtl?.start({ kind: SeatKind.Polity, id: p, from: y }, currentCradles), // seat mode (ui/seat)
     // (the story director, ui/story, never flies while the city view is engaged; cityView is created below)
     cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
 )
+
+// seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
+seatCtl = createSeatController({
+  parent: app,
+  post: (req) => {
+    extending = 0
+    worker.postMessage({ ...req, requestId: ++requestId } as WorkerRequest)
+  },
+  replaceHistory: (h, ms, keepYear) => historyView.replaceHistory(h, ms, keepYear),
+  year: () => historyView.year,
+  getOrders: () => currentOrders,
+  setOrders: (orders) => {
+    currentOrders = decodeOrders(encodeOrders(orders))
+    setUrlParam('o', currentOrders.length > 0 ? encodeOrders(currentOrders) : null)
+  },
+  setUrlParam,
+  flyTo: (id) => historyView.select(id, true),
+  watchYears: (y) => nextHistoryLength(y),
+  progress: (label) => historyView.setSimProgress(0, 0, label),
+})
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Crops, false)
 overlay.setViewModeAvailable(ViewMode.Herds, false)
@@ -884,7 +927,7 @@ if (mapOn) {
 syncMapUi()
 
 setUrlParam('seed', String(currentSeed))
-requestWorld(currentSeed, showLanding)
+requestWorld(currentSeed, showLanding || pendingSeat !== null)
 
 // ---------- pointer: terrain readout on hover, settlement hover/click ----------
 
