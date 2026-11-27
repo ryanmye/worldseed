@@ -370,6 +370,15 @@ R(T.LandmarkRuined, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })
 R(T.TradeForsaken, { cat: DramaCat.Trade, base: 3 })
 I(T.TradeRestored, T.MerchantsMoved)
 
+// --- merchant families (161-169, merchant-families: only with HistoryOptions.families) ---
+// (a house founded on a venture, a bankruptcy, a marriage into a ruling house and a backed civil war make stories; the rest are notices)
+R(T.FamilyFounded, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town, gate: (_c, e) => (e.extra ?? 0) === 1 })
+I(T.FamilyBranch, T.BranchClosed, T.FamilyHead, T.FamilyPatron)
+R(T.FamilyMoved, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town })
+R(T.FamilyMarriage, { cat: DramaCat.Dynasty, base: 3 })
+R(T.FamilyBacked, { cat: DramaCat.Politics, base: 2 })
+R(T.FamilyFell, { cat: DramaCat.Trade, base: 4, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1 })
+
 // --- orders (170-173), cradles (180) ---
 I(T.OrderGiven, T.OrderLapsed, T.CradlePlaced)
 R(T.OrderFulfilled, { cat: DramaCat.Nudge, base: 7 })

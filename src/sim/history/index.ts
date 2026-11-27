@@ -143,6 +143,13 @@ import { createGoodsSystem, goodsProduce, goodsYear } from './goods/system.ts'
 import { assembleGoods, emptyGoodsHistory, goodsSnapshot } from './goods/assemble.ts'
 import type { GoodsDiag } from './goods/state.ts'
 import { assembleMerchants, merchantSnapshot } from './goods/merchants.ts' // goods: merchant capital
+// families: named merchant families owning shares of the merchant capital (families/).
+import { FAMILY } from './families/params.ts'
+import { createFamilies } from './families/state.ts'
+import type { FamilyDiag } from './families/state.ts'
+import { familiesSnapshot, familiesYear } from './families/system.ts'
+import { assembleFamilies, emptyFamilyHistory } from './families/assemble.ts'
+import { nameFamilies } from '../names/familyNames.ts'
 // disease: epidemics, endemic crowd diseases, plague, camp fever and place-bound fever (disease/).
 import { DISEASE_ON } from './disease/params.ts'
 import { createDisease } from './disease/state.ts'
@@ -305,6 +312,8 @@ export interface HistoryDiagnostics {
   ideas?: IdeasDiag
   /** landmarks: the landmarks system's counters (absent when it is off). */
   landmarks?: LandmarksDiag
+  /** families: the merchant families' counters (absent when they are off). */
+  families?: FamilyDiag
   /** disasters: the disasters system's counters, and its live state (read only; absent when it is off). */
   disasters?: DisasterDiag
   disasterState?: DisasterState
@@ -503,6 +512,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // goods: the goods system, unless switched off.
   const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
   s.goods = gx
+  // families: merchant families (they need goods), unless switched off (a pure consequence layer while FAMILY.feedback is off).
+  if (gx && (options?.families ?? FAMILY.on)) gx.ext.fam = createFamilies(seed, s.count, gx.legCount)
+  const fx = gx ? gx.ext.fam : null
   // rulers: rulers and houses (they need the polities), unless switched off.
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
@@ -612,6 +624,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (pol && pol.og) grudgeSnapshot(pol, pol.og) // oaths, arms: faithless, armament
     if (pol && fin) finSnapshot(s, pol, fin) // finance:
     if (gx) merchantSnapshot(s, gx) // goods: merchant capital
+    if (fx) familiesSnapshot(s, fx) // families: capital per family and per seat
     if (dz) diseaseSnapshot(dz) // disease:
     if (rel) religionSnapshot(s, rel) // religion:
   }
@@ -682,6 +695,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
+    if (fx) familiesYear(s, fx, lm) // families: shares of the year's merchant capital, heads, shocks, branches, marriages, patronage (reads only while FAMILY.feedback is off)
     if (dx) disasterYearEnd(s, dx) // disasters: droughts, epochs, the climate series
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
     if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
@@ -768,10 +782,15 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       polity: polSnap, polityPeople: pol ? pol.pPeople.subarray(0, pol.P) : new Int32Array(0), stateFaith: relHist.stateFaith, faiths: relHist.faiths,
     }) : null
     if (langHist && scrHist) { langHist.events = langHist.events.concat(scrHist.events); langHist.events.sort((a, b) => a.year - b.year) }
+    // families: (empty when off) named after the ruling houses, unique among them
+    const famHist = fx ? assembleFamilies(fx, snapshotCount, nameFamilies(world, naming,
+      fx.fFirstHome.map((h, f) => ({ firstHome: h, parent: fx.fParent[f] })),
+      fx.hFam.map((f, h) => ({ family: f, female: fx.hFemale[h] === 1, how: fx.hHow[h], prev: fx.hPrev[h] >= 0 && fx.hFam[fx.hPrev[h]] === f ? fx.hPrev[h] : -1 })),
+      rulHist.dynasties.map((d) => d.name))) : emptyFamilyHistory()
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
-    const events = weaveEvents(weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), langHist ? langHist.events : []) // (renaming: PlaceRenamed woven in; landmarks: theirs after it; language: its events last)
+    const events = weaveEvents(weaveEvents(weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), langHist ? langHist.events : []), fx ? fx.events : []) // (renaming: PlaceRenamed woven in; landmarks: theirs after it; language: its events; families last)
     // causes: rows name the run's raw events; woven in, an event moves up by the renaming and landmark events of earlier years.
-    const whyHist = why ? assembleWhy(why, years, polHist.wars.count, wovenIndex(s.events, renHist.events, lmHist.events, langHist ? langHist.events : []), events, N) : emptyCauseRecords()
+    const whyHist = why ? assembleWhy(why, years, polHist.wars.count, wovenIndex(s.events, renHist.events, lmHist.events, langHist ? langHist.events : [], fx ? fx.events : []), events, N) : emptyCauseRecords()
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
@@ -792,6 +811,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
+        families: famHist, // families:
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
         ...(bat && pol ? assembleBattles(bat, years, pol.pEnded, rulHist.rulers, nameBattles(world, bat, { settlements, renamings: renHist.renamings }, features, featureMap), nameCommanders(world, bat, naming, rulHist.rulers)) : emptyBattleHistory()), // battles: (named after the renamings)
@@ -834,6 +854,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         language: langHist ? langHist.diag : undefined, // language:
         ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
         landmarks: lm ? { ...lm.diag } : undefined, // landmarks:
+        families: fx ? { ...fx.diag, founded: fx.diag.founded.slice(), ended: fx.diag.ended.slice(), ruin: fx.diag.ruin.slice() } : undefined, // families:
         disasters: dx ? { ...dx.diag, eruptions: dx.diag.eruptions.slice(), winterYears: dx.diag.winterYears.slice() } : undefined, // disasters:
         disasterState: dx ?? undefined, // disasters:
       },
