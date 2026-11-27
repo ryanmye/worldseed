@@ -68,6 +68,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t >= 190 && t <= 194) return POLITICS // oaths, balance, arms
   if (t >= 210 && t <= 219) return POLITICS // finance (the money of states)
   if (t >= 230 && t <= 239) return POLITICS // beliefs (intrigue between states)
+  if (t === 166 || t === 167) return POLITICS // families: marriages into ruling houses, backed civil wars
+  if (t >= 161 && t <= 169) return TRADE // families: the merchant houses
   if ((t === 4 || t === 7) && isWallEvent(h, first)) return POLITICS
   if ((t === 4 || t === 7) && h.structures?.[first.other]?.type === 3) return POLITICS // forts
   if ((t === 4 || t === 7) && (h.structures?.[first.other]?.type === 4 || h.structures?.[first.other]?.type === 5)) return TRADE // mines and merchants' quarters

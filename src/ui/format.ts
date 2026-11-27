@@ -12,6 +12,7 @@ import { namesYear, renamedName } from './renamingData.ts'
 import { spokenName } from './languageData.ts'
 import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
 import { describeLandmarkEvent, describeLandmarkEventFor, isLandmarkEvent } from './landmarksFormat.ts'
+import { describeFamilyEvent, describeFamilyEventFor, isFamilyEvent } from './familiesFormat.ts' // families:
 import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEvent } from './tradeDangerFormat.ts'
 
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
@@ -367,6 +368,9 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.ScriptInvented: case EventType.ScriptAdopted: case EventType.ScriptReformed: case EventType.ScriptReplaced: case EventType.ScriptLost: return 'idea' // typology: writing
     case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
     case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted: return 'landmark'
+    case EventType.FamilyMarriage: case EventType.FamilyBacked: return 'alliance' // families: (the nearest kinds)
+    case EventType.FamilyFounded: case EventType.FamilyBranch: case EventType.BranchClosed: case EventType.FamilyHead: case EventType.FamilyMoved:
+    case EventType.FamilyPatron: case EventType.FamilyFell: return 'lane'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
     default: if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number) || isSeatEvent(e.type as number)) return 'order'
       if (battleEventKind(e)) return 'battle' // battles:
@@ -426,6 +430,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEvent(h, e) ?? `${name} is renamed`
       if (isLandmarkEvent(e.type as number)) return describeLandmarkEvent(h, e) ?? `A great building at ${name}`
+      if (isFamilyEvent(e.type as number)) return describeFamilyEvent(h, e) ?? `A merchant house of ${name}` // families:
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEvent(h, e) ?? `${name} and ${settlementName(h, e.other)} stop trading`
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       if (isOrderEvent(e.type as number)) return describeOrderEvent(h, e) ?? 'An order'
@@ -509,6 +514,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
     default:
       if (isRenamingEvent(e.type as number)) return describeRenamingEventFor(h, e, id) ?? 'Renamed'
       if (isLandmarkEvent(e.type as number)) return describeLandmarkEventFor(h, e, id) ?? 'A great building'
+      if (isFamilyEvent(e.type as number)) return describeFamilyEventFor(h, e, id) ?? 'A merchant house' // families:
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEventFor(h, e, id) ?? 'Trade on a dangerous way'
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       if (isOrderEvent(e.type as number)) return describeOrderEventFor(h, e, id) ?? 'An order'

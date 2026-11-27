@@ -14,6 +14,7 @@ import { CLASS, MIX } from './params.ts'
 import type { LegHistory } from './legHistory.ts'
 import { createLegHistory } from './legHistory.ts'
 import type { MerchantState } from './merchants.ts'
+import type { FamilyState } from '../families/state.ts' // families:
 import { createMerchants } from './merchants.ts'
 
 const G = GOOD_COUNT
@@ -228,7 +229,7 @@ export interface GoodsState {
    * The legs' records as History.longHaul shows them (legHistory.ts; bookkeeping only) and the merchant capital of the marts
    * (merchants.ts). (One property: GoodsState is at the size beyond which V8 keeps an object's properties in a dictionary.)
    */
-  ext: { legHist: LegHistory; merch: MerchantState }
+  ext: { legHist: LegHistory; merch: MerchantState; fam: FamilyState | null } // (families: null when off)
 
   // --- Secrets ---
   sCount: number
@@ -360,7 +361,7 @@ export function createGoods(s: HistoryState, speciesCount: number, cashCount: nu
     dWorker: i32(0), dCamp: i32(0), dMine: i32(0), dSink: i32(0), dRing: [], dNear: i32(0), wsum: f64(N, -1), rush: f64(N, 1), rushUntil: i32(0), boomLogged: new Uint8Array(0), treasureOut: 0,
     tCount: 0, tCraft: [], tPeople: [], tVar: [], tQ: [], tBorn: [], tBornAt: [], tEnd: [], tParent: [], tSeats: [], tSeatFrom: [], tSeatTo: [], tRenowned: [], tOut: [],
     legCount: 0, legA: [], legB: [], legKind: [], legOpened: [], legClosed: [], legChart: [], legPath: [], legCost: [], legT: [], legOpen: [], legIndex: new Map(), legOrder: [],
-    legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], legPol: null, lanes: [], ext: { legHist: createLegHistory(), merch: createMerchants(cap) },
+    legVol: f64(64), legGood: f64(64 * G * 2), legCap: [], legUse: [], legSailed: [], legIdle: [], legVariety: [], legHazard: [], legRisk0: [], legProfit: [], legPol: null, lanes: [], ext: { legHist: createLegHistory(), merch: createMerchants(cap), fam: null },
   }
   const more = {
     sCount: 0, sKind: [], sSubject: [], sFound: [], sFoundAt: [], sLost: [], sHeld: [], sPsi: [], sOrig: [], sBroken: [], sGuardLogged: [],
