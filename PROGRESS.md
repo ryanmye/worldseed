@@ -14,7 +14,7 @@ Spec: plans/EVALUATION.md §4 Lane 3 + §1c; plans/ui-additions.md N3 items 3,3b
 - [ ] S8 primer/personas/coverage; bots Realistic+Dramatic; screenshots; merge origin/main
 
 ## Current
-S7 phone layout + S8 (G0 running: /home/claude/runs/n3/g0.log; tests: /home/claude/runs/n3/tests.log)
+S7 phone layout + S8. G0 OK (all 6) at 4533bb2-equivalent sim; lane tests green after c7aafab. Final bots running: /home/claude/runs/n3/final/run.sh <preset> (resumable; .done marker per preset)
 Curated seats: 61343 polity:0:700 (default), 7 polity:0:700 (Fowinlan, unification contest), 7 polity:1:995 (old great power).
 Next: full bots on the 3 seats x Realistic/Dramatic into /home/claude/runs/n3/final/, screenshots into /home/claude/eval/n3/
 (preview server: npx vite preview --port 5313; script /home/claude/eval/n3/shoot.mjs URL desktop|phone TAG NCARDS).
