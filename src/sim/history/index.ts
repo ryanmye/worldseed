@@ -72,6 +72,16 @@
 // (DiseaseVia.Visitors); religion after disease so a town struck hard is a woe for religion the same year, and its
 // pilgrims (rel.pilgrims, read by tourismExtraScores) feed next year's destinations. An epidemic at a capital may take
 // its ruler and heirs (disease/system.ts strike), which the rulers system (in politySystem) enacts the next year.
+// disasters (disasters/; HistoryOptions.disasters, off by default): before the weather, climateYear draws the year's shock
+// schedule ('history-shocks-<century>': eruption, earthquake slots, a flood roll per region) and the climate regime
+// ('history-climate': three global AR(1) temperature components, a regional temperature and rain regime, the volcanic
+// forcing), both a fixed count a year from the world alone, so orders and cradle wishes never move a shock; the weather
+// then adds the climate's deviation in place of its anonymous crisis (still drawn). Right after the weather shockYear
+// strikes where people live (eruptions, quakes, tsunamis, floods; 'history-disaster-damage'); foodSystem multiplies a
+// struck town's own harvest by its ash or flood factor (C5 climate); the landmarks may fall into ruin at the year's end
+// (their own stream); disasterYearEnd, before the snapshots, opens and closes droughts and epochs and records the climate
+// series. Volcano catalogue from 'history-volcanoes', names from 'names-volcano-<id>'. Switched off, the history is exactly
+// the one without it.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -172,6 +182,14 @@ import { LANDMARKS_ON } from './landmarks/params.ts'
 import { createLandmarks, landmarksYear } from './landmarks/system.ts'
 import type { LandmarksDiag } from './landmarks/state.ts'
 import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
+// disasters: natural shocks and climate regimes (disasters/).
+import { DX } from './disasters/params.ts'
+import { createDisasters } from './disasters/state.ts'
+import type { DisasterDiag, DisasterState } from './disasters/state.ts'
+import { climateYear } from './disasters/climate.ts'
+import { shockYear } from './disasters/shocks.ts'
+import { disasterYearEnd } from './disasters/yearEnd.ts'
+import { assembleDisasters, emptyDisasterHistory } from './disasters/assemble.ts'
 // orders: the player's nudges (orders/).
 import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
 // causes: why things happened, for the causal explorer (why.ts).
@@ -273,6 +291,9 @@ export interface HistoryDiagnostics {
   ideas?: IdeasDiag
   /** landmarks: the landmarks system's counters (absent when it is off). */
   landmarks?: LandmarksDiag
+  /** disasters: the disasters system's counters, and its live state (read only; absent when it is off). */
+  disasters?: DisasterDiag
+  disasterState?: DisasterState
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -485,6 +506,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
+  // disasters: natural shocks and climate, from the world alone (unless switched off).
+  const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount) : null
+  s.dx = dx
   // (live append, seat-mode §3.2: addOrders creates it later if there are none yet; created then, it is the state a run with
   // those orders would have had all along, because no hook acts and the stream draws nothing before an order's year)
   let ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
@@ -592,7 +616,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     s.year = year
     s.landYear = year % LAND.step === 0
     if (ox) ordersBegin(s, ox) // orders: the orders of the year given and put in force
+    if (dx) climateYear(s, dx) // disasters: the year's shock schedule and climate (world-only), before the weather
     weatherSystem(s, weather)
+    if (dx) shockYear(s, dx, weather) // disasters: eruptions, quakes, waves and floods where people live
     foodSystem(s)
     if (gx) goodsProduce(s, gx, explore) // goods: mines and furs, before the market
     tradeSystem(s, trade)
@@ -629,6 +655,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
+    if (dx) disasterYearEnd(s, dx) // disasters: droughts, epochs, the climate series
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
     if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
     if (year % interval === 0) snapshot()
@@ -738,6 +765,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         renamings: renHist.renamings, // renaming:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
+        ...(dx ? assembleDisasters(world, dx, naming, years, peoples.map((p) => p.name)) : emptyDisasterHistory()), // disasters:
         ...(langHist ? { languages: langHist.languages, speech: langHist.speech, nameForms: langHist.nameForms } : {}), // language: (absent when off)
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         why: whyHist, // causes:
@@ -768,6 +796,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         language: langHist ? langHist.diag : undefined, // language:
         ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
         landmarks: lm ? { ...lm.diag } : undefined, // landmarks:
+        disasters: dx ? { ...dx.diag, eruptions: dx.diag.eruptions.slice(), winterYears: dx.diag.winterYears.slice() } : undefined, // disasters:
+        disasterState: dx ?? undefined, // disasters:
       },
     }
   }

@@ -7,6 +7,7 @@ import { describeGoodsEvent, describeGoodsEventFor, describeMineBuilt, goodsEven
 import { describeDiseaseEvent, describeDiseaseEventFor, diseaseEventKind } from './diseaseFormat.ts'
 import { describeTourismEvent, describeTourismEventFor, tourismEventKind } from './tourismFormat.ts'
 import { describeRulersEvent, describeRulersEventFor, rulersEventKind } from './rulersFormat.ts'
+import { describeDisasterEvent, describeDisasterEventFor, disasterEventKind } from './disastersFormat.ts' // disasters:
 import { namesYear, renamedName } from './renamingData.ts'
 import { spokenName } from './languageData.ts'
 import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
@@ -59,6 +60,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'deposit' | 'craft' | 'secret' | 'lane' | 'post' | 'mine'
   // rulers and religion (rulersFormat.ts): successions, houses, unions, marriages; faiths
   | 'ruler' | 'faith'
+  // disasters (disastersFormat.ts): eruptions, quakes, waves, floods, droughts, epochs
+  | 'disaster'
   // disease (diseaseFormat.ts): epidemics, a sickness become endemic, armies struck; ports in quarantine
   | 'sickness' | 'quarantine'
   // tourism (tourismFormat.ts): leisure travel, resorts and fashion, sights
@@ -323,6 +326,8 @@ function exchange(h: History, e: HistoryEvent, from: number): string {
 export function eventKind(e: HistoryEvent): EventKind {
   const rk = rulersEventKind(e) // rulers, religion (80-97)
   if (rk) return rk as EventKind
+  const dk = disasterEventKind(e) // disasters (260-268)
+  if (dk) return dk
   switch (e.type as number) {
     case EventType.Founded: return 'founded'
     case EventType.Abandoned: return 'abandoned'
@@ -377,6 +382,8 @@ export function describeEvent(h: History, e: HistoryEvent): string {
   const name = settlementName(h, e.settlement)
   const rl = describeRulersEvent(h, e) // rulers, religion (80-97; null for the others)
   if (rl) return rl
+  const dl = describeDisasterEvent(h, e) // disasters (260-268; null for the others)
+  if (dl) return dl
   switch (e.type) {
     case EventType.Founded:
       if (isOutpost(h, e.settlement)) return `An expedition from ${settlementName(h, e.other)} sets up the base ${name}`
@@ -459,6 +466,8 @@ export function describeExchange(exports: number, imports: number): string {
 export function describeEventFor(h: History, e: HistoryEvent, id: number): string {
   const rl = describeRulersEventFor(h, e, id) // rulers, religion (80-97; null for the others)
   if (rl) return rl
+  const dl = describeDisasterEventFor(h, e, id) // disasters (260-268; null for the others)
+  if (dl) return dl
   switch (e.type) {
     case EventType.Founded:
       if (isOutpost(h, e.settlement)) return e.settlement === id ? `Set up by an expedition from ${settlementName(h, e.other)}` : `Set up the expedition base ${settlementName(h, e.settlement)}`

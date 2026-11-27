@@ -21,6 +21,7 @@ import type { BattleState } from './battles/state.ts' // battles:
 import type { ReligionState } from './religion/state.ts' // religion:
 import type { TourismState } from './tourism/state.ts' // tourism:
 import type { IdeasState } from './ideas/state.ts' // ideas:
+import type { DisasterState } from './disasters/state.ts' // disasters:
 import type { WhyRec } from './why.ts' // causes:
 import { whyAbandon } from './why.ts' // causes:
 
@@ -171,6 +172,8 @@ export interface HistoryState {
   ideas: IdeasState | null
   // orders: the player's nudges (orders/state.ts), or null without orders (every hook is then a no-op).
   orders: OrdersState | null
+  // disasters: natural shocks and climate (disasters/state.ts), or null when switched off (every hook is then a no-op).
+  dx: DisasterState | null
   // causes: the causal explorer's recorders (why.ts), or null when HistoryOptions.causes is off. Written only, never read by the sim.
   why: WhyRec | null
 }
@@ -273,6 +276,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
     orders: null, // orders: (set by index.ts when there are orders)
+    dx: null, // disasters: (set by index.ts when the system is on)
     why: null, // causes: (set by index.ts when HistoryOptions.causes is on)
   }
 }

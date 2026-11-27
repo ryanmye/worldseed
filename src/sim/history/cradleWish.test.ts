@@ -2,6 +2,7 @@
 // against the livability rule, the first settlements and the CradlePlaced events, the preview and the count, the text form,
 // determinism, prefix stability and resumability.
 
+import { BASE_SHAPE } from '../../hashBaseShape.ts'
 import { describe, expect, it } from 'vitest'
 import { CradleOutcome, EventType, canonicalCradles, decodeCradles, encodeCradles } from '../../contract.ts'
 import type { History, World } from '../../contract.ts'
@@ -28,7 +29,10 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field. */
 function hashAll(hi: History): string {
-  return (hv(0x811c9dc5, hi) >>> 0).toString(16)
+  // (only the top-level keys of the 8cabf09 History and the wish fields: later plans' tables (disasters, why, battles, ...) are not of it)
+  const top = (BASE_SHAPE as unknown as { o: Record<string, unknown> }).o
+  const base = Object.fromEntries(Object.entries(hi).filter(([k]) => k in top || k.startsWith('cradle')))
+  return (hv(0x811c9dc5, base) >>> 0).toString(16)
 }
 
 /**

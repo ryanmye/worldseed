@@ -368,7 +368,7 @@ export const WEATHER = {
   /** Global anomaly: AR(1) persistence and innovation std dev. */
   globalPersistence: 0.6,
   globalSigma: 0.025,
-  /** Global crisis (volcanic winter, climate swing): chance per year, severity, duration. */
+  /** Global crisis (volcanic winter, climate swing): chance per year, severity, duration. With HistoryOptions.disasters it is drawn but not applied: named eruptions and climate epochs (disasters/) replace it. */
   crisisChance: 1 / 130,
   crisisMin: 0.12,
   crisisMax: 0.3,

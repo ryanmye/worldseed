@@ -14,6 +14,7 @@ import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.t
 import { an, cap, list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
 import { DIVINE_T, divineOrigin, OMEN_T, omenText, omensOfCity } from './omens.ts'
+import { cityDisasterLines, DISASTER_T } from './disasters.ts' // disasters:
 import { Refs } from './refs.ts'
 import { battleScenes, foundingScene, pickScenes, plagueScene, sackScene, SCENE_T, siegeScenes, workScene, type Scene } from './scenes.ts'
 import { battlesOf } from '../battlesData.ts' // battles:
@@ -262,7 +263,7 @@ const TIER_WORD = (pop: number) => (pop >= CITY_POPULATION ? 'city' : pop >= TOW
 export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const h = c.h
   const s = h.settlements[id]
-  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T, DIVINE_T)
+  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, DISASTER_T)
   const Y = c.Y
   const nowName = c.name(id, Y)
   const pn = c.peopleName(s.people)
@@ -510,6 +511,9 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     if (worst.value >= 0.05) p5.push(v.p('famine', { year: worst.year, share: shareWords(worst.value) }) + (famines.length > 1 ? cap(v.p('famines', { times: times(famines.length) }).trim()).replace(/^/, ' ') : ''))
   }
   section('hSickness', p5.join(' '), ['plague'], [OrderKind.Quarantine])
+  // disasters: eruptions, quakes, waves, floods and droughts that struck it (their own omens, never an order's)
+  const dl = cityDisasterLines(c, v, id)
+  if (dl.text.length) { section('hDisasters', dl.text.join(' ')); for (const o of dl.omens) book.omen(o) }
 
   // ---- trade and fame ----
   const p6: string[] = []

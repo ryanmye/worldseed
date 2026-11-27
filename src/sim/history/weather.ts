@@ -2,6 +2,8 @@
 // anomaly per weather region (with occasional regional droughts). Drawn from
 // its own stream with a fixed number of draws per region per year, so the
 // weather of a world never depends on what its settlements do.
+// disasters (HistoryOptions.disasters): the crisis is still drawn but not applied; the climate regime's deviation of the
+// region (disasters/climate.ts, named eruptions and epochs) is added instead.
 
 import type { World } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
@@ -76,7 +78,9 @@ export function weatherSystem(s: HistoryState, w: Weather): void {
     const len = rng.int(W.droughtYearsMin, W.droughtYearsMax)
     if (w.droughtLeft[r] > 0 && --w.droughtLeft[r] === 0) w.drought[r] = 0
     if (w.droughtLeft[r] === 0 && roll < W.droughtChance) { w.drought[r] = sev; w.droughtLeft[r] = len }
-    s.harvest[r] = clamp(1 + w.global + w.regional[r] - w.crisis - w.drought[r], W.harvestMin, W.harvestMax)
+    const dx = s.dx // disasters: the climate's deviation replaces the anonymous crisis (drawn above all the same)
+    if (dx === null) s.harvest[r] = clamp(1 + w.global + w.regional[r] - w.crisis - w.drought[r], W.harvestMin, W.harvestMax)
+    else s.harvest[r] = clamp(1 + w.global + w.regional[r] - w.drought[r] + dx.D[r], W.harvestMin, W.harvestMax)
   }
-  if (s.why !== null) whyWeather(s.why, s.year, s.harvest, w.drought, w.crisis) // causes: the year's weather row
+  if (s.why !== null) whyWeather(s.why, s.year, s.harvest, w.drought, s.dx === null ? w.crisis : 0) // causes: the year's weather row (disasters: the crisis drawn but not applied)
 }

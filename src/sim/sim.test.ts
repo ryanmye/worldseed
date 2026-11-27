@@ -366,3 +366,29 @@ describe('generateWorld', () => {
   })
 })
 
+
+// disasters (disasters-climate.md §2.1, step 1): World.tectonic is the elevation stage's own field, passed through with no new
+// draws, so every other world field (and the world hash over them) is unchanged.
+describe('World.tectonic', () => {
+  it('has one value per cell, positive on convergent and negative on divergent boundaries', () => {
+    for (const seed of [1, 42]) {
+      const w = world(seed)
+      expect(w.tectonic).toBeInstanceOf(Float32Array)
+      expect(w.tectonic.length).toBe(w.grid.cellCount)
+      let pos = 0, neg = 0
+      for (const t of w.tectonic) { expect(Number.isFinite(t)).toBe(true); expect(Math.abs(t)).toBeLessThan(1.5); if (t > 0.05) pos++; if (t < -0.05) neg++ }
+      expect(pos).toBeGreaterThan(100)
+      expect(neg).toBeGreaterThan(10)
+    }
+  })
+
+  it('leaves every other world field as it was (hashValue of the world without tectonic, recorded before step 1)', async () => {
+    const { hashValue } = await import('../historyCache.ts')
+    const want: Record<number, string> = { 1: '57f2840656487286', 42: '8afb9d879a9bf3f7', 1234: '24fe23094ffb4924' }
+    for (const seed of [1, 42, 1234]) {
+      const w = { ...world(seed) } as Partial<World>
+      delete w.tectonic
+      expect(hashValue(w), String(seed)).toBe(want[seed])
+    }
+  })
+})
