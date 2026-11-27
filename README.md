@@ -49,7 +49,13 @@ Roughly in the order things happen in a world:
   and dams, and import food, so trading hubs can outgrow their land.
 - **States.** States form, hold land and claim the empty land around it, fight
   wars and civil wars, take vassals and pay tribute; groups of trading towns can
-  form leagues.
+  form leagues. Optionally (`oaths`, `balance`, `arms`, `finance`): they swear
+  alliances and truces and sometimes break them, and wrongs (towns taken, sacks,
+  broken oaths) are remembered for generations and feed revenge wars; old or
+  heirless rulers keep faith less; coalitions gather against the most threatening
+  realm, and its weak neighbours side with it; rivals arm against each other, and
+  arms races often, but not always, end in war; crowns keep treasuries, borrow from
+  merchant houses, default, and lose wars they can no longer pay for.
 - **Danger.** Raids, war and weak government make land dangerous. Pirates nest on
   defensible coasts near busy sea lanes, bandits work roads far from a capital's
   reach, and smugglers dodge tariffs. Trade counts that danger as cost: routes

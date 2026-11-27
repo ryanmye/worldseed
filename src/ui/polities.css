@@ -453,6 +453,10 @@
   border-radius: 1px;
   background: #6f8fb0;
 }
+/* finance: crowns' money (a coin) */
+.ev-money .ev-text::before {
+  background: radial-gradient(circle, #f4d57a 45%, #8a6a1a 50%);
+}
 /* claims: border disputes (two claims meeting over unsettled land) */
 .ev-dispute .ev-text::before {
   border-radius: 1px;

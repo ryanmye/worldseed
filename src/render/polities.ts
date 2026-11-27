@@ -78,7 +78,7 @@ const LIFT = 0.0045
 const CLAIM_OFF = 32768
 
 /** What the territory overlay shows: off, a tint on the Terrain view, the flat Factions map, the Danger heat map. */
-export const PolityView = { Off: 0, Tint: 1, Political: 2, Danger: 3 } as const
+export const PolityView = { Off: 0, Tint: 1, Political: 2, Danger: 3, Credit: 4 } as const // (Credit: the political style, each polity in the colour of its credit)
 export type PolityView = (typeof PolityView)[keyof typeof PolityView]
 
 export interface PolityLayer {
@@ -1088,6 +1088,35 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     ou.uEmbCount.value = n
   }
 
+  /** finance: the palette in credit colours at year y (cheap credit green, dear amber, none red; no coin grey). */
+  let shownCreditSnap = -1
+  function writeCredit(y: number) {
+    const h = pd.history
+    const cr = h.creditRate, rv = h.crownRevenue
+    if (!cr || cr.length === 0) return
+    const P = pd.count
+    const sn = Math.max(0, Math.min(h.snapshotCount - 1, Math.round(y / h.snapshotInterval)))
+    if (sn === shownCreditSnap) return
+    shownCreditSnap = sn
+    for (let p = 0; p < P; p++) {
+      const b = cr[sn * P + p], r = rv[sn * P + p]
+      let c: [number, number, number]
+      if (!(r >= 5)) c = [120, 120, 118]
+      else if (b >= 255) c = [190, 40, 34]
+      else { const t = Math.min(1, (b / 255) * 0.5 / 0.2); c = [Math.round(60 + 180 * t), Math.round(170 - 60 * t), Math.round(90 - 60 * t)] }
+      palData[p * 4] = c[0]; palData[p * 4 + 1] = c[1]; palData[p * 4 + 2] = c[2]
+    }
+    palTex.needsUpdate = true
+  }
+  function restorePalette() {
+    for (let p = 0; p < pd.count; p++) {
+      palData[p * 4] = Math.round(pd.rgb[p * 3] * 255)
+      palData[p * 4 + 1] = Math.round(pd.rgb[p * 3 + 1] * 255)
+      palData[p * 4 + 2] = Math.round(pd.rgb[p * 3 + 2] * 255)
+    }
+    palTex.needsUpdate = true
+  }
+
   /** arms: open races at the whole year `y` (grudgesData armsRacesAt), the highest first. */
   function writeArmsRaces(y: number) {
     const r = armsRacesAt(pd.history, Math.floor(y))
@@ -1209,8 +1238,10 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
       syncVisibility()
     },
     setView(v: PolityView) {
+      const was = view
       view = v
-      ou.uMode.value = v
+      ou.uMode.value = v === PolityView.Credit ? PolityView.Political : v // finance: drawn as the political map, in credit colours
+      if (v === PolityView.Credit) { shownCreditSnap = -1; writeCredit(shownYearInt >= 0 ? shownYearInt : 0) } else if (was === PolityView.Credit) restorePalette()
       mu.uDanger.value = v === PolityView.Danger ? 1 : 0
       ou.uTint.value = 0.4
       shownArmyYear = NaN
@@ -1280,6 +1311,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
         writeRelations(y)
         writeEmbargoes(y)
         writeArmsRaces(y) // arms:
+        if (view === PolityView.Credit) writeCredit(y) // finance:
       }
       if (y !== shownArmyYear) {
         shownArmyYear = y

@@ -137,6 +137,7 @@ const MODE_LABELS: Record<ViewMode, string> = {
   cash: 'Cash crops',
   factions: 'Factions',
   danger: 'Danger',
+  credit: 'Credit',
   faiths: 'Faiths',
   resources: 'Resources',
   fever: 'Fever',
@@ -162,7 +163,7 @@ const LAYER_ORDER: Record<string, number> = {
 export const VIEW_GROUPS: readonly { label: string; modes: readonly ViewMode[] }[] = [
   { label: 'The planet', modes: ['terrain', 'elevation', 'temperature', 'rainfall', 'biomes', 'plates'] },
   { label: 'Land and food', modes: ['population', 'capacity', 'landuse', 'crops', 'herds', 'cash'] },
-  { label: 'States and beliefs', modes: ['factions', 'danger', 'faiths'] },
+  { label: 'States and beliefs', modes: ['factions', 'danger', 'credit', 'faiths'] },
   { label: 'Goods, travel, sickness', modes: ['resources', 'scenery', 'fever'] },
   { label: 'Know-how', modes: ['ideas'] },
 ]

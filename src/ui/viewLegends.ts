@@ -96,6 +96,11 @@ export function createViewLegends(right: HTMLElement): ViewLegends {
         parts.push(el('div', 'vl-note', 'A vassal in its overlord’s colour striped with its own; a tributary in its own, finely striped'))
         break
       }
+      case ViewMode.Credit:
+        t = 'Credit (the rate a crown could borrow at)'
+        parts.push(ramp('linear-gradient(to right, rgb(60, 170, 90), rgb(240, 110, 30))', 'cheap', 'dear (20%)'))
+        parts.push(el('div', 'vl-grid', swatch('rgb(190, 40, 34)', 'No credit'), swatch('rgb(120, 120, 118)', 'No coin')))
+        break
       case ViewMode.Danger:
         t = 'Danger (raids, war, lawlessness)'
         parts.push(ramp(DANGER_CSS, 'some', 'deadly'))

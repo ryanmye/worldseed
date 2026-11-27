@@ -7,6 +7,10 @@
 // Wars are opportunistic: the stronger attack the weak, the exhausted and the leaderless.
 // oaths (grievances.ts): the C1 grudge factor 1 + OATH.drive * g(p, q); a declaration with g >= OATH.revengeMin is a revenge
 // war (Wars.cause = p's strongest grievance against q), and a won revenge war repays those wrongs (* OATH.avenged).
+// A truce sworn at a peace may be broken, and a defending ally may defect (oaths.ts). finance (finance/): unpaid armies fight
+// worse (projAt * pPay) and tire (the unpaid term replaces the poor-capital one for monetised realms); a side unpaid for
+// FIN.mutinyYears, or spent while unpaid, ends its war bankrupt (WarBankrupt); the crown's means scale the declaration (C1
+// factor 4) and its debts the tired peace (C6 factor 2).
 //
 // Campaign (yearly per war): one front a year, the target v on the border that the attacker can
 // strike hardest relative to its defence:

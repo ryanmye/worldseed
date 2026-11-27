@@ -40,6 +40,7 @@ import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
+import { crownAt } from './politiesData.ts' // finance:
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
@@ -302,6 +303,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     if (!data) return PolityView.Off
     if (viewMode === ViewMode.Factions) return PolityView.Political
     if (viewMode === ViewMode.Danger) return PolityView.Danger
+    if (viewMode === ViewMode.Credit) return PolityView.Credit // finance:
     if (viewMode === ViewMode.Terrain && layerOn) return PolityView.Tint
     return PolityView.Off
   }
@@ -690,6 +692,14 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         t.classList.add('fp-tariff')
         const spark = tariffSpark(pd, selected)
         if (spark) t.append(spark)
+      }
+      // finance: the crown's purse, debts and credit (History.treasury, crownDebt, creditRate)
+      const cr = crownAt(pd, selected, s0)
+      if (cr && cr.revenue >= 5) {
+        const parts = [`Treasury ${formatPopulation(Math.max(0, cr.treasury))}` + (cr.treasury < 0 ? ` (${formatPopulation(-cr.treasury)} in arrears)` : ''), `revenue ${formatPopulation(cr.revenue)} a year`]
+        if (cr.debt > 0) parts.push(`debts ${formatPopulation(cr.debt)}`)
+        parts.push(cr.rate === null ? 'no credit' : `borrows at ${Math.round(cr.rate * 100)}%`)
+        line(parts.join(' · ')).classList.add('fp-tariff')
       }
       // embargoes in force (History.embargoes): drawn as a dashed amber border where the two meet
       for (const em of embargoesOn(pd, selected, year)) line('Under embargo with ', polityLink(em.other, pd.names[em.other]), ` since ${em.since}`).classList.add('fp-embargo')
@@ -1163,6 +1173,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       root.classList.toggle('hidden', !data)
       deps.setViewModeAvailable?.(ViewMode.Factions, !!data)
       deps.setViewModeAvailable?.(ViewMode.Danger, !!data?.land?.danger)
+      deps.setViewModeAvailable?.(ViewMode.Credit, !!data && (data.history.creditRate?.length ?? 0) > 0) // finance:
       if (data && !toggle && deps.addLayerToggle) {
         // the layer toggle appears with the first history that has factions
         toggle = deps.addLayerToggle({

@@ -26,6 +26,8 @@ export const ViewMode = {
   Factions: 'factions',
   /** polities: danger (raids, war, lawlessness) per land cell as a heat map (render/polities.ts), over a neutral base. */
   Danger: 'danger',
+  /** finance: crowns by the rate they could borrow at (History.creditRate; hidden without it). */
+  Credit: 'credit',
   /** religion: majority faith of the land of each settlement (ui/faithsPanel.ts colours it; hidden without faiths). */
   Faiths: 'faiths',
   /** goods: deposits, mines and the industries of towns over a muted relief (ui/goodsPanel.ts, render/longhaul.ts; hidden without goods data). */
@@ -54,6 +56,7 @@ export const VIEW_MODES: ViewMode[] = [
   ViewMode.Cash,
   ViewMode.Factions,
   ViewMode.Danger,
+  ViewMode.Credit,
   ViewMode.Faiths,
   ViewMode.Resources,
   ViewMode.Fever,
@@ -87,6 +90,7 @@ export function blendStyleFor(mode: ViewMode): number {
     case ViewMode.Cash:
     case ViewMode.Factions:
     case ViewMode.Danger:
+    case ViewMode.Credit:
     case ViewMode.Faiths:
     case ViewMode.Ideas:
     case ViewMode.Resources: return BlendStyle.Categorical
@@ -412,6 +416,7 @@ export function colorForMode(
       return
     }
     case ViewMode.Factions:
+    case ViewMode.Credit:
     case ViewMode.Danger: {
       const water = e < 0 || world.lake?.[i] === 1
       write(water ? (mode === ViewMode.Factions ? FACTIONS_WATER : CAPACITY_WATER) : mode === ViewMode.Factions ? FACTIONS_STATELESS : DANGER_LAND, out, o, scale)

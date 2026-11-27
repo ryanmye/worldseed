@@ -307,6 +307,47 @@ function oathClause(h: History, pd: PolitiesData, e: HistoryEvent): string {
   return ''
 }
 
+// ---- finance (210-217; state-finances §4.3): crowns borrowing, defaulting and going bankrupt ----
+
+/** Whether events of type t are finance events. */
+export const isMoneyEvent = (t: number) => t >= 210 && t <= 219
+
+const pct = (x: number) => `${Math.round(x * 100)}%`
+
+/** Chronicle line for a finance event, or null. */
+function describeMoney(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const p = polOf(pd, e.settlement, e.year)
+  const pn = polityName(pd, p, settlementName(h, e.settlement))
+  const W = pd.wars
+  switch (e.type as number) {
+    case EventType.LoanTaken: return `The crown of ${pn} borrows from the merchant houses of ${settlementName(h, e.other)} at ${pct(e.extra ?? 0)}`
+    case EventType.CrownDefault: return `The crown of ${pn} stops its payments: ${pct(e.extra ?? 0)} of its debts are written off` + (e.other >= 0 ? ` (the houses of ${settlementName(h, e.other)} lose most)` : '')
+    case EventType.Repudiation: return `A new ruler of ${pn} refuses the crown's debts`
+    case EventType.ArmyUnpaid: return `The soldiers of ${pn} go unpaid`
+    case EventType.WarBankrupt: {
+      const o = W && e.value >= 0 && e.value < W.count ? (W.attacker[e.value] === p ? W.defender[e.value] : W.attacker[e.value]) : -1
+      return `${pn}, its treasury empty, can no longer pay for its war with ${polityName(pd, o, 'its enemy')}`
+    }
+    case EventType.HousesRuined: return `The merchant houses of ${settlementName(h, e.settlement)} are ruined by the debts of ${polityName(pd, polOf(pd, e.other, e.year), 'a crown')}`
+  }
+  return null
+}
+
+/** Inspector line for a finance event from the point of view of settlement `id`, or null. */
+function describeMoneyFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const self = e.settlement === id
+  const other = settlementName(h, self ? e.other : e.settlement)
+  switch (e.type as number) {
+    case EventType.LoanTaken: return self ? `The crown borrowed from the houses of ${other} at ${pct(e.extra ?? 0)}` : `Its merchant houses lent to the crown of ${polityName(pd, polOf(pd, e.settlement, e.year), other)}`
+    case EventType.CrownDefault: return self ? `The crown stopped its payments (${pct(e.extra ?? 0)} of its debts written off)` : `Its merchant houses lost by the default of ${polityName(pd, polOf(pd, e.settlement, e.year), other)}`
+    case EventType.Repudiation: return self ? 'A new ruler refused the crown\'s debts' : `Its merchant houses lost by the repudiation of ${polityName(pd, polOf(pd, e.settlement, e.year), other)}`
+    case EventType.ArmyUnpaid: return self ? 'Its soldiers went unpaid' : `The soldiers of ${polityName(pd, polOf(pd, e.settlement, e.year), other)} went unpaid`
+    case EventType.WarBankrupt: return self ? 'Its treasury empty, it could no longer pay for its war' : `${polityName(pd, polOf(pd, e.settlement, e.year), other)} could no longer pay for its war`
+    case EventType.HousesRuined: return self ? `Its merchant houses were ruined by a crown's debts (${pct(e.extra ?? 0)} of their capital)` : `Its debts ruined the merchant houses of ${other}`
+  }
+  return null
+}
+
 // ---- claims: border disputes (EventType.BorderDispute) ----
 
 /** Whether events of type t are border disputes (claims). */
@@ -398,6 +439,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
   const t = e.type as number
   if (isDisputeEvent(t)) return describeDispute(h, e)
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
+  if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoney(h, pd, e) : null } // finance
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   const name = settlementName(h, e.settlement)
@@ -472,6 +514,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
       const quarter = quarterOf(h, e.settlement, e.other, worldRef)
       switch (e.value) {
         case RevoltCause.Peasant: return `Peasants rise at ${name} against ${against}`
+        case RevoltCause.Taxes: return `Townsmen rise at ${name} against the tax-gatherers of ${against}` // (finance)
         case RevoltCause.Ethnic: {
           const pp = (h.settlements[e.settlement] as { people?: number }).people
           const pn = pp !== undefined ? h.peoples?.[pp]?.name : undefined
@@ -520,6 +563,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
   const t = e.type as number
   if (isDisputeEvent(t)) return describeDisputeFor(h, e, id)
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
+  if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoneyFor(h, pd, e, id) : null } // finance
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   if (isWallEvent(h, e)) {
@@ -632,6 +676,7 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
     case OathEvent.ArmsRace:
       return 'arms'
   }
+  if (t >= 210 && t <= 219) return 'money' // finance
   return null
 }
 
@@ -769,6 +814,9 @@ export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   // oaths: betrayals, broken oaths and bandwagoning are rare headlines; arms races and avenging are not
   if (t === OathEvent.Betrayal || t === OathEvent.OathBroken || t === OathEvent.Bandwagon) return true
   if (isOathEvent(t)) return false
+  // finance: defaults, repudiations and bankrupt wars are headlines; loans, unpaid armies and ruined houses are not
+  if (t === EventType.CrownDefault || t === EventType.Repudiation || t === EventType.WarBankrupt) return true
+  if (isMoneyEvent(t)) return false
   // (a realm ended by reunification: its Reunified line is the headline)
   if (t === PolityEvent.Ended && politiesOf(h)?.list[e.value]?.endCause === PolityEnd.Reunified) return false
   if (t === PolityEvent.Founded || t === PolityEvent.Ended || t === PolityEvent.WarDeclared || t === PolityEvent.PeaceMade || t === PolityEvent.Seceded) return true
