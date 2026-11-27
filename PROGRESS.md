@@ -10,14 +10,13 @@ Spec: plans/EVALUATION.md §4 Lane 3 + §1c; plans/ui-additions.md N3 items 3,3b
 - [x] S4 succession message, reign summary + epithet + share link, marriage answers
 - [x] S5 arcs (ui/story/arcs.ts: T1, T3, revenge war, bankruptcy war), director continuity + payoff guarantee, bots arcCompletion
 - [x] S6 landing: Rule a kingdom → Dramatic; old great power start
-- [ ] S7 phone layout
-- [ ] S8 primer/personas/coverage; bots Realistic+Dramatic; screenshots; merge origin/main
+- [x] S7 phone layout
+- [x] S8 primer/personas/coverage; bots Realistic+Dramatic; screenshots; merge origin/main
 
 ## Current
-S7 phone layout + S8. G0 OK (all 6) at 4533bb2-equivalent sim; lane tests green after c7aafab. Final bots running: /home/claude/runs/n3/final/run.sh <preset> (resumable; .done marker per preset)
-Curated seats: 61343 polity:0:700 (default), 7 polity:0:700 (Fowinlan, unification contest), 7 polity:1:995 (old great power).
-Next: full bots on the 3 seats x Realistic/Dramatic into /home/claude/runs/n3/final/, screenshots into /home/claude/eval/n3/
-(preview server: npx vite preview --port 5313; script /home/claude/eval/n3/shoot.mjs URL desktop|phone TAG NCARDS).
+DONE. Merged origin/main 30023f3 (ci-determinism). G0 OK x6 (/home/claude/runs/n3/g0-final.log); tests 66/66 (/home/claude/runs/n3/tests-final.log).
+Bots: /home/claude/runs/n3/final2/*.jsonl (summarize.py); screenshots /home/claude/eval/n3/*.png.
+Open: N1 (lane/n1, DecisionKinds 102-112) not on main yet: conflicts expected in seat/watch.ts, seat/params.ts, seatFormat.ts, story/plan.ts, dramaStrip.ts, storyView.ts, bots/metrics.ts, personas.ts, primer.
 
 ## Notes
 - merged origin/main 39e8470 (onboard + primer v3) at fc6f744
