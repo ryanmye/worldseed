@@ -23,4 +23,9 @@ export const PARTISAN = {
   foeYears: 150,
   /** Standing grudge weight (grudges-and-oaths standingGrudges) that makes a foe. */
   grudgeFoe: 0.3,
+  /** beliefs: the court's estimate over the truth at or above which a foe is "the mighty", at or below which "the feeble". */
+  mightyAt: 1.5,
+  feebleAt: 0.67,
+  /** beliefs: years a foe's bluff that turned us back keeps it told at its shown strength. */
+  shownYears: 10,
 } as const

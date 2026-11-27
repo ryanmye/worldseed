@@ -12,6 +12,7 @@ import { RULERS, SUCCESSION } from './params.ts'
 import { c3Overthrow } from '../compose.ts'
 import type { C3Factors } from '../compose.ts'
 import { finOverthrow } from '../finance/hooks.ts' // finance:
+import { socContest, socOverthrowMul } from '../society/api.ts' // society:
 
 const H = RULERS.heirs
 
@@ -84,8 +85,10 @@ export function overthrowHazard(s: HistoryState, ps: PolityState, R: RulerState,
   if (e > 1) e = 1
   const x = RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))
   const f = s.fin !== null ? finOverthrow(s, p) : undefined // finance: an unpaid army (C3 factor 1)
-  if (f === undefined) return c3Overthrow(x)
+  const m = s.soc !== null ? socOverthrowMul(s, p) : undefined // society (h5): ambitious magnates (C3 factor 2)
+  if (f === undefined && m === undefined) return c3Overthrow(x)
   C3F.fin = f
+  C3F.emp = m
   return c3Overthrow(x, C3F)
 }
 const C3F: C3Factors = {}
@@ -118,5 +121,7 @@ export function contestChance(s: HistoryState, ps: PolityState, R: RulerState, p
   const people = ps.pPeople[p]
   const law = R.law[people]
   const heir = pickHeir(R, p, law, R.cognatic[people] === 1, s.year)
-  return heir < 0 ? 0 : contestChanceOf(ps, R, p, law, dead, heir, s.year)
+  if (heir < 0) return 0
+  const c = contestChanceOf(ps, R, p, law, dead, heir, s.year)
+  return s.soc !== null ? c + socContest(s, p) : c // (society h4, as succession adds it)
 }

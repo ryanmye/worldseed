@@ -555,12 +555,45 @@ function describeColdWarFor(h: History, pd: PolitiesData, e: HistoryEvent, id: n
   return null
 }
 
+// ---- society (240-246; society-secular-cycles §4.3): classes, bondage, the nobility and the secular cycle ----
+
+/** Whether events of type t are society events. */
+export const isSocietyEvent = (t: number) => t >= 240 && t <= 249
+
+const share = (x: number) => (x >= 0.6 ? 'more than half' : x >= 0.45 ? 'nearly half' : x >= 0.3 ? 'a third' : x >= 0.2 ? 'a fifth' : 'a tenth')
+const rise = (x: number) => (x >= 1.9 ? 'doubled' : x >= 1.45 ? 'up by half' : 'up by a third')
+
+/** Chronicle line for a society event, or null. */
+function describeSociety(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const t = e.type as number
+  const p = polOf(pd, t === EventType.Ennobled ? e.other : e.settlement, e.year)
+  const pn = polityName(pd, p, settlementName(h, e.settlement))
+  switch (t) {
+    case EventType.SocialPhase: return (e.extra ?? 0) === 2 ? `The social order of ${pn} falls into crisis` : `${pn} enters a new age of growth`
+    case EventType.LabourDear: return `${e.other >= 0 ? 'After the pestilence, l' : 'L'}abour grows dear in ${pn} (wages ${rise(e.extra ?? 1.3)})`
+    case EventType.SerfdomImposed: return `The lords of ${pn} bind the peasants to the land`
+    case EventType.SerfdomEnded: return `The peasants of ${pn} are free of their bondage`
+    case EventType.EliteFactions: return `The great families of ${pn} divide into factions`
+    case EventType.Ennobled: return `The merchants of ${settlementName(h, e.settlement)} buy their way into the nobility of ${pn}`
+    case EventType.EliteThinned: return `${pn}'s nobility is thinned by its wars (${share(e.extra ?? 0.3)} of the great families gone)`
+  }
+  return null
+}
+
+/** Inspector line for a society event from the point of view of settlement `id`, or null. */
+function describeSocietyFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  if ((e.type as number) === EventType.Ennobled && e.settlement === id) return `Its merchants bought their way into the nobility of ${polityName(pd, polOf(pd, e.other, e.year), settlementName(h, e.other))}`
+  const line = describeSociety(h, pd, e)
+  return line
+}
+
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
   const t = e.type as number
   if (isDisputeEvent(t)) return describeDispute(h, e)
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoney(h, pd, e) : null } // finance
+  if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSociety(h, pd, e) : null } // society
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBelief(h, pd, e) : null } // beliefs
   if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWar(h, pd, e) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
@@ -640,6 +673,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
       switch (e.value) {
         case RevoltCause.Peasant: return `Peasants rise at ${name} against ${against}`
         case RevoltCause.Taxes: return `Townsmen rise at ${name} against the tax-gatherers of ${against}` // (finance)
+        case RevoltCause.Urban: return `The townsfolk of ${name} rise against ${against}` // (society: dear bread, low wages)
         case RevoltCause.Ethnic: {
           const pp = (h.settlements[e.settlement] as { people?: number }).people
           const pn = pp !== undefined ? h.peoples?.[pp]?.name : undefined
@@ -689,6 +723,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
   if (isDisputeEvent(t)) return describeDisputeFor(h, e, id)
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoneyFor(h, pd, e, id) : null } // finance
+  if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSocietyFor(h, pd, e, id) : null } // society
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBeliefFor(h, pd, e, id) : null } // beliefs
   if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWarFor(h, pd, e, id) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
@@ -804,6 +839,7 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
       return 'arms'
   }
   if (t >= 210 && t <= 219) return 'money' // finance
+  if (t >= 240 && t <= 249) return 'polity' // society
   if (t >= 230 && t <= 239) return 'intrigue' // beliefs
   return null
 }
@@ -945,6 +981,10 @@ export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   // finance: defaults, repudiations and bankrupt wars are headlines; loans, unpaid armies and ruined houses are not
   if (t === EventType.CrownDefault || t === EventType.Repudiation || t === EventType.WarBankrupt) return true
   if (isMoneyEvent(t)) return false
+  // society: a crisis of the social order, bondage imposed or thrown off, a nobility thinned are headlines
+  if (t === EventType.SocialPhase) return (e.extra ?? 0) === 2
+  if (t === EventType.SerfdomImposed || t === EventType.SerfdomEnded || t === EventType.EliteThinned) return true
+  if (isSocietyEvent(t)) return false
   // beliefs: coerced cessions, pacts come to light and bluffs seen through are headlines; the rest are not
   if (t === EventType.Coerced || t === EventType.AllianceRevealed || t === EventType.BluffExposed) return true
   if (isBeliefEvent(t)) return false

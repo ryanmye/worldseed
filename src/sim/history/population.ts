@@ -33,6 +33,11 @@ import { ideaFarm } from './ideas/hooks.ts' // ideas:
 import { c5Growth, c5Harvest, c5Shortfall, c5Supply } from './compose.ts' // C5 stack
 import { dxLocal } from './disasters/state.ts' // disasters:
 import { whyFamine, whyFood } from './why.ts' // causes:
+import { socDisorderMul } from './society/api.ts' // society:
+import type { C5SupplyFactors } from './compose.ts'
+
+/** C5 supply factors (scratch). */
+const C5S: C5SupplyFactors = {}
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -179,7 +184,9 @@ export function foodSystem(s: HistoryState): void {
     let h = c5Harvest(hw, s.dx !== null ? { climate: hw * dxLocal(s.dx, id) } : undefined) // C5 (compose.ts): the harvest (disasters: the climate's, times the ash or flood on its own fields)
     if (h < 1) h = stored(h, sp.damp[id]) // species-v2: drought sensitivity and stores of its staples (storage.ts)
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
-    const supply = c5Supply(s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h) // polities: fields ravaged by war; C5 (compose.ts): the supply
+    const dm = s.soc !== null ? socDisorderMul(s, id) : undefined // society (h7): a failing state's insecure fields
+    if (dm !== undefined) C5S.disorder = dm
+    const supply = c5Supply(s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h, dm !== undefined ? C5S : undefined) // polities: fields ravaged by war; C5 (compose.ts): the supply
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p

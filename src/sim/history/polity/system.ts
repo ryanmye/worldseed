@@ -4,7 +4,7 @@
 //   new settlements (graph link, cohesion, membership) -> members abandoned this year leave (a lost
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
-//   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
+//   danger, [society: classes and Ψ], unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
 //   v2 bonds (vassals, tribute, alliances), [oaths: allies desert or turn], coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
 //   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
@@ -41,6 +41,7 @@ import { armsStep, armsUpkeep } from './arms.ts' // arms:
 import { fiscalYear } from '../finance/system.ts' // finance:
 import { bookTax, finTaxPressure } from '../finance/hooks.ts' // finance:
 import type { C8Factors } from '../compose.ts'
+import { societyStep, socYear } from '../society/system.ts' // society:
 import { tariffStep } from './policy.ts'
 import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
@@ -147,10 +148,12 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   campaigns(s, ps)
   warYear(s, ps)
   if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
+  if (s.soc !== null) socYear(s, ps, s.soc) // society: the year's internal violence counted, elites thinned
   if (s.year % POLITY.step !== 0) return
   controlPass(s, ps, ps.heap)
   dangerStep(s, ps)
   cohesionStep(s, ps)
+  if (s.soc !== null) societyStep(s, ps, s.soc) // society: classes, elites, Ψ (and h6: elite infighting rots asabiya)
   unrestStep(s, ps)
   revoltStep(s, ps)
   realmStep(s, ps, ts)

@@ -1,6 +1,6 @@
 // Test helper: a History without the fields of the plans that landed after the per-system golden hashes were recorded
 // (grudges-and-oaths: grievances, faithless, arms, armsRaces and the wars' cause, ally and race columns; state-finances: the
-// treasury and loan tables; beliefs-and-deception: the belief tables, wars.believed / actual / motive and bonds.known). With those systems off the fields are empty or -1; the 8cabf09 fields are guarded by G0 (hashBase).
+// treasury and loan tables; beliefs-and-deception: the belief tables, wars.believed / actual / motive and bonds.known; merchant-families: History.families; society: the soc* tables). With those systems off the fields are empty or -1; the 8cabf09 fields are guarded by G0 (hashBase).
 
 import type { History } from '../../contract.ts'
 
@@ -8,7 +8,9 @@ export const LATER_KEYS: ReadonlySet<string> = new Set([
   'grievances', 'faithless', 'arms', 'armsRaces', // grudges-and-oaths
   'treasury', 'crownDebt', 'crownRevenue', 'crownSpending', 'creditRate', 'coinage', 'fiscalDistress', 'loans', 'loanBalance', // state-finances
   'coldWars', // barriers-coldwar (cold wars)
+  'socWage', 'socUrbanWage', 'socRent', 'socPsi', 'socMMP', 'socEMP', 'socSFD', 'socElite', 'socUrban', 'socClergy', 'socCoercion', 'socPhase', // society
   'strength', 'beliefs', 'beliefEst', 'beliefSd', 'beliefSource', 'bluffShown', 'spyService', 'credibility', // beliefs-and-deception
+  'families', // merchant-families
 ])
 
 /** h without the later fields (a shallow copy; wars without cause, ally and race). */
