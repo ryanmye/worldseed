@@ -101,6 +101,12 @@ export function createViewLegends(right: HTMLElement): ViewLegends {
         parts.push(ramp('linear-gradient(to right, rgb(60, 170, 90), rgb(240, 110, 30))', 'cheap', 'dear (20%)'))
         parts.push(el('div', 'vl-grid', swatch('rgb(190, 40, 34)', 'No credit'), swatch('rgb(120, 120, 118)', 'No coin')))
         break
+      case ViewMode.Beliefs:
+        t = 'As the selected realm saw the others'
+        parts.push(ramp('linear-gradient(to right, rgb(60, 110, 200), rgb(200, 200, 196), rgb(210, 60, 50))', 'thought weaker', 'thought stronger'))
+        parts.push(el('div', 'vl-grid', swatch('rgb(245, 242, 230)', 'The realm itself'), swatch('rgb(128, 128, 126)', 'Unknown to it')))
+        parts.push(el('div', 'vl-note', 'Paler where its court was unsure; select a realm to see its view'))
+        break
       case ViewMode.Danger:
         t = 'Danger (raids, war, lawlessness)'
         parts.push(ramp(DANGER_CSS, 'some', 'deadly'))

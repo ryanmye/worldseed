@@ -49,6 +49,7 @@ import type { Heap } from '../heap.ts'
 import { rulerYear } from '../rulers/system.ts' // rulers:
 import { c8Tax } from '../compose.ts' // C8 stack
 import { grievanceStep } from './grievances.ts' // oaths:
+import { beliefStep } from '../beliefs/system.ts' // beliefs:
 
 let mapHeap: Heap | null = null
 
@@ -167,6 +168,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     if (ps.og !== null) grievanceStep(s, ps, ps.og) // oaths: holy cities, decay, avenging, the faithless score
     allianceStep(s, ps) // v2
     if (ps.og !== null && ps.og.arms) armsStep(s, ps, ps.og) // arms: Richardson's equations, races
+    if (s.bel !== null) beliefStep(s, ps, s.bel) // beliefs: every belief drifts and observes; bluffs, spies, secrets
     if (long) kinStep(s, ps) // v2: kindred successor states reunified (every mapStep years)
     hubStep(s, ps) // v2: smugglers' hubs, corruption
     declarations(s, ps)

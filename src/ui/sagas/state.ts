@@ -18,6 +18,7 @@ import { warCalled, warName } from './wars.ts'
 import { reignChapters, REIGN_T } from './reigns.ts'
 import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
 import { FIN_T, financeLines } from './finance.ts' // finance:
+import { INT_T, intrigueLines } from './intrigue.ts' // beliefs:
 
 const T: PhraseTable = {
   title: [['A History of the {state}'], ['The Saga of the {state}']],
@@ -165,7 +166,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
   const pd = c.pd!
   const x = pd.list[p]
-  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T)
+  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T, INT_T)
   const Y = c.Y
   const state = c.pgreatTitle(p)
   const book = new Book()
@@ -316,6 +317,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   if (part) p3.push(v.p('partitioned', { year: part.year }))
   p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
   p3.push(...financeLines(c, v, p)) // finance: loans, defaults, bankrupt wars (finance.ts)
+  p3.push(...intrigueLines(c, v, p)) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts)
   section('hWar', p3.join(' '), ['sack', 'plague', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----

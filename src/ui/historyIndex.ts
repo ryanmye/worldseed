@@ -422,6 +422,7 @@ function isShownType(type: number): boolean {
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
+  if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
   if (isCradleEvent(type)) return true // 180: the first hearths the player planted (cradlesFormat.ts; the simulation's own choices are dropped: hiddenCradle)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
@@ -445,6 +446,8 @@ function otherIsSettlement(type: number): boolean {
     (type >= 190 && type <= 194) ||
     // finance: the lender's seat, the largest lender's, the enemy's capital, the debtor crown's
     (type >= 210 && type <= 217) ||
+    // beliefs: the other realm's capital (the pressed, the observer, the ally), or a claimed town
+    (type >= 230 && type <= 238) ||
     // goods: the source, owner, home or far mart of a tradition, secret, lane or post
     goodsOtherIsSettlement(type) ||
     // disease: where a great epidemic or a city's sickness came from, the port's capital, the army's base

@@ -356,6 +356,15 @@ R(T.Avenged, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e
 R(T.Bandwagon, { cat: DramaCat.Politics, base: 3, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 R(T.ArmsRace, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 
+// --- beliefs (230-238, beliefs-and-deception: only with HistoryOptions.beliefs) ---
+const pairPolities = (c: DramaCtx, e: HistoryEvent) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1]
+R(T.Coerced, { cat: DramaCat.War, base: 4, polities: pairPolities })
+R(T.Deterred, { cat: DramaCat.Politics, base: 2, polities: pairPolities })
+R(T.BluffExposed, { cat: DramaCat.Politics, base: 3, polities: pairPolities })
+R(T.AllianceRevealed, { cat: DramaCat.Politics, base: 5, polities: pairPolities })
+R(T.ClaimExposed, { cat: DramaCat.Politics, base: 2, polities: realmPolities })
+I(T.BluffBegun, T.SecretAlliance, T.SpyCaught, T.ClaimForged)
+
 // --- crown finance (210-217, state-finances: only with HistoryOptions.finance) ---
 I(T.LoanTaken, T.ArmyUnpaid)
 R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })

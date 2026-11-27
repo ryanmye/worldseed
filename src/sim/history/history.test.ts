@@ -383,6 +383,10 @@ function checkInvariants(w: World, h: History): void {
       // finance (checked against its tables in finance/finance.test.ts).
       case EventType.LoanTaken: case EventType.CrownDefault: case EventType.Repudiation: case EventType.ArmyUnpaid: case EventType.WarBankrupt: case EventType.HousesRuined:
         break
+      // beliefs (checked against their tables in beliefs/beliefs.test.ts).
+      case EventType.Coerced: case EventType.Deterred: case EventType.BluffBegun: case EventType.BluffExposed: case EventType.SecretAlliance:
+      case EventType.AllianceRevealed: case EventType.SpyCaught: case EventType.ClaimForged: case EventType.ClaimExposed:
+        break
       // danger on the way of trade: a route forsaken right after it closed, restored right after it reopened.
       case EventType.TradeForsaken: case EventType.TradeRestored: {
         const r = e.value

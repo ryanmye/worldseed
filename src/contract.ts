@@ -277,6 +277,17 @@ export const EventType = {
   ArmyUnpaid: 213, // the soldiers of the polity ruled from `settlement` went unpaid in war `value` (History.wars): its treasury empty and its credit gone; `other` the enemy's capital; `extra` -1
   WarBankrupt: 214, // war `value` ended because the polity ruled from `settlement` could no longer pay its armies (its PeaceMade follows the same year); `other` the enemy's capital; `extra` the years its soldiers had gone unpaid
   HousesRuined: 217, // the merchant houses of `settlement` (a town pool) lost much of their capital when the crown ruled from `other` defaulted, repudiated or fell; `value` the loan account; `extra` the share of their capital lost
+  // beliefs: states act on what they believe of each other: coerced cessions, bluffs, spies, secret alliances (230-239; none
+  // when HistoryOptions.beliefs is false; 237-238 only with BELIEF.forgery; 239 spare).
+  Coerced: 230, // the polity ruled from `settlement` pressed the one ruled from `other` and it yielded without war: `value` the pressing polity's id; `extra` the towns ceded (their Joined events follow that year), 0 when it agreed to pay tribute instead (a Tribute bond)
+  Deterred: 231, // the polity ruled from `settlement` pressed the one ruled from `other` and backed down, judging war not worth it: `value` the other's polity id; `extra` 1 when the other's show of strength was a bluff (BluffBegun), else 0
+  BluffBegun: 232, // the polity ruled from `settlement` began to show more strength than it had (musters, parades, rumours): `other` -1; `value` its polity id; `extra` the strength shown, as a multiple of its own (1.6)
+  BluffExposed: 233, // the polity ruled from `other` saw through the bluff of the one ruled from `settlement`: `value` the other's polity id; `extra` how (BeliefSource bit: 8 marriage, 32 envoys or allies, 64 spies, 128 war)
+  SecretAlliance: 234, // the polities ruled from `settlement` and `other` allied in secret (History.bonds, known -1) against the polity `extra`; `value` the other's polity id. No Alliance event is logged for it
+  AllianceRevealed: 235, // the secret alliance of the polity ruled from `settlement` with the one ruled from `other` came to light: `value` the war it joined (History.wars), or -1 when the threat's spies found it out; `extra` the years it had been secret
+  SpyCaught: 236, // the polity ruled from `settlement` caught the spies of the one ruled from `other`: `value` the spying polity's id; `extra` 0
+  ClaimForged: 237, // the polity ruled from `settlement` put forward a forged claim to the town `other` of another polity: `value` that polity's id; `extra` 0
+  ClaimExposed: 238, // the forged claim of the polity ruled from `settlement` to the town `other` was exposed: `value` the exposing polity's id; `extra` the years it stood
   // disasters: natural shocks and climate epochs (260-269; none when HistoryOptions.disasters is false). In each, `value` is the
   // History.disasters row and `settlement` a settlement living that year (no living settlement qualifies: no event; the row stays).
   Eruption: 260, // a volcano erupted near `settlement` (the living settlement nearest it, within DX.witnessHops); `other` -1; `extra` the VEI
@@ -500,6 +511,21 @@ export interface History {
   loans: Loans
   /** Principal outstanding per trade snapshot per loan account: loanBalance[q * loans.count + k] (0 before it opened and after it closed). */
   loanBalance: Float32Array
+
+  // beliefs: what states believed of each other (all empty when HistoryOptions.beliefs is false).
+  /** Each polity's true strength (mass) per snapshot, laid out like `tariff`: strength[s * polities.length + id]; 0 outside its life. */
+  strength: Float32Array
+  beliefs: Beliefs
+  /** The belief of each row per slow snapshot (every BELIEF.snapStep = 10 years: q = floor(year / 10)): the observer's estimate of the target's strength (mass units; 0 none yet), beliefEst[q * beliefs.count + k]. */
+  beliefEst: Float32Array
+  /** Its uncertainty: log standard deviation, 0..255 for 0..2.55, same layout. */
+  beliefSd: Uint8Array
+  /** The channels that informed it at that step (BeliefSource bits), same layout. */
+  beliefSource: Uint8Array
+  /** Per slow snapshot per polity (beliefStrength-like layout: q * polities.length + id): the shown strength factor minus 1 (0..255 for 0..1), the spy service (0..255 for 0..1) and the credibility (0..255 for 0..1). */
+  bluffShown: Uint8Array
+  spyService: Uint8Array
+  credibility: Uint8Array
 
   // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
   /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
@@ -1577,6 +1603,36 @@ export interface Wars {
   ally: Int32Array
   /** arms: the arms race (History.armsRaces) between the two sides open at the declaration, or ended <= ARMS.precede years before it; -1 otherwise. */
   race: Int32Array
+  /** beliefs: the attacker's perceived front advantage at the declaration (-1 for a war not bargained); empty when HistoryOptions.beliefs is false. */
+  believed: Float32Array
+  /** beliefs: the true front advantage at the declaration (-1 likewise); empty when beliefs is off. */
+  actual: Float32Array
+  /** beliefs: why the bargain failed (WarMotive; Other for a war not bargained); empty when beliefs is off. */
+  motive: Uint8Array
+}
+
+/** beliefs: why a declared war was not settled by a bargain (Wars.motive). */
+export const WarMotive = {
+  Other: 0, // not a bargained war (an ally joining, a civil or kin war, a player's order, a broken oath)
+  Optimism: 1, // the two disagreed about who would win by more than war would cost them (Blainey; Fearon's private information)
+  Preventive: 2, // the attacker feared the other's rising power: no bargain could bind the future (a commitment problem)
+  Indivisible: 3, // a holy city was at stake, and no division of it would do
+  Discrete: 4, // a bargain existed in principle, but no town or tribute fit it
+  Ruler: 5, // the bargain failed for the ruler's will (a warlike king), though a peace was there to be had
+  Crisis: 6, // (barriers & cold war) a crisis between rival blocs escalated into war
+} as const
+export type WarMotive = (typeof WarMotive)[keyof typeof WarMotive]
+
+/** beliefs: how an observer knew of a target (bits; History.beliefSource, BluffExposed extra). */
+export const BeliefSource = { Contact: 1, Border: 2, Trade: 4, Marriage: 8, Faith: 16, Envoys: 32, Spies: 64, War: 128 } as const
+
+/** beliefs: one row per ordered pair of polities that ever formed a belief of the other (observer of target), in order of first forming. */
+export interface Beliefs {
+  count: number
+  observer: Int16Array
+  target: Int16Array
+  /** Year the observer first formed it. */
+  from: Int16Array
 }
 
 // ---------------------------------------------------------------------------
@@ -1769,6 +1825,9 @@ export const GrievanceKind = {
   HolyCityTaken: 5, // the offender, of another faith, took the holy city `settlement` (HolyCityFell); the polity that lost it holds it
   CapitalTaken: 6, // the offender took its capital `settlement`
   CrownDefault: 7, // (state-finances) the offender's crown defaulted on a loan from a lender seated in the wronged polity
+  TownCeded: 8, // (beliefs) the offender took `settlement` from the wronged under threat, without war (EventType.Coerced; the towns of one crisis merged: `towns`)
+  SpyCaught: 9, // (beliefs) the wronged caught the offender's spies (EventType.SpyCaught)
+  ClaimForged: 10, // (beliefs) the offender's forged claim on the wronged was exposed (EventType.ClaimExposed)
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
 
@@ -1868,6 +1927,8 @@ export interface Bonds {
   /** -1 while ongoing at the end of the run. */
   endYear: Int16Array
   end: Uint8Array
+  /** beliefs: the year each bond became known to other polities (startYear for a public bond; -1 never revealed); empty when HistoryOptions.beliefs is false. */
+  known: Int16Array
 }
 
 /** Small raids per decade and settlement raided, struct-of-arrays, sorted by decade then settlement (only nonzero entries). */
@@ -2030,6 +2091,19 @@ export interface HistoryOptions {
   balance?: boolean
   /** finance (state-finances; needs polities): crown treasuries, borrowing from merchant capital, default and bankruptcy wars. Default false; false leaves the finance fields empty and the history exactly the one without them. */
   finance?: boolean
+  /**
+   * beliefs (beliefs-and-deception; needs polities): states judge each other's strength from what they see, trade, marry, spy
+   * and fight, and may bluff, ally in secret and misjudge; crises are bargained (towns ceded or tribute agreed without war,
+   * or the challenger backs down). Default false; false leaves the belief fields empty and the history exactly the one without them.
+   */
+  beliefs?: boolean
+  /**
+   * barriers (barriers-coldwar.md, communication part; needs beliefs): what states learn of each other passes through their
+   * tongues (mutual intelligibility of the capitals' languages from the language tree advanced in the run, B-R1; with language
+   * off the same people understand each other and others need interpreters) and arrives late with distance (news lag).
+   * Default false; false gives the history exactly as without it.
+   */
+  barriers?: boolean
   /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
   arms?: boolean
   /**
