@@ -359,12 +359,14 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       p.className = 'cb-text'
       p.textContent = describeBattle(h, b)
       // n5: the battle at a glance (ground, weather, what decided it)
-      const dl = document.createElement('dl')
+      const dl = document.createElement('div')
       dl.className = 'cb-summary'
       for (const [k, v] of battleSummary(h, b)) {
-        const dt = document.createElement('dt'), dd = document.createElement('dd')
-        dt.textContent = k; dd.textContent = v
-        dl.append(dt, dd)
+        const pair = document.createElement('span'), dt = document.createElement('b')
+        pair.className = 'cb-pair'
+        dt.textContent = k
+        pair.append(dt, ' ' + v)
+        dl.appendChild(pair)
       }
       ctxRoot.append(eb, t, dl, p)
       if (deps.openBattle) {

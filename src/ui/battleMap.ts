@@ -361,7 +361,9 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       const wx = ['clear', 'rain', 'fog', 'snow', 'heat'][tlx.weather] ?? 'clear'
       chip('Weather', wx + (tlx.winter ? ', winter' : '') + (tlx.mud ? ', mud' : '') + (tlx.frozen ? ', the river frozen' : ''), 'bm-chip-weather')
       const fs = decidingFactors(h, b)
-      if (fs.length) chip('Decided by', fs.map((f) => (f.forWinner ? '' : 'though ') + factorClause(h, b, f)).join('; '), 'bm-chip-why')
+      const pro = fs.filter((f) => f.forWinner), con = fs.filter((f) => !f.forWinner)
+      if (pro.length) chip('Decided by', pro.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-why')
+      if (con.length) chip(pro.length ? 'Though' : 'Won though', con.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-con')
       root.classList.remove('hidden')
       t = 0
       frame()

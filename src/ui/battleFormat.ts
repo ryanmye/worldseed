@@ -201,7 +201,9 @@ export function battleSummary(h: History, b: number): [string, string][] {
   if (fl & BattleFlag.Surprise) wx.push(fl & BattleFlag.SurpriseByDefender ? 'the defenders surprised the attackers' : 'the attackers surprised the defenders')
   rows.push(['Weather', wx.join(', ')])
   const fs = decidingFactors(h, b)
-  if (fs.length) rows.push(['Decided by', fs.map((f) => (f.forWinner ? '' : 'against the victors: ') + factorClause(h, b, f)).join('; ')])
+  const pro = fs.filter((f) => f.forWinner), con = fs.filter((f) => !f.forWinner)
+  if (pro.length) rows.push(['Decided by', pro.map((f) => factorClause(h, b, f)).join('; ')])
+  if (con.length) rows.push([pro.length ? 'Though' : 'Won though', con.map((f) => factorClause(h, b, f)).join('; ')])
   const won = B.winner[b] === 0
   const la = B.lossA[b] / Math.max(1, B.menA[b]), ld = B.lossD[b] / Math.max(1, B.menD[b])
   rows.push(['Losses', `the attackers ${shareWords(la)}, the defenders ${shareWords(ld)}${fl & BattleFlag.Pursuit ? ' (in the rout)' : ''}`])

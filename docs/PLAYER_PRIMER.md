@@ -68,6 +68,10 @@ Changelog:
 - **Captions** also have **Share** (a link with `year=` and `follow=1`) and, on battle beats, **Watch the battle** (the 2D
   replay). On a phone, swipe a caption sideways: left is Next, right closes it.
 - **Inline battle replays:** while following, the top three battles replay inline; the timeline pauses and resumes after.
+- **What decided a battle** (lane n5, no new control): battle captions and chronicle lines name the deciding factor ("the
+  defenders held the ford", "fog gave the attackers surprise", "snow broke the attack", "hunger thinned the ranks"); the
+  replay draws the day's weather (rain, snow, fog, heat), terrain cues (rivers, the ford, woods, high ground, walls, the shore,
+  mud) and a legend (Ground, Weather, Decided by); the battle context panel opens with a summary table.
 - **Drama strip:** the strip above the timeline slider shows the story's peaks (ui/story/dramaStrip.ts). Click a peak to
   jump there: playback pauses and following lets go.
 - The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
