@@ -190,7 +190,7 @@ export function bandwagonStep(s: HistoryState, ps: PolityState, og: GrudgeState)
       const t = threatAt(s, ps, r, y, h)
       if (t > best) { best = t; c = y }
     }
-    if (c >= 0) {
+    if (c >= 0 && alliances(ps, h) < X.maxAlliances && alliances(ps, x) < X.maxAlliances) { // (the cap holds for the hegemon too)
       logX(s, EventType.Bandwagon, ps.pCapital[x], ps.pCapital[h], h, 0)
       ally(s, ps, x < h ? x : h, x < h ? h : x, c)
       og.diag.bandwagonAlly++

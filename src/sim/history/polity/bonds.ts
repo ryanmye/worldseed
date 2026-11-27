@@ -24,7 +24,7 @@ import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import { distTo } from './control.ts'
 import { atWar } from './formation.ts'
-import { ALLIANCE, OATH, POLITY, RELATION, VASSAL } from './params.ts'
+import { ALIGN, ALLIANCE, OATH, POLITY, RELATION, VASSAL } from './params.ts'
 import { recordGrievance } from './grievances.ts' // oaths:
 import { repFactor } from './oaths.ts' // oaths:
 import { allianceStepBalance, bandwagonStep, threatLapsed } from './align.ts' // balance:
@@ -331,6 +331,6 @@ export function bufferAlarm(s: HistoryState, ps: PolityState, p: number, q: numb
     if (rc < 0 || ps.relR[rc] < ALLIANCE.threat) continue
     if (ps.why) whyRelSet(ps.why, rc, RivalryPart.Alarm, ps.relR[rc], ps.relR[rc] + ALLIANCE.bufferR > 2 ? 2 : ps.relR[rc] + ALLIANCE.bufferR) // causes:
     ps.relR[rc] = ps.relR[rc] + ALLIANCE.bufferR > 2 ? 2 : ps.relR[rc] + ALLIANCE.bufferR
-    if (!allied(ps, c, q) && overlordOf(ps, q) < 0 && alliances(ps, c) < 2 && roll() < ALLIANCE.join) ally(s, ps, c < q ? c : q, c < q ? q : c, p)
+    if (!allied(ps, c, q) && overlordOf(ps, q) < 0 && alliances(ps, c) < 2 && !(ps.og !== null && ps.og.balance && alliances(ps, q) >= ALIGN.maxAlliances) && roll() < ALLIANCE.join) ally(s, ps, c < q ? c : q, c < q ? q : c, p) // (balance: the coalition cap holds for the victim; the draw is skipped then, as for c's own cap)
   }
 }
