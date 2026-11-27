@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 3 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 4 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -20,6 +20,10 @@ Changelog:
   nothing warlike (NO_LEVER_AFTER); the shared setup is done after the first card or with `play=0`; "Crush it" is now
   "Garrison the town" (a real order, primer v6). Greedy's first ambition now also drives a card's cadence (Unify: the
   "neighbour is weak" card every 10 years), so `greedy:1` is the Unify player the others are not.
+- v4 (2026-11-28, lane/n3b, primer v7): stances on the looming Overlord card's keys: every goal but Faith and Union
+  avoids Keep paying (the realm's end) and Endure, Unify and aggressive take Defy, with an ally; cautious takes it by the
+  risk table (0.5, below Defy's 0.9 and Keep paying's 0.95). Greedy Unify now placates a town that rose (Placate 2, as its
+  new hint says: towns lost to risings undo the towns won in war).
 
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with
