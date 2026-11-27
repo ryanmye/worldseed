@@ -22,6 +22,18 @@ cool[DecisionKind.Betrayal] = 20
 cool[DecisionKind.Frontier] = 30
 cool[DecisionKind.Crop] = 30
 cool[DecisionKind.Idea] = 30
+// surfacing (EVALUATION §4 Lane 1): the merged systems' cards
+cool[DecisionKind.Default] = 10
+cool[DecisionKind.WarChest] = 15
+cool[DecisionKind.Battle] = 8
+cool[DecisionKind.Bluff] = 15
+cool[DecisionKind.Intelligence] = 15
+cool[DecisionKind.Disaster] = 10
+cool[DecisionKind.AllyCalls] = 15
+cool[DecisionKind.Betrayed] = 20
+cool[DecisionKind.Commune] = 20
+cool[DecisionKind.ColdWar] = 30
+cool[DecisionKind.Houses] = 20
 
 export const SEAT = {
   // at most maxCards decisions a year (by PRIORITY), none within minGap years of the last one unless urgent
@@ -52,8 +64,13 @@ export const SEAT = {
   matchAge: [14, 30] as readonly number[],
   // Betrayal: the realm, an ally in an alliance war, is worn (exhaustion >= betrayCase; a proxy for the oath calculus' case)
   betrayCase: 0.5,
-  // Credit: the crown's need (finance finNeed) at least creditNeed
-  creditNeed: 0.5,
+  // Credit: the crown's need (finance finNeed) at least creditNeed (surfacing lane: 0.5 needed war and heavy debt together, and
+  // never came in 100 seated years; 0.4 is debt, arrears or a recent default, or a war with some debt)
+  creditNeed: 0.4,
+  // Battle: a battle of the realm's army with at least battleMen men on both sides together
+  battleMen: 6000,
+  // Disaster: a shock that killed at least disasterDead of the realm's people (or destroyed a town; a great flood of a city kills 250-450)
+  disasterDead: 200,
   // ---- the court kinds' orders (orders/seatOrders.ts, orders/hooks.ts; seat-mode §3.6) ----
   // Repudiate: the rivalry with the renounced rises by renounceR; with oaths, an AllyBetrayed grievance at renounceGrief of its weight
   renounceR: 0.25,
@@ -122,18 +139,23 @@ export const URGENT: readonly number[] = [DecisionKind.WarOnUs, DecisionKind.Cri
 export const PRIORITY: readonly number[] = [
   DecisionKind.WarOnUs, DecisionKind.Crisis, DecisionKind.Plague, DecisionKind.Overlord, DecisionKind.General, DecisionKind.Heir,
   DecisionKind.Revolt, DecisionKind.Betrayal, DecisionKind.Opening, DecisionKind.AllianceMade, DecisionKind.AllianceSought,
+  DecisionKind.Betrayed, DecisionKind.Battle, DecisionKind.Default, DecisionKind.WarChest, DecisionKind.Disaster, DecisionKind.Commune,
+  DecisionKind.AllyCalls, DecisionKind.Intelligence, DecisionKind.Bluff, DecisionKind.Houses, DecisionKind.ColdWar,
   DecisionKind.Credit, DecisionKind.Charter, DecisionKind.Match, DecisionKind.Faith, DecisionKind.Frontier, DecisionKind.Idea,
   DecisionKind.Crop,
 ]
 
 /** How divisive each kind of matter is (0..1): every course of it angers someone (a design default). A deferral of a divisive matter costs less authority (SEAT.deferDivisive) and its blame falls on the deciding body. */
 export const DIVISIVE: readonly number[] = (() => {
-  const t = new Array<number>(18).fill(0.3)
+  const t = new Array<number>(DECISION_KIND_COUNT).fill(0.3)
   t[DecisionKind.WarOnUs] = 0.6; t[DecisionKind.Opening] = 0.3; t[DecisionKind.Heir] = 0.8; t[DecisionKind.Crisis] = 0.9
   t[DecisionKind.AllianceMade] = 0.4; t[DecisionKind.AllianceSought] = 0.3; t[DecisionKind.Overlord] = 0.7; t[DecisionKind.Match] = 0.2
   t[DecisionKind.General] = 0.8; t[DecisionKind.Plague] = 0.5; t[DecisionKind.Faith] = 0.9; t[DecisionKind.Revolt] = 0.8
   t[DecisionKind.Credit] = 0.7; t[DecisionKind.Charter] = 0.6; t[DecisionKind.Betrayal] = 0.7; t[DecisionKind.Frontier] = 0.1
   t[DecisionKind.Crop] = 0.05; t[DecisionKind.Idea] = 0.1
+  t[DecisionKind.Default] = 0.8; t[DecisionKind.WarChest] = 0.5; t[DecisionKind.Battle] = 0.6; t[DecisionKind.Bluff] = 0.5
+  t[DecisionKind.Intelligence] = 0.4; t[DecisionKind.Disaster] = 0.4; t[DecisionKind.AllyCalls] = 0.7; t[DecisionKind.Betrayed] = 0.6
+  t[DecisionKind.Commune] = 0.7; t[DecisionKind.ColdWar] = 0.5; t[DecisionKind.Houses] = 0.6
   return t
 })()
 
@@ -149,4 +171,6 @@ export const OPTION_RISK: Record<number, number> = {
   [SeatOptionKey.Retrench]: 0.3, [SeatOptionKey.Grant]: 0.4, [SeatOptionKey.Refuse]: 0.3, [SeatOptionKey.SeparatePeace]: 0.7,
   [SeatOptionKey.StandBy]: 0.4, [SeatOptionKey.Settle]: 0.3, [SeatOptionKey.ExploreOn]: 0.3, [SeatOptionKey.Stay]: 0.1,
   [SeatOptionKey.TakeUp]: 0.1, [SeatOptionKey.Seek]: 0.15, [SeatOptionKey.RepudiateDebts]: 0.9, [SeatOptionKey.Reclaim]: 1,
+  [SeatOptionKey.SendRelief]: 0.2, [SeatOptionKey.RecallGeneral]: 0.7, [SeatOptionKey.JoinWar]: 0.75, [SeatOptionKey.Avenge]: 0.8,
+  [SeatOptionKey.CallBluff]: 0.75, [SeatOptionKey.OfferTerms]: 0.2, [SeatOptionKey.RewardArmy]: 0.25,
 }

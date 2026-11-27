@@ -18,10 +18,12 @@ export function resolveRun(preset = 'realistic', extra: HistoryOptions = {}): Ru
   const base: HistoryOptions = { language: true }
   const url: Record<string, string> = { lang: '1' }
   if (preset !== 'realistic') {
+    // (lane/setup's presets: HistoryOptions.preset, expanded by the runner (sim/history/presets.ts); an older tree's expander in contract.ts)
     const ex = appExpander()
     const o = ex ? ex(preset) : null
-    if (!o) throw new Error(`preset "${preset}" is not on this tree yet (no preset expansion in contract.ts); pass --opts '{...}' instead`)
-    Object.assign(base, o)
+    if (o) Object.assign(base, o)
+    else if (preset === 'dramatic' || preset === 'off') base.preset = preset
+    else throw new Error(`unknown preset "${preset}"; pass --opts '{...}' instead`)
     url.preset = preset
   }
   return { preset, historyOptions: { ...base, ...extra }, url }

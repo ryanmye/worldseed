@@ -94,11 +94,11 @@ describe('reserved order and decision rows (R40)', () => {
     expect(decodeOrders('10::1:2')).toEqual([])
   })
 
-  it('DecisionKind table is contiguous 0..54: 0–17 seat-mode (live), the rest reserved', () => {
+  it('DecisionKind table is contiguous 0..112: 0–17 seat-mode (live), 18–101 reserved, 102–112 surfacing (live)', () => {
     const D = describeDecisionKinds()
     expect(D.length).toBe(DECISION_KIND_COUNT)
-    expect(DECISION_KIND_COUNT).toBe(55)
-    D.forEach((d, i) => { expect(d.kind).toBe(i); if (i < 18) { expect(d.reserved).toBeUndefined(); expect(d.key.length).toBeGreaterThan(0) } else { expect(d.reserved).toBe(true); expect(d.reservedFor?.length).toBeGreaterThan(0) } })
+    expect(DECISION_KIND_COUNT).toBe(113)
+    D.forEach((d, i) => { expect(d.kind).toBe(i); if (i < 18 || i >= 102) { expect(d.reserved).toBeUndefined(); expect(d.key.length).toBeGreaterThan(0) } else { expect(d.reserved).toBe(true); expect(d.reservedFor?.length).toBeGreaterThan(0) } })
     expect(D[0].key).toBe('warOnUs')
     expect(D[17].key).toBe('idea')
     expect(D[18].reservedFor).toBe('court-politics: Estates')
@@ -108,5 +108,10 @@ describe('reserved order and decision rows (R40)', () => {
     expect(D[50].reservedFor).toBe('future-politics: Mandate')
     expect(D[53].reservedFor).toBe('infrastructure: Infrastructure')
     expect(D[54].reservedFor).toBe('religious-evolution: Doctrine')
+    expect(D[55].reservedFor).toBe('barriers: Brink')
+    expect(D[86].reservedFor).toBe('shadow-network: NetConfide')
+    expect(D[94].reservedFor).toBe('battles-fiction: Relief')
+    expect(D[102].key).toBe('default')
+    expect(D[112].key).toBe('houses')
   })
 })

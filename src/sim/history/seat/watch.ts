@@ -17,7 +17,10 @@
 // General (Placate, Purge), Match and Opening's match (Marry), AllianceMade (Repudiate), AllianceSought and WarOnUs's ally (Ally),
 // Overlord (Defy), WarOnUs's tribute (Submit); step 13 the dependent ones: Credit (finance: Borrow, Levy, Repudiate of the
 // debts) and Betrayal (oaths: Betray). Charter waits for city-states.
-import { DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
+// Surfacing (EVALUATION §4 Lane 1) adds the merged systems' cards, each from an event of the year and with existing orders
+// only (mergedCards): Default and WarChest (finance), Battle (battles), Bluff and Intelligence (beliefs), Disaster, AllyCalls
+// and Betrayed (oaths), Commune (city-states), ColdWar, Houses (families); a renowned general of the realm brings General.
+import { CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import { projAt } from '../polity/state.ts'
@@ -211,6 +214,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
       }
     }
   }
+  if (ps !== null && p >= 0) mergedCards(s, st, ps, p, k, cap, from, cards)
   if (ps !== null && p >= 0) courtCards(s, st, ps, p, k, cap, cards)
   // Faith (a state condition, checked when its cooldown has passed): a universal faith holding a large share of the realm, not the ruler's.
   const rel = s.rel
@@ -236,6 +240,220 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         { key: SeatOptionKey.Embrace, orders: [[OrderKind.Faith, p, best]] },
         { key: SeatOptionKey.KeepWays, orders: [] },
       ] })
+    }
+  }
+}
+
+/** The polity of settlement id now (-1). */
+const polOf = (ps: PolityState, id: number): number => (id >= 0 && id < ps.polity.length ? ps.polity[id] : -1)
+/** The other side of war w from p (-1 when p is not in it). */
+const enemyIn = (ps: PolityState, w: number, p: number): number => (w < 0 || w >= ps.wAtt.length ? -1 : ps.wAtt[w] === p ? ps.wDef[w] : ps.wDef[w] === p ? ps.wAtt[w] : -1)
+
+/**
+ * The merged systems' cards (surfacing lane), from the year's events: what the court would hear of (its own battles, its
+ * treasury, its towns, its allies and rivals), each option an existing order (orderCheck filters them at the cadence pass).
+ */
+function mergedCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, k: number, cap: number, from: number, cards: Card[]): void {
+  const ev = s.events
+  const K = SeatOptionKey, OK = OrderKind
+  const levy: O = [OK.Levy, p, -1], placate: O = [OK.Placate, p, -1], fortify: O = [OK.Fortify, cap, -1]
+  for (let e = from; e < ev.length; e++) {
+    const x = ev[e]
+    switch (x.type) {
+      case EventType.CrownDefault: case EventType.Repudiation: {
+        // Default (finance): the crown stopped paying, or a new ruler refused the debts
+        if (s.fin === null || x.value !== p || off(st, s, DecisionKind.Default)) break
+        cards.push({ kind: DecisionKind.Default, subject: p, place: cap, options: [
+          { key: K.Levy, orders: [levy] },
+          { key: K.RepudiateDebts, orders: [[OK.Repudiate, p, p]] },
+          { key: K.Placate, orders: [placate] },
+          { key: K.Retrench, orders: [] },
+        ] })
+        break
+      }
+      case EventType.ArmyUnpaid: {
+        // WarChest (finance): the soldiers go unpaid in a war of the realm
+        const q = enemyIn(ps, x.value, p)
+        if (s.fin === null || q < 0 || x.settlement !== cap || off(st, s, DecisionKind.WarChest) || !contacted(s, ps, k, q)) break
+        cards.push({ kind: DecisionKind.WarChest, subject: q, place: cap, options: [
+          { key: K.SuePeace, orders: [[OK.Peace, p, q]] },
+          { key: K.Levy, orders: [levy] },
+          { key: K.Borrow, orders: [[OK.Borrow, p, -1]] },
+          { key: K.FightOn, orders: [] },
+        ] })
+        break
+      }
+      case EventType.WarDeclared: {
+        const w = x.value
+        if (w < 0 || w >= ps.wAtt.length) break
+        // WarChest (finance): the realm declared a war, which must be paid for
+        if (s.fin !== null && ps.wAtt[w] === p && !off(st, s, DecisionKind.WarChest) && contacted(s, ps, k, ps.wDef[w])) {
+          cards.push({ kind: DecisionKind.WarChest, subject: ps.wDef[w], place: cap, options: [
+            { key: K.Borrow, orders: [[OK.Borrow, p, -1]] },
+            { key: K.Levy, orders: [levy] },
+            { key: K.Retrench, orders: [] },
+          ] })
+        }
+        // AllyCalls (oaths): an ally is at war and the realm is not: honour the alliance (war on its enemy) or break it
+        if (ps.og !== null && ps.og.oaths && !off(st, s, DecisionKind.AllyCalls)) {
+          const a = ps.wDef[w], q = ps.wAtt[w]
+          if (a !== p && q !== p && allied(ps, p, a) && !allied(ps, p, q) && !atWar(ps, p, q) && contacted(s, ps, k, a) && contacted(s, ps, k, q)) {
+            cards.push({ kind: DecisionKind.AllyCalls, subject: a, place: ps.pCapital[a], options: [
+              { key: K.JoinWar, orders: [[OK.War, p, q]] },
+              { key: K.Renounce, orders: [[OK.Repudiate, p, a]] },
+              { key: K.StayOut, orders: [] },
+            ] })
+          }
+        }
+        break
+      }
+      case EventType.BattleFought: {
+        // Battle (battles): a great battle of the realm's army, won or lost
+        const bs = s.bat, b = x.value
+        if (bs === null || b < 0 || b >= bs.bAtt.length || off(st, s, DecisionKind.Battle)) break
+        const side = bs.bAtt[b] === p ? 0 : bs.bDef[b] === p ? 1 : -1
+        if (side < 0 || bs.bMenA[b] + bs.bMenD[b] < SEAT.battleMen) break
+        const q = side === 0 ? bs.bDef[b] : bs.bAtt[b]
+        if (!contacted(s, ps, k, q)) break
+        const won = bs.bWinner[b] === side
+        const cmd = side === 0 ? bs.bCmdA[b] : bs.bCmdD[b]
+        const opts: Option[] = won
+          ? [{ key: K.OfferTerms, orders: [[OK.Peace, p, q]] }, { key: K.RewardArmy, orders: [placate] }, { key: K.FightOn, orders: [] }]
+          : [{ key: K.SuePeace, orders: [[OK.Peace, p, q]] }, { key: K.Levy, orders: [levy] },
+            ...(cmd >= 0 && bs.cFate[cmd] === CommanderFate.Serving ? [{ key: K.RecallGeneral, orders: [[OK.Purge, p, -1] as O] }] : []),
+            { key: K.FightOn, orders: [] }]
+        cards.push({ kind: DecisionKind.Battle, subject: b, place: knownTown(s, k, x.settlement) ? x.settlement : cap, options: opts })
+        break
+      }
+      case EventType.CommanderRenowned: {
+        // General (battles): a general of the realm won a hero's fame; the throne may fear him
+        const bs = s.bat
+        if (bs === null || x.value < 0 || x.value >= bs.cPolity.length || bs.cPolity[x.value] !== p || off(st, s, DecisionKind.General)) break
+        const R = s.rul
+        if (R === null || p >= R.pcap || R.cur[p] < 0) break
+        cards.push({ kind: DecisionKind.General, subject: R.cur[p], place: cap, options: [
+          { key: K.Honour, orders: [placate] },
+          { key: K.Purge, orders: [[OK.Purge, p, -1]] },
+          { key: K.Ignore, orders: [] },
+        ] })
+        break
+      }
+      case EventType.BluffExposed: {
+        // Bluff (beliefs): the realm saw through a rival's bluff (call it), or its own was seen through
+        if (off(st, s, DecisionKind.Bluff)) break
+        const bluffer = polOf(ps, x.settlement)
+        if (x.value === p && bluffer >= 0 && bluffer !== p && contacted(s, ps, k, bluffer)) {
+          cards.push({ kind: DecisionKind.Bluff, subject: bluffer, place: ps.pCapital[bluffer], options: [
+            { key: K.CallBluff, orders: [[OK.War, p, bluffer]] },
+            ...(overlordOf(ps, p) === bluffer ? [{ key: K.Defy, orders: [[OK.Defy, p, bluffer] as O] }] : []),
+            { key: K.StayOut, orders: [] },
+          ] })
+        } else if (bluffer === p && x.value >= 0 && x.value !== p && contacted(s, ps, k, x.value)) {
+          const r = allyAgainst(s, ps, k, p, x.value)
+          cards.push({ kind: DecisionKind.Bluff, subject: x.value, place: cap, options: [
+            { key: K.Levy, orders: [levy] },
+            { key: K.Fortify, orders: [fortify] },
+            ...(r >= 0 ? [{ key: K.SeekAlly, orders: [[OK.Ally, p, r] as O] }] : []),
+            { key: K.Endure, orders: [] },
+          ] })
+        }
+        break
+      }
+      case EventType.AllianceRevealed: {
+        // Intelligence (beliefs): a secret alliance of two realms came to light; the realm is a rival of one of them, or its war is with us
+        if (off(st, s, DecisionKind.Intelligence)) break
+        const a = polOf(ps, x.settlement), b = polOf(ps, x.other)
+        if (a < 0 || b < 0 || a === p || b === p || !contacted(s, ps, k, a) || !contacted(s, ps, k, b)) break
+        const ra = relIdx(ps, p, a), rb = relIdx(ps, p, b)
+        const threat = Math.max(ra >= 0 ? ps.relR[ra] : 0, rb >= 0 ? ps.relR[rb] : 0)
+        const ours = x.value >= 0 && enemyIn(ps, x.value, p) >= 0
+        if (!ours && threat < ALLIANCE.threat) break
+        const foe = ra >= 0 && (rb < 0 || ps.relR[ra] >= ps.relR[rb]) ? a : b
+        const r = allyAgainst(s, ps, k, p, foe)
+        cards.push({ kind: DecisionKind.Intelligence, subject: foe, place: ps.pCapital[foe], options: [
+          ...(r >= 0 ? [{ key: K.SeekAlly, orders: [[OK.Ally, p, r] as O] }] : []),
+          { key: K.Fortify, orders: [fortify] },
+          { key: K.Ignore, orders: [] },
+        ] })
+        break
+      }
+      case EventType.SpyCaught: {
+        // Intelligence (beliefs): the realm caught a rival's spies
+        if (off(st, s, DecisionKind.Intelligence) || polOf(ps, x.settlement) !== p) break
+        const q = x.value
+        if (q < 0 || q === p || ps.pEnded[q] >= 0 || !contacted(s, ps, k, q)) break
+        cards.push({ kind: DecisionKind.Intelligence, subject: q, place: ps.pCapital[q], options: [
+          { key: K.Strike, orders: [[OK.War, p, q]] },
+          { key: K.Renounce, orders: [[OK.Repudiate, p, q]] },
+          { key: K.Fortify, orders: [fortify] },
+          { key: K.Ignore, orders: [] },
+        ] })
+        break
+      }
+      case EventType.Eruption: case EventType.Earthquake: case EventType.Tsunami: case EventType.CityDestroyed: case EventType.Flood: case EventType.VolcanicWinter: {
+        // Disaster: a shock struck a known town of the realm: relief (gold for the stricken) or taxes, or the court leaves
+        const dx = s.dx
+        if (dx === null || off(st, s, DecisionKind.Disaster) || !memberOf(ps, x.settlement, p) || !knownTown(s, k, x.settlement)) break
+        const dead = x.value >= 0 && x.value < dx.rows.deaths.length ? dx.rows.deaths[x.value] : 0
+        if (x.type !== EventType.CityDestroyed && x.type !== EventType.VolcanicWinter && dead < SEAT.disasterDead) break
+        let move = -1
+        if (x.settlement === cap) for (const id of s.living) if (memberOf(ps, id, p) && id !== cap && !s.outpost[id] && (move < 0 || s.pop[id] > s.pop[move])) move = id
+        cards.push({ kind: DecisionKind.Disaster, subject: x.value, place: x.settlement, options: [
+          { key: K.SendRelief, orders: [placate] },
+          { key: K.Levy, orders: [levy] },
+          ...(move >= 0 ? [{ key: K.MoveCourt, orders: [[OK.Seat, p, move] as O] }] : []),
+          { key: K.Endure, orders: [] },
+        ] })
+        break
+      }
+      case EventType.Betrayal: {
+        // Betrayed (oaths): an ally made its own peace (or turned on us) in the war we fought together
+        const q = polOf(ps, x.settlement)
+        if (polOf(ps, x.other) !== p || q < 0 || q === p || off(st, s, DecisionKind.Betrayed) || !contacted(s, ps, k, q)) break
+        const r = allyAgainst(s, ps, k, p, q)
+        cards.push({ kind: DecisionKind.Betrayed, subject: q, place: ps.pCapital[q], options: [
+          { key: K.Avenge, orders: [[OK.War, p, q]] },
+          ...(r >= 0 ? [{ key: K.SeekAlly, orders: [[OK.Ally, p, r] as O] }] : []),
+          { key: K.Endure, orders: [] },
+        ] })
+        break
+      }
+      case EventType.CommuneProclaimed: case EventType.CharterBought: {
+        // Commune (city-states): a town of the realm rose and made itself a republic, or bought its liberties
+        const c = x.value
+        if (x.other !== cap || cap < 0 || c < 0 || c === p || off(st, s, DecisionKind.Commune)) break
+        cards.push({ kind: DecisionKind.Commune, subject: x.settlement, place: x.settlement, options: [
+          { key: K.Strike, orders: [[OK.War, p, c]] },
+          { key: K.SeekAlly, orders: [[OK.Ally, p, c]] },
+          { key: K.StayOut, orders: [] },
+        ] })
+        break
+      }
+      case EventType.ColdWarBegan: {
+        // ColdWar: the realm and a great rival armed and watched each other
+        const a = polOf(ps, x.settlement), b = polOf(ps, x.other)
+        const q = a === p ? b : b === p ? a : -1
+        if (q < 0 || off(st, s, DecisionKind.ColdWar) || !contacted(s, ps, k, q)) break
+        const r = allyAgainst(s, ps, k, p, q)
+        cards.push({ kind: DecisionKind.ColdWar, subject: q, place: ps.pCapital[q], options: [
+          ...(r >= 0 ? [{ key: K.SeekAlly, orders: [[OK.Ally, p, r] as O] }] : []),
+          { key: K.Levy, orders: [levy] },
+          { key: K.Fortify, orders: [fortify] },
+          { key: K.Endure, orders: [] },
+        ] })
+        break
+      }
+      case EventType.FamilyBacked: {
+        // Houses (families): a merchant house backs a side in the realm's civil war
+        const w = x.extra ?? -1
+        if (enemyIn(ps, w, p) < 0 || off(st, s, DecisionKind.Houses) || !knownTown(s, k, x.settlement)) break
+        cards.push({ kind: DecisionKind.Houses, subject: x.value, place: x.settlement, options: [
+          { key: K.Placate, orders: [placate] },
+          { key: K.Fortify, orders: [fortify] },
+          { key: K.Ignore, orders: [] },
+        ] })
+        break
+      }
     }
   }
 }
