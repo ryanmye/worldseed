@@ -154,7 +154,7 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     from the house's names; a ruler crowned under another name is "Aru, crowned as Tika"). No heir under 3 is offered by
     name. The card comes once a reign, again only if the heir it named as the law's has died.
   - A crisis at court (Crisis): Placate them / Crush the pretender / Endure / Reclaim power. Its text says the cause (a
-    disputed succession, or a regency for a child); the same crisis does not come again within 12 years.
+    disputed succession, or a regency for a child); the same crisis does not come again within 20 years.
   - Alliance made: Honour it / Renounce it
   - Alliance sought: Seek an ally / Decline
   - Overlord: Pay / Defy

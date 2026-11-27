@@ -149,7 +149,7 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
   // lane N3: arcs (ui/story/arcs.ts) in the plan as the app has them; arc completion: arcs of the seat's realms opened in the span, completed
   const arcs = findArcs(h, Y)
   const plan = buildStoryPlan(sd, ix.notableYear, { focus: mine, until: Y, arcs: arcEntries(arcs, sd.rep) })
-  const myArcs = arcs.filter((a) => mine.has(a.polity) && a.start >= from && a.start <= Y)
+  const myArcs = arcs.filter((a) => (mine.has(a.polity) || mine.has(a.other)) && a.start >= from && a.start <= Y) // (a war arc on either side)
   const arcsDone = myArcs.filter((a) => a.complete).length
   const beatYears: number[] = []
   let minBeat = Infinity

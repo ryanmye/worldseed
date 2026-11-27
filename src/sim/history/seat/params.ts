@@ -15,7 +15,7 @@ cool[DecisionKind.Match] = 25
 cool[DecisionKind.General] = 15
 cool[DecisionKind.Plague] = 0 // (once per epidemic instead)
 cool[DecisionKind.Faith] = 40
-cool[DecisionKind.Revolt] = 25
+cool[DecisionKind.Revolt] = 40 // (lane N3: was 25; revolts were a fifth of all cards)
 cool[DecisionKind.Credit] = 20
 cool[DecisionKind.Charter] = 30
 cool[DecisionKind.Betrayal] = 20
@@ -41,8 +41,8 @@ export const SEAT = {
   // Plague: quarantine at most plagueQuarantine ports (largest first); move the court to a town of >= seatShare of the capital
   plagueQuarantine: 3,
   // Heir: the ruler is old (age from the birth year only), or the succession may well be contested
-  oldAge: 58,
-  heirContest: 0.25,
+  oldAge: 60, // (lane N3: was 58)
+  heirContest: 0.35, // (lane N3: was 0.25; with short reigns the Heir card was 40% of all cards)
   // General: a throne whose yearly overthrow chance is at least riseX, at war or with a war lost in the last generalLost years
   riseX: 0.015,
   generalLost: 10,
@@ -118,7 +118,7 @@ export const SEAT = {
   heirMinAge: 3,
   // the same matter (kind, subject, detail) is not put again within repeatYears; a Crisis of the same cause within crisisRepeat
   repeatYears: 15,
-  crisisRepeat: 12,
+  crisisRepeat: 20,
   // Opening as a state lever: a neighbour at peace that we overmatch at the border by openAdvState (checked every 5 years);
   // with Unify as the first ambition, Opening's cooldown is openCoolUnify instead of cool[Opening]
   openAdvState: 1.25,

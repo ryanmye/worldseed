@@ -6,6 +6,7 @@ import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
 import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
 import { heirOptionLabel, heirsLine } from './throne/stakes.ts' // lane N3: named heirs
+import { SEAT } from '../../sim/history/seat/params.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -98,7 +99,7 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Heir: {
       // (lane N3: "grows old" only when the ruler is old: the evaluator saw it 9 years after a child took the throne)
       const age = y - (h.rulers?.[subj]?.born ?? y)
-      const lead = age >= 58 ? `${capFirst(name)} grows old (${age}).` : `${capFirst(name)} is ${age}, but the succession is uncertain: the lords doubt the heir.`
+      const lead = age >= SEAT.oldAge ? `${capFirst(name)} grows old (${age}).` : `${capFirst(name)} is ${age}, but the succession is uncertain: the lords doubt the heir.`
       return `${lead} The lords ask whom the crown will name.${heirsLine(h, d) ? ' ' + heirsLine(h, d) : ''}`
     }
     case DecisionKind.Crisis: {

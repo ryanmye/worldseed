@@ -13,8 +13,9 @@ export const ARC_LABEL: readonly string[] = ['The usurper’s spiral', 'The prin
 
 export interface Arc {
   kind: ArcKind
-  /** The realm the arc is about. */
+  /** The realm the arc is about, and the other side of a war arc (-1). */
   polity: number
+  other: number
   /** History.events indices in order, and each one's phase (0 opening, 1 rising, 2 turn, 3 payoff). */
   events: number[]
   phase: number[]
@@ -78,7 +79,7 @@ export function findArcs(h: History, until = h.years): Arc[] {
       if (!complete) for (const i of of(EventType.DynastyEnded)) if (ev[i].value === r.dynasty && ev[i].year >= end && ev[i].year <= end + 1) { events.push(i); phase.push(PAYOFF); complete = true; endY = ev[i].year; break }
       if (!complete && e !== undefined) { phase[phase.length - 1] = PAYOFF; complete = true; endY = end } // (the fall itself closes the spiral)
     }
-    out.push({ kind: ArcKind.Usurper, polity: r.polity, events, phase, start: r.acceded, end: endY, complete })
+    out.push({ kind: ArcKind.Usurper, polity: r.polity, other: -1, events, phase, start: r.acceded, end: endY, complete })
   }
 
   // T3 the princes' war: a contested succession won by a kinsman of the dead ruler's house, and a civil war within 3 years;
@@ -96,7 +97,7 @@ export function findArcs(h: History, until = h.years): Arc[] {
     const peace = peaceOf.get(w)
     let complete = false, endY = -1
     if (peace !== undefined && ev[peace].year <= until) { events.push(peace); phase.push(PAYOFF); complete = true; endY = ev[peace].year }
-    out.push({ kind: ArcKind.Princes, polity: p, events: dedupe(events, phase).events, phase: dedupe(events, phase).phase, start: y, end: endY, complete })
+    out.push({ kind: ArcKind.Princes, polity: p, other: -1, events: dedupe(events, phase).events, phase: dedupe(events, phase).phase, start: y, end: endY, complete })
   }
 
   // the revenge war: a war declared for a grievance (Wars.cause >= 0); opening the wrong's year (its war's declaration if it
@@ -117,7 +118,7 @@ export function findArcs(h: History, until = h.years): Arc[] {
       const o = W.outcome[w]
       if (o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute || o === WarOutcome.Vassalage || o === WarOutcome.DefenderGains || o === WarOutcome.WhitePeace) { events.push(peace); phase.push(PAYOFF); complete = true; endY = W.endYear[w] }
     }
-    out.push({ kind: ArcKind.Revenge, polity: W.attacker[w], events, phase, start: G.year[g], end: endY, complete })
+    out.push({ kind: ArcKind.Revenge, polity: W.attacker[w], other: W.defender[w], events, phase, start: G.year[g], end: endY, complete })
   }
 
   // the bankruptcy war: a war that broke a treasury (WarBankrupt): opening the declaration, turn the bankruptcy, payoff the
@@ -134,7 +135,7 @@ export function findArcs(h: History, until = h.years): Arc[] {
     const pay = def ?? peace
     if (pay !== undefined && ev[pay].year <= until) { events.push(pay); phase.push(PAYOFF); complete = true; endY = ev[pay].year }
     const p = W.attacker[w] >= 0 && capAt(W.attacker[w], ev[i].year) === broke ? W.attacker[w] : W.defender[w]
-    out.push({ kind: ArcKind.Bankruptcy, polity: p, events, phase, start: d !== undefined ? ev[d].year : ev[i].year, end: endY, complete })
+    out.push({ kind: ArcKind.Bankruptcy, polity: p, other: p === W.attacker[w] ? W.defender[w] : W.attacker[w], events, phase, start: d !== undefined ? ev[d].year : ev[i].year, end: endY, complete })
   }
   return out.sort((a, b) => a.start - b.start || a.kind - b.kind)
 }
