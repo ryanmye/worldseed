@@ -17,5 +17,8 @@
 - Baseline v1: /home/claude/runs/bots/baseline.log (404 s; 36 runs; all 36 replays EQUAL).
 - UI smoke, seed 42 cautious: all checks ok. Fresh replay = bot run = headless (b5e0ba4c @775). The log is /home/claude/runs/bots/ui-42-cautious.log.
 
+## Gates (after merging origin/main 17ae06d)
+- G0: OK on all 3 seeds. tsc: clean. Build: ok, before the merge. vitest src/bots, src/ui/seat and workerSeat: 12/12.
+
 ## Next
-- G0, build, merge origin/main, push, report.
+- Report to the coordinator. Then the bots iteration: apply primer and persona suggestions, publish as v2 with a metrics-v2 snapshot, in a commit apart from any game change.
