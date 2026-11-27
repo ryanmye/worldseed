@@ -9,6 +9,15 @@
 // The climate amplitudes (gSd, rSd, pSd) are about 1.3x what the reconstructions suggest, so that epochs read in a 2000-year
 // story (PAGES 2k Consortium 2019; Neukom et al. 2019 for the regional timing; the amplitudes themselves are [unverified]).
 // Powers and logarithms are written out as literals (the sim uses only + - * / sqrt floor).
+//
+// Step 9 (disasterStats.ts, seeds 1 / 7 / 42 / 1234, 2000 y, on vs off on the same world), measured with these values:
+//   eruptions VEI 5/6/7: 125/21/5, 143/14/4, 139/15/3, 125/16/0 (targets 120-220 / 10-35 / 0-6); volcanic winters 22, 15, 14, 14
+//   famine rate in volcanic-winter years 12.9x, 19.9x, 3.4x, 6.0x (target >= 3x); famine events on/off 1.05, 0.89, 0.97, 0.90
+//   starvation on/off 0.82, 1.00, 0.90, 0.97; harvest mean on-off +0.004, +0.006, -0.011, +0.001; sd30 0.023-0.034 (off 0.016-0.022)
+//   megadroughts 3, 7, 6, 11; most regions in drought at once <= 6 %; largest single event <= 0.81 % of the world's people
+//   earthquake rows with deaths 260-700 and tsunamis with deaths 107-142 a run: far above the plan's 30-150 / 1-8, kept so (the
+//     rate is the USGS-scaled one; the deaths are small: quakes 4-15k, waves 6-30k a run); CityDestroyed 0-1 (plan 2-15)
+//   world pop at 2000 on/off 1.29, 1.22, 0.60, 0.96 (chaotic: single-seed ratios swing both ways)
 
 export const DX = {
   /** Default for HistoryOptions.disasters (ships off; the flip is its own PR, MASTER-PLAN §8.7). */
@@ -82,7 +91,8 @@ export const DX = {
   // step 9: on -1.2 -> -2.8 sd, off -0.4 -> -1.0 (at the plan's values, with 48 regions and the tau-30 regime, 300+ droughts
   // and 270 megadroughts a run; now 13-17 droughts, 11-17 of them mega). Labels only: the harvest follows rPa either way.
   droughtOn: -2.8, droughtOff: -1.0, droughtOnYears: 5, droughtOffYears: 3, megaYears: 15, droughtMinPop: 300,
-  epochOn: 0.35, epochOff: 0.1, epochWindow: 10,
+  // step 9: epochOn 0.35 -> 0.5, epochOff 0.1 -> 0.17 (13-18 epochs a run at the plan's values; now 6-8 on seeds 1, 7, 42, 1234)
+  epochOn: 0.5, epochOff: 0.17, epochWindow: 10,
 
   // --- consequences of a strike (§3.4) ---
   maxShare: 0.6, minShare: 0.005, // a share below minShare is no strike (the edge of a quake's or wave's reach)

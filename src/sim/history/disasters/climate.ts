@@ -120,14 +120,14 @@ export function climateYear(s: HistoryState, dx: DisasterState): void {
   for (let k = 0; k < dx.gT.length; k++) dx.gT[k] = dx.gPhi[k] * dx.gT[k] + dx.gC[k] * gauss(rng)
   for (let r = 0; r < R; r++) dx.rTa[r] = dx.rPhi * dx.rTa[r] + dx.rC * gauss(rng)
   for (let r = 0; r < R; r++) dx.rPa[r] = dx.pPhi * dx.rPa[r] + dx.pC * gauss(rng)
-  // volcanic forcing of the eruptions of the last four years
+  // volcanic forcing of the eruptions of the last DX.shape.length years
   const rTv = dx.rTv
   rTv.fill(0)
   let w = 0
   for (let i = 0; i < dx.forcing.length; i++) {
     const row = dx.forcing[i]
     const t = year - dx.rows.year[row]
-    if (t > 3) continue
+    if (t >= DX.shape.length) continue
     dx.forcing[w] = row; dx.forcingS[w] = dx.forcingS[i]; w++
     const c = dx.rows.cell[row], S = dx.forcingS[i] * DX.shape[t]
     for (let r = 0; r < R; r++) rTv[r] -= S * hemiW(s, dx, c, r)
