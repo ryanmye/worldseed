@@ -88,7 +88,7 @@ export function navalBattle(s: HistoryState, bs: BattleState, ps: PolityState, w
   bs.bWar.push(w); bs.bYear.push(s.year); bs.bKind.push(BattleKind.Naval); bs.bCounter.push(0); bs.bSite.push(site); bs.bTarget.push(port); bs.bFrom.push(capP)
   bs.bAtt.push(p); bs.bDef.push(q); bs.bCmdA.push(cA); bs.bCmdD.push(cD); bs.bMenA.push(shA); bs.bMenD.push(shD); bs.bLossA.push(lossA); bs.bLossD.push(lossD)
   bs.bDead.push(0); bs.bWinner.push(won ? 0 : 1); bs.bHours.push(hours); bs.bWeather.push(weather); bs.bFlags.push(flags); bs.bRatio.push(res.xEff)
-  bs.bBreakA.push(b0); bs.bBreakD.push(b0); bs.bSiegeYear.push(0)
+  bs.bBreakA.push(b0); bs.bBreakD.push(b0); bs.bSiegeYear.push(0); bs.bCourse.push(0)
   bs.diag.battles++
   bs.diag.byKind[BattleKind.Naval]++
   bs.diag.byWeather[weather]++

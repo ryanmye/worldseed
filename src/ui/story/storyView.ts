@@ -31,7 +31,7 @@ import { SUN_DIRECTION, SunMode, sunState } from '../../render/sun.ts'
 import { flat } from '../../render/mapProjection.ts'
 import { battlesOf, battleWeight } from '../battlesData.ts'
 import type { BattleOpenOptions } from '../battleMap.ts'
-import { battleTitle, describeBattle } from '../battleFormat.ts'
+import { battleSummary, battleTitle, decidingShort, describeBattle } from '../battleFormat.ts'
 import { contextChanged, registerContext } from '../contextPanel.ts'
 import { createDramaStrip } from './dramaStrip.ts'
 import { arcEntries, findArcs } from './arcs.ts'
@@ -201,10 +201,17 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       if (t === EventType.Landfall) return landfallScene(c, v, i)
       if (t === EventType.RulerConverted) return conversionScene(c, v, i)
       if (t === EventType.LandmarkCompleted) return workScene(c, v, i)
+      if (t === EventType.BattleFought) return battleCaption(history!, history!.events[i].value) // n5: what decided it
     } catch (err) {
       console.warn('story: scene failed', err)
     }
     return null
+  }
+  /** n5: a battle's caption names what decided it ("The Battle of Vebena Ford: the defenders held the ford"). */
+  const battleCaption = (h: History, b: number): Scene | null => {
+    if (!h.battles || b < 0 || b >= h.battles.count) return null
+    const why = decidingShort(h, b)
+    return { kind: 'battle', year: h.battles.year[b], score: 0, title: battleTitle(h, b) + (why ? `: ${why}` : ''), text: describeBattle(h, b), place: h.battles.target[b] }
   }
   const subjectOf = (entry: number, target: number): SagaSubject | null => {
     const h = history
@@ -388,7 +395,17 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       const p = document.createElement('p')
       p.className = 'cb-text'
       p.textContent = describeBattle(h, b)
-      ctxRoot.append(eb, t, p)
+      // n5: the battle at a glance (ground, weather, what decided it)
+      const dl = document.createElement('div')
+      dl.className = 'cb-summary'
+      for (const [k, v] of battleSummary(h, b)) {
+        const pair = document.createElement('span'), dt = document.createElement('b')
+        pair.className = 'cb-pair'
+        dt.textContent = k
+        pair.append(dt, ' ' + v)
+        dl.appendChild(pair)
+      }
+      ctxRoot.append(eb, t, dl, p)
       if (deps.openBattle) {
         const w = document.createElement('button')
         w.type = 'button'

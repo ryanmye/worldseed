@@ -7,12 +7,12 @@
 // if it saw one).
 
 import './battleMap.css'
-import { BattleKind, RIVER_FLOW_THRESHOLD, settlementNameAt } from '../contract.ts'
+import { BattleFlag, BattleKind, BattleWeather, Biome, RIVER_FLOW_THRESHOLD, settlementNameAt } from '../contract.ts'
 import type { History, World } from '../contract.ts'
 import { terrainColor } from '../render/palette.ts'
-import { battleTitle, roundMen } from './battleFormat.ts'
+import { battleTitle, decidingFactors, factorClause, groundWords, roundMen } from './battleFormat.ts'
 import { battlesOf } from './battlesData.ts'
-import { blockAt, buildTimeline, phaseAt, sidesAt } from './battleTimeline.ts'
+import { blockAt, buildTimeline, jitter, phaseAt, sidesAt } from './battleTimeline.ts'
 import type { BlockPose, Timeline } from './battleTimeline.ts'
 import { politiesOf } from './politiesData.ts'
 import { addShortcut } from './shortcuts.ts'
@@ -82,7 +82,10 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
   const note = document.createElement('div')
   note.className = 'bm-note'
   note.textContent = 'A stylised field: one cell is some 150 km on the globe. Figures as the chroniclers give them.'
-  root.append(title, sub, sides, canvas, bar, phase, note)
+  // n5: the terrain and weather legend, and what decided the day
+  const legend = document.createElement('div')
+  legend.className = 'bm-legend'
+  root.append(title, sub, sides, canvas, legend, bar, phase, note) // (n4b: the side legend; n5: the ground and weather legend)
   deps.host.appendChild(root)
   const ctx = canvas.getContext('2d')
   const ground = document.createElement('canvas')
@@ -121,8 +124,42 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       else { terrainColor(w, c, col, 0, 255); const shade = 1 - 0.25 * Math.min(1, Math.max(0, w.elevation[c])); g.fillStyle = `rgb(${col[0] * shade | 0}, ${col[1] * shade | 0}, ${col[2] * shade | 0})` }
       g.beginPath(); g.arc(toX(x), toY(y), px * 0.62, 0, 2 * Math.PI); g.fill()
     }
-    // rivers
-    g.strokeStyle = '#5d9fd0'
+    // n5 terrain cues: the shore's surf, woods, high ground (cells above their neighbours' mean), the mud of a wet field
+    const B = h.battles, b = tl.battle, fl = B.flags[b]
+    const isLand = (c: number) => w.elevation[c] >= 0
+    for (const c of cells) {
+      const [x, y] = loc(c)
+      const cx = toX(x), cy = toY(y)
+      if (!isLand(c)) {
+        let shore = false
+        for (let q = off[c]; q < off[c + 1]; q++) if (isLand(nb[q])) shore = true
+        if (shore) { g.strokeStyle = 'rgba(230,240,250,0.35)'; g.lineWidth = 1.5; g.setLineDash([3, 3]); g.beginPath(); g.arc(cx, cy, px * 0.5, 0, 2 * Math.PI); g.stroke(); g.setLineDash([]) }
+        continue
+      }
+      const bm = w.biome[c]
+      if (bm === Biome.TemperateForest || bm === Biome.Taiga || bm === Biome.Rainforest) {
+        g.fillStyle = bm === Biome.Taiga ? 'rgba(20,52,38,0.85)' : 'rgba(26,66,30,0.8)'
+        for (let i = 0; i < 4; i++) {
+          const tx = cx + 0.3 * px * jitter(c, 2 * i), ty = cy + 0.3 * px * jitter(c, 2 * i + 1), r = px * 0.07
+          g.beginPath(); g.moveTo(tx, ty - 2 * r); g.lineTo(tx + r, ty + r); g.lineTo(tx - r, ty + r); g.closePath(); g.fill()
+        }
+      }
+      let m = 0, k = 0
+      for (let q = off[c]; q < off[c + 1]; q++) { m += Math.max(0, w.elevation[nb[q]]); k++ }
+      const rise = k > 0 ? w.elevation[c] - m / k : 0
+      if (rise > 0.015 || bm === Biome.Mountain) {
+        g.strokeStyle = 'rgba(60,40,20,0.55)'; g.lineWidth = 1.2
+        for (let i = 0; i < 2; i++) { const hx = cx + (i - 0.5) * px * 0.28, hy = cy - px * 0.12; g.beginPath(); g.moveTo(hx - px * 0.1, hy + px * 0.08); g.lineTo(hx, hy - px * 0.06); g.lineTo(hx + px * 0.1, hy + px * 0.08); g.stroke() }
+      }
+    }
+    if (tl.mud) {
+      g.fillStyle = 'rgba(92,64,36,0.28)'
+      g.beginPath(); g.ellipse(SIZE / 2, SIZE / 2, px * 1.1, px * 1.3, 0, 0, 2 * Math.PI); g.fill()
+      g.fillStyle = 'rgba(110,130,150,0.35)'
+      for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(SIZE / 2 + px * jitter(b, 40 + i), SIZE / 2 + px * 1.1 * jitter(b, 60 + i), px * 0.08, px * 0.035, 0, 0, 2 * Math.PI); g.fill() }
+    }
+    // rivers (pale ice when frozen)
+    g.strokeStyle = tl.frozen ? '#d9eef8' : '#5d9fd0'
     for (const c of cells) {
       if (w.elevation[c] < 0 || w.flow[c] < RIVER_FLOW_THRESHOLD) continue
       const to = w.riverTo[c]
@@ -130,6 +167,27 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       const [x0, y0] = loc(c), [x1, y1] = loc(to)
       g.lineWidth = Math.min(5, 1 + Math.sqrt(w.flow[c] / RIVER_FLOW_THRESHOLD))
       g.beginPath(); g.moveTo(toX(x0), toY(y0)); g.lineTo(toX(x1), toY(y1)); g.stroke()
+    }
+    // the ground the defenders stood on: a hill or a pass under their line, the ford across the attack axis
+    if (fl & (BattleFlag.Hill | BattleFlag.Pass)) {
+      g.fillStyle = 'rgba(120,90,50,0.35)'
+      g.beginPath(); g.ellipse(toX(0.38), toY(0), px * 0.28, px * 0.95, 0, 0, 2 * Math.PI); g.fill()
+      g.strokeStyle = 'rgba(70,45,20,0.6)'; g.lineWidth = 1
+      for (let i = -3; i <= 3; i++) { g.beginPath(); g.moveTo(toX(0.2), toY(i * 0.25)); g.lineTo(toX(0.3), toY(i * 0.25)); g.stroke() }
+    }
+    if (fl & BattleFlag.Ford) {
+      g.strokeStyle = tl.frozen ? 'rgba(235,248,255,0.95)' : 'rgba(110,175,225,0.95)'
+      g.lineWidth = Math.max(4, px * 0.1)
+      g.beginPath(); g.moveTo(toX(0.05), toY(-1.2)); g.bezierCurveTo(toX(0.15), toY(-0.4), toX(-0.05), toY(0.4), toX(0.05), toY(1.2)); g.stroke()
+      g.fillStyle = '#eaf4fb'; g.font = 'italic 11px system-ui, sans-serif'; g.textAlign = 'center'
+      g.fillText(tl.frozen ? 'the river, frozen' : 'the ford', toX(0.05), toY(-1.3))
+    }
+    if (tl.siege) {
+      // the walls: a crenellated ring at the defenders' line
+      g.strokeStyle = '#d8cbb0'; g.lineWidth = 4
+      g.beginPath(); g.arc(toX(0.9), toY(0), px * 0.62, Math.PI * 0.62, Math.PI * 1.38); g.stroke()
+      g.fillStyle = '#d8cbb0'
+      for (let i = 0; i <= 8; i++) { const a = Math.PI * (0.62 + 0.76 * i / 8); g.fillRect(toX(0.9) + Math.cos(a) * px * 0.62 - 3, toY(0) + Math.sin(a) * px * 0.62 - 3, 6, 6) }
     }
     // towns of that year
     g.font = '12px system-ui, sans-serif'
@@ -145,6 +203,56 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       g.fillStyle = '#fbf6ea'
       g.fillText(settlementNameAt(h, id, year), toX(x), toY(y) - 8)
     }
+  }
+
+  /** n5: the day's weather over the field (rain streaks, snow, a fog veil that thins as the lines meet, heat shimmer). */
+  function drawWeather(tl: Timeline, t: number, kind: string): void {
+    if (!ctx) return
+    const b = tl.battle
+    switch (tl.weather) {
+      case BattleWeather.Rain: {
+        ctx.strokeStyle = 'rgba(180,200,230,0.55)'; ctx.lineWidth = 1
+        ctx.beginPath()
+        for (let i = 0; i < 90; i++) {
+          const x0 = ((jitter(b, i) + 1) / 2) * (SIZE + 60) - 30, y0 = ((((jitter(i, b) + 1) / 2) * SIZE + t * 420 * (0.8 + 0.2 * jitter(i, 7))) % (SIZE + 30)) - 15
+          ctx.moveTo(x0, y0); ctx.lineTo(x0 - 5, y0 + 13)
+        }
+        ctx.stroke()
+        ctx.fillStyle = 'rgba(40,50,70,0.12)'; ctx.fillRect(0, 0, SIZE, SIZE)
+        break
+      }
+      case BattleWeather.Snow: {
+        ctx.fillStyle = 'rgba(245,248,255,0.85)'
+        for (let i = 0; i < 110; i++) {
+          const x0 = ((jitter(b, i) + 1) / 2) * SIZE + 8 * Math.sin(t * 1.3 + i), y0 = ((((jitter(i, b) + 1) / 2) * SIZE + t * 40 * (0.7 + 0.3 * jitter(i, 5))) % SIZE)
+          ctx.beginPath(); ctx.arc(x0, y0, 1.2 + 0.8 * ((jitter(i, 11) + 1) / 2), 0, 2 * Math.PI); ctx.fill()
+        }
+        ctx.fillStyle = 'rgba(230,238,250,0.12)'; ctx.fillRect(0, 0, SIZE, SIZE)
+        break
+      }
+      case BattleWeather.Fog: {
+        // thick before the lines meet, thinner after
+        const a = kind === 'deploy' || kind === 'advance' ? 0.6 : kind === 'clash' || kind === 'flank' ? 0.4 : 0.28
+        const gr = ctx.createRadialGradient(SIZE / 2, SIZE / 2, SIZE * 0.08, SIZE / 2, SIZE / 2, SIZE * 0.7)
+        gr.addColorStop(0, `rgba(222,226,230,${(a * 0.75).toFixed(3)})`); gr.addColorStop(1, `rgba(222,226,230,${Math.min(0.9, a + 0.2).toFixed(3)})`)
+        ctx.fillStyle = gr; ctx.fillRect(0, 0, SIZE, SIZE)
+        ctx.fillStyle = 'rgba(240,242,245,0.18)'
+        for (let i = 0; i < 6; i++) { ctx.beginPath(); ctx.ellipse(((jitter(b, 90 + i) + 1) / 2) * SIZE + 10 * Math.sin(t * 0.3 + i), ((jitter(90 + i, b) + 1) / 2) * SIZE, SIZE * 0.22, SIZE * 0.06, 0, 0, 2 * Math.PI); ctx.fill() }
+        break
+      }
+      case BattleWeather.Heat: {
+        ctx.fillStyle = 'rgba(255,170,70,0.12)'; ctx.fillRect(0, 0, SIZE, SIZE)
+        ctx.strokeStyle = 'rgba(255,230,190,0.25)'; ctx.lineWidth = 1
+        for (let i = 0; i < 7; i++) {
+          const y0 = SIZE * (0.12 + 0.12 * i)
+          ctx.beginPath()
+          for (let x = 0; x <= SIZE; x += 12) { const y = y0 + 3 * Math.sin(x / 18 + t * 3 + i); if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y) }
+          ctx.stroke()
+        }
+        break
+      }
+    }
+    if (tl.winter && tl.weather !== BattleWeather.Snow) { ctx.fillStyle = 'rgba(210,225,245,0.12)'; ctx.fillRect(0, 0, SIZE, SIZE) }
   }
 
   function frame(): void {
@@ -173,6 +281,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       ctx.fillStyle = 'rgba(255,255,255,0.8)'
       ctx.fillRect(cx + (pose.facing > 0 ? w / 2 - 3 : -w / 2), cy - hgt / 2, 3, hgt)
     }
+    drawWeather(tl, t, ph.kind)
     // the advance arrow
     if (ph.kind === 'advance' || ph.kind === 'deploy') {
       ctx.strokeStyle = colA; ctx.lineWidth = 3
@@ -180,7 +289,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       ctx.beginPath(); ctx.moveTo(toX(-0.15), toY(0)); ctx.lineTo(toX(-0.25), toY(0.08)); ctx.lineTo(toX(-0.25), toY(-0.08)); ctx.closePath(); ctx.fillStyle = colA; ctx.fill()
     }
     const [a, d] = sidesAt(h, tl, t)
-    const label: Record<string, string> = { deploy: 'The armies deploy', advance: tl.ford ? 'The attackers force the crossing' : tl.siege ? 'The assault on the walls' : 'The attackers advance', clash: 'The lines clash', flank: 'A flank is turned', break: (tl.winner === 0 ? 'The defenders' : 'The attackers') + ' break', rout: 'The rout', end: tl.winner === 0 ? 'The attackers hold the field' : 'The defenders hold the field' }
+    const label: Record<string, string> = { deploy: tl.weather === BattleWeather.Fog ? 'The armies grope through the fog' : 'The armies deploy', advance: tl.ford ? (tl.frozen ? 'The attackers cross the ice' : 'The attackers force the crossing') : tl.siege ? 'The assault on the walls' : tl.mud ? 'The attackers slog through the mud' : 'The attackers advance', clash: 'The lines clash', flank: 'A flank is turned', break: (tl.winner === 0 ? 'The defenders' : 'The attackers') + ' break', rout: 'The rout', end: tl.winner === 0 ? 'The attackers hold the field' : 'The defenders hold the field' }
     phase.textContent = `${label[ph.kind]} · ${roundMen(B.menA[battle] * a)} against ${roundMen(B.menD[battle] * d)} still standing`
     scrub.value = String(Math.round((t / tl.seconds) * 1000))
   }
@@ -272,6 +381,17 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
         chip.append(sw, `${nameOf(p)} (${role})`)
         sides.appendChild(chip)
       }
+      // n5: the legend: ground, weather, what decided it
+      legend.replaceChildren()
+      const chip = (k: string, v: string, cls: string) => { const e = document.createElement('span'); e.className = `bm-chip ${cls}`; const s = document.createElement('b'); s.textContent = k; e.append(s, ' ' + v); legend.appendChild(e) }
+      if (B.kind[b] !== BattleKind.Naval) chip('Ground', groundWords(B.flags[b], B.kind[b]), 'bm-chip-ground')
+      const tlx = tl
+      const wx = ['clear', 'rain', 'fog', 'snow', 'heat'][tlx.weather] ?? 'clear'
+      chip('Weather', wx + (tlx.winter ? ', winter' : '') + (tlx.mud ? ', mud' : '') + (tlx.frozen ? ', the river frozen' : ''), 'bm-chip-weather')
+      const fs = decidingFactors(h, b)
+      const pro = fs.filter((f) => f.forWinner), con = fs.filter((f) => !f.forWinner)
+      if (pro.length) chip('Decided by', pro.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-why')
+      if (con.length) chip(pro.length ? 'Though' : 'Won though', con.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-con')
       root.classList.remove('hidden')
       t = 0
       frame()

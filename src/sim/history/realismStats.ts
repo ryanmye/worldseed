@@ -436,17 +436,18 @@ export function formatVs(a: Row[], b: Row[]): string {
 // ---------------------------------------------------------------------------
 // Ratchet (MASTER-PLAN §2.7, §4.2). The committed baseline docs/realism-baseline.jsonl holds the 4-seed rows (--boot 0) of the
 // default history: since 2026-11-27 the realistic preset (any tree where G0 holds gives the same rows with default options; the
-// null ensemble docs/realism-noise.jsonl, 13 members x 4 seeds, and the 22-seed sweep were re-recorded with it: score null mean
-// 0.3483 sd 0.0300, in range 46.5 sd 3.8). The 8cabf09 rows are those of preset 'off' (--opts '{"preset":"off"}').
+// null ensemble docs/realism-noise.jsonl, 13 members x 4 seeds, and the 22-seed sweep were re-recorded with it; re-recorded again
+// at the N5 merge (2026-11-28, height, mud and frozen rivers in Realistic): score null mean 0.350 sd 0.026). The 8cabf09 rows are those of preset 'off' (--opts '{"preset":"off"}').
 // REALISM_BASELINE is its score under the current TARGETS; realismStats.test.ts fails if the two drift apart, so a band edit
 // must re-record the number in the same commit.
 
-/** The committed baseline's score under the current TARGETS. Re-recorded 2026-11-27 under the realistic default (owner decision
- *  (b), presets.ts; lane/setup): 0.371197, 48/104 in range (REJUDGE.md's all-on + DX.feedback row, 0.3712, reproduced). The
- *  8cabf09 (preset 'off') baseline was 0.399916, 45/104. This is the phase-exit cap (§4.2). */
-export const REALISM_BASELINE = { file: 'docs/realism-baseline.jsonl', seeds: REALISM_SEEDS, score: 0.371197, inRange: 48, total: 104 }
-/** The same history's 22-seed sweep (recorded, not a gate): 0.371930, 246/572 (preset 'off': 0.418184, 212/572). */
-export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seeds: REALISM_SWEEP_SEEDS, score: 0.37193, inRange: 246, total: 572 }
+/** The committed baseline's score under the current TARGETS. Re-recorded 2026-11-28 at the N5 merge (battle terms height, mud,
+ *  frozen in Realistic; G0 re-record approved): 0.325119, 46/104 in range. Before: 0.371197, 48/104 (2026-11-27, the realistic
+ *  default, lane/setup). The 8cabf09 (preset 'off') baseline was 0.399916, 45/104. This is the phase-exit cap (§4.2). */
+export const REALISM_BASELINE = { file: 'docs/realism-baseline.jsonl', seeds: REALISM_SEEDS, score: 0.325119, inRange: 46, total: 104 }
+/** The same history's 22-seed sweep (recorded, not a gate): 0.354996, 265/572 at the N5 merge (before: 0.371930, 246/572;
+ *  preset 'off': 0.418184, 212/572). */
+export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seeds: REALISM_SWEEP_SEEDS, score: 0.354996, inRange: 265, total: 572 }
 
 /** Per-PR guard: the score may rise by at most this much over the reference (realism-metrics.md section 6). Phase exit uses 0. */
 export const REALISM_TOL = 0.03

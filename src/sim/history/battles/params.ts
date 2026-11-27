@@ -21,6 +21,23 @@ export const BATTLE_MODE: { neutral: boolean; toll: 'baseline' | 'split' | 'esca
   pretenders: true,
 }
 
+/**
+ * Battle terms (lane N5, EVALUATION §3 "Battles" 4-6): cheap mechanics, each its own switch, read once when a run's battle
+ * state is created (a preset's PresetParams.battleTerms, else these defaults: all off). Not neutral only.
+ *   season  campaigning season: a battle falls in winter with BATTLE.winterP x (1 - k) (k the site's cold, 0 mild .. 1 deep
+ *           cold: armies keep winter quarters there); a winter battle costs the attackers (x' x (1 - winterMul k), and
+ *           winterLoss k of what is left), and its rain falls as snow below snowT + winterChill. One draw a battle
+ *           ('history-battles-course').
+ *   height  the higher ground: the defenders' site against the attackers' approach cell, M = (1 - d) / (1 + d),
+ *           d = clamp(heightK (elev site - elev approach), +-heightMax) (field, ambush and landing battles).
+ *   mud     a field fought in rain (or a wet year's) is mud: hours x mudHours, the rout x mudRout (the war's tempo slows:
+ *           fewer decisive pursuits).
+ *   frozen  in deep cold (snow or winter, the site below frozenT) the river froze: no ford bonus for the defenders and no
+ *           river behind the beaten attackers.
+ */
+export interface BattleTerms { season: boolean; height: boolean; mud: boolean; frozen: boolean }
+export const BATTLE_TERMS: BattleTerms = { season: false, height: false, mud: false, frozen: false }
+
 export const BATTLE = {
   /** Strength left when a side breaks (lost 20%) [design default; no fixed breakpoint in the data: Clark 1954, Dupuy 1990]. */
   break0: 0.8,
@@ -141,4 +158,24 @@ export const BATTLE = {
   riseBar: 0.6,
   /** A famous general passed over (dismissed while fame >= renown / 2) turns to the enemy with turn a year, his base on its border. */
   turn: 0.004,
+  // --- Battle terms (BATTLE_TERMS; lane N5) ---
+  /** season: winter share where winters are mild; the cold k = clamp((winterT - temp) / winterSpan, 0, 1); attackers' effectiveness and extra loss at k = 1; snow below snowT + winterChill. */
+  winterP: 0.25,
+  winterT: 0.6,
+  winterSpan: 0.4,
+  winterMul: 0.3,
+  winterLoss: 0.1,
+  winterChill: 0.15,
+  /** height: M = (1 - d) / (1 + d), d = clamp(heightK x elevation difference, +-heightMax). */
+  heightK: 1,
+  heightMax: 0.1,
+  /** mud: a wet year (harvest above mudHarvest) or rain; hours and the rout multiplied. */
+  mudHarvest: 1.1,
+  mudHours: 1.3,
+  mudRout: 0.7,
+  /** frozen: the site's temperature below this in snow or winter. */
+  frozenT: 0.4,
+  /** Deciding factors (History.battles course): a factor is named when it moved the odds by at least factorMin (x or 1 / x); terrain and weather take the second slot from factorTerrain. */
+  factorMin: 1.05,
+  factorTerrain: 1.15,
 } as const

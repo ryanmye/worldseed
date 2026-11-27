@@ -27,7 +27,8 @@ export type Shape = 0 | string | { o: Record<string, Shape> } | { a: Shape }
  * src/sim/history/presets.ts). Its events include the new systems' events: a lane that changes one of them changes G0, and
  * re-records it here with the coordinator's sign-off. A lane whose own feature is off keeps it.
  */
-export const G0_GOLDENS: Readonly<Record<number, string>> = { 1: '086a0ba67ed15ca6', 42: 'b81096d393b32e50', 1234: '8b177fd80d554a37' }
+// (re-recorded by lane N5 with the battle terms height, mud, frozen in Realistic; was 086a0ba67ed15ca6 / b81096d393b32e50 / 8b177fd80d554a37; approved by the coordinator at the merge)
+export const G0_GOLDENS: Readonly<Record<number, string>> = { 1: '5e7f05d8ff3ef465', 42: '4411abcb29ca8e1e', 1234: '802f4d68ac303a22' }
 /**
  * G0-off: the same with preset 'off' (every post-8cabf09 system off; what a link without v= replays): the 8cabf09 perf goldens,
  * the stable identity for every lane.

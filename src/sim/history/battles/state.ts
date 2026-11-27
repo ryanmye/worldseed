@@ -4,7 +4,8 @@
 import type { Rng } from '../../rng.ts'
 import { createRng } from '../../rng.ts'
 import type { HistoryState } from '../state.ts'
-import { BATTLE_MODE } from './params.ts'
+import { BATTLE_MODE, BATTLE_TERMS } from './params.ts'
+import type { BattleTerms } from './params.ts'
 
 export interface BattleDiag {
   battles: number
@@ -21,6 +22,13 @@ export interface BattleDiag {
   renowned: number
   /** Not neutral: per battle the raw factors [ground, cmd, supply, sick, surprise, weather, xs, rain (x after / before the compression)] (battleStats takes the logs: the sim may not). */
   factors: number[]
+  /** Battle terms: battles fought in winter, in mud, at a frozen river, with a height term beyond 5%. */
+  winter: number
+  mud: number
+  frozen: number
+  height: number
+  /** Not neutral: per battle the terms' raw factors [winter, height] (1 when off). */
+  terms: number[]
   /** Naval battles, those the blockaders lost; coups, risings, turncoats; rulers slain or taken in the field. */
   naval: number
   navalLost: number
@@ -41,6 +49,9 @@ export interface BattleState {
   tempo: boolean
   navalDecides: boolean
   pretenders: boolean
+  /** Battle terms (lane N5; all off when neutral) and the course stream ('history-battles-course', created only with season). */
+  terms: BattleTerms
+  crng: Rng | null
   /** The last battle's population toll (not neutral; war.ts deducts it): the front towns u and v, the realm levies beyond them per side (already deducted). */
   tollU: number
   tollV: number
@@ -75,6 +86,8 @@ export interface BattleState {
   bBreakA: number[]
   bBreakD: number[]
   bSiegeYear: number[]
+  /** History.battles course (BattleCourse bits). */
+  bCourse: number[]
   // --- Per war (grown to the war count): the commander of each side (2 w: the war's attacker, 2 w + 1: its defender), battles so far ---
   wCmd: number[]
   wBattles: number[]
@@ -121,8 +134,10 @@ export interface BattleState {
   diag: BattleDiag
 }
 
-export function createBattles(s: HistoryState, neutralIn?: boolean): BattleState {
+export function createBattles(s: HistoryState, neutralIn?: boolean, termsIn?: Partial<BattleTerms>): BattleState {
   const neutral = neutralIn ?? BATTLE_MODE.neutral // (a preset's battleNeutral, else the shared param)
+  const t = { ...BATTLE_TERMS, ...(termsIn ?? {}) } // (a preset's battleTerms, else the defaults)
+  const terms: BattleTerms = neutral ? { season: false, height: false, mud: false, frozen: false } : t
   return {
     rng: createRng(s.world.seed, 'history-battles'),
     neutral,
@@ -130,15 +145,17 @@ export function createBattles(s: HistoryState, neutralIn?: boolean): BattleState
     tempo: !neutral && BATTLE_MODE.tempo,
     navalDecides: !neutral && BATTLE_MODE.navalDecides,
     pretenders: !neutral && BATTLE_MODE.pretenders,
+    terms,
+    crng: terms.season ? createRng(s.world.seed, 'history-battles-course') : null,
     tollU: 0, tollV: 0, realmP: 0, realmQ: 0, evSeen: 0, holySeen: 0, holy: new Set(),
     bWar: [], bYear: [], bKind: [], bCounter: [], bSite: [], bTarget: [], bFrom: [], bAtt: [], bDef: [], bCmdA: [], bCmdD: [],
     bMenA: [], bMenD: [], bLossA: [], bLossD: [], bDead: [], bWinner: [], bHours: [], bWeather: [], bFlags: [], bRatio: [],
-    bBreakA: [], bBreakD: [], bSiegeYear: [],
+    bBreakA: [], bBreakD: [], bSiegeYear: [], bCourse: [],
     wCmd: [], wBattles: [], wSick: [], wDecisive: [], pVeteran: [],
     cPolity: [], cPeople: [], cReign: [], cDyn: [], cBorn: [], cFemale: [], cSkill: [], cSkill0: [], cFirst: [], cLast: [], cBattles: [], cWins: [],
     cFame: [], cFameYear: [], cPeak: [], cPeakYear: [], cFate: [], cFateYear: [], cFateBattle: [], cFateWar: [], cReignAfter: [],
     cRetire: [], cBase: [], cHome: [], cLastBattle: [], cRenowned: [], cWar: [],
     reignCmd: new Map(),
-    diag: { battles: 0, byKind: [0, 0, 0, 0, 0, 0], byWeather: [0, 0, 0, 0, 0], surprises: 0, groundByDefender: 0, commanders: 0, rulerLed: 0, slain: 0, taken: 0, dismissed: 0, renowned: 0, factors: [], naval: 0, navalLost: 0, seized: 0, rose: 0, turned: 0, rulersFell: 0, decisive: 0, realmDead: 0 },
+    diag: { battles: 0, byKind: [0, 0, 0, 0, 0, 0], byWeather: [0, 0, 0, 0, 0], surprises: 0, groundByDefender: 0, commanders: 0, rulerLed: 0, slain: 0, taken: 0, dismissed: 0, renowned: 0, factors: [], winter: 0, mud: 0, frozen: 0, height: 0, terms: [], naval: 0, navalLost: 0, seized: 0, rose: 0, turned: 0, rulersFell: 0, decisive: 0, realmDead: 0 },
   }
 }

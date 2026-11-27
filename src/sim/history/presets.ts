@@ -1,7 +1,7 @@
 // presets: named bundles of HistoryOptions switches (EVALUATION.md §3 P1, §4 shared setup; owner decision (b), 2026-11-27).
 //   realistic  THE DEFAULT (PRESET_DEFAULT): the merged systems that pass the noise-aware realism ratchet together (REJUDGE.md
 //              "all-on + DX.feedback" minus cold wars: 0.371, z -0.03): grudges (oaths, balance, arms), finance, beliefs and
-//              barriers, battles with their modifiers, society, disasters with DX.feedback. Families stay at their default (off:
+//              barriers, battles with their modifiers and the battle terms height, mud and frozen rivers (lane N5), society, disasters with DX.feedback. Families stay at their default (off:
 //              families + FAMILY.feedback is MARGINAL); cold wars, absentee and governments stay off (realistic does not name governments: its module default, off). G0 = the new goldens.
 //   dramatic   every merged system on: realistic plus families, cold wars with war restraint, absentee rulers, governments (city-states) and causes. Not realism-ratcheted:
 //              guarded by the sanity bounds of presetStats.ts (EVALUATION.md §3 P1b). Known caveat: with coldWars on,
@@ -18,6 +18,7 @@
 // 2, the presets (no `preset=` is realistic). New worlds write v=2.
 
 import type { HistoryOptions, PresetName } from '../../contract.ts'
+import type { BattleTerms } from './battles/params.ts'
 
 export const PRESET_NAMES: readonly PresetName[] = ['off', 'realistic', 'dramatic']
 
@@ -60,11 +61,15 @@ export interface PresetParams {
   dxFeedback?: boolean
   /** BATTLE_MODE.neutral (false: terrain, weather, supply, toll, tempo, naval and pretenders change outcomes). */
   battleNeutral?: boolean
+  /** Battle terms (battles/params.ts BATTLE_TERMS, lane N5): campaigning season, height, mud, frozen rivers; unset ones stay off. */
+  battleTerms?: Partial<BattleTerms>
 }
 export const PRESET_PARAMS: Record<PresetName, PresetParams> = {
   off: {},
-  realistic: { dxFeedback: true, battleNeutral: false },
-  dramatic: { dxFeedback: true, battleNeutral: false },
+  // battle terms (lane N5): height, mud and frozen rivers pass the noise-aware realism check together (score 0.371 -> 0.325);
+  // season alone passes too, but season with height fails it (faith2000.top1), so it is Dramatic-only for now
+  realistic: { dxFeedback: true, battleNeutral: false, battleTerms: { height: true, mud: true, frozen: true } },
+  dramatic: { dxFeedback: true, battleNeutral: false, battleTerms: { season: true, height: true, mud: true, frozen: true } },
 }
 
 /**
