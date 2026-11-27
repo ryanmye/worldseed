@@ -27,7 +27,8 @@ import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
 import { battleOtherIsSettlement, isBattleEvent } from './battleFormat.ts' // battles:
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
-import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, disputeGroupKeys, gainKey, isDisputeEvent, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
+import { isDisasterEvent } from './disastersFormat.ts' // disasters:
+import { allianceGroupPolity, isColdWarEvent, isSocietyEvent, blockadeGroupPolity, bondGroupPolity, disputeGroupKeys, gainKey, isDisputeEvent, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
 /** Kind of a chronicle entry. */
 export const EntryKind = {
@@ -88,7 +89,7 @@ export const EntryKind = {
 } as const
 
 /** Event types gathered per decade into one Burst entry when a decade has two or more (voyages lost, expeditions out and home, technology advances); first contacts, landfalls and discoveries are always single entries. */
-const BURST_TYPES: readonly number[] = [PeoplesEvent.VoyageLost, PeoplesEvent.ExpeditionSent, PeoplesEvent.ExpeditionReturned, PeoplesEvent.TechAdvance]
+const BURST_TYPES: readonly number[] = [PeoplesEvent.VoyageLost, PeoplesEvent.ExpeditionSent, PeoplesEvent.ExpeditionReturned, PeoplesEvent.TechAdvance, EventType.Earthquake, EventType.Flood] // (disasters: quakes and floods are many; a decade's are one entry)
 export type EntryKind = (typeof EntryKind)[keyof typeof EntryKind]
 
 export interface HistoryIndex {
@@ -437,6 +438,9 @@ function isShownType(type: number): boolean {
   if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
   if (isFamilyEvent(type)) return true // 161-169: merchant families (familiesFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
+  if (isSocietyEvent(type)) return true // 240-249: society (polityFormat.ts; surfacing lane: they had formatters but were never listed)
+  if (isDisasterEvent(type)) return true // 260-268: disasters (disastersFormat.ts; likewise)
+  if (isColdWarEvent(type)) return true // 393-398: cold wars (polityFormat.ts; likewise)
   if (isCradleEvent(type)) return true // 180: the first hearths the player planted (cradlesFormat.ts; the simulation's own choices are dropped: hiddenCradle)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
@@ -464,6 +468,8 @@ export function otherIsSettlement(type: number): boolean {
     (type >= 210 && type <= 217) ||
     // beliefs: the other realm's capital (the pressed, the observer, the ally), or a claimed town
     (type >= 230 && type <= 238) ||
+    // cold wars: the other great rival's capital
+    isColdWarEvent(type) ||
     // goods: the source, owner, home or far mart of a tradition, secret, lane or post
     goodsOtherIsSettlement(type) ||
     // families: the far mart, the parent's home, the old home, the ruling capital, the pretender's seat, the defaulter's capital

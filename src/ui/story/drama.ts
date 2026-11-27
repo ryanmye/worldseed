@@ -195,6 +195,25 @@ const townPop = (c: DramaCtx, e: HistoryEvent) => c.popBefore(e.settlement, e.ye
 const realmOf = (c: DramaCtx, e: HistoryEvent) => (c.pd ? polityAtYear(c.pd, e.settlement, Math.max(0, e.year - 1)) : -1)
 const realmPop = (c: DramaCtx, e: HistoryEvent) => c.polityPop(realmOf(c, e), e.year)
 const realmPolities = (c: DramaCtx, e: HistoryEvent) => [realmOf(c, e)]
+/** The two realms ruled from the event's settlement and `other` (oaths, beliefs, cold wars). */
+const pairPolities = (c: DramaCtx, e: HistoryEvent) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1]
+/** People of both realms of a pair event (the smaller counted in full: a pact between giants weighs more than one with a city). */
+const pairPop = (c: DramaCtx, e: HistoryEvent) => { const [a, b] = pairPolities(c, e); return c.polityPop(a, e.year) + (b >= 0 ? c.polityPop(b, e.year) : 0) }
+/** Battle ranks by men engaged, per History (cached): the largest ×3 (the battle of the age), the next to BATTLE_TOP[0] ×2.2, the next to BATTLE_TOP[1] ×1.5. */
+export const BATTLE_TOP = [5, 15] as const
+const battleRanks = new WeakMap<History, Int32Array>()
+function battleRankBoost(h: History, b: number): number {
+  const B = h.battles
+  if (!B || b < 0 || b >= B.count) return 1
+  let r = battleRanks.get(h)
+  if (!r) {
+    const order = Array.from({ length: B.count }, (_, i) => i).sort((x, y) => B.menA[y] + B.menD[y] - (B.menA[x] + B.menD[x]) || x - y)
+    r = new Int32Array(B.count)
+    order.forEach((i, k) => { r![i] = k })
+    battleRanks.set(h, r)
+  }
+  return r[b] === 0 ? 3 : r[b] < BATTLE_TOP[0] ? 2.2 : r[b] < BATTLE_TOP[1] ? 1.5 : 1
+}
 /** The town that fell was its realm's capital the year before. */
 const capitalFell = (c: DramaCtx, e: HistoryEvent) => {
   if (!c.pd) return false
@@ -267,7 +286,22 @@ R(T.SiegeLifted, {
 })
 // battles (220-227): a battle by the men engaged (History.battles), on the war's sides; a commander's fall, renown, a general's coup
 const battleWar = (c: DramaCtx, e: HistoryEvent) => (c.h.battles && e.value >= 0 && e.value < c.h.battles.count ? c.h.battles.war[e.value] : -1)
-R(T.BattleFought, { cat: DramaCat.War, base: 5, scale: DramaScale.Town, polities: (c, e) => warSides(c, battleWar(c, e)), mag: (c, e) => (c.h.battles && e.value >= 0 && e.value < c.h.battles.count ? 4 * (c.h.battles.menA[e.value] + c.h.battles.menD[e.value]) : 0) })
+// (surfacing lane, EVALUATION §4 Lane 1: the run's great battles are beats: the largest by men engaged are boosted by rank, and
+// the smaller army winning is an upset)
+R(T.BattleFought, {
+  cat: DramaCat.War,
+  base: 5,
+  scale: DramaScale.Town,
+  polities: (c, e) => { const B = c.h.battles; return B && e.value >= 0 && e.value < B.count ? [B.attacker[e.value], B.defender[e.value]] : warSides(c, battleWar(c, e)) },
+  mag: (c, e) => (c.h.battles && e.value >= 0 && e.value < c.h.battles.count ? 4 * (c.h.battles.menA[e.value] + c.h.battles.menD[e.value]) + 20 * c.h.battles.dead[e.value] : 0),
+  boost: (c, e) => battleRankBoost(c.h, e.value),
+  upset(c, e) {
+    const B = c.h.battles
+    if (!B || e.value < 0 || e.value >= B.count) return 1
+    const win = B.winner[e.value] === 0 ? B.menA[e.value] : B.menD[e.value], lose = B.winner[e.value] === 0 ? B.menD[e.value] : B.menA[e.value]
+    return win > 0 && lose > win ? Math.min(3, Math.sqrt(lose / win)) : 1
+  },
+})
 R(T.SiegeLaid, { cat: DramaCat.War, base: 3, scale: DramaScale.Town, polities: (c, e) => warSides(c, e.value) })
 R(T.CommanderFell, { cat: DramaCat.War, base: 5, scale: DramaScale.Town })
 R(T.CommanderRenowned, { cat: DramaCat.War, base: 4 })
@@ -310,7 +344,8 @@ R(T.ArmyStricken, { cat: DramaCat.War, base: 3, polities: (c, e) => warSides(c, 
 
 // --- rulers (80-88) ---
 I(T.RulerAcceded, T.RoyalMarriage)
-R(T.ReignEnded, { cat: DramaCat.Dynasty, base: 5, polities: realmPolities, gate: (_c, e) => e.extra === ReignEnd.Battle || e.extra === ReignEnd.Plague, mag: realmPop })
+// (a reign ended in battle, of plague, or by a usurper: murdered or driven out (surfacing lane: usurpation was unscored))
+R(T.ReignEnded, { cat: DramaCat.Dynasty, base: 5, polities: realmPolities, gate: (_c, e) => e.extra === ReignEnd.Battle || e.extra === ReignEnd.Plague || e.extra === ReignEnd.Overthrown || e.extra === ReignEnd.Deposed, mag: realmPop, boost: (_c, e) => (e.extra === ReignEnd.Overthrown ? 1.5 : e.extra === ReignEnd.Deposed ? 1.25 : 1) })
 R(T.DynastyFounded, { cat: DramaCat.Dynasty, base: 4, polities: realmPolities, mag: realmPop })
 R(T.DynastyEnded, { cat: DramaCat.Dynasty, base: 5, // (the plan's 6 made it a third of all beats; storyStats.ts)
   polities: realmPolities, mag: realmPop })
@@ -350,34 +385,35 @@ R(T.ScriptReplaced, { cat: DramaCat.Culture, base: 3 })
 R(T.ScriptLost, { cat: DramaCat.Culture, base: 3 })
 
 // --- oaths (190-194, grudges-and-oaths: only with HistoryOptions.oaths/balance/arms) ---
-R(T.Betrayal, { cat: DramaCat.Politics, base: 7, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
-R(T.OathBroken, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
-R(T.Avenged, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+// (surfacing lane: a broken oath or a betrayal weighs by the realms it binds; a war against an ally's oath more than a broken truce)
+R(T.Betrayal, { cat: DramaCat.Politics, base: 7, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1], mag: (c, e) => pairPop(c, e), first: true })
+R(T.OathBroken, { cat: DramaCat.War, base: 6, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1], mag: (c, e) => pairPop(c, e), boost: (_c, e) => ((e.extra ?? 0) === 1 ? 1.3 : 1), first: true })
+R(T.Avenged, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1], mag: (c, e) => pairPop(c, e) })
 R(T.Bandwagon, { cat: DramaCat.Politics, base: 3, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 R(T.ArmsRace, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 
 // --- beliefs (230-238, beliefs-and-deception: only with HistoryOptions.beliefs) ---
-const pairPolities = (c: DramaCtx, e: HistoryEvent) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1]
+// (surfacing lane: an exposed bluff and a secret alliance come to light are the system's headlines, weighed by the realms involved)
 R(T.Coerced, { cat: DramaCat.War, base: 4, polities: pairPolities })
 R(T.Deterred, { cat: DramaCat.Politics, base: 2, polities: pairPolities })
-R(T.BluffExposed, { cat: DramaCat.Politics, base: 3, polities: pairPolities })
-R(T.AllianceRevealed, { cat: DramaCat.Politics, base: 5, polities: pairPolities })
+R(T.BluffExposed, { cat: DramaCat.Politics, base: 5, polities: pairPolities, mag: (c, e) => pairPop(c, e), first: true })
+R(T.AllianceRevealed, { cat: DramaCat.Politics, base: 6, polities: pairPolities, mag: (c, e) => pairPop(c, e), boost: (_c, e) => (e.value >= 0 ? 1.3 : 1), first: true })
 R(T.ClaimExposed, { cat: DramaCat.Politics, base: 2, polities: realmPolities })
 I(T.BluffBegun, T.SecretAlliance, T.SpyCaught, T.ClaimForged)
 
 // --- cold wars (393-398, barriers-coldwar: only with HistoryOptions.coldWars) ---
-R(T.ColdWarBegan, { cat: DramaCat.Politics, base: 5, polities: pairPolities })
+R(T.ColdWarBegan, { cat: DramaCat.Politics, base: 5, polities: pairPolities, mag: (c, e) => pairPop(c, e), first: true, scale: DramaScale.Continent })
 R(T.ProxyWar, { cat: DramaCat.War, base: 3, polities: pairPolities })
 R(T.ClientDefected, { cat: DramaCat.Politics, base: 3, polities: pairPolities })
 R(T.Crisis, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 3, polities: pairPolities }) // (an escalated crisis: its WarDeclared scores)
-R(T.ColdWarEnded, { cat: DramaCat.Politics, base: 4, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: pairPolities }) // (a hot war: its WarDeclared scores)
+R(T.ColdWarEnded, { cat: DramaCat.Politics, base: 4, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: pairPolities, mag: (c, e) => pairPop(c, e) }) // (a hot war: its WarDeclared scores)
 I(T.Detente)
 
 // --- crown finance (210-217, state-finances: only with HistoryOptions.finance) ---
 I(T.LoanTaken, T.ArmyUnpaid)
-R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })
+R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop, first: true })
 R(T.Repudiation, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })
-R(T.WarBankrupt, { cat: DramaCat.War, base: 5, polities: realmPolities })
+R(T.WarBankrupt, { cat: DramaCat.War, base: 6, polities: realmPolities, mag: realmPop, first: true }) // (surfacing: a war that broke a treasury, by the realm it broke)
 R(T.HousesRuined, { cat: DramaCat.Trade, base: 3 })
 
 // --- society (240-246, society-secular-cycles: only with HistoryOptions.society) ---
@@ -412,9 +448,9 @@ I(T.TradeRestored, T.MerchantsMoved)
 R(T.FamilyFounded, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town, gate: (_c, e) => (e.extra ?? 0) === 1 })
 I(T.FamilyBranch, T.BranchClosed, T.FamilyHead, T.FamilyPatron)
 R(T.FamilyMoved, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town })
-R(T.FamilyMarriage, { cat: DramaCat.Dynasty, base: 3 })
+R(T.FamilyMarriage, { cat: DramaCat.Dynasty, base: 4, mag: realmPop, first: true }) // (a merchant house marries into a crown: by the realm)
 R(T.FamilyBacked, { cat: DramaCat.Politics, base: 2 })
-R(T.FamilyFell, { cat: DramaCat.Trade, base: 4, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1 })
+R(T.FamilyFell, { cat: DramaCat.Trade, base: 5, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1, mag: townPop, first: true }) // (surfacing: a house's ruin, by the town it fell in)
 
 // --- orders (170-173), cradles (180) ---
 I(T.OrderGiven, T.OrderLapsed, T.CradlePlaced)
@@ -510,6 +546,8 @@ export interface StaticDrama {
   key: Int32Array
   /** The representative event (index into History.events; -1 none) and the two main polities (-1 none). */
   rep: Int32Array
+  /** The representative event's type (-1 none): the plan's freshness term (a kind of story not told for a while). */
+  type: Int16Array
   polA: Int32Array
   polB: Int32Array
   /** Factors of S0 for review (storyStats): B, M, U, R, F1 (and the type's own boost folded into B). */
@@ -529,7 +567,7 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
   const E = ix.notableKind.length
   const out: StaticDrama = {
     score: new Float32Array(E), cat: new Uint8Array(E), cell: new Int32Array(E).fill(-1), scale: new Uint8Array(E), key: new Int32Array(E),
-    rep: new Int32Array(E).fill(-1), polA: new Int32Array(E).fill(-1), polB: new Int32Array(E).fill(-1),
+    rep: new Int32Array(E).fill(-1), type: new Int16Array(E).fill(-1), polA: new Int32Array(E).fill(-1), polB: new Int32Array(E).fill(-1),
     fB: new Float32Array(E), fM: new Float32Array(E), fU: new Float32Array(E), fR: new Float32Array(E), fF: new Float32Array(E),
   }
   /** Types whose world's first (passing the gate) has been seen, in chronological entry order. */
@@ -577,6 +615,7 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
     const sc = repRule.scale
     out.scale[k] = sc === undefined ? DramaScale.Region : typeof sc === 'function' ? sc(ctx, e) : sc
     out.rep[k] = rep
+    out.type[k] = e.type as number
     out.polA[k] = pols[0] ?? -1
     out.polB[k] = pols.find((p) => p !== pols[0]) ?? -1
     const people = h.settlements[e.settlement]?.people ?? 0

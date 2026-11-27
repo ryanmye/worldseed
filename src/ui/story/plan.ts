@@ -7,6 +7,9 @@
 //   N = 1 / (1 + Σ_j [e^{−(t − t_j)/τ_key}·[key_j = key_n] + 0.5·e^{−(t − t_j)/τ_cat}·[cat_j = cat_n]])   novelty
 //   D = 1 − 0.3·[cat = cat_prev] − 0.3·[shares a polity with prev]                                        diversity
 //   F = 1.5 when the entry involves a focused polity (the selection, a seat), else 1                     focus
+//   K = 1 + κ·exp(−Σ_j e^{−(t − t_j)/τ_type}·[type_j = type_n])                                          freshness
+// K (surfacing lane, EVALUATION §4 Lane 1): a kind of story (the representative event's type) not told for a long while is
+// fresher than one told last generation, so a great battle, an eruption or a default gets its turn among the conquests.
 //
 // Greedy chronological pass: from the last beat's year t_b, the entries in (t_b + G_MIN, t_b + G_MIN + W]; the argmax
 // of S is a beat if S ≥ θ, else the stretch is quiet and t_b moves on by W. Each beat's prominence is the distance in
@@ -18,6 +21,7 @@ import type { StaticDrama } from './drama.ts'
 
 export const STORY: {
   tauKey: number; tauCat: number; gMin: number; window: number; theta: number; thetaNote: number; focus: number; promPerSpeed: number
+  fresh: number; tauType: number; floor: number
 } = {
   /** Novelty decay for the same polity or people, and for the same kind of story (years). */
   tauKey: 120,
@@ -28,13 +32,18 @@ export const STORY: {
   window: 50,
   /** Beat threshold θ, notice threshold θ_n. */
   theta: 6,
-  /** (the plan's 3.5 gave ~1400 notices on 2000 years: 9.5 gives 60–150, tuned with storyStats.ts) */
-  thetaNote: 9.5,
+  /** (the plan's 3.5 gave ~1400 notices on 2000 years: 9.5 gave 60–150; 11 with the merged systems listed (surfacing lane), tuned with storyStats.ts) */
+  thetaNote: 11,
   /** Focus factor F. */
   focus: 1.5,
   /** A beat is kept at speed k when its prominence ≥ promPerSpeed·k years (at most G_MIN at 1×, so 1× keeps every beat).
    * The plan's G_MIN·k (25·k) kept 1–3 beats at 16×; 18·k gives 4×: 11–14 and 16×: 3–5 on 2000 years (storyStats.ts). */
   promPerSpeed: 18,
+  /** Freshness K: κ, and the decay of a told kind of story (years). Tuned with storyStats.ts on Realistic and Dramatic. */
+  fresh: 0.6,
+  tauType: 250,
+  /** The beat search's floor: an entry scores at least floor·S0 whatever came before it. */
+  floor: 0.6,
 }
 
 export interface StoryPlan {
@@ -81,6 +90,19 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     }
     return sd.score[n] / (1 + sum)
   }
+  /** K: 1 + κ·exp(−Σ same-type beats, decayed). */
+  const fresh = (n: number) => {
+    if (STORY.fresh <= 0 || !sd.type) return 1
+    const t = years[n], ty = sd.type[n]
+    let sum = 0
+    for (let j = beats.length - 1; j >= 0; j--) {
+      const b = beats[j]
+      const dt = t - years[b]
+      if (dt > 6 * STORY.tauType) break
+      if (sd.type[b] === ty) sum += Math.exp(-dt / STORY.tauType)
+    }
+    return 1 + STORY.fresh * Math.exp(-sum)
+  }
   const shares = (a: number, b: number) => (sd.polA[a] >= 0 && (sd.polA[a] === sd.polA[b] || sd.polA[a] === sd.polB[b])) || (sd.polB[a] >= 0 && (sd.polB[a] === sd.polA[b] || sd.polB[a] === sd.polB[b]))
   const live = (n: number, nov: number) => {
     let s = nov
@@ -100,8 +122,10 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     let best = -1, bestS = 0, bestNov = 0
     for (let n = lo; n < E && years[n] <= to && years[n] <= until; n++) {
       if (sd.score[n] <= 0) continue
-      const nov = novel(n)
-      const s = live(n, nov)
+      const nov = novel(n) * fresh(n)
+      // (a floor: an event far above its neighbours is told even right after one like it; surfacing lane, so a run's
+      // greatest battle is not lost to the battle a generation before)
+      const s = Math.max(live(n, nov), STORY.floor * sd.score[n])
       if (s > bestS) {
         bestS = s
         best = n
