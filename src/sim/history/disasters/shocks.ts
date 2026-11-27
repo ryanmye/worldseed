@@ -10,6 +10,7 @@ import type { HistoryState } from '../state.ts'
 import { loseStructure } from '../state.ts'
 import type { Weather } from '../weather.ts'
 import { logDx } from './climate.ts'
+import { dxRelief } from './feedback.ts'
 import { DX, R_KM, TENTHS } from './params.ts'
 import { addRow, ensureDisasterCap } from './state.ts'
 import type { DisasterState } from './state.ts'
@@ -259,4 +260,5 @@ export function shockYear(s: HistoryState, dx: DisasterState, weather: Weather):
   eruption(s, dx)
   earthquakes(s, dx)
   floods(s, dx, weather)
+  dxRelief(s, dx) // feedback: relief for the struck member towns (no-op off)
 }

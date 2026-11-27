@@ -18,11 +18,26 @@
 //   earthquake rows with deaths 260-700 and tsunamis with deaths 107-142 a run: far above the plan's 30-150 / 1-8, kept so (the
 //     rate is the USGS-scaled one; the deaths are small: quakes 4-15k, waves 6-30k a run); CityDestroyed 0-1 (plan 2-15)
 //   world pop at 2000 on/off 1.29, 1.22, 0.60, 0.96 (chaotic: single-seed ratios swing both ways)
+//
+// Step 10 (Phase 2 feedback, DX.feedback; realismStats rows of seeds 1 / 7 / 42 / 1234, each in 3 realisations: as is and with
+// the null ensemble's jitter of 1 and 2 migration draws at year 100). pop.worst50yFall, on without feedback: 0.007, 0.043,
+// 0.116, 0 (mean miss 0.17 over the 12 runs; the null ensemble of the off history 0.057). Storage exhaustion and malnutrition
+// alone (plan values) did not move it (0.009, 0.048, 0.155, 0), nor the longer tail alone (shapeFb: mean miss 0.15); a slow
+// volcanic memory does: with these values 0.110 / 0.018 / 0.235 / 0.022, 0.108 / 0.082 / 0.184 / 0.096, 0.085 / 0.042 /
+// 0.215 / 0.069 (mean miss 0.052; 5 of 12 in 0.08-0.15), score 0.381 / 0.315 / 0.316 (null ensemble 0.372, sd 0.039; on
+// without feedback 0.365 / 0.394 / 0.415). volcMemory 0.25 overshot (seed 42 falls 0.25-0.33, its worst 10-y fall 28 %).
+// disasterStats --feedback: worst 10-y fall 14 / 7 / 24 / 8.5 % (cap 25 %), harvest sd <= 0.076, famine on/off 1.07-1.48;
+// side effects: epochs 14-19 a run (labels only; 7-9 without feedback), the region gain cap binds in 4-13 % of region-years
+// (warm decades between clusters), mean harvest on-off up to +0.021 (seed 1234).
 
 export const DX = {
   /** Default for HistoryOptions.disasters (ships off; the flip is its own PR, MASTER-PLAN §8.7). */
   enabled: false,
-  /** Phase 2 feedback hooks (storage exhaustion, disaster grievance, relief): step 10, not built yet. */
+  /**
+   * Phase 2 feedback (§3.8, step 10; feedback.ts): storage running out over several bad years, malnutrition deepening
+   * epidemic tolls, the disaster grievance (UnrestPart.Disaster), relief, and the volcanic memory of the slow climate. Read
+   * once at set-up (DisasterState.feedback); off, the history with disasters is the one without these hooks.
+   */
   feedback: false,
   /** No shock of the great class (VEI 7, a quake of M >= 8.5) before this year (lets cradles take root). */
   graceYear: 200,
@@ -99,15 +114,49 @@ export const DX = {
   destroyedShare: 0.25, wealthMul: 1.5, portLoss: 2, damLoss: 2,
   /** Landmark ruin chance at a loss of 0.25 (scaled linearly below; half for floods). */
   quakeLandmark: 0.6,
+
+  // --- Phase 2 feedback (§3.8; DX.feedback). Design defaults; step 10 (header): badRunAt 0.8 -> 0.85, exhaustYears 3 -> 2,
+  // malnutK 0.5 -> 1, volcMemory 0 -> 0.18, shapeFb the 10-year tail (the plan's values left worst50yFall where it was) ---
+  /** A region's year is bad when its harvest is below this; badRun counts them in a row (the stores run down). */
+  badRunAt: 0.85,
+  /** Storage: the shortfall damping of the stores fades to none after this many bad years in a row. */
+  exhaustYears: 2,
+  /**
+   * Malnutrition: the epidemic toll multiplier 1 + DZ.famine * max(1 - food, malnutK * m), m = min(1, badRun / exhaustYears)
+   * (at least malnutWinter while the region's volcanic cooling is at or below malnutTv); and x (1 + malnutSus) in those
+   * forcing years.
+   */
+  malnutK: 1, malnutWinter: 1 / 3, malnutTv: -0.5, malnutSus: 0.1,
+  /** Disaster grievance (peasant term): at most this, for disasterYears after a strike, by smoothstep(lo, hi, share lost). */
+  disasterGrievance: 0.3, disasterYears: 10, griefLo: 0.05, griefHi: 0.25,
+  /** Relief: a struck member town's polity spends reliefShare x its people (finSpend 'welfare', else the capital's wealth); it halves the grievance. */
+  reliefShare: 0.02,
+  /**
+   * Volcanic memory (Miller et al. 2012, contested): each year volcMemory x (area-mean volcanic cooling + its climatological
+   * mean) feeds the global slow component volcMemoryK (0, 1, 2 = tau 4, 40, 250 y), so clusters of eruptions leave cold decades.
+   * Mean-free by construction (the bias is added back), so it does not lower the mean harvest. 0 = off. Acts only with
+   * DX.feedback (as do shapeFb and the rest of this block).
+   */
+  volcMemory: 0.18, volcMemoryK: 1,
+  /**
+   * Forcing by years after the eruption with the feedback on (empty: DX.shape): a longer tail, since NH cooling lasted up to
+   * 10 years after the largest eruptions (Sigl et al. 2015). The climatological bias follows the shape in force.
+   */
+  shapeFb: [0.6, 1.0, 0.6, 0.45, 0.35, 0.27, 0.2, 0.15, 0.11, 0.08] as number[],
 }
 
-/** The mean volcanic cooling the eruption schedule gives (degC, >= 0; see DX.volcBiasOn). */
-export function volcBias(): number {
+/** The forcing shape in force (DX.shapeFb with the feedback on, when given; else DX.shape). */
+export function volcShape(feedback: boolean): number[] {
+  return feedback && DX.shapeFb.length > 0 ? DX.shapeFb : DX.shape
+}
+
+/** The mean volcanic cooling the eruption schedule gives (degC, >= 0; see DX.volcBiasOn), for forcing shape `shape`. */
+export function volcBias(shape: number[] = DX.shape): number {
   if (!DX.volcBiasOn) return 0
   const p6 = DX.pStep, p7 = DX.pStep * DX.pStep
   const meanS = (1 - p6) * DX.sulfur[0] + (p6 - p7) * DX.sulfur[1] + p7 * DX.sulfur[2]
   let sh = 0
-  for (const x of DX.shape) sh += x
+  for (const x of shape) sh += x
   return DX.pVei5 * meanS * ((DX.sulfurLo + DX.sulfurHi) / 2) * sh
 }
 

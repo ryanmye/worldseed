@@ -44,6 +44,7 @@ import { ideaQuarantine, ideaToll } from '../ideas/hooks.ts' // ideas:
 import type { TourismState } from '../tourism/state.ts' // tourism:
 import { TRAVEL } from '../tourism/params.ts' // tourism:
 import { OrderKind } from '../../../contract.ts' // orders:
+import { dxMalnut, dxMalnutSus } from '../disasters/feedback.ts' // disasters:
 import { townUrged } from '../orders/hooks.ts' // orders:
 import { ORDERS } from '../orders/params.ts' // orders:
 
@@ -133,7 +134,8 @@ function strike(s: HistoryState, dz: DiseaseState, j: number, d: number, epi: nu
   let toll = def.mortality * attack * sig
   if (dz.ever[pj * D + d] === 0) toll *= DZ.virgin
   const food = s.food[j]
-  if (food < 1) toll *= 1 + DZ.famine * (1 - food)
+  if (s.dx !== null && s.dx.feedback) toll *= (1 + DZ.famine * dxMalnut(s, s.dx, j, food)) * dxMalnutSus(s, s.dx, j) // disasters feedback: malnutrition after bad years
+  else if (food < 1) toll *= 1 + DZ.famine * (1 - food)
   toll *= hygieneOf(s, pj)
   if (s.ideas !== null && dz.kind[d] === DiseaseKind.Crowd) toll *= ideaToll(s.ideas, pj) // ideas: inoculation
   if (toll > DZ.maxToll) toll = DZ.maxToll
