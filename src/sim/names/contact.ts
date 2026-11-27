@@ -22,6 +22,7 @@ import type { Drift } from './drift.ts'
 import { LANG } from './languageParams.ts'
 import { nodeAt } from './languageTree.ts'
 import { borrowWord } from './placeNames.ts'
+import { logD } from '../detMath.ts'
 
 export interface ContactInput {
   /** Settlements in the table (the snapshots' row width). */
@@ -188,14 +189,14 @@ export function applyContact(drift: Drift, inp: ContactInput): ContactResult {
       for (let m = 0; m < C; m++) {
         const k = n * C + m
         let rng = streams.get(k)
-        if (!rng) { rng = createRng(seed, `lang-loan-${n}-${m}`); streams.set(k, rng); budget[k] = -Math.log(1 - rng.next()) }
+        if (!rng) { rng = createRng(seed, `lang-loan-${n}-${m}`); streams.set(k, rng); budget[k] = -logD(1 - rng.next()) }
         const perYear = LANG.loanRate * e * (m < LANG.visible ? 1 : LANG.coreLoanMul) / 1000
         let t = y0
         while (t < y1) {
           const need = budget[k] / perYear
           if (t + need >= y1) { budget[k] -= (y1 - t) * perYear; break }
           t += need
-          budget[k] = -Math.log(1 - rng.next())
+          budget[k] = -logD(1 - rng.next())
           const year = Math.floor(t)
           const said = drift.wordSaid(d, m, year)
           const form = said.split('|').map((w) => borrowWord(w, drift.base(n), rng)).join('|')

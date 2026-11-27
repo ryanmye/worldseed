@@ -14,6 +14,7 @@
 // of complexity falling over time or at borrowing).
 
 import { createRng, type Rng } from '../../rng.ts'
+import { hypotD } from '../../detMath.ts'
 
 export const SCRIPT_GLYPH = { minHam: 6, retries: 40 } as const
 
@@ -127,7 +128,7 @@ export function deriveGlyph(g: Glyph, st: FamilyStyle, r: Rng, mirror: boolean, 
     const u = r.next()
     if (u < 0.5) { /* keep */ } else if (u < 0.7 && s.length > 1) {
       let k = 0, len = Infinity
-      s.forEach((x, i) => { const l = Math.hypot(x.x1 - x.x0, x.y1 - x.y0); if (l < len) { len = l; k = i } })
+      s.forEach((x, i) => { const l = hypotD(x.x1 - x.x0, x.y1 - x.y0); if (l < len) { len = l; k = i } })
       s.splice(k, 1)
       count = Math.max(1, count - 1)
     } else if (u < 0.85) s = s.map((x) => (x.cx === undefined ? { ...x, cx: (x.x0 + x.x1) / 2 + 10, cy: (x.y0 + x.y1) / 2 - 10 } : x))

@@ -21,6 +21,7 @@ import type { Rng } from '../rng.ts'
 import { LANG } from './languageParams.ts'
 import { SOUND_CHANGES, applyUnits, type RuleSpec } from './soundChange.ts'
 import { toUnits } from './words.ts'
+import { cosD, expD, logD } from '../detMath.ts'
 
 /** The fields the tree needs of a settlement. */
 export interface TreeSettlement {
@@ -216,13 +217,13 @@ export function buildTree(world: World, settlements: readonly TreeSettlement[]):
 /** A draw from N(0, 1) (Box-Muller, two uniforms). */
 function normal(rng: Rng): number {
   const u = 1 - rng.next(), v = rng.next()
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+  return Math.sqrt(-2 * logD(u)) * cosD(2 * Math.PI * v)
 }
 
 /** Each language's pace (exp(N(0, LANG.rateSpread)), from 'lang-rate-<n>'). */
 export function drawRates(seed: number, count: number): number[] {
   const out: number[] = []
-  for (let n = 0; n < count; n++) out.push(Math.exp(LANG.rateSpread * normal(createRng(seed, `lang-rate-${n}`))))
+  for (let n = 0; n < count; n++) out.push(expD(LANG.rateSpread * normal(createRng(seed, `lang-rate-${n}`))))
   return out
 }
 
@@ -269,7 +270,7 @@ export function drawRules(seed: number, tree: Pick<LanguageTree, 'count' | 'pare
     const mean = 1000 / (LANG.mu * rates[n])
     let t = tree.splitYear[n]
     for (;;) {
-      t += -Math.log(1 - rng.next()) * mean
+      t += -logD(1 - rng.next()) * mean
       const uKind = rng.next(), uVar = rng.next()
       const year = Math.max(tree.splitYear[n], Math.floor(t))
       if (year > years || year > 32767) break
