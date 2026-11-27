@@ -28,7 +28,8 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field. */
 function hashAll(hi: History): string {
-  return (hv(0x811c9dc5, hi) >>> 0).toString(16)
+  const { disasters: _d, climate: _c, weatherRegion: _w, ...base } = hi // disasters: its fields (empty when off) are not of that history
+  return (hv(0x811c9dc5, base) >>> 0).toString(16)
 }
 
 /**
