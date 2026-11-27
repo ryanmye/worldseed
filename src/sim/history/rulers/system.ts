@@ -485,7 +485,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
   endReign(s, ps, R, p, cause)
   R.diag.successions++
   pruneHeirs(R, p, year)
-  if (s.gov !== null && govAtSuccession(s, ps, s.gov, R, p, cause)) { checkHouse(s, ps, R, dyn, p, dead); return } // governments: a council, the republic restored or the clergy took the throne
+  if (s.gov !== null && govAtSuccession(s, ps, s.gov, R, p, cause)) { unionsOnSuccession(s, ps, R, p, false); checkHouse(s, ps, R, dyn, p, dead); return } // governments: a council, the republic restored or the clergy took the throne
   const people = ps.pPeople[p]
   if (rng.next() < RULERS.lawChange) R.law[people] = drawLaw(rng)
   const confed = s.gov !== null && govOf(s.gov, p) === Government.Confederation // governments: the khans choose among their houses
