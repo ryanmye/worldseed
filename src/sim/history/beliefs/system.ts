@@ -33,6 +33,7 @@ import { BELIEF } from './params.ts'
 import type { BeliefState } from './state.ts'
 import { ensureBelPolities, ensureBelRows } from './state.ts'
 import { deceptionStep } from './deception.ts'
+import { barrierStep, eliteE, newsLag, stale } from './barriers.ts' // barriers:
 
 const SQRT6 = 2.449489742783178
 
@@ -152,6 +153,8 @@ export function beliefStep(s: HistoryState, ps: PolityState, bel: BeliefState): 
   const vol = bel.vol
   const shadow = X.shadow
   const rel = s.rel
+  const ib = s.ib
+  if (ib !== null) barrierStep(s, ps, ib) // barriers: the live tongues, interpreters
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
@@ -165,6 +168,17 @@ export function beliefStep(s: HistoryState, ps: PolityState, bel: BeliefState): 
     if (rel !== null && a < rel.pcap && b < rel.pcap && rel.state[a] >= 0 && rel.state[a] === rel.state[b]) { ic += X.iFaith; bits |= BeliefSource.Faith }
     if (s.rul !== null && tied(s.rul, a, b)) { ih += X.iMarriage; bits |= BeliefSource.Marriage }
     if (bonded(ps, a, b)) { ih += X.iAlly; bits |= BeliefSource.Envoys }
+    // barriers: cheap channels (contact, border, trade) through the tongue; spies too; the lag makes news stale
+    let eSpy = 1, lag = 0
+    if (ib !== null) {
+      const e = eliteE(s, ps, ib, a, b)
+      const icNoFaith = ic - ((bits & BeliefSource.Faith) !== 0 ? X.iFaith : 0)
+      ic = icNoFaith * (0.3 + 0.7 * e) + (ic - icNoFaith)
+      eSpy = 0.5 + 0.5 * e
+      lag = newsLag(s, ps, ib, a, b)
+      ib.diag.pairs++; ib.diag.eSum += e; ib.diag.lagSum += lag
+      if (e < 0.3) ib.diag.unintelligible++
+    }
     for (let dir = 0; dir < 2; dir++) {
       const o = dir === 0 ? a : b, t = dir === 0 ? b : a
       const k = 2 * r + dir
@@ -177,7 +191,8 @@ export function beliefStep(s: HistoryState, ps: PolityState, bel: BeliefState): 
         else is = 0
       }
       const ab = abilityOf(s, o)
-      const Ic = ic * ab, Ih = (ih + is) * ab
+      let Ic = ic * ab, Ih = (ih + is * eSpy) * ab
+      if (lag > 0) { Ic = stale(Ic, lag); Ih = stale(Ih, lag) } // barriers:
       bel.hard[k] = Ih
       if (bel.est[k] <= 0) {
         // First impression: a successor takes its parent's view of t; else a wide guess.

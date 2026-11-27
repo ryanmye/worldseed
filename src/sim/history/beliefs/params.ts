@@ -1,6 +1,8 @@
 // beliefs: tuning constants for beliefs and deception (beliefs-and-deception.md §3.12). Every value is a design default, not
 // a sourced fact (Fearon 1995 gives no numbers); the noise and cost scales are textbook-style guesses, tuned on seeds 1, 7,
-// 42, 1234 toward the plan's §7 targets. Precisions I are 1/sigma^2 in log-strength units per slow step.
+// 42, 1234 toward the plan's §7 targets (beliefs#12; the plan's first guesses in brackets where tuning moved them: vDrift [0.03],
+// iBorder [0.6], iTrade [2], iMarriage [2], iSpy [4], trendRate [0.3], optimism [0.4], pressMul [2], cWar [0.12], prevent [0.6],
+// bluffChance [0.15], caughtK [0.15]). Precisions I are 1/sigma^2 in log-strength units per slow step.
 
 export const BELIEF = {
   /** Beliefs off by default (HistoryOptions.beliefs overrides it; the coordinator flips defaults, MASTER-PLAN R29). */
@@ -9,33 +11,33 @@ export const BELIEF = {
   shadow: false,
   /** Log-variance of a first impression; its growth per slow step unwatched; its bounds; added when a successor inherits its parent's view. */
   sigma0Sq: 0.6,
-  vDrift: 0.03,
+  vDrift: 0.1,
   vMin: 0.01,
   vMax: 1.5,
   vInherit: 0.1,
   /** Channel precisions (§3.2): peoples in contact, a shared border (full at 6 border edges), trade (saturating at RELATION.tradeHalf), a marriage tie, a shared state faith, envoys (allies, vassal or tribute bonds), spies. */
   iContact: 0.4,
-  iBorder: 0.6,
+  iBorder: 0.4,
   borderFull: 6,
-  iTrade: 2,
-  iMarriage: 2,
+  iTrade: 3,
+  iMarriage: 3,
   iFaith: 0.8,
   iAlly: 4,
-  iSpy: 4,
+  iSpy: 1,
   /** Counter-espionage blunts spies: I_spy * (1 - counterK * counter of the target). */
   counterK: 0.7,
   /** Ruler ability multiplies the total precision, clamped to [abilityLo, abilityHi]. */
   abilityLo: 0.6,
   abilityHi: 1.5,
   /** Smoothing of the believed growth ratio per slow step; slow steps ahead for the commitment problem (F = ratio^3, by multiplication). */
-  trendRate: 0.3,
+  trendRate: 0.15,
   horizon: 3,
   /** Ruler bias: a warlike ruler overrates its own side by 1 + optimism * (warlike - 0.5). */
-  optimism: 0.4,
+  optimism: 1,
   /** The press chance relative to today's declaration chance (a calibration constant outside the C1 clamp; hard stop above 3). */
-  pressMul: 2,
+  pressMul: 1.1,
   /** War costs in pie shares (§3.4): the challenger cWar * (1 + E) * fundMul, the defender cWar * cDef * (1 + E) * fundMul; fundMul = 1 + fundK * (1 - smoothstep(fundLo, fundHi, fundYears)); the poor-capital proxy multiplies by poorMul. */
-  cWar: 0.12,
+  cWar: 0.08,
   cDef: 0.8,
   fundK: 1,
   fundLo: 0.5,
@@ -52,9 +54,9 @@ export const BELIEF = {
   coerceR: 0.2,
   coercePeace: 0.8,
   /** The crisis itself is a look: the challenger takes one cheap observation of the other's muster (its show of strength included) at this precision, and backs down when it no longer believes itself the stronger (Deterred). */
-  iCrisis: 2,
+  iCrisis: 1,
   /** Weight of the preventive motive in the press drive. */
-  prevent: 0.6,
+  prevent: 0.4,
   /** Ruler failure of a bargain that would hold (x 2 * warlike with rulers). */
   settleFail: 0.15,
   /** War reveals: per battle each side observes the other at sigmaBattle (I = 16); at the peace at sigmaPeace. */
@@ -63,7 +65,7 @@ export const BELIEF = {
   /** Convergence (Slantchev): the tired-peace chance * (1 + converge * max(0, 1 - gap / max(gap at start, 0.05))). */
   converge: 1,
   /** Bluffs (§3.6): chance per slow step bluffChance * smoothstep(bluffLo, bluffHi, fear) (* ability); shown strength 1 + bluffSize; years; yearly cost bluffCost * bluff * unit. */
-  bluffChance: 0.15,
+  bluffChance: 0.03,
   bluffLo: 1.3,
   bluffHi: 3,
   bluffSize: 0.6,
@@ -83,7 +85,7 @@ export const BELIEF = {
   spyR: 0.5,
   spyCost: 0.08,
   spyMin: 0.2,
-  caughtK: 0.15,
+  caughtK: 0.01,
   caughtR: 0.15,
   spyLeak: 1,
   spyWar: 0.3,

@@ -2097,6 +2097,13 @@ export interface HistoryOptions {
    * or the challenger backs down). Default false; false leaves the belief fields empty and the history exactly the one without them.
    */
   beliefs?: boolean
+  /**
+   * barriers (barriers-coldwar.md, communication part; needs beliefs): what states learn of each other passes through their
+   * tongues (mutual intelligibility of the capitals' languages from the language tree advanced in the run, B-R1; with language
+   * off the same people understand each other and others need interpreters) and arrives late with distance (news lag).
+   * Default false; false gives the history exactly as without it.
+   */
+  barriers?: boolean
   /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
   arms?: boolean
   /**

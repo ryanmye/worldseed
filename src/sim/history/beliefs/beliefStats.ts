@@ -1,5 +1,5 @@
 // beliefs: the stats harness (beliefs-and-deception.md §1.5, §6 step 0, §7). Not shipped in tests.
-// Run: node --experimental-strip-types src/sim/history/beliefs/beliefStats.ts [--on] [--shadow] [--years N] [--opts JSON] [--set BELIEF.k=v] seeds...
+// Run: node --experimental-strip-types src/sim/history/beliefs/beliefStats.ts [--on] [--shadow] [--barriers (with language)] [--years N] [--opts JSON] [--set BELIEF.k=v] seeds...
 // Prints one JSON line per seed: conquest wars, initiated (not ally-joined) wars and how they ended, war lengths, overawe
 // vassalages; with beliefs on the misjudged wars (believed >= 1.5 actual), motives, crises, coerced, deterred, bluffs,
 // secret pacts, spies caught, and the mean |ln(est / true)| of beliefs by channel class (Math.log: harness only).
@@ -25,7 +25,7 @@ for (let i = 0; i < argv.length; i++) {
   ;(BELIEF as unknown as Record<string, number | boolean>)[f] = v === 'true' ? true : v === 'false' ? false : Number(v)
 }
 if (flag('--shadow')) BELIEF.shadow = true
-const opts: HistoryOptions = { years, ...extra, beliefs: flag('--on') || flag('--shadow') }
+const opts: HistoryOptions = { years, ...extra, beliefs: flag('--on') || flag('--shadow') || flag('--barriers'), ...(flag('--barriers') ? { barriers: true, language: true } : {}) }
 
 const median = (a: number[]) => { if (a.length === 0) return 0; const b = a.slice().sort((x, y) => x - y); return b[Math.floor(b.length / 2)] }
 const won = (o: number) => o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute || o === WarOutcome.Vassalage
@@ -107,6 +107,8 @@ function stats(seed: number): Record<string, unknown> {
     out.coercedEv = ev(EventType.Coerced); out.deterredEv = ev(EventType.Deterred)
     out.errAny = mean(errBy.any); out.errContact = mean(errBy.contactOnly); out.errTradeMar = mean(errBy.tradeMarriage)
     out.rows = B.count
+    const ib = diag.barrierState
+    if (ib) { out.ibMeanE = +(ib.diag.eSum / Math.max(1, ib.diag.pairs)).toFixed(3); out.ibUnintel = +(ib.diag.unintelligible / Math.max(1, ib.diag.pairs)).toFixed(3); out.ibLagDays = +(ib.diag.lagSum / Math.max(1, ib.diag.pairs)).toFixed(1); out.ibLangs = ib.ld ? ib.ld.b.tree.count : 0 }
   }
   return out
 }

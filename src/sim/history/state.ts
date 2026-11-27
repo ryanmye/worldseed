@@ -4,6 +4,7 @@
 
 import type { FinanceState } from './finance/state.ts'
 import type { BeliefState } from './beliefs/state.ts' // beliefs:
+import type { BarrierState } from './beliefs/barriers.ts' // barriers:
 import type { OrdersState } from './orders/state.ts' // orders:
 import type { AbandonCause as AbandonCauseT, EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
 import { AbandonCause, EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
@@ -164,6 +165,8 @@ export interface HistoryState {
   fin: FinanceState | null
   // beliefs: what states believe of each other (beliefs/state.ts), or null when HistoryOptions.beliefs is off (every hook is then a no-op).
   bel: BeliefState | null
+  // barriers: communication barriers between states (beliefs/barriers.ts), or null unless HistoryOptions.barriers and beliefs are on.
+  ib: BarrierState | null
   // disease: the disease system's state (disease/state.ts), or null when it is switched off (every hook is then a no-op).
   dz: DiseaseState | null
   // rulers: the rulers system's state (rulers/state.ts), or null when it (or the polity system) is off.
@@ -277,6 +280,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     goods: null, // goods: (set by index.ts when the system is on)
     fin: null, // finance: (set by index.ts when the system is on)
     bel: null, // beliefs: (set by index.ts when the system is on)
+    ib: null, // barriers: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
     rul: null, // rulers: (set by index.ts when the system is on)
     bat: null, // battles: (set by index.ts when the system is on)

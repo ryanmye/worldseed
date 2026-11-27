@@ -138,6 +138,8 @@ import { createFinance } from './finance/state.ts' // finance:
 import { assembleFinance, emptyFinanceHistory, finSnapshot, finTradeSnapshot } from './finance/assemble.ts' // finance:
 import { BELIEF } from './beliefs/params.ts' // beliefs:
 import { createBeliefs } from './beliefs/state.ts' // beliefs:
+import { createBarriers } from './beliefs/barriers.ts' // barriers:
+import type { BarrierState } from './beliefs/barriers.ts' // barriers:
 import type { BeliefDiag } from './beliefs/state.ts' // beliefs:
 import { beliefSnapshot } from './beliefs/system.ts' // beliefs:
 import { assembleBeliefs, emptyBeliefHistory } from './beliefs/assemble.ts' // beliefs:
@@ -300,6 +302,8 @@ export interface HistoryDiagnostics {
   finance?: FinanceDiag
   /** beliefs: its counters (absent when it is off). */
   beliefs?: BeliefDiag
+  /** barriers: the live state (read only; absent when it is off). */
+  barrierState?: BarrierState
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -522,6 +526,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // beliefs: what states believe of each other (they need the polities), unless switched off.
   if (pol && (options?.beliefs ?? BELIEF.enabled)) s.bel = createBeliefs(seed)
   const bel = s.bel
+  // barriers: communication barriers in what states learn of each other (need beliefs; real intelligibility needs language, without typology).
+  if (bel && options?.barriers) s.ib = createBarriers(world, (options?.language ?? LANGUAGE_ON) && !(options?.typology ?? TYPOLOGY_ON))
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -841,6 +847,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:
+        barrierState: s.ib ?? undefined, // barriers:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
