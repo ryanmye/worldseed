@@ -2205,6 +2205,8 @@ export interface Structure {
 }
 
 export interface HistoryOptions {
+  /** realism null ensemble only (realismStats --noise): discard `draws` draws of the migration (or structures) stream at `year`: the same model, another realisation of the trajectory. Default none: no draws. */
+  jitter?: { year: number; draws: number; stream?: 'migration' | 'structures' }
   /** Length of the run in years. Default 2000. */
   years?: number
   /** Years between snapshots. Default 5. */
