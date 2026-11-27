@@ -30,3 +30,16 @@ Worktree /home/claude/wsx-onboard, branch lane/onboard (from origin/main 363c570
 - final dist built (index 872 KB); /home/claude/eval/onboard/runfinal.sh (nohup) waits for runall.sh then measures
   final-desktop / final-phone on :4912
 - then: re-run G0 + vitest on final, merge origin/main, push, report (lane/setup landing conflict: see report)
+
+## Note for docs/PLAYER_PRIMER.md (lane/bots not merged yet: add when it is)
+- Start page: three play paths: "Watch history unfold" (primary, Enter; Follow on), "Rule a kingdom" (seat link
+  seed 61343 polity:0:700, preset kept), "Explore freely" (Follow off). ui/onboard.ts PLAY_PATHS.
+- Follow the story is on by default on a first visit (no follow= and no seat/cmp/fly/select/polity/year/lon/lat in
+  the address); quiet stretches fast-forward (⏩ and "~N min" beside Follow).
+- Captions: new "Share" (link with year= and follow=1) and "Watch the battle" (battle beats) buttons; on a phone a
+  sideways swipe on the caption = Next (left) / close (right).
+- The top battles (3) replay inline while following; the timeline pauses and resumes after.
+- Right column: Chronicle, View, and one context panel (Factions; Why while open; the story's battle; seat later);
+  the rest under "More panels (n)"; empty panels hidden. Phone sheet: context tab first, empty tabs hidden.
+- Drama strip above the slider: click a peak to jump there (pauses, following lets go).
+- No card, order or seat option changed: bot persona policies need no change.
