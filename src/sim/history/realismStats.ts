@@ -10,6 +10,9 @@
 //                         runs on ref's seeds) exceeds ref's by more than --tol (default 0.03), if any target is WORSE (mean
 //                         miss up > 0.1 band widths) and not in --allow, or if a ref seed has no row. Scores are recomputed
 //                         from the rows under the current TARGETS on both sides, so a band edit never fails it by itself.
+//   ... --check ref.jsonl --noise docs/realism-noise.jsonl ...   judge WORSE and the score against the null-perturbation
+//                         ensemble of ref (RealismNoise: ref re-run with --opts '{"jitter":{"year":100,"draws":d}}', d = 1..K, rows
+//                         tagged `jitter`) instead of ref's single realisation: WORSE = mean miss > null mean + max(0.1, 3 sd).
 //   Full sweep (22 seeds, ~15-25 min on 2 cores): bash scripts/realism-sweep.sh out.jsonl 2 0
 //
 // Ratchet usage:
@@ -27,6 +30,9 @@
 //     then update REALISM_BASELINE. The harness reads only 8cabf09 History fields, so those rows equal 8cabf09's.
 //   - moving the anchor itself (e.g. tightening it at a phase exit): coordinator decision, recorded in MASTER-PLAN §6.
 //   The 22-seed rows of the same history are in docs/realism-sweep22.jsonl (re-record with the sweep script, all 22 seeds).
+//   The null ensemble docs/realism-noise.jsonl (--noise) is re-recorded with the baseline: the same runs with --opts
+//   '{"jitter":{"year":Y,"draws":d}}' (Y 100: d 1..9; Y 500, 1000: d 1; and {"year":100,"draws":1,"stream":"structures"}), rows tagged
+//   `jitter` by the harness; 12 x 4 runs.
 // Reports (realism-metrics.md section 3): Zipf rank-size of towns per era (CSN power-law MLE, not OLS on log-log), Gibrat's
 // law of town growth, Richardson's law of war severity (CSN) and war durations and onsets, polity lifespans (Arbesman) and
 // sizes (Taagepera), the largest state's share of people and land, faith shares, epidemic mortality, urbanisation, and a
@@ -442,6 +448,41 @@ export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seed
 export const REALISM_TOL = 0.03
 /** A target is WORSE when its mean miss over the seeds rises by more than this many band widths (as in formatVs). */
 export const REALISM_WORSE = 0.1
+/** With a null-perturbation ensemble (--noise): a target is WORSE only when its mean miss exceeds the ensemble's mean by more
+ *  than max(REALISM_WORSE, REALISM_Z * sd * sqrt(1 + 1/K)), sd the spread of the ensemble's K members (one candidate run is one
+ *  more draw from that spread, compared with the K-member mean); the score likewise with max(tol, REALISM_Z * sd). z = 3 is
+ *  ~0.1% one-sided per target under normality, ~3% family-wise over the 26 targets (the miss distributions have heavier tails). */
+export const REALISM_Z = 3
+
+/** Null-perturbation ensemble rows: the reference model re-run with HistoryOptions.jitter (discard a few draws of one stream at
+ *  a year: same model, another realisation of a sensitively dependent trajectory), tagged by `jitter`. */
+export interface RealismNoise {
+  /** Members: the reference itself plus each jitter group covering every matched seed. */
+  k: number
+  /** Per target: the members' mean miss over the seeds, its spread (sample sd over members) and the WORSE threshold. */
+  mean: Record<string, number>
+  sd: Record<string, number>
+  thr: Record<string, number>
+  score: { mean: number; sd: number }
+}
+
+/** The noise reference of `base` (matched seeds) and its ensemble rows (grouped by their `jitter` tag). */
+export function realismNoise(base: Row[], noise: Row[]): RealismNoise {
+  const seeds = base.map((r) => r.seed)
+  const groups = new Map<number, Map<number, Row>>()
+  for (const r of noise) { if (!Number.isFinite(r.jitter)) continue; const g = groups.get(r.jitter) ?? new Map<number, Row>(); g.set(r.seed, r); groups.set(r.jitter, g) }
+  const members: Row[][] = [base]
+  for (const g of groups.values()) if (seeds.every((s) => g.has(s))) members.push(seeds.map((s) => g.get(s)!))
+  const k = members.length
+  const msd = (v: number[]): [number, number] => { const m = v.reduce((s, x) => s + x, 0) / v.length; return [m, v.length > 1 ? Math.sqrt(v.reduce((s, x) => s + (x - m) ** 2, 0) / (v.length - 1)) : 0] }
+  const mean: Record<string, number> = {}, sd: Record<string, number> = {}, thr: Record<string, number> = {}
+  for (const [key, lo, hi] of TARGETS) {
+    const [m, s] = msd(members.map((rs) => rs.reduce((a, r) => a + miss(r[key], lo, hi), 0) / rs.length))
+    mean[key] = m; sd[key] = s; thr[key] = Math.max(REALISM_WORSE, REALISM_Z * s * Math.sqrt(1 + 1 / k))
+  }
+  const [sm, ss] = msd(members.map((rs) => realismScore(rs).score))
+  return { k, mean, sd, thr, score: { mean: sm, sd: ss } }
+}
 
 export interface RealismCheck {
   ok: boolean
@@ -455,30 +496,40 @@ export interface RealismCheck {
   worse: string[]
   /** WORSE targets excused by `allow` (a plan's accepted trade-offs, listed in its PR). */
   allowed: string[]
+  /** The null-perturbation reference, when an ensemble was given (then `base` is its mean score). */
+  noise?: RealismNoise
   report: string
 }
 
 /** Compares candidate rows against reference rows (matched by seed): fails if the score rises by more than `tol`, if any
- *  target is WORSE unless it is in `allow`, or if a reference seed has no candidate row. Pure: no sim runs. */
-export function realismCheck(base: Row[], rows: Row[], tol = REALISM_TOL, allow: string[] = []): RealismCheck {
+ *  target is WORSE unless it is in `allow`, or if a reference seed has no candidate row. With `noise` (null-perturbation
+ *  ensemble rows of the reference, see RealismNoise) both are judged against the ensemble's mean and spread instead of the
+ *  single reference realisation (which is lucky on some rows: every perturbation then regresses to the mean). Pure: no sim runs. */
+export function realismCheck(base: Row[], rows: Row[], tol = REALISM_TOL, allow: string[] = [], noise?: Row[]): RealismCheck {
   const bySeed = new Map(rows.map((r) => [r.seed, r]))
   const missing = base.filter((r) => !bySeed.has(r.seed)).map((r) => r.seed)
   const pa = base.filter((r) => bySeed.has(r.seed)), pb = pa.map((r) => bySeed.get(r.seed)!)
-  const worse: string[] = [], allowed: string[] = []
+  const nz = noise && pa.length ? realismNoise(pa, noise) : undefined
+  const worse: string[] = [], allowed: string[] = [], noisy: string[] = []
   for (const [k, lo, hi] of TARGETS) {
     if (pa.length === 0) break
     const ma = pa.reduce((s, r) => s + miss(r[k], lo, hi), 0) / pa.length, mb = pb.reduce((s, r) => s + miss(r[k], lo, hi), 0) / pb.length
-    if (mb > ma + REALISM_WORSE) (allow.includes(k) ? allowed : worse).push(k)
+    const bad = nz ? mb > nz.mean[k] + nz.thr[k] : mb > ma + REALISM_WORSE
+    if (bad) (allow.includes(k) ? allowed : worse).push(k)
+    else if (nz && mb > ma + REALISM_WORSE) noisy.push(`${k} (${ma.toFixed(2)} -> ${mb.toFixed(2)}; null ${nz.mean[k].toFixed(2)} + ${nz.thr[k].toFixed(2)})`)
   }
-  const sa = pa.length ? realismScore(pa).score : NaN, sb = pb.length ? realismScore(pb).score : NaN
-  const ok = pa.length > 0 && missing.length === 0 && worse.length === 0 && sb <= sa + tol + 1e-12
+  const sa = pa.length ? (nz ? nz.score.mean : realismScore(pa).score) : NaN, sb = pb.length ? realismScore(pb).score : NaN
+  const stol = nz ? Math.max(tol, REALISM_Z * nz.score.sd) : tol
+  const ok = pa.length > 0 && missing.length === 0 && worse.length === 0 && sb <= sa + stol + 1e-12
   const L = [pa.length ? formatVs(pa, pb) : 'no seeds in common']
+  if (nz) L.push(`null ensemble: ${nz.k} members (reference + ${nz.k - 1} jitters); score ${nz.score.mean.toFixed(3)} sd ${nz.score.sd.toFixed(3)}`)
+  if (noisy.length) L.push(`within null noise (would be WORSE against the single reference): ${noisy.join(', ')}`)
   if (missing.length) L.push(`FAIL: no candidate row for reference seed(s) ${missing.join(' ')}`)
-  if (worse.length) L.push(`FAIL: WORSE (mean miss up > ${REALISM_WORSE} band widths): ${worse.join(', ')}`)
+  if (worse.length) L.push(nz ? `FAIL: WORSE (mean miss above the null mean by > max(${REALISM_WORSE}, ${REALISM_Z} sd)): ${worse.join(', ')}` : `FAIL: WORSE (mean miss up > ${REALISM_WORSE} band widths): ${worse.join(', ')}`)
   if (allowed.length) L.push(`allowed WORSE (--allow): ${allowed.join(', ')}`)
-  if (sb > sa + tol + 1e-12) L.push(`FAIL: score ${sb.toFixed(3)} > reference ${sa.toFixed(3)} + tol ${tol}`)
-  L.push(ok ? `realism check OK: ${sa.toFixed(3)} -> ${sb.toFixed(3)} (tol ${tol}, ${pa.length} seeds)` : 'realism check FAILED')
-  return { ok, base: sa, score: sb, tol, missing, worse, allowed, report: L.join('\n') }
+  if (sb > sa + stol + 1e-12) L.push(`FAIL: score ${sb.toFixed(3)} > reference ${sa.toFixed(3)} + tol ${stol.toFixed(3)}`)
+  L.push(ok ? `realism check OK: ${sa.toFixed(3)} -> ${sb.toFixed(3)} (tol ${stol.toFixed(3)}, ${pa.length} seeds)` : 'realism check FAILED')
+  return { ok, base: sa, score: sb, tol: stol, missing, worse, allowed, noise: nz, report: L.join('\n') }
 }
 
 /** Every key, per seed (the detail printout). */
@@ -499,6 +550,7 @@ export function runRealismStats(seeds: number[], boot = 0, opts: HistoryOptions 
     const t1 = performance.now()
     const r = realism(h, w, boot, seed)
     r.seed = seed; r.msRun = t1 - t0; r.msStats = performance.now() - t1
+    if (opts.jitter) r.jitter = opts.jitter.year * 100 + opts.jitter.draws + (opts.jitter.stream === 'structures' ? 50 : 0) // null-ensemble member tag
     onRow?.(r)
     rows.push(r)
   }
@@ -526,11 +578,12 @@ if (typeof import.meta !== 'undefined' && (import.meta as { main?: boolean }).ma
   const check = val('--check')
   if (check !== undefined) {
     // Ratchet: candidate rows from --from, else fresh runs on the reference's seeds (or the seeds given), against the reference.
-    skip.add(check); skip.add(val('--tol') ?? ''); skip.add(val('--allow') ?? '')
+    skip.add(check); skip.add(val('--tol') ?? ''); skip.add(val('--allow') ?? ''); skip.add(val('--noise') ?? '')
     const base = load(check)
     const given = argv.filter((a) => !a.startsWith('--') && !skip.has(a)).map(Number)
     const rows = from ? load(from) : runRealismStats(given.length ? given : base.map((r) => r.seed), boot, opts)
-    const c = realismCheck(base, rows, Number(val('--tol') ?? REALISM_TOL), (val('--allow') ?? '').split(',').filter(Boolean))
+    const nf = val('--noise')
+    const c = realismCheck(base, rows, Number(val('--tol') ?? REALISM_TOL), (val('--allow') ?? '').split(',').filter(Boolean), nf ? load(nf) : undefined)
     console.log(c.report)
     ;(globalThis as { process?: { exitCode?: number } }).process!.exitCode = c.ok ? 0 : 1
   } else if (from && vs) console.log(formatVs(load(from), load(vs)))
