@@ -64,6 +64,10 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
     }
     for (const el of Array.from(right.children)) el.classList.toggle('rail-context', el === ctx?.root)
     if (ctx) ctx.root.classList.remove('rail-tucked', 'rail-empty')
+    // n4b: the context panel sits in the context slot (where Factions is), near the top, not at the column's foot
+    const fac = right.querySelector<HTMLElement>(':scope > .factions')
+    if (ctx && fac && ctx.root !== fac && ctx.root.parentElement === right && ctx.root.nextElementSibling !== fac) right.insertBefore(ctx.root, fac)
+    right.classList.toggle('rail-open', open)
     for (const el of tuckable) {
       wasCollapsed.set(el, el.classList.contains('collapsed'))
       const empty = !isContextRoot(el) && EMPTY_RE.test((el.textContent ?? '').slice(0, 160))

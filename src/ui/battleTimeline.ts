@@ -6,7 +6,7 @@
 // Lanchester square law in closed form (battles/lanchester.ts): with rs = sqrt(x') (x' = Battles.ratio),
 //   d(tau) = cosh tau - rs sinh tau,   a(tau) = cosh tau - sinh tau / rs
 // down to the loser's break (Battles.breakA / breakD), then the rout takes the loser to 1 - its loss share. The phases, in
-// seconds at 1x: Deploy 2 -> Advance 3..6 (longer over a ford) -> Clash 8..20 (the battle's hours) -> Flank (if flagged) ->
+// seconds at 1x: Deploy 2 -> Advance 3..6 (longer over a ford) -> Clash 6..14 (the battle's hours) -> Flank (if flagged) ->
 // Break -> Rout -> End. Jitter is a hash of (battle, block): the same battle gives the same replay.
 
 import { BattleFlag, BattleKind } from '../contract.ts'
@@ -117,7 +117,7 @@ export function buildTimeline(h: History, w: World, b: number): Timeline {
   const push = (kind: PhaseKind, d: number): void => { phases.push({ kind, t0: t, t1: t + d }); t += d }
   push('deploy', 2)
   push('advance', ford ? 6 : kind === BattleKind.Siege ? 4 : 3)
-  const clash = 8 + 12 * Math.min(1, hours / 14)
+  const clash = 6 + 8 * Math.min(1, hours / 14) // (n4b: was 8..20 s, most of it lines nudging)
   push('clash', clash)
   if (flank) push('flank', 3)
   push('break', 2)

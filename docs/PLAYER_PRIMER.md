@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 3 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 4 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -9,6 +9,10 @@ Changelog:
 - v1 (2026-11-27, lane/bots): first version, from origin/main f20cb5f.
 - v2 (2026-11-27, lane/setup merge): presets (the start page's History toggle, `v=2`, `preset=`, per-switch overrides) and the throne link.
 - v3 (2026-11-27, lane/onboard merge): play paths on the start page, Follow on by default for first visits, the context panel and "More panels", the drama strip, caption Share and Watch the battle, inline battle replays, caption swipe on a phone.
+- v4 (2026-11-27, lane/n4b): watch-mode polish from LLM play-test #1: Read more expands the caption itself, Resume plays
+  on, the caption's place is pinned on the globe, a drama-strip jump captions and frames its story, the time left follows
+  the real pace, Why sits in the context slot (`R` or `Esc` closes it), the chronicle holds still under the pointer,
+  Factions keeps its rows with More panels open, the replay's side legend and skip button, Show me lets following resume.
 
 ## 1. Starting a world
 
@@ -61,15 +65,21 @@ Changelog:
 
 - **Follow the story:** press `H`, use the Follow button on the timeline bar, or add `follow=1` (ui/story/storyView.ts).
   The director flies the camera to the great events (beats), slows playback at each one and shows a caption card with
-  Read more, Why? and Next. **On a first visit it is on by default** (ui/onboardPolicy.ts followByDefault): unless the
+  Read more, Why? and Next. **Read more** expands the caption itself with the subject's saga where it tells this moment
+  (the story waits while you read; **Less**, Next or × goes on), with a link to the whole saga in Sagas. The caption's
+  place is marked on the globe with a ring and its name. **On a first visit it is on by default** (ui/onboardPolicy.ts followByDefault): unless the
   address has `follow=0`, or opens somewhere particular (`seat`, `cmp`, `fly`, `select`, `polity`, `year`, `lon` or `lat`).
-  Later visits start with it off. While following, quiet stretches fast-forward (⏩ and "~N min" beside Follow). With
+  Later visits start with it off. While following, quiet stretches fast-forward (⏩ and "~N min" beside Follow: the story
+  time left at this speed, scaled by how fast the story has really gone on this device, so it counts down as it plays).
+  Any camera move of yours (drag, zoom, a panel's fly-to) pauses following: the **Following paused · Resume** chip
+  appears, and **Resume** follows again and plays on if the timeline was paused. With
   Follow on, story notices show too; without it, "Story notices" in the layers toggles them.
 - **Captions** also have **Share** (a link with `year=` and `follow=1`) and, on battle beats, **Watch the battle** (the 2D
   replay). On a phone, swipe a caption sideways: left is Next, right closes it.
 - **Inline battle replays:** while following, the top three battles replay inline; the timeline pauses and resumes after.
 - **Drama strip:** the strip above the timeline slider shows the story's peaks (ui/story/dramaStrip.ts). Click a peak to
-  jump there: playback pauses and following lets go.
+  jump there: playback pauses, following lets go, and the strongest story at the peak gets a caption, a pin and a
+  camera flight. **Resume** (or Space and a moment's wait) goes on from there.
 - The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
 - **Following one realm:** select it in Factions. The director gives the selection's stories a focus bonus (storyView
   `focus`).
@@ -81,16 +91,19 @@ battle. The other panels sit under **More panels (n)** (click it to show them; "
 panels are hidden. On a phone the sheet's tabs put the context panel first and hide empty tabs.
 
 Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all keys):
-- `C` **Chronicle**: notable events up to the year shown, newest first. Your choices on the throne appear here in hedged
+- `C` **Chronicle**: notable events up to the year shown, newest first. While the pointer is over the list (or a row has
+  the focus) the rows hold still, so a click lands on the line you aimed at; the new lines come in when the pointer leaves. Your choices on the throne appear here in hedged
   words ("is said to…").
 - `R` **Factions**: the realms alive in the year shown, largest first. A realm's detail shows its ruler, wars, grudges and
   oaths (the grudges, balance and arms lines live here), and **Take this throne**.
 - **Why**: opened from a chronicle entry's or a caption's "Why?" link (`why=event:<id>`). It shows the causes, each with its
-  tier, and "What came of it?". `Esc` closes it.
+  tier, and "What came of it?". It takes the context slot near the top of the column (Factions steps aside); `Esc`, `R`
+  or its × closes it and brings Factions back.
 - `P` peoples, `F` faiths, `D` sickness, `G` goods and trade, `I` ideas, `N` species, `U` cities, `T` leisure travel, `A`
   sagas, `B` the library, `O` Nudge (orders for watch mode), `W` What if (`[` / `]` move its swipe divider), `K` the unexplored world, `J` credits, `S` sun and
   quality, `L` layers, `?` help.
-- `.` replays the latest battle (at the selected town, if it saw one); `Esc` closes the replay. `Y` or a double-click flies
+- `.` replays the latest battle (at the selected town, if it saw one); `Esc` closes the replay. The replay names the sides
+  by colour above the field; ⏭ skips the clash to the break (pressed again, to the end). `Y` or a double-click flies
   down into a town (the city view: `Q`/`E` turn, `Z`/`X` lower or raise the view, `+`/`−` move closer or further, `Esc`
   returns to the globe).
 
@@ -120,7 +133,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - 2–4 option cards. Each has a corner badge (what it costs or risks: War, Terms, Tribute, Heir, −15% gold, Debt, Unrest,
     Walls, Ports, Settlers…), a name, a type tag (War, Diplomacy, Court, Coin, Faith, Works, Discovery) and a line of
     consequence.
-  - Keys `1`–`4` pick the cards in order. **Show me** flies to the place, with a pill to come back.
+  - Keys `1`–`4` pick the cards in order. **Show me** flies to the place, with a pill to come back. If you were following
+    the story, following resumes once the card is answered.
   - Watch for a **Wait** badge with "The court keeps its own counsel; events take their course". That option gives no
     order: choosing it is the same as letting events run (it can be "Crush it" on a revolt or "Endure").
 - **Defer** ("Do nothing — let <body> decide", or `Esc`): the deciding body takes the option a cautious court would. The

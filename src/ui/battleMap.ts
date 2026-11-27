@@ -45,6 +45,10 @@ export interface BattleMap {
 const SIZE = 480
 const SPAN = 3.2 // cells from the centre to the canvas edge
 const SPEEDS = [0.5, 1, 2, 4]
+/** n4b: the figures are drawn this much deeper than their strength alone would make them (legible at the inline size), and at least this big (px). */
+const FIG_DEPTH = 2.4
+const FIG_MIN_W = 7
+const FIG_MIN_H = 12
 /** onboarding: an inline replay closes this many ms after its end. */
 const INLINE_LINGER_MS = 2500
 
@@ -65,15 +69,20 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
   const btn = (label: string, aria: string): HTMLButtonElement => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label', aria); return b }
   const prev = btn('‹', 'Previous battle of the war'), play = btn('▶', 'Play or pause'), next = btn('›', 'Next battle of the war'), close = btn('×', 'Close the replay')
   const speed = btn('1×', 'Speed')
+  const skip = btn('⏭', 'Skip to the outcome') // n4b
+  skip.title = 'Skip to the outcome'
   const scrub = document.createElement('input')
   scrub.type = 'range'; scrub.min = '0'; scrub.max = '1000'; scrub.value = '0'; scrub.className = 'bm-scrub'; scrub.setAttribute('aria-label', 'Replay time')
   const phase = document.createElement('span')
   phase.className = 'bm-phase'
-  bar.append(prev, play, speed, scrub, next, close)
+  bar.append(prev, play, speed, scrub, skip, next, close)
+  // n4b: the sides, by colour
+  const sides = document.createElement('div')
+  sides.className = 'bm-sides'
   const note = document.createElement('div')
   note.className = 'bm-note'
   note.textContent = 'A stylised field: one cell is some 150 km on the globe. Figures as the chroniclers give them.'
-  root.append(title, sub, canvas, bar, phase, note)
+  root.append(title, sub, sides, canvas, bar, phase, note)
   deps.host.appendChild(root)
   const ctx = canvas.getContext('2d')
   const ground = document.createElement('canvas')
@@ -155,14 +164,14 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       const bl = tl.blocks[i]
       blockAt(h, tl, i, t, pose)
       const cx = toX(pose.x), cy = toY(pose.y)
-      const w = Math.max(3, pose.depth * px), hgt = Math.max(4, 2 * bl.half * px * (0.4 + 0.6 * pose.alive))
+      const w = Math.max(FIG_MIN_W, FIG_DEPTH * pose.depth * px), hgt = Math.max(FIG_MIN_H, 2 * bl.half * px * (0.4 + 0.6 * pose.alive))
       ctx.fillStyle = bl.side === 0 ? colA : colD
       ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1
       if (tl.naval) { ctx.beginPath(); ctx.ellipse(cx, cy, w, hgt / 3, Math.PI / 2, 0, 2 * Math.PI); ctx.fill(); ctx.stroke() }
       else { ctx.fillRect(cx - w / 2, cy - hgt / 2, w, hgt); ctx.strokeRect(cx - w / 2, cy - hgt / 2, w, hgt) }
       // the facing: a tick on the front edge
       ctx.fillStyle = 'rgba(255,255,255,0.8)'
-      ctx.fillRect(cx + (pose.facing > 0 ? w / 2 - 2 : -w / 2), cy - hgt / 2, 2, hgt)
+      ctx.fillRect(cx + (pose.facing > 0 ? w / 2 - 3 : -w / 2), cy - hgt / 2, 3, hgt)
     }
     // the advance arrow
     if (ph.kind === 'advance' || ph.kind === 'deploy') {
@@ -214,6 +223,15 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
   prev.addEventListener('click', () => neighbour(-1))
   next.addEventListener('click', () => neighbour(1))
   close.addEventListener('click', () => api.close())
+  // n4b: past the long clash to the break (or, from there on, to the end)
+  skip.addEventListener('click', () => {
+    if (!tl) return
+    window.clearTimeout(lingerTimer)
+    const brk = tl.phases.find((p) => p.kind === 'break')
+    t = brk && t < brk.t0 - 0.6 ? brk.t0 - 0.5 : tl.seconds
+    if (t >= tl.seconds) { t = tl.seconds; frame(); if (playing) setPlaying(false); if (inline) lingerTimer = window.setTimeout(() => api.close(), INLINE_LINGER_MS) }
+    else { frame(); if (!playing) setPlaying(true) }
+  })
   scrub.addEventListener('input', () => { if (!tl) return; t = (Number(scrub.value) / 1000) * tl.seconds; frame() })
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'Close the battle replay', group: 'Panels', first: true, run: () => { if (battle < 0) return false; api.close(); return true } })
 
@@ -244,6 +262,16 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       sub.textContent = B.kind[b] === BattleKind.Naval
         ? `Some ${roundMen(B.menA[b])} ships of ${nameOf(B.attacker[b])} against ${roundMen(B.menD[b])} of ${nameOf(B.defender[b])}`
         : `Some ${roundMen(B.menA[b])} of ${nameOf(B.attacker[b])} against perhaps ${roundMen(B.menD[b])} of ${nameOf(B.defender[b])}`
+      // n4b: the side legend (attackers first), in the colours the figures are drawn in
+      sides.replaceChildren()
+      for (const [p, role] of [[B.attacker[b], 'attacking'], [B.defender[b], 'defending']] as const) {
+        const chip = document.createElement('span')
+        chip.className = 'bm-side'
+        const sw = document.createElement('i')
+        sw.style.background = pd?.css[p] ?? (role === 'attacking' ? '#d9534f' : '#4a7fd6')
+        chip.append(sw, `${nameOf(p)} (${role})`)
+        sides.appendChild(chip)
+      }
       root.classList.remove('hidden')
       t = 0
       frame()

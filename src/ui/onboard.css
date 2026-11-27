@@ -100,3 +100,18 @@ html:not(.compact) .side-column.right.rail-grouped > .rail-empty {
 .context-battle.hidden {
   display: none;
 }
+
+/* n4b: the context panel (Why, the story's battle) gets a usable height in its slot; with More panels open the Factions
+   panel keeps room for several rows (it scrolls inside) instead of being squeezed to one */
+html:not(.compact) .side-column.right.rail-grouped > .why.rail-context:not(.hidden) {
+  flex-shrink: 0 !important;
+}
+html:not(.compact) .side-column.right.rail-grouped.rail-open > .factions:not(.collapsed) {
+  flex-shrink: 0 !important;
+  min-height: min(176px, 30vh);
+}
+/* n4b: the battle context panel keeps the column's width (its long summary otherwise widened the whole right column
+   across the top of the screen, over the inline replay) */
+.side-column.right > .context-battle {
+  width: var(--right-w);
+}

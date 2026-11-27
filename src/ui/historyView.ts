@@ -217,6 +217,8 @@ export interface HistoryView {
   compareProgress(years: number, target: number): void
   /** onboarding: Follow the story turns on (or not) when the first history shows (the start page's play path). */
   setFollowOnShow(on: boolean): void
+  /** n4b: a decision card's Show me: select and fly to settlement `id`; following the story resumes once `stillOpen()` is false. */
+  peek(id: number, stillOpen: () => boolean): void
   compareFailed(message: string): void
   /** what-if: open the comparison with these orders once the history is in (cmp= on load). */
   openCompare(orders: Order[]): void
@@ -1357,6 +1359,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
 
   const api: HistoryView = {
     setFollowOnShow: (on) => story.setFollowOnShow(on),
+    peek(id, stillOpen) {
+      api.select(id, true)
+      story.resumeAfter(stillOpen)
+    },
     setWorld(w: World) {
       world = w
       index = null
