@@ -10,14 +10,14 @@ import { hasPhonemes } from './phoneme.ts'
 import { plainOk } from './orthography.ts'
 import { blocked } from './blocklist.ts'
 
-/** h without names: every string (and string array) dropped, the language tables and events left out (as language.test.ts). */
+/** h without names: every string (and string array) dropped, the language and script tables and their events left out (as language.test.ts). */
 function stripNames(h: History): unknown {
   const strip = (v: unknown): unknown => {
     if (typeof v === 'string') return ''
     if (Array.isArray(v)) return v.every((x) => typeof x === 'string') ? [] : v.map(strip)
     if (v && typeof v === 'object' && !ArrayBuffer.isView(v)) {
       const o: Record<string, unknown> = {}
-      for (const [k, x] of Object.entries(v)) if (k !== 'languages' && k !== 'speech' && k !== 'nameForms') o[k] = strip(x)
+      for (const [k, x] of Object.entries(v)) if (k !== 'languages' && k !== 'speech' && k !== 'nameForms' && k !== 'scripts' && k !== 'scriptUse') o[k] = strip(x)
       return o
     }
     return v

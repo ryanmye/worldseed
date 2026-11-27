@@ -2,8 +2,8 @@
 // cradles only; 60 years founds every people) give each world's proto-languages; the pooled shares are compared with the WALS
 // priors, with the balance gates (legacy-like signature, styles and syllable classes per world, bigram cosine of plain names)
 // and pronounceability. `--sheet` prints the owner listening sheet (12 names per people, plain and scholarly); `--styles S`
-// prints 10 place names per morphology style from world seed S (one proto-language per style: the seed's first people's draw
-// with its style set to each style in turn).
+// prints 10 place names per morphology style from seed S (one proto-language per style: the first synthetic people of the seed
+// drawn with that style).
 //   node --experimental-strip-types --no-warnings src/sim/names/typology/typologyStats.ts [--sheet] [--styles S] [seeds...]
 
 import { generateWorld, simulateHistory } from '../../index.ts'
@@ -56,9 +56,10 @@ const share = (xs: readonly number[], k: number): number[] => { const c = new Ar
 /** 10 place names per morphology style from world seed `seed` (see the file comment). */
 export function styleSheet(seed: number): string[] {
   const out: string[] = []
-  const base = syntheticProfiles(seed, 1, 1)[0]
+  // (each style's first natural draw among the seed's synthetic peoples, so the sound systems differ as they would)
+  const draws = syntheticProfiles(seed, 200, 10)
   for (let style = 0; style < 5; style++) {
-    const d = { ...base, style }
+    const d = draws.find((x) => x.style === style) ?? { ...draws[0], style }
     const o0 = drawOrtho(createRng(seed, `names-ortho-sheet-${style}`))
     const lang = typoLanguage(d, createRng(seed, `names-typo-sheet-${style}`), o0)
     const t = lang.typo!

@@ -95,7 +95,7 @@ function consonant(code: number, o: number, reg: 0 | 1): string {
   } else if (f.lar === Laryngeal.Prenasalised) {
     const nas = f.place === Place.Bilabial ? ['m', 'ᵐ'] : f.place === Place.Velar ? ['n', 'ᵑ'] : ['n', 'ⁿ']
     s = nas[reg] + s
-  } else if (f.lar === Laryngeal.Aspirated) s += ASP[slotOf(o, Slot.Asp)][reg]
+  } else if (f.lar === Laryngeal.Aspirated) s += reg || f.manner !== Manner.Affricate ? ASP[slotOf(o, Slot.Asp)][reg] : '' // (plain: "tchh" reads badly; lossy)
   else if (f.lar === Laryngeal.Ejective) s += EJ[slotOf(o, Slot.Ej)][reg]
   if (f.sec === Secondary.Labialised) s += reg ? 'ʷ' : 'w'
   else if (f.sec === Secondary.Palatalised) s += reg ? 'ʲ' : 'y'
