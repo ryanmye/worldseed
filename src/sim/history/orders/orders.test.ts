@@ -27,7 +27,7 @@ const isOurs = (t: number): boolean => t >= 170 && t <= 179
 function hashPreOrders(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'orders' && x !== 'orderOutcomes' && x !== 'why').sort()) {
+  for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && x !== 'orders' && x !== 'orderOutcomes' && x !== 'why').sort()) {
     h = fnvBytes(h, enc.encode(k))
     h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type)) : r[k])
   }
