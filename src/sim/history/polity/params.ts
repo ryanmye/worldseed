@@ -742,8 +742,8 @@ export const ALIGN = {
   /** theta is computed only for pairs with R >= preR or a grudge > 0. */
   preR: 0.3,
   /** The alliance chance ramps smoothstep(thetaMin, thetaFull, min(theta_x, theta_y)). */
-  thetaMin: 0.25,
-  thetaFull: 0.6,
+  thetaMin: 0.08,
+  thetaFull: 0.3,
   /** intent = clamp01(wR * smoothstep(0.3, 1.2, R) + wG * g(x, c) + wF * f_c / (1 + f_c) + wA * aggr_c). */
   wR: 0.6,
   wG: 0.4,
@@ -764,8 +764,8 @@ export const ALIGN = {
   /** A bandwagoner: a Chiefdom, or fewer than weak times the hegemon's people. */
   weak: 0.15,
   /** theta(h -> x) needed to bandwagon; the chance per slow step band * smoothstep(bandTheta, 1, theta) * (1 - f_h / (1 + f_h)); rivalry with h after it. */
-  bandTheta: 0.5,
-  band: 0.08,
+  bandTheta: 0.3,
+  band: 0.15,
   bandR: 0.2,
 }
 
@@ -780,8 +780,8 @@ export const ARMS = {
   fatigue: 1,
   /** g_x = gR * smoothstep(0.5, 1.2, R) + gG * g(x, y) + gT * theta(y -> x) - gTrade * v / (v + 200). */
   gR: 0.006,
-  gG: 0.008,
-  gT: 0.006,
+  gG: 0.012,
+  gT: 0.01,
   gTrade: 0.004,
   /** x in [0, max]. */
   max: 1,
@@ -794,7 +794,7 @@ export const ARMS = {
   /** Without finances: the capital's wealth -= drain * M_p * WEALTH.decay * wealth a year. */
   drain: 0.3,
   /** A race opens at min(x, y) >= raceOn with both rising and closes below raceOff. */
-  raceOn: 0.3,
+  raceOn: 0.22,
   raceOff: 0.18,
   /** x, y * peace at the war's end (demobilisation). */
   peace: 0.5,
