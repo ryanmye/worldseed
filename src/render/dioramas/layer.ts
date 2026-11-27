@@ -52,6 +52,7 @@ import { goodsOf, ownerRgb } from '../../ui/goodsData.ts'
 import { WorksKind } from './town.ts'
 import { resortQuarters } from './resort.ts'
 import { trace, traceAdd } from '../perfTrace.ts'
+import { activeDioramaLayer as currentActive, setActiveDioramaLayer } from './active.ts'
 
 /** perf=1 traces: layout ms by kind, and the longest single layout call (lay.max, lay.maxKind). */
 const LAY_KINDS = ['vill', 'town', 'farm', 'forest', 'lm', 'extra']
@@ -213,11 +214,8 @@ export interface LandmarkSpot {
   height: number
 }
 
-let activeLayer: DioramaLayer | null = null
-/** The diorama layer in the scene (the city view asks it about towns), or null. */
-export function activeDioramaLayer(): DioramaLayer | null {
-  return activeLayer
-}
+// (the layer in the scene: active.ts, re-exported here)
+export { activeDioramaLayer } from './active.ts'
 
 const ZERO4 = new Float32Array(4)
 const ZERO3 = new Float32Array(3)
@@ -1842,7 +1840,7 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
   }
   const tmpV3 = new THREE.Vector3()
 
-  activeLayer = null
+  setActiveDioramaLayer(null)
   const layer: DioramaLayer = {
     object,
     get active() {
@@ -2110,9 +2108,9 @@ export function createDioramaLayer(inputs: DioramaInputs): DioramaLayer {
       townGround.dispose()
       townGroundMaterial.dispose()
       shadowSys.dispose()
-      if (activeLayer === layer) activeLayer = null
+      if (currentActive() === layer) setActiveDioramaLayer(null)
     },
   }
-  activeLayer = layer
+  setActiveDioramaLayer(layer)
   return layer
 }

@@ -60,10 +60,8 @@ import { freeAfterUpload } from './freeAfterUpload.ts'
  * treasure (apart from grain's paler yellow) and a sandy tan for wares (apart from salt's near-white and
  * stimulant's orange). Only the first GOOD_COUNT entries are ever read, so this stays correct at 9 goods too.
  */
-export const GOOD_COLORS: readonly string[] = [
-  '#f7d54a', '#3fe6cf', '#f2605f', '#8fd447', '#ef7dff', '#f6f4ee', '#5f93ff', '#a65cff', '#ff9a2e',
-  '#8aa8b0', '#ff6fb8', '#d9a62a', '#c2a46a',
-]
+export { GOOD_COLORS } from '../ui/goodsNames.ts'
+import { GOOD_COLORS } from '../ui/goodsNames.ts'
 /**
  * Team colour of the diorama palette (dioramas/material.ts) per good, for carts and ships. That palette has
  * only 7 usable tint slots, already one each for the original 9 goods (with luxury and stimulant reusing
