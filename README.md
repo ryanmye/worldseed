@@ -55,7 +55,11 @@ Roughly in the order things happen in a world:
   heirless rulers keep faith less; coalitions gather against the most threatening
   realm, and its weak neighbours side with it; rivals arm against each other, and
   arms races often, but not always, end in war; crowns keep treasuries, borrow from
-  merchant houses, default, and lose wars they can no longer pay for.
+  merchant houses, default, and lose wars they can no longer pay for. With
+  `beliefs`, states judge one another by what they can see and learn (borders,
+  trade, marriages, envoys, spies, battles), so they bluff, ally in secret, spy,
+  give up towns under threat and sometimes start wars they lose (the Beliefs view
+  shows the world as a selected realm's court saw it).
 - **Danger.** Raids, war and weak government make land dangerous. Pirates nest on
   defensible coasts near busy sea lanes, bandits work roads far from a capital's
   reach, and smugglers dodge tariffs. Trade counts that danger as cost: routes

@@ -11,6 +11,8 @@
 // Pairs are kept in arrays in creation order (the Map is for lookup only); a pair whose polity ended is
 // skipped. The border edges of each pair this step are kept for the war rules.
 
+import { BELIEF } from '../beliefs/params.ts' // beliefs:
+import { forgedRivalry } from '../beliefs/deception.ts' // beliefs:
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { NEVER, inContact } from './state.ts'
@@ -103,6 +105,7 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     if (i !== undefined) vol[i] += ts.rVol[r]
   }
   if (ps.og !== null) ps.og.relVol = vol // (oaths, balance, arms: the trade a broken oath or an arms race would cost)
+  if (s.bel !== null) s.bel.vol = vol // (beliefs: trade is a channel of what each knows of the other)
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
@@ -121,6 +124,7 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     }
     let tg = 0, tr = 0 // oaths: grudges both ways, faithlessness
     if (ps.og !== null && ps.og.oaths) { tg = grudgeRivalry(ps.og, a, b); tr = repRivalry(ps.og, a, b); d += tg + tr }
+    if (s.bel !== null && BELIEF.forgery) d += forgedRivalry(s.bel, r) // beliefs: forged claims stir the quarrel
     x += step * d
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x
     if (ps.why) whyRivalry(ps.why, r, step, X.decay, ps.relR[r], tc, contested[r], CLAIM.dispute * ps.relDispute[r], tdf, th, tw, tt, tm, tf, tg, tr) // causes:

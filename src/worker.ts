@@ -199,7 +199,9 @@ function transferList(history: History): Transferable[] {
   for (const k of ['scenery', 'sceneryKind']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
   // oaths, arms: faithless and armament per snapshot; finance: the crowns' purses per snapshot and loan balances (their tables go with the groups below)
   for (const k of ['faithless', 'arms', 'treasury', 'crownDebt', 'crownRevenue', 'crownSpending', 'creditRate', 'coinage', 'fiscalDistress', 'loanBalance']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.grievances, partial.armsRaces, partial.loans] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
+  // beliefs: true strength, the belief snapshots and the per-polity bluff, spy and credibility rows (fresh at assembly)
+  for (const k of ['strength', 'beliefEst', 'beliefSd', 'beliefSource', 'bluffShown', 'spyService', 'credibility']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
+  for (const group of [partial.grievances, partial.armsRaces, partial.loans, partial.beliefs] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows, partial.renamings, partial.landmarks] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)

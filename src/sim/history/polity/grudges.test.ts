@@ -30,7 +30,7 @@ function checkGrievances(h: History): void {
     expect(g.wronged[i]).not.toBe(g.offender[i])
     expect(g.wronged[i]).toBeGreaterThanOrEqual(0); expect(g.wronged[i]).toBeLessThan(P)
     expect(g.offender[i]).toBeGreaterThanOrEqual(0); expect(g.offender[i]).toBeLessThan(P)
-    expect(g.kind[i] <= GrievanceKind.CrownDefault || g.kind[i] === GrievanceKind.GeneralTurned).toBe(true)
+    expect(g.kind[i]).toBeLessThanOrEqual(GrievanceKind.GeneralTurned)
     expect(g.weight[i]).toBeGreaterThan(0)
     if (g.endYear[i] >= 0) expect(g.endYear[i]).toBeGreaterThanOrEqual(g.year[i])
     if (g.war[i] >= 0) expect(g.war[i]).toBeLessThan(h.wars.count)

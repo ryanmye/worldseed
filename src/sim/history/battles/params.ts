@@ -95,6 +95,8 @@ export const BATTLE = {
   /** The attackers' effectiveness in snow, in heat. */
   snowMul: 0.9,
   heatMul: 0.92,
+  /** beliefs: an intelEdge (in [-1, 1]) of at least feintEdge lets the better-informed side choose the ground (a feint). */
+  feintEdge: 0.5,
   /** Morale: b = clamp(break0 - asabK (asab - 0.5) - zeal - famed + exhK min(1, exh), breakMin, breakMax). */
   asabK: 0.1,
   zeal: 0.05,

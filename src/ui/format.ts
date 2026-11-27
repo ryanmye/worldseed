@@ -56,6 +56,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'betrayal' | 'arms'
   // finance: loans, defaults, bankrupt wars
   | 'money'
+  // beliefs: coerced cessions, bluffs, spies, secret pacts
+  | 'intrigue'
   // battles (battleFormat.ts): battles, sieges, commanders
   | 'battle'
   // claims: border disputes

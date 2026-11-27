@@ -46,6 +46,7 @@ import { BATTLE } from './params.ts'
 import { byWater, pickSite, siteFlags } from './site.ts'
 import type { BattleState } from './state.ts'
 import { commanderOf, fameGain, fameNow } from './commanders.ts'
+import { intelEdge } from '../beliefs/system.ts' // beliefs: intelEdge (0 when beliefs is off)
 
 function logEx(s: HistoryState, type: EventType, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -184,10 +185,15 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   const cA = commanderOf(s, bs, ps, w, sideP, p)
   const cD = commanderOf(s, bs, ps, w, 1 - sideP, q)
   const sA = bs.cSkill[cA], sD = bs.cSkill[cD]
+  // beliefs: the better-informed side surprises more and, with a large edge, draws the other onto its ground (a feint); 0 without beliefs
+  const e = neutral ? 0 : intelEdge(s, p, q)
+  const ae = e < 0 ? -e : e
   // Ground and site.
-  const defChooses = gDraw < sD / (sA + sD)
+  let defChooses = gDraw < sD / (sA + sD)
+  let feint = false
+  if (ae >= BATTLE.feintEdge) { defChooses = e < 0; feint = true }
   const site = pickSite(s, ps, path, u, v, kind, defChooses)
-  let flags = siteFlags
+  let flags = siteFlags | (feint ? BattleFlag.Feint : 0)
   if (defChooses) bs.diag.groundByDefender++
   // Weather.
   const W = s.world
@@ -203,8 +209,8 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   const cover = (flags & (BattleFlag.Wood | BattleFlag.Pass | BattleFlag.Hill)) !== 0
   const hi = sA > sD ? sA : sD, lo = sA > sD ? sD : sA
   let surprise = 0 // (1 the attackers surprised the defenders, -1 the defenders the attackers)
-  if (surDraw < BATTLE.surprise * (fog ? 3 : 1) * (cover ? 2 : 1) * (hi / lo)) {
-    let pd = 0.5 + 0.25 * (sD - sA)
+  if (surDraw < BATTLE.surprise * (fog ? 3 : 1) * (cover ? 2 : 1) * (hi / lo) * (1 + 0.5 * ae)) {
+    let pd = 0.5 + 0.25 * (sD - sA) - 0.2 * e
     pd = pd < 0.25 ? 0.25 : pd > 0.75 ? 0.75 : pd
     flags |= BattleFlag.Surprise
     if (sideDraw < pd) { flags |= BattleFlag.SurpriseByDefender; surprise = -1; if (kind === BattleKind.Field) kind = BattleKind.Ambush }

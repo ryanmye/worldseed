@@ -65,6 +65,11 @@ import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/h
 import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
 import type { C6Factors } from '../compose.ts'
 import { whyPending, whyRelScale, whyWar } from '../why.ts' // causes:
+import { BELIEF } from '../beliefs/params.ts' // beliefs:
+import { beliefBattle, beliefPeace } from '../beliefs/system.ts' // beliefs:
+import { bargain, beliefWarDeclared, convergeFactor, crisisDrive } from '../beliefs/bargain.ts' // beliefs:
+import { beliefJoin } from '../beliefs/deception.ts' // beliefs:
+import { TOWN_POPULATION, WarWhyFlag } from '../../../contract.ts' // beliefs:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -130,6 +135,23 @@ export function declarations(s: HistoryState, ps: PolityState): void {
         oathBroken(s, ps, og!, p, q, w0, kase === OathCase.Truce ? 0 : 1)
         continue
       }
+      if (s.bel !== null && !BELIEF.shadow && (wo & (1 << dir)) === 0) {
+        // beliefs: p presses its claim on what it believes; the crisis is bargained (beliefs/bargain.ts), war only when no deal holds
+        const ak = ps.og !== null && ps.og.arms ? armsAdv(ps, ps.og, r, p) : 1
+        const bdrive = rv * crisisDrive(s, ps, s.bel, p, q, frontV, frontD, adv, ak) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
+        if (bdrive <= 0) continue
+        const bmul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, 1, og !== null || money !== undefined ? C1F : undefined)
+        if (rng.next() >= POLITY.slowStep * WAR.declare * bdrive * bmul * BELIEF.pressMul) continue
+        const motive = bargain(s, ps, s.bel, r, p, q)
+        if (motive === 0) continue
+        if (ps.why) { whyPending(ps.why, ps.relR[r], adv, e, bmul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, false, frontV, bdrive); ps.why.pFlags |= WarWhyFlag.Bargained } // causes:
+        const w0 = ps.wKind.length
+        declare(s, ps, r, p, q)
+        beliefWarDeclared(s.bel, w0)
+        if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
+        if (og !== null && g >= OATH.revengeMin) { put(og.wCause, w0, strongestGrievance(og, p, q), -1); og.diag.revengeWars++ } // oaths: a revenge war
+        continue
+      }
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
       const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
@@ -171,7 +193,10 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
     if (rx < 0 || ps.relEdges[rx].length === 0 || ps.relWar[rx] >= 0) continue
     if (rng.next() >= (ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
     if (ps.og !== null) linkAlly(ps.og, ps.wKind.length, w) // oaths: the war it joined
+    const wj = ps.wKind.length
+    const dd = s.bel !== null ? beliefJoin(s, ps, s.bel, x, q, p, wj) : false // beliefs: a secret pact comes to light; double-dealing
     declare(s, ps, rx, x, p, WarKind.Conquest, true)
+    if (dd && ps.og !== null) oathBroken(s, ps, ps.og, x, p, wj, 1) // beliefs, oaths: x betrayed its public ally p
   }
 }
 
@@ -191,6 +216,7 @@ export function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: n
   if (ps.og !== null) grudgeWarEnded(s, ps, ps.og, w, (outcome === WarOutcome.AttackerGains || outcome === WarOutcome.Conquest || outcome === WarOutcome.Vassalage || outcome === WarOutcome.Tribute) && overlordOf(ps, p) !== q) // oaths: a won revenge war repays the wrongs
   if (ps.pBlockade[q] === w) ps.pBlockade[q] = -1
   if (ps.pBlockade[p] === w) ps.pBlockade[p] = -1
+  if (s.bel !== null) beliefPeace(s, ps, p, q) // beliefs: a last look at each other
   const i = ps.activeWars.indexOf(w)
   if (i >= 0) ps.activeWars.splice(i, 1)
   const lo = p < q ? p : q, hi = p < q ? q : p
@@ -419,6 +445,7 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   const U = rng.next()
   let lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
   const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu, lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
+  if (s.bel !== null) beliefBattle(s, w, p, q, strikeA, strikeD) // beliefs: war reveals strength (battles §3.8: keep this call)
   let rp = 0, rq = 0
   if (s.bat !== null && !s.bat.neutral) { lu = s.bat.tollU; lv = s.bat.tollV; rp = s.bat.realmP; rq = s.bat.realmQ } // battles: the toll shared by casualties; the realm's levies (already deducted)
   // Casualties and devastation.
@@ -439,6 +466,23 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   if (won) {
     if (conquer(s, ps, w, p, q, u, v, d, attacker)) capitalFalls(s, ps, w, p, q, v)
   } else if (attacker && siege) ps.wSiegeYears[w]++
+}
+
+/**
+ * beliefs (and grudges): `from` cedes `towns` to `to` without war, never its capital: each joins `to` (a Joined event for a
+ * town of TOWN_POPULATION or more), marked conquered this year with unrest `unrest`. Returns the number ceded. RNG-free.
+ */
+export function cedeTowns(s: HistoryState, ps: PolityState, from: number, to: number, towns: readonly number[], unrest = 0.3): number {
+  let n = 0
+  for (const v of towns) {
+    if (ps.polity[v] !== from || v === ps.pCapital[from] || s.abandoned[v] >= 0) continue
+    setPolity(s, ps, v, to, distTo(ps, to, v, s.abandoned))
+    ps.conqueredAt[v] = s.year
+    ps.unrest[v] = unrest
+    if (s.pop[v] >= TOWN_POPULATION) logEvent(s, EventType.Joined, v, ps.pCapital[to], to)
+    n++
+  }
+  return n
 }
 
 /** Exhaustion of p after a war-year with `dead` of its people killed. */
@@ -480,11 +524,13 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
     const fd = s.fin !== null ? finPeaceDebt(s, p, q) : undefined // finance: the more indebted side seeks terms (C6 factor 2)
     C6F.debt = fd
+    const cv = s.bel !== null && !BELIEF.shadow ? convergeFactor(s, ps, s.bel, w) : undefined // beliefs: beliefs converge, peace comes (C6 factor 3b)
+    C6F.converge = cv
     const bt = s.bat !== null && s.bat.tempo // battles: war tempo (C6 factor 1) and a decisive battle this year (C6 factor 4, which lifts the gates)
     const dec = bt && battleDecisive(s.bat!, w, s.year)
     C6F.tempo = bt ? BATTLE.peaceChance : undefined
     C6F.decisive = dec ? BATTLE.decisivePeace : undefined
-    const tired = (((s.year - ps.wStart[w] >= (bt ? BATTLE.peaceAfter : WAR.peaceAfter) && s.year - ps.wLastGain[w] >= WAR.winning) || dec) && rng.next() < c6Peace(WAR.peaceChance, fd !== undefined || bt ? C6F : undefined)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
+    const tired = (((s.year - ps.wStart[w] >= (bt ? BATTLE.peaceAfter : WAR.peaceAfter) && s.year - ps.wLastGain[w] >= WAR.winning) || dec) && rng.next() < c6Peace(WAR.peaceChance, fd !== undefined || cv !== undefined || bt ? C6F : undefined)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
     // finance: an army unpaid (ArmyUnpaid once per side and war); a bankrupt side's war ends (spent by it, or mutiny)
     const broke = s.fin !== null ? warBroke(s, ps, w, p, q, spent) : -1
     if (spent || tired || broke >= 0) {
