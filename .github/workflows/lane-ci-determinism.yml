@@ -1,0 +1,26 @@
+# TEMPORARY (lane/ci-determinism): CI's build job on this lane branch only, on Node 22 and Node 25 (Math.pow differs between
+# them; G0 must not). Drop this file when the lane merges.
+name: lane-ci-determinism
+
+on:
+  push:
+    branches: [lane/ci-determinism]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 25]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: node -v && uname -m
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx vitest run --testTimeout=300000
+      - run: npm run build
