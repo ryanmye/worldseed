@@ -4,6 +4,7 @@
 // place namer the Nudge panel registers for target cells, which needs the world's detected features).
 
 import { OrderKind, OrderReason, OrderStatus, describeOrderKinds, settlementNameAt } from '../contract.ts'
+import { choiceStory } from './seat/seatFormat.ts'
 import type { History, HistoryEvent, Order, OrderOutcome } from '../contract.ts'
 
 export const ORDER_KINDS = describeOrderKinds()
@@ -197,6 +198,7 @@ export const orderYears = (o: Order) => ORDER_KINDS[o.kind]?.years ?? 0
 export function orderStory(h: History, k: number): string {
   const o = h.orders?.[k]
   if (!o) return ''
+  if (o.kind === OrderKind.Choice) return choiceStory(h, o.target ?? -1) // seat: a record of the player's choice
   const r = h.orderOutcomes?.[k]
   const ask = `${cap(actorWords(h, o))}, urged to ${urgePhrase(h, o)}`
   if (!r) return `${ask} in ${o.year}`
@@ -231,6 +233,7 @@ export function describeOrderEvent(h: History, e: HistoryEvent): string | null {
   if (!isOrderEvent(t)) return null
   const o = h.orders?.[e.value]
   if (!o) return 'An order'
+  if (o.kind === OrderKind.Choice) return choiceStory(h, o.target ?? -1) // seat: the choice, phrased by its decision
   if (t === ORDER_GIVEN) return `${cap(actorWords(h, o))} ${plural(o) ? 'are' : 'is'} urged to ${urgePhrase(h, o)}`
   return orderStory(h, e.value)
 }

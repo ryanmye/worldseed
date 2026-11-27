@@ -10,6 +10,7 @@ import { reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, list, num, people, plural, times, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
 import { OMEN_T, omenText, omensOfState } from './omens.ts'
+import { seatDecisionFacts } from '../seat/seatFormat.ts'
 import { Refs } from './refs.ts'
 import { conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 import { warCalled, warName } from './wars.ts'
@@ -369,6 +370,9 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   }
   const rest = omens.filter((f) => !placed.has(f.k))
   if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
+  // seat: the decisions the player took for this realm (seat-mode §3.8), told in the saga's register
+  const deeds = seatDecisionFacts(h, p, Y)
+  if (deeds.length) { book.chapter(legend ? 'The Choices of the Throne' : 'The Decisions of the Court'); book.add(deeds.map((f) => (legend ? f.legend : f.chronicle)).filter((x) => x).join(' ')) }
   section(ended ? 'hEnd' : 'hNow', p5.join(' '))
 
   const facts: string[] = [`founded ${fy} at ${c.name(x.capitals[0], fy)}`]
