@@ -17,7 +17,11 @@ Worktree /home/claude/wsx-onboard, branch lane/onboard (from origin/main 363c570
   (lazy.ts / lazyHistoryView.ts), seatController + cityCard lazy, tiny modules: dioramas/active.ts, goodsNames.ts,
   goodsInUse.ts, historyYears.ts
 
+- pacing harness src/ui/story/pacingStats.ts -> /home/claude/runs/onboard/pacing.jsonl (log pacing.log)
+
 ## Current / next
+- running (nohup): /home/claude/eval/onboard/runall.sh (resumable; after/before x desktop/phone, seed 61343, 120 s) ->
+  runs/onboard/measure.jsonl + eval/onboard/*.log/png; G0 -> runs/onboard/g0.log; vitest -> runs/onboard/vitest.log
 - after build served at http://localhost:4912/ (npx vite preview in /home/claude/wsx-onboard)
 - smoke: FORCE=1 simq node scripts/measure.mjs http://localhost:4912/ smoke1-desktop desktop 60 (log eval/onboard/smoke1-desktop.log)
 - then: after-desktop / after-phone (120 s), gates (tsc, build, G0, vitest src/ui/story), merge origin/main, push, report
