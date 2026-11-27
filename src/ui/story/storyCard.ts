@@ -162,6 +162,12 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   row.append(showBtn, battleBtn, readBtn, whyBtn, shareBtn, nextBtn)
   card.append(closeBtn, eyebrow, title, body, moreText, moreBox, row)
   root.append(toasts, chip, card)
+  // n4b: the paused chip sits above a caption shown with it (they share the lower left corner)
+  const placeChip = () => {
+    const up = !card.classList.contains('hidden') && !chip.classList.contains('hidden')
+    chip.style.bottom = up ? `calc(var(--story-bottom) + ${card.offsetHeight + 8}px)` : ''
+  }
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(placeChip).observe(card)
 
   let full = ''
   let caption: Caption | null = null
@@ -310,6 +316,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       card.classList.remove('enter')
       void card.offsetWidth
       card.classList.add('enter')
+      placeChip()
     },
     hideCaption() {
       caption = null
@@ -317,9 +324,11 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       pin.classList.add('hidden')
       if (card.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
       card.classList.add('hidden')
+      placeChip()
     },
     setPaused(paused) {
       chip.classList.toggle('hidden', !paused)
+      placeChip()
     },
     addNotice(n) {
       for (const v of visible.values()) {

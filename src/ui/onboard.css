@@ -105,7 +105,6 @@ html:not(.compact) .side-column.right.rail-grouped > .rail-empty {
    panel keeps room for several rows (it scrolls inside) instead of being squeezed to one */
 html:not(.compact) .side-column.right.rail-grouped > .why.rail-context:not(.hidden) {
   flex-shrink: 0 !important;
-  min-height: min(260px, 42vh);
 }
 html:not(.compact) .side-column.right.rail-grouped.rail-open > .factions:not(.collapsed) {
   flex-shrink: 0 !important;

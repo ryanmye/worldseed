@@ -1,7 +1,7 @@
 # Lane N4b — watch-mode UI polish (from LLM play-test #1) — journal
 Worktree /home/claude/wsx-n4b, branch lane/n4b from origin/main 39e8470. Runs: /home/claude/runs/n4b/. Shots: /home/claude/eval/n4b/.
 Findings: /home/claude/runs/llmpt1/REPORT-summary.md + log.md. UI only, no sim changes (G0 must be unchanged).
-Baseline build served from /home/claude/llmpt-wc (39e8470) at :4951 (before shots); lane build at :4952.
+Baseline build served from /home/claude/llmpt-wc (39e8470) at :4987 (before shots); lane build at :4988 (4951/4952 belong to N5).
 
 ## Items
 - [ ] 1 Read more expands the caption

@@ -433,12 +433,13 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   }
   let progressClock = 1
   /**
-   * n4b: the estimate is the plan's story time at the chosen speed, scaled by how fast the story has really gone: the
-   * real seconds over a stretch of playback against the story seconds the model says it took (a slow device, a dwell, a
-   * card). Measured over stretches of at least PACE_MIN_S real seconds of following, eased in.
+   * n4b: the estimate is the plan's story time at the chosen speed, scaled by how fast the story has really gone so far:
+   * the real seconds of following against the story seconds the model says they took (a slow device, the director's
+   * dwells, cards), summed over every stretch of playback since the history showed. Without that the estimate stayed at
+   * the model's figure while the story ran several times slower (play-test #1: "~7 min" frozen for minutes).
    */
-  const pace = { k: 1, n: 0, t0: 0, model0: -1 }
-  const PACE_MIN_S = 8
+  const pace = { k: 1, real: 0, model: 0, t0: 0, model0: -1 }
+  const PACE_MIN_S = 4
   function syncProgress(dt: number, year: number) {
     progressClock += dt
     if (progressClock < 1) return
@@ -454,10 +455,11 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     else if (pace.model0 < 0) Object.assign(pace, { t0: now, model0: sec0 })
     else if (now - pace.t0 >= PACE_MIN_S * 1000) {
       const used = pace.model0 - sec0
-      if (used > 0.5) {
-        const r = Math.max(0.5, Math.min(8, (now - pace.t0) / 1000 / used))
-        pace.n++
-        pace.k = pace.n === 1 ? r : pace.k + (r - pace.k) * 0.3
+      // (a jump or a speed change moves the model's figure by more than the time that passed: not a sample)
+      if (used > 0 && used < 4 * (now - pace.t0) / 1000 + 30) {
+        pace.real += (now - pace.t0) / 1000
+        pace.model += used
+        if (pace.model > 6) pace.k = Math.max(0.5, Math.min(8, pace.real / pace.model))
       }
       Object.assign(pace, { t0: now, model0: sec0 })
     }
@@ -565,9 +567,10 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       const lo = y - 4, hi = y + 10
       let a = 0, b = NY.length
       while (a < b) { const m = (a + b) >> 1; if (NY[m] < lo) a = m + 1; else b = m }
+      // (a story with a place first: the jump is framed there)
       let bs = 0
       for (let k = a; k < NY.length && NY[k] <= hi; k++) {
-        const sc = drama.score[k] * (drama.cell[k] >= 0 ? 1 : 0.5)
+        const sc = drama.score[k] * (drama.cell[k] >= 0 ? 4 : 1)
         if (sc > bs) { bs = sc; best = k }
       }
     }
