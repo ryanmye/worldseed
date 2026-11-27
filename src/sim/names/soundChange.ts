@@ -315,14 +315,19 @@ export function ruleSpec(kind: number, variant: number): RuleSpec | null {
  * not be euphonic (isEuphonicDrift) or shorter than `minLetters`.
  */
 export function applyRule(word: string, kind: number, variant: number, minLetters = 2): string | null {
+  const out = applyUnits(toUnits(word).map((u) => u.s), kind, variant, minLetters)
+  return out === null ? null : out.join('')
+}
+
+/** applyRule on a word already split into units (the result's units, or null). */
+export function applyUnits(units: readonly string[], kind: number, variant: number, minLetters = 2): string[] | null {
   const spec = ruleSpec(kind, variant)
   if (!spec) return null
-  const units = toUnits(word).map((u) => u.s)
-  const out = spec.apply(units)
+  const out = spec.apply(units as Units)
   if (!out) return null
   const w = out.join('')
-  if (w === word || letterCount(w) < minLetters || !isEuphonicDrift(w)) return null
-  return w
+  if (w === units.join('') || letterCount(w) < minLetters || !isEuphonicDrift(w)) return null
+  return out
 }
 
 /** What evolve needs of History.languages. */
@@ -381,20 +386,24 @@ export function rulesCrossed(L: LanguageRules, node: number, from: number, to: n
 export function evolve(L: LanguageRules, form: string, node: number, from: number, to: number, minLetters = 2): string {
   if (node < 0 || node >= L.count) return form
   const parts = form.split(/([ -])/)
+  const units: (string[] | null)[] = parts.map((w, i) => (i % 2 === 0 && w ? toUnits(w).map((u) => u.s) : null))
   let total = letterCount(form)
+  let changed = false
   forEachRule(L, node, from, to, (kind, variant) => {
-    for (let i = 0; i < parts.length; i += 2) {
-      const w = parts[i]
-      if (!w) continue
-      const before = letterCount(w)
-      const out = applyRule(w, kind, variant, 2)
+    for (let i = 0; i < units.length; i += 2) {
+      const u = units[i]
+      if (!u) continue
+      const out = applyUnits(u, kind, variant, 2)
       if (out === null) continue
-      const after = letterCount(out)
+      const before = letterCount(u.join('')), after = letterCount(out.join(''))
       if (total - before + after < minLetters) continue
-      parts[i] = out
+      units[i] = out
       total += after - before
+      changed = true
     }
   })
+  if (!changed) return form
+  for (let i = 0; i < units.length; i += 2) if (units[i]) parts[i] = units[i]!.join('')
   return parts.join('')
 }
 
