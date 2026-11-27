@@ -558,6 +558,9 @@ export interface History {
   cradlePlaced?: Uint8Array
   /** Per people: 1 when another wished people began within sight of it (kept, but noted), else 0. */
   cradleCrowded?: Uint8Array
+  // causes: why things happened, for the causal explorer (HistoryOptions.causes). Recording only: every other field is the same
+  // with it on or off. Empty (counts 0) when it is off; absent in histories cached before it existed.
+  why?: CauseRecords
 }
 
 /**
@@ -1585,6 +1588,169 @@ export interface HistoryOptions {
    * which gain 250-253); off, the history is exactly the one without it.
    */
   language?: boolean
+  /**
+   * causes: record why things happened (the drive behind each war declared and the parts of the rivalry behind it, the parts
+   * of each revolt's unrest, the harvest of each weather region and year and the factors of each famine, why each town was
+   * abandoned, each chiefdom absorbed and each succession contested) in History.why, for the causal explorer. Recording only:
+   * every other field is the same with it on or off (no draws; nothing the simulation reads). Default false.
+   */
+  causes?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// causes: why things happened, recorded for the causal explorer (HistoryOptions.causes; all empty when it is false). Recording
+// only: the history is the same with it on or off, but for History.why. Rows refer to History.events by index (stable under
+// extension: a longer run's tables begin with the shorter run's).
+
+/**
+ * The parts of the rivalry between two polities (WarWhy.parts): each one an accumulator of one term of relations.ts' rule (or of
+ * one of the few other writers of rivalry), so that they sum to the rivalry.
+ */
+export const RivalryPart = {
+  Claim: 0, // contested farmland: cells in both states' base catchments (Carneiro's squeeze)
+  Dispute: 1, // their claims meeting over unsettled land (BorderDispute)
+  Differ: 2, // ruling peoples that differ
+  Hunger: 3, // hunger on the border
+  RecentWar: 4, // a war between them within RELATION.recentYears
+  Trade: 5, // trade between their members (negative: it calms)
+  Marriage: 6, // a marriage tie between their houses (negative; rulers)
+  Faith: 7, // faiths opposed (positive) or shared (negative), and a schism between their churches (religion)
+  Grudge: 8, // grievances (grudges-and-oaths)
+  Arms: 9, // an arms race (grudges-and-oaths), if it feeds rivalry
+  TradeRival: 10, // trade rivalry between city-states (city-states)
+  Bloc: 11, // ideological blocs (modern ideologies)
+  Reputation: 12, // reputation for faithlessness (grudges)
+  Secession: 13, // a break: a province seceded, a civil war or partition split them, a vassal threw off its overlord
+  Alarm: 14, // alarm at the other's attack on a small neighbour (bonds: buffer states)
+  // 15 reserved
+} as const
+export type RivalryPart = (typeof RivalryPart)[keyof typeof RivalryPart]
+export const RIVALRY_PARTS = 16
+
+/** What else drove a declaration (WarWhy.flags, bits). */
+export const WarWhyFlag = {
+  Crisis: 1, // the defender was in crisis (a contested succession, a regency, a civil war: WAR.crisisMul)
+  Holy: 2, // the religion system's holy-war drive was above 1
+  Order: 4, // a player's order urged it (OrderKind.War, or a seat card)
+  Warlike: 8, // the ruler's warlike multiplier was above 1.25
+  Joined: 16, // an ally or protector came to a defence; WarWhy.parts are then those of its own rivalry with the attacker
+  Civil: 32, // a civil war (CivilWar): see History.why.crises for the contested succession behind it
+  Bargained: 64, // beliefs: the war followed a failed bargain
+  Oath: 128, // grudges: declared against an oath (OathBroken)
+} as const
+
+/** Why a settlement was abandoned (CauseRecords.abandons.cause). */
+export const AbandonCause = {
+  Dwindled: 0, // its people fell below POPULATION.abandonPop (died, or left for other towns: Migration events)
+  Outpost: 1, // an expedition base given up (exploration)
+  Supply: 2, // a fort or station whose supply failed (goods)
+  Resort: 3, // a resort town whose visitors failed for good (tourism)
+} as const
+export type AbandonCause = (typeof AbandonCause)[keyof typeof AbandonCause]
+
+/** What made a succession contested (CauseRecords.crises.bits). Extinct: the house died out (no heir), the contest a fixed chance. */
+export const CrisisBit = { Minor: 1, Woman: 2, Bastard: 4, WeakPredecessor: 8, LowCohesion: 16, ManyPeoples: 32, Law: 64, RivalCentre: 128, Extinct: 256 } as const
+
+/** The parts of a settlement's unrest (RevoltWhy), finer than RevoltCause: each one an accumulator of one term of unrest.ts' grievance(). */
+export const UnrestPart = {
+  Famine: 0, Crowding: 1, BadTax: 2, // Peasant
+  Distance: 3, Exhaustion: 4, Crisis: 5, Corruption: 6, // Provincial
+  Foreign: 7, Conquest: 8, // Ethnic
+  Colony: 9, // Colonial
+  Faith: 10, // Religious (religion)
+  Taxes: 11, // state-finances
+  Burghers: 12, // city-states
+  Urban: 13, // society
+  // 14-20 riots-uprisings (Tyranny, Conscription, Hunger, Persecution, Usurpation, Ideology, Mutiny), 21 court-politics (Estates)
+  Displaced: 22, // future-tech
+  Generations: 23, // future politics
+  Disaster: 24, // disasters
+  Immiseration: 25, Coercion: 26, // society
+  Shock: 27, // a jump not made by grievance: the bitterness left by a crushed revolt, a realm breaking up (UNREST.crushAfter, fragment)
+} as const
+export type UnrestPart = (typeof UnrestPart)[keyof typeof UnrestPart]
+export const UNREST_PARTS = 32
+/** The RevoltCause group of each UnrestPart (-1: none; parts of later plans keep -1 until they say). */
+export const UNREST_PART_GROUP: readonly number[] = [0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 4]
+
+/**
+ * Why each war was declared (one entry per History.wars id). The drive of the declaration roll is the product
+ * smoothstep(rivalry) · smoothstep(odds) · crisis · (1 − exhaustion) · mul (polity/war.ts declarations); its numbers at the
+ * roll are kept here, with the parts of the rivalry (RivalryPart order, each a signed share of the rivalry, -127..127 for
+ * -1..1: parts[w * RIVALRY_PARTS + k]). A war that was not rolled for (an ally joining, a civil war, a war of succession) has
+ * odds 0, keeps the rivalry and its parts at its declaration, and says what it was in `flags`.
+ */
+export interface WarWhy {
+  /** Rivalry the roll read (with an order, as the order made it read), 0..255 for 0..2. */
+  rivalry: Uint8Array
+  parts: Int8Array
+  /** Front advantage (attacker projection / defender projection at the front), log-coded: b means 2^((b - 128) / 32); 0 when not rolled. */
+  odds: Uint8Array
+  /** Attacker's war exhaustion, 0..255 for 0..1. */
+  exhaustion: Uint8Array
+  /** The C1 multiplier (ruler · holy · order), log-coded like `odds`. */
+  mul: Uint8Array
+  flags: Uint8Array
+  /** The front town of the defender the attacker saw most exposed, -1. */
+  front: Int32Array
+}
+
+/**
+ * Why each Revolt (History.events index `event`) broke out: its seat's unrest at the roll (0..255 for 0..2), the four largest
+ * parts of it (UnrestPart part[k * 4 + j] and share[k * 4 + j] 0..255 for 0..1; part 255: none), and the rebels' odds
+ * against the capital's support (0..255 for 0..1).
+ */
+export interface RevoltWhy { count: number; event: Int32Array; unrest: Uint8Array; part: Uint8Array; share: Uint8Array; odds: Uint8Array }
+
+/** What a famine row splits the shortfall into (FamineWhy columns). */
+export const FamineFactor = { Harvest: 0, Stored: 1, Ravaged: 2, Crowded: 3, Imports: 4 } as const
+
+/**
+ * Why each Famine (History.events index `event`) happened: the region's harvest multiplier (0..255 for 0..1.4), what storage
+ * and dams left of it (same scale), the share of the fields ravaged by war or left for danger (0..255 for 0..1), people per
+ * food expected at an average harvest (0..255 for 0..2: crowding), the share of the year's usual food imports that did not
+ * come (0..255 for 0..1), and the weather region.
+ */
+export interface FamineWhy { count: number; event: Int32Array; harvest: Uint8Array; stored: Uint8Array; ravaged: Uint8Array; crowded: Uint8Array; imports: Uint8Array; region: Uint8Array }
+
+/**
+ * The weather as the harvest felt it, per year and weather region (weather.ts; the same whatever the settlements do):
+ * harvest[y * regions + r] 0..255 for 0..1.4, drought[y * regions + r] the regional drought's severity 0..255 for 0..1 (0 none),
+ * crisis[y] the world's harvest crisis 0..255 for 0..1 (year 0 is all 0), region[cell] the weather region of each cell.
+ */
+export interface WeatherRecord { regions: number; harvest: Uint8Array; drought: Uint8Array; crisis: Uint8Array; region: Uint8Array }
+
+/** Everything the causes switch records (History.why). */
+export interface CauseRecords {
+  wars: WarWhy
+  revolts: RevoltWhy
+  famines: FamineWhy
+  weather: WeatherRecord
+  /** Abandoned events: event index and AbandonCause. */
+  abandons: { count: number; event: Int32Array; cause: Uint8Array }
+  /** PolityEnded events with PolityEnd.Absorbed: event index, the absorber's people over its own (log-coded like WarWhy.odds), and 1 when it had been the absorber's vassal. */
+  absorbed: { count: number; event: Int32Array; ratio: Uint8Array; bound: Uint8Array }
+  /** SuccessionCrisis events: event index, CrisisBit, and the contest chance 0..255 for 0..1. */
+  crises: { count: number; event: Int32Array; bits: Uint16Array; chance: Uint8Array }
+}
+
+/** An empty CauseRecords (causes off; also for histories cached before it existed). */
+export function emptyCauseRecords(): CauseRecords {
+  const i32 = () => new Int32Array(0), u8 = () => new Uint8Array(0)
+  return {
+    wars: { rivalry: u8(), parts: new Int8Array(0), odds: u8(), exhaustion: u8(), mul: u8(), flags: u8(), front: i32() },
+    revolts: { count: 0, event: i32(), unrest: u8(), part: u8(), share: u8(), odds: u8() },
+    famines: { count: 0, event: i32(), harvest: u8(), stored: u8(), ravaged: u8(), crowded: u8(), imports: u8(), region: u8() },
+    weather: { regions: 0, harvest: u8(), drought: u8(), crisis: u8(), region: u8() },
+    abandons: { count: 0, event: i32(), cause: u8() },
+    absorbed: { count: 0, event: i32(), ratio: u8(), bound: u8() },
+    crises: { count: 0, event: i32(), bits: new Uint16Array(0), chance: u8() },
+  }
+}
+
+/** Decodes a log-coded byte (WarWhy.odds, .mul, absorbed.ratio): 2^((b - 128) / 32); 0 for 0 (not recorded). */
+export function decodeLog2(b: number): number {
+  return b === 0 ? 0 : Math.pow(2, (b - 128) / 32)
 }
 
 /**

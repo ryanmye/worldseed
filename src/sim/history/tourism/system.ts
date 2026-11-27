@@ -673,7 +673,7 @@ function spending(s: HistoryState, tz: TourismState, ts: TradeState): void {
       else if (s.year - tz.lastGood[h] >= RESORT.grace && !newVisitors(s, tz, h)) {
         logEvent(s, EventType.ResortAbandoned, h, -1, s.year - tz.lastGood[h])
         const idx = s.living.indexOf(h)
-        abandon(s, h)
+        abandon(s, h, 3) // (causes: AbandonCause.Resort)
         if (idx >= 0) s.living.splice(idx, 1)
         // (its walls, fort and mines fall with it this year, as after the abandonment system: the polity and goods systems
         // only see the Abandoned event next year, which would log their loss a year after the town was given up)

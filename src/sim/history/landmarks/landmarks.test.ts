@@ -28,7 +28,7 @@ const isOurs = (t: number): boolean => t >= 140 && t <= 149
 export function hashPreLandmarks(hi: History): string {
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => x !== 'landmarks').sort()) {
+  for (const k of Object.keys(r).filter((x) => x !== 'landmarks' && x !== 'why').sort()) {
     h = fnvBytes(h, enc.encode(k))
     h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type)) : r[k])
   }

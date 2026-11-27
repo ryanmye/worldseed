@@ -18,7 +18,8 @@ describe('hashBase', () => {
   it('a field added to a History leaves hashBase unchanged', () => {
     const h = simulateHistory(generateWorld(5), { years: 200 })
     const base = hashBase(h)
-    expect(base).toBe(hashValue(h)) // identity on the 8cabf09 shape
+    const { why: _why, ...rest } = h // (causes: History.why is a later field)
+    expect(base).toBe(hashValue(rest)) // identity on the 8cabf09 shape
     const widened = { ...h, plannedField: new Float32Array(4), wars: { ...h.wars, plannedColumn: new Int32Array(h.wars.count) } } as unknown as History
     expect(hashBase(widened)).toBe(base)
     expect(hashValue(widened)).not.toBe(base)

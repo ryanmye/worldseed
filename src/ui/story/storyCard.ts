@@ -16,6 +16,8 @@ export interface Caption {
   body: string
   /** "Read more": opens the saga of the main subject (null: no link). */
   more: (() => void) | null
+  /** causes: "Why?": opens the Why panel on the beat's event (null or absent: no button). */
+  why?: (() => void) | null
   /** Reduced motion: "Show" cuts the camera to the place (null: no button). */
   show: (() => void) | null
 }
@@ -106,6 +108,10 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   readBtn.type = 'button'
   readBtn.className = 'btn story-read'
   readBtn.textContent = 'Read more'
+  const whyBtn = document.createElement('button') // causes:
+  whyBtn.type = 'button'
+  whyBtn.className = 'btn story-why'
+  whyBtn.textContent = 'Why?'
   const nextBtn = document.createElement('button')
   nextBtn.type = 'button'
   nextBtn.className = 'btn story-next'
@@ -116,7 +122,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   closeBtn.className = 'story-close'
   closeBtn.setAttribute('aria-label', 'Close')
   closeBtn.textContent = '×'
-  row.append(showBtn, readBtn, nextBtn)
+  row.append(showBtn, readBtn, whyBtn, nextBtn)
   card.append(closeBtn, eyebrow, title, body, moreText, row)
   root.append(toasts, chip, card)
 
@@ -147,6 +153,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   })
   showBtn.addEventListener('click', () => caption?.show?.())
   readBtn.addEventListener('click', () => caption?.more?.())
+  whyBtn.addEventListener('click', () => caption?.why?.())
   nextBtn.addEventListener('click', () => deps.onNext())
   closeBtn.addEventListener('click', () => deps.onClose())
 
@@ -188,6 +195,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       body.hidden = c.body === ''
       showBtn.hidden = !c.show
       readBtn.hidden = !c.more
+      whyBtn.hidden = !c.why
       card.classList.remove('hidden')
       // (re-run the entrance animation)
       card.classList.remove('enter')

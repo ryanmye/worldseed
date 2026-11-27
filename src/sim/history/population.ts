@@ -20,7 +20,7 @@
 // how crowded the people working them are (for degradation), and what the
 // food is made of (grain, fish, livestock; for trade).
 
-import { CITY_POPULATION, EventType, TECH_FIELD_COUNT, TOWN_POPULATION, TechField } from '../../contract.ts'
+import { AbandonCause, CITY_POPULATION, EventType, TECH_FIELD_COUNT, TOWN_POPULATION, TechField } from '../../contract.ts'
 import { smoothstep } from '../util.ts'
 import { CATCHMENT, DAM, PORT, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
@@ -31,6 +31,7 @@ import { harvestLeft } from './polity/system.ts' // polities:
 import { toolFarm } from './goods/hooks.ts' // goods:
 import { ideaFarm } from './ideas/hooks.ts' // ideas:
 import { c5Growth, c5Harvest, c5Shortfall, c5Supply } from './compose.ts' // C5 stack
+import { whyFamine, whyFood } from './why.ts' // causes:
 
 /**
  * Strength of a settlement's claim on shared land: population^0.75 (from
@@ -180,6 +181,7 @@ export function foodSystem(s: HistoryState): void {
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p
+    if (s.why !== null) whyFood(s.why, id, s.harvest[s.weatherRegion[c]], h, s.pol !== null ? harvestLeft(s.pol, id) : 1, expected, supply, p) // causes: the famine factors
   }
   s.activeCount = activeCount
 }
@@ -201,6 +203,7 @@ export function populationSystem(s: HistoryState): void {
       if (s.food[id] < P.famineRatio && frac >= P.famineLoss && p >= P.famineMinPop && s.year - s.lastFamine[id] >= P.famineCooldown) {
         s.lastFamine[id] = s.year
         logEvent(s, EventType.Famine, id, -1, frac)
+        if (s.why !== null) whyFamine(s.why, s.events.length - 1, id, sup, s.foodImport[id], s.weatherRegion[s.cell[id]]) // causes:
       }
     }
   }
@@ -212,7 +215,7 @@ export function abandonmentSystem(s: HistoryState): void {
   let w = 0
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
-    if (s.pop[id] < POPULATION.abandonPop) abandon(s, id)
+    if (s.pop[id] < POPULATION.abandonPop) abandon(s, id, AbandonCause.Dwindled)
     else living[w++] = id
   }
   living.length = w

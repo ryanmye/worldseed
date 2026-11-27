@@ -3,8 +3,8 @@
 // this state, run in a fixed order each year (see index.ts).
 
 import type { OrdersState } from './orders/state.ts' // orders:
-import type { EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
-import { EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
+import type { AbandonCause as AbandonCauseT, EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
+import { AbandonCause, EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import type { Terrain } from './terrain.ts'
 import { PRODUCTIVITY } from './params.ts'
@@ -20,6 +20,8 @@ import type { RulerState } from './rulers/state.ts' // rulers:
 import type { ReligionState } from './religion/state.ts' // religion:
 import type { TourismState } from './tourism/state.ts' // tourism:
 import type { IdeasState } from './ideas/state.ts' // ideas:
+import type { WhyRec } from './why.ts' // causes:
+import { whyAbandon } from './why.ts' // causes:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -166,6 +168,8 @@ export interface HistoryState {
   ideas: IdeasState | null
   // orders: the player's nudges (orders/state.ts), or null without orders (every hook is then a no-op).
   orders: OrdersState | null
+  // causes: the causal explorer's recorders (why.ts), or null when HistoryOptions.causes is off. Written only, never read by the sim.
+  why: WhyRec | null
 }
 
 /**
@@ -265,6 +269,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
     orders: null, // orders: (set by index.ts when there are orders)
+    why: null, // causes: (set by index.ts when HistoryOptions.causes is on)
   }
 }
 
@@ -398,8 +403,9 @@ export function loseStructure(s: HistoryState, id: number): void {
 }
 
 /** Abandons a settlement this year (the caller removes it from `living`, or from `outposts`); its structures fall out of use. */
-export function abandon(s: HistoryState, id: number): void {
+export function abandon(s: HistoryState, id: number, cause: AbandonCauseT = AbandonCause.Dwindled): void {
   logEvent(s, Ev.Abandoned, id, -1, s.pop[id])
+  if (s.why !== null) whyAbandon(s.why, s.events.length - 1, cause) // causes: (the cause is recorded only)
   s.abandoned[id] = s.year
   s.pop[id] = 0
   s.food[id] = 0

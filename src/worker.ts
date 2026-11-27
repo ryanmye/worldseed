@@ -187,6 +187,8 @@ async function simulateAndPost(requestId: number, k: Kept, years: number | undef
   }
   // ideas: the adoptions table (its typed columns, fresh per run)
   if (partial.ideaAdoptions) for (const v of Object.values(partial.ideaAdoptions)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
+  // causes: History.why's tables (typed columns, fresh per run)
+  if (partial.why) for (const g of Object.values(partial.why)) for (const v of Object.values(g)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
   post({ type: 'history', requestId, history, ms, extend, replace: replace || undefined }, [...transfer])
   if (stored && k.keys) void cacheWrite(k.keys.history(stored.years), k.keys.group, stored.years, stored)
