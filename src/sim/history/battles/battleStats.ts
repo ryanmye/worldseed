@@ -4,6 +4,8 @@
 //   ... --mode '{"toll":"split","tempo":false}'   BATTLE_MODE for the "on" run (default: the shipped BATTLE_MODE)
 //   ... --opts '{"oaths":true,"finance":true}'     extra HistoryOptions for both runs
 //   ... --json              one JSON row per seed and run instead of the table
+//   ... --terms '{"season":true}'  n5: battle terms A/B: "base" is the realistic default, "on" the same with these terms
+//                           (PresetParams.battleTerms; both not neutral); rows add winter/mud/frozen/height and the terms' lnM
 // Every seed runs twice: "base" (battles neutral: the history is bit-identical to battles off, so its battle rows are the
 // baseline of the 1.2 table) and "on" (the modifiers, the toll, tempo, naval, pretenders as BATTLE_MODE says). The table
 // gives both per seed, the targets of section 6, and the modifiers' mean logs (the sim keeps the raw factors: it may not
@@ -15,6 +17,8 @@ import { generateWorld } from '../../index.ts'
 import { runHistory } from '../index.ts'
 import type { BattleDiag } from './state.ts'
 import { BATTLE_MODE } from './params.ts'
+import type { BattleTerms } from './params.ts'
+import { PRESET_PARAMS } from '../presets.ts'
 
 type Row = Record<string, number | string>
 
@@ -100,21 +104,30 @@ export function battleRow(h: History, d: BattleDiag | undefined): Row {
     let rain = 0
     for (let i = 0; i < m; i++) rain += F[i * K + 7] !== 1 ? 1 : 0
     row.rainShare = rain / m
+    if (d.terms.length === 2 * m) {
+      let lw = 0, lh = 0
+      for (let i = 0; i < m; i++) { lw += Math.log(d.terms[2 * i]); lh += Math.log(d.terms[2 * i + 1]) }
+      row['lnM.winter'] = lw / m; row['lnM.height'] = lh / m
+      row['lnM.net'] = (row['lnM.net'] as number) + (lw + lh) / m
+    }
+    row.winter = d.winter / m; row.mud = d.mud / m; row.frozen = d.frozen / m; row.heightN = d.height / m
     row.decisive = d.decisive; row.rulersFell = d.rulersFell; row.realmDead = Math.round(d.realmDead); row.navalLost = d.navalLost
   }
   return row
 }
 
-function runOne(seed: number, years: number, opts: HistoryOptions, mode: Partial<typeof BATTLE_MODE>): Row {
+function runOne(seed: number, years: number, opts: HistoryOptions, mode: Partial<typeof BATTLE_MODE>, terms?: Partial<BattleTerms>): Row {
   const saved = { ...BATTLE_MODE }
+  const savedP = PRESET_PARAMS.realistic
   Object.assign(BATTLE_MODE, mode)
+  if (terms) PRESET_PARAMS.realistic = { ...savedP, battleTerms: terms }
   try {
     const t0 = Date.now()
     const run = runHistory(generateWorld(seed), { ...opts, years, battles: true })
     const row = battleRow(run.history, run.diag.battles)
     row.ms = Date.now() - t0
     return row
-  } finally { Object.assign(BATTLE_MODE, saved) }
+  } finally { Object.assign(BATTLE_MODE, saved); PRESET_PARAMS.realistic = savedP }
 }
 
 const TARGETS: [string, string, (b: number, o: number) => boolean][] = [
@@ -150,6 +163,7 @@ if (ARGV.length > 1 && import.meta.url === `file://${ARGV[1]}`) {
   const argv = ARGV.slice(2)
   let years = 2000, json = false
   let opts: HistoryOptions = {}, mode: Partial<typeof BATTLE_MODE> = {}
+  let terms: Partial<BattleTerms> | null = null
   const seeds: number[] = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -157,13 +171,14 @@ if (ARGV.length > 1 && import.meta.url === `file://${ARGV[1]}`) {
     else if (a === '--json') json = true
     else if (a === '--opts') opts = JSON.parse(argv[++i])
     else if (a === '--mode') mode = JSON.parse(argv[++i])
+    else if (a === '--terms') terms = JSON.parse(argv[++i])
     else seeds.push(Number(a))
   }
   if (seeds.length === 0) seeds.push(1, 7, 42, 1234)
   const rows: { seed: number; base: Row; on: Row }[] = []
   for (const seed of seeds) {
-    const base = runOne(seed, years, opts, { neutral: true })
-    const on = runOne(seed, years, opts, mode)
+    const base = terms ? runOne(seed, years, opts, mode, {}) : runOne(seed, years, opts, { neutral: true })
+    const on = runOne(seed, years, opts, mode, terms ?? undefined)
     rows.push({ seed, base, on })
     if (json) { console.log(JSON.stringify({ seed, run: 'base', ...base })); console.log(JSON.stringify({ seed, run: 'on', ...on })) }
   }

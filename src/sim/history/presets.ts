@@ -18,6 +18,7 @@
 // 2, the presets (no `preset=` is realistic). New worlds write v=2.
 
 import type { HistoryOptions, PresetName } from '../../contract.ts'
+import type { BattleTerms } from './battles/params.ts'
 
 export const PRESET_NAMES: readonly PresetName[] = ['off', 'realistic', 'dramatic']
 
@@ -60,6 +61,8 @@ export interface PresetParams {
   dxFeedback?: boolean
   /** BATTLE_MODE.neutral (false: terrain, weather, supply, toll, tempo, naval and pretenders change outcomes). */
   battleNeutral?: boolean
+  /** Battle terms (battles/params.ts BATTLE_TERMS, lane N5): campaigning season, height, mud, frozen rivers; unset ones stay off. */
+  battleTerms?: Partial<BattleTerms>
 }
 export const PRESET_PARAMS: Record<PresetName, PresetParams> = {
   off: {},

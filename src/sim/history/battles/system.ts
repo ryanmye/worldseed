@@ -34,7 +34,7 @@
 // armies (WAR.army x mass: realm-scaled) x the coalition, charged to the front town then spread over the side's members by
 // population (levies), capped at realmCap of the realm a battle.
 
-import { BattleFlag, BattleKind, BattleWeather, Biome, CommanderFate, EventType, ReignEnd } from '../../../contract.ts'
+import { BattleCourse, BattleFactor, BattleFlag, BattleKind, BattleWeather, Biome, CommanderFate, EventType, ReignEnd } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
@@ -165,6 +165,42 @@ function levyDead(s: HistoryState, ps: PolityState, p: number, skip: number, amo
   return taken
 }
 
+/** The attackers' approach to `site`: the path cell before it (a sea cell for a landing), else the attackers' town. */
+function approachOf(s: HistoryState, path: readonly number[] | null, site: number, u: number): number {
+  if (path !== null) for (let k = path.length - 1; k > 0; k--) if (path[k] === site) return path[k - 1]
+  return s.cell[u]
+}
+
+const TERRAIN_WEATHER = (1 << BattleFactor.Ground) | (1 << BattleFactor.Ford) | (1 << BattleFactor.Rain) | (1 << BattleFactor.Snow) | (1 << BattleFactor.Heat) | (1 << BattleFactor.Height) | (1 << BattleFactor.Winter)
+const fIds: number[] = [], fMs: number[] = []
+
+/**
+ * The two deciding factors (BattleCourse bits 0-9) of the factors fIds / fMs (each a multiplier of the attackers' odds x):
+ * the largest (x or 1 / x at least factorMin), then the largest terrain or weather term of at least factorTerrain (`fog`:
+ * a surprise in fog counts as weather), else the next largest. Comparisons only (no logs in the sim).
+ */
+function decidingBits(fog: boolean): number {
+  const n = fIds.length
+  let i1 = -1, g1: number = BATTLE.factorMin
+  for (let i = 0; i < n; i++) { const m = fMs[i], g = m >= 1 ? m : 1 / m; if (g >= g1) { g1 = g; i1 = i } }
+  if (i1 < 0) return 0
+  let i2 = -1, g2: number = BATTLE.factorTerrain
+  for (let i = 0; i < n; i++) {
+    if (i === i1) continue
+    const id = fIds[i]
+    if (((TERRAIN_WEATHER >> id) & 1) === 0 && !(fog && id === BattleFactor.Surprise)) continue
+    const m = fMs[i], g = m >= 1 ? m : 1 / m
+    if (g >= g2) { g2 = g; i2 = i }
+  }
+  if (i2 < 0) {
+    g2 = BATTLE.factorMin
+    for (let i = 0; i < n; i++) { if (i === i1) continue; const m = fMs[i], g = m >= 1 ? m : 1 / m; if (g >= g2) { g2 = g; i2 = i } }
+  }
+  let bits = fIds[i1] | (fMs[i1] < 1 ? BattleCourse.DefFavoured : 0)
+  if (i2 >= 0) bits |= (fIds[i2] << BattleCourse.Factor2Shift) | (fMs[i2] < 1 ? BattleCourse.DefFavoured2 : 0)
+  return bits
+}
+
 /**
  * The battle of war w in which p strikes q's v from u (attacker: the war's attacker strikes; else a counterstroke), with
  * the war's odds r (after siege attrition), its outcome draw U, the army's path (or null), the front towns' dead (lu, lv:
@@ -180,6 +216,8 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   let kind: number = !attacker && relieves(ps, w, v) ? BattleKind.Relief : siege ? BattleKind.Siege : hasSea(s, path) ? BattleKind.Landing : BattleKind.Field
   // The fixed draws.
   const gDraw = rng.next(), wetDraw = rng.next(), fogDraw = rng.next(), surDraw = rng.next(), sideDraw = rng.next()
+  // Battle terms: the season draw ('history-battles-course', one a battle while the season term is on).
+  const seasonDraw = bs.crng !== null ? bs.crng.next() : 1
   // Commanders (appointment draws only when appointing; the striker's side first).
   while (bs.wBattles.length <= w) bs.wBattles.push(0)
   while (bs.wDecisive.length <= w) bs.wDecisive.push(-1)
@@ -201,12 +239,21 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   const W = s.world
   const hv = s.harvest[s.weatherRegion[site]]
   const temp = W.temperature[site]
+  // the campaigning season (battle terms: season): winter where winters allow it (none in deep cold: winter quarters)
+  let kCold = (BATTLE.winterT - temp) / BATTLE.winterSpan
+  kCold = kCold < 0 ? 0 : kCold > 1 ? 1 : kCold
+  const winter = bs.terms.season && seasonDraw < BATTLE.winterP * (1 - kCold)
   let weather: number = BattleWeather.Clear
-  if (wetDraw < BATTLE.rain * (0.5 + W.rainfall[site]) * (hv > 1.1 ? 1.5 : 1)) weather = temp < BATTLE.snowT ? BattleWeather.Snow : BattleWeather.Rain
+  if (wetDraw < BATTLE.rain * (0.5 + W.rainfall[site]) * (hv > 1.1 ? 1.5 : 1)) weather = temp < BATTLE.snowT + (winter ? BATTLE.winterChill : 0) ? BattleWeather.Snow : BattleWeather.Rain
   const fog = fogDraw < BATTLE.fog * (byWater(s, ps, site) ? 2 : 1)
   if (fog && weather === BattleWeather.Clear) weather = BattleWeather.Fog
   const bm = W.biome[site]
-  if (weather === BattleWeather.Clear && temp > BATTLE.heatT && bm === Biome.Desert) weather = BattleWeather.Heat
+  if (weather === BattleWeather.Clear && !winter && temp > BATTLE.heatT && bm === Biome.Desert) weather = BattleWeather.Heat
+  // frozen rivers (battle terms: frozen): in deep cold the crossing gives the defenders nothing
+  const frozen = bs.terms.frozen && (flags & BattleFlag.Ford) !== 0 && (weather === BattleWeather.Snow || winter) && temp < BATTLE.frozenT
+  // mud (battle terms: mud): rain, or a wet year's sodden ground, on a field
+  const mud = bs.terms.mud && kind !== BattleKind.Siege && (weather === BattleWeather.Rain || (hv > BATTLE.mudHarvest && weather !== BattleWeather.Snow))
+  let course = (winter ? BattleCourse.Winter : 0) | (mud ? BattleCourse.Mud : 0) | (frozen ? BattleCourse.Frozen : 0)
   // Surprise.
   const cover = (flags & (BattleFlag.Wood | BattleFlag.Pass | BattleFlag.Hill)) !== 0
   const hi = sA > sD ? sA : sD, lo = sA > sD ? sD : sA
@@ -223,7 +270,8 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   let x = cbBattleX(r, cbf), xs = 1, bA: number = BATTLE.break0, bD: number = BATTLE.break0
   if (!neutral) {
     const field = kind === BattleKind.Field || kind === BattleKind.Ambush || kind === BattleKind.Landing
-    const tSite = ps.defense[site] + (defChooses && (flags & BattleFlag.Ford) !== 0 ? BATTLE.fordBonus : 0)
+    const fordHeld = defChooses && (flags & BattleFlag.Ford) !== 0 && !frozen
+    const tSite = ps.defense[site] + (fordHeld ? BATTLE.fordBonus : 0)
     const mGround = field ? ps.defense[s.cell[v]] / tSite : 1
     const mCmd = sA / sD
     let hc = hv < 1 ? hv : 1
@@ -235,7 +283,17 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
     const sv = 1 / ((1 - BATTLE.surpriseLoss) * (1 - BATTLE.surpriseLoss))
     const mSurprise = surprise > 0 ? sv : surprise < 0 ? 1 / sv : 1
     const mWeather = weather === BattleWeather.Snow ? BATTLE.snowMul : weather === BattleWeather.Heat ? BATTLE.heatMul : 1
-    x = x * mGround * mCmd * mSupply * mSick * mSurprise * mWeather
+    // battle terms (battles' own modifiers, in the product): the higher ground; a winter campaign's toll on the attackers
+    let mHeight = 1
+    if (bs.terms.height && field) {
+      const ap = approachOf(s, path, site, u)
+      const es = W.elevation[site], ea = W.elevation[ap]
+      let d = BATTLE.heightK * ((es > 0 ? es : 0) - (ea > 0 ? ea : 0))
+      d = d < -BATTLE.heightMax ? -BATTLE.heightMax : d > BATTLE.heightMax ? BATTLE.heightMax : d
+      mHeight = (1 - d) / (1 + d)
+    }
+    const mWinter = winter ? 1 - BATTLE.winterMul * kCold : 1
+    x = x * mGround * mCmd * mSupply * mSick * mSurprise * mWeather * mHeight * mWinter
     const rain = weather === BattleWeather.Rain || weather === BattleWeather.Snow
     let mRain = 1
     if (rain) { const x1 = Math.sqrt(x); const x2 = x1 * Math.sqrt(x1); mRain = x2 / x; x = x2 } // (mud and wet strings blunt horse and missile alike: the advantage is compressed, x -> x^(3/4))
@@ -245,6 +303,25 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
     bD = breakOf(ps, bs, v, q, holy && q === att, cD)
     xs = (1 - bD * bD) / (1 - bA * bA)
     bs.diag.factors.push(mGround, mCmd, mSupply, mSick, mSurprise, mWeather, xs, mRain)
+    bs.diag.terms.push(mWinter, mHeight)
+    if (winter) bs.diag.winter++
+    if (mud) bs.diag.mud++
+    if (frozen) bs.diag.frozen++
+    if (mHeight > 1.05 || mHeight < 1 / 1.05) bs.diag.height++
+    // what decided it (recorded only)
+    fIds.length = 0; fMs.length = 0
+    const add = (id: number, m: number): void => { if (m !== 1) { fIds.push(id); fMs.push(m) } }
+    add(fordHeld ? BattleFactor.Ford : BattleFactor.Ground, mGround)
+    add(BattleFactor.Command, mCmd)
+    add(BattleFactor.Supply, mSupply)
+    add(BattleFactor.Sickness, mSick)
+    add(BattleFactor.Surprise, mSurprise)
+    add(weather === BattleWeather.Snow ? BattleFactor.Snow : BattleFactor.Heat, mWeather)
+    add(BattleFactor.Rain, mRain)
+    add(BattleFactor.Morale, 1 / xs)
+    add(BattleFactor.Height, mHeight)
+    add(BattleFactor.Winter, mWinter)
+    course |= decidingBits(weather === BattleWeather.Fog)
   }
   const won = U < x / (x + xs)
   // Men.
@@ -262,7 +339,7 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   const hU = horseOf(s, u), hV = horseOf(s, v)
   let hr = 1 + (won ? hU - hV : hV - hU)
   hr = hr < 0.5 ? 0.5 : hr > 2 ? 2 : hr
-  const rho = BATTLE.rout * hr * ((flags & BattleFlag.Ford) !== 0 && !won ? 1.5 : 1) * (weather === BattleWeather.Snow || (flags & BattleFlag.Wood) !== 0 ? 0.6 : 1)
+  const rho = BATTLE.rout * hr * ((flags & BattleFlag.Ford) !== 0 && !won && !frozen ? 1.5 : 1) * (weather === BattleWeather.Snow || (flags & BattleFlag.Wood) !== 0 ? 0.6 : 1) * (mud ? BATTLE.mudRout : 1)
   const res = resolve(x, xs, bA, bD, rho, U)
   const xe = res.xEff
   let fA = res.fA, fD = res.fD
@@ -273,9 +350,11 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
     else if (surprise < 0) fA = sl + (1 - sl) * fA
     if (xe > BATTLE.annihilateRatio && won) fD += BATTLE.annihilate * (1 - fD)
     else if (xe < 1 / BATTLE.annihilateRatio && !won) fA += BATTLE.annihilate * (1 - fA)
+    // a winter campaign: cold and hunger on the march
+    if (winter) fA += BATTLE.winterLoss * kCold * (1 - fA)
   }
   const lossA = fA * menA, lossD = fD * menD
-  let hours = BATTLE.hourScale * res.tau
+  let hours = BATTLE.hourScale * res.tau * (mud ? BATTLE.mudHours : 1)
   if (hours < BATTLE.minHours) hours = BATTLE.minHours
   if (hours > BATTLE.maxHours) hours = BATTLE.maxHours
   // Course flags.
@@ -345,7 +424,7 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   bs.bWar.push(w); bs.bYear.push(s.year); bs.bKind.push(kind); bs.bCounter.push(attacker ? 0 : 1); bs.bSite.push(site); bs.bTarget.push(v); bs.bFrom.push(u)
   bs.bAtt.push(p); bs.bDef.push(q); bs.bCmdA.push(cA); bs.bCmdD.push(cD); bs.bMenA.push(menA); bs.bMenD.push(menD); bs.bLossA.push(lossA); bs.bLossD.push(lossD)
   bs.bDead.push(dead); bs.bWinner.push(won ? 0 : 1); bs.bHours.push(hours); bs.bWeather.push(weather); bs.bFlags.push(flags); bs.bRatio.push(xe)
-  bs.bBreakA.push(bA); bs.bBreakD.push(bD); bs.bSiegeYear.push(siegeYear > 255 ? 255 : siegeYear)
+  bs.bBreakA.push(bA); bs.bBreakD.push(bD); bs.bSiegeYear.push(siegeYear > 255 ? 255 : siegeYear); bs.bCourse.push(course)
   bs.diag.battles++
   bs.diag.byKind[kind]++
   bs.diag.byWeather[weather]++
