@@ -155,3 +155,17 @@
   .seat-opt { width: 180px; }
   .seat-scene-frame { width: 120px; height: 72px; }
 }
+
+/* lane N3: since the last card (news, "Because you…"), the ambition, the odds; the options' risk and odds */
+.seat-since { max-width: 760px; margin: 0 auto 6px; padding: 6px 10px; border-left: 3px solid rgba(255, 214, 140, 0.6); background: rgba(20, 16, 10, 0.55); border-radius: 4px; font-size: 13px; line-height: 1.35; }
+.seat-since p { margin: 2px 0; }
+.seat-news { color: #e9dcc4; }
+.seat-callback { color: #ffd98c; font-style: italic; }
+.seat-ambition { color: #b9d3ff; }
+.seat-odds { color: #e9dcc4; }
+.trend-1 { color: #8fe08f; } .trend--1 { color: #ff8f80; }
+.seat-opt-risk { display: block; font-size: 11px; opacity: 0.85; margin-top: 3px; }
+.seat-opt-risk.risk-high, .seat-opt-risk.risk-grave { color: #ff9f8f; }
+.seat-opt-risk.risk-low { color: #a8e0a8; }
+.seat-opt-odds { display: block; font-size: 11px; color: #ffd98c; margin-top: 2px; }
+.seat-compact .seat-since { font-size: 12px; max-height: 22vh; overflow-y: auto; margin: 0 8px 6px; }

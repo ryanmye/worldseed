@@ -9,7 +9,7 @@
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import { FAR, projAt } from '../polity/state.ts'
-import { UNREST } from '../polity/params.ts'
+import { POLITY, UNREST } from '../polity/params.ts'
 import { c2RevoltChance } from '../compose.ts'
 import type { C2HazardFactors } from '../compose.ts'
 import { RULERS } from '../rulers/params.ts'
@@ -47,6 +47,8 @@ export const HUD = {
   Revolt: 10,
   /** Yearly chance that a town breaks away (each rising town's chance times its rebels' odds against the capital's reach). */
   Breakaway: 11,
+  /** The expected share of the realm's people lost to breakaways in a year (the odds count losing a quarter of the realm: x 4). */
+  LostShare: 24,
   /** Yearly chance of a crown default (a proxy from debt service and arrears; finance; NaN off). */
   Default: 12,
   /** Yearly chance of losing a war badly (a proxy from the believed strength of the strongest enemy at war). */
@@ -65,8 +67,10 @@ export const HUD = {
   Pop: 22,
   /** The strongest enemy at war: its believed mass over ours (0 at peace). */
   EnemyRatio: 23,
+  /** 1 while a succession crisis or a regency is open (the court knows it is in one; not how long it will last). */
+  Crisis: 25,
 } as const
-export const HUD_N = 24
+export const HUD_N = 26
 
 const C2H: C2HazardFactors = {}
 
@@ -102,7 +106,9 @@ export function hudRow(s: HistoryState, p: number, out: number[], at: number): v
   let pop = 0, wu = 0, towns = 0, stay = 1, stayBreak = 1
   const pm = s.soc !== null ? socRevoltMul(s, p) : undefined
   if (pm !== undefined) C2H.psiMul = pm
-  const ch = c2RevoltChance(UNREST.chance, pm !== undefined ? C2H : undefined)
+  // (the revolt pass runs every POLITY.step years: its chance per pass, made yearly)
+  const ch = 1 - Math.pow(1 - c2RevoltChance(UNREST.chance, pm !== undefined ? C2H : undefined), 1 / POLITY.step)
+  let lost = 0
   const sup0 = cap >= 0 ? 1 : 0
   for (const i of s.living) {
     if (i >= ps.polity.length || ps.polity[i] !== p || s.outpost[i]) continue
@@ -116,14 +122,17 @@ export function hudRow(s: HistoryState, p: number, out: number[], at: number): v
     const sup = projAt(ps, p, ps.dist[i] < FAR ? ps.dist[i] : FAR)
     const win = (rb * rb) / (rb * rb + sup * sup + 1e-12)
     stayBreak *= 1 - ch * win
+    lost += ch * win * s.pop[i]
   }
   out[at + HUD.Towns] = towns
   out[at + HUD.Pop] = pop
   out[at + HUD.Unrest] = pop > 0 ? wu / pop / UNREST.revolt : 0
   out[at + HUD.Revolt] = 1 - stay
   out[at + HUD.Breakaway] = 1 - stayBreak
+  out[at + HUD.LostShare] = pop > 0 ? lost / pop : 0
   out[at + HUD.Deference] = s.defer !== null && p < s.defer.value.length ? s.defer.value[p] : 0
   out[at + HUD.Wars] = ps.pWars[p]
+  out[at + HUD.Crisis] = ps.pCrisisUntil[p] > s.year ? 1 : 0 // (open now: the court knows; its end year is not read)
   out[at + HUD.Exhaustion] = ps.pExh[p]
   // wars: the strongest enemy as our court believes it
   let ratio = 0

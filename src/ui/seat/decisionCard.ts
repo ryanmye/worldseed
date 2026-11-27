@@ -17,7 +17,8 @@ export interface DecisionCard {
   /** Show decision d of h (`n` of `total` this year); `pick(option)` once chosen; `showMe()` for the place. */
   show(h: History, d: number, n: number, total: number, pick: (option: number) => void, showMe: (() => void) | null): void
   /** A plain message (the seat lost, waiting) with buttons; null buttons: a status line only. */
-  message(title: string, text: string, buttons: { label: string; run: () => void }[] | null): void
+  /** `callbacks`: decisions whose outcomes the message tells (lane N3: the bots' visible-consequence metric). `extra`: a DOM node shown under the text (the reign summary's share link). */
+  message(title: string, text: string, buttons: { label: string; run: () => void }[] | null, callbacks?: number[], extra?: HTMLElement): void
   hide(): void
   readonly open: boolean
 }
@@ -55,7 +56,8 @@ function authorityMeter(a: CardModel['authority']): HTMLElement {
   after.style.left = `${(Math.max(0, auth - cost) * 100).toFixed(0)}%`
   after.style.width = `${(Math.min(auth, cost) * 100).toFixed(0)}%`
   bar.append(fill, after)
-  box.append(el('span', 'seat-authority-label', 'Authority'), bar, el('span', 'seat-authority-note', `leaving it: −${Math.round(Math.min(auth, cost) * 100)}`))
+  // (lane N3: the number shown, and the cost said as it is: now, before it recovers with the decisions you take)
+  box.append(el('span', 'seat-authority-label', `Authority ${Math.round(auth * 100)}`), bar, el('span', 'seat-authority-note', `leaving it: −${Math.round(Math.min(auth, cost) * 100)} now`))
   box.addEventListener('click', () => box.classList.toggle('open'))
   box.append(el('span', 'seat-authority-why', why))
   return box
@@ -74,7 +76,7 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
   msg.setAttribute('aria-live', 'polite')
   parent.append(screen, peekPill, msg)
   let keys: ((e: KeyboardEvent) => void) | null = null
-  const clearKeys = () => { if (keys) window.removeEventListener('keydown', keys); keys = null }
+  const clearKeys = () => { if (keys) window.removeEventListener('keydown', keys, true); keys = null }
   const setPeek = (on: boolean) => { screen.classList.toggle('peek', on); peekPill.classList.toggle('hidden', !on) }
   peekPill.addEventListener('click', () => setPeek(false))
 
@@ -117,11 +119,23 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
         badge.append(svgHost('seat-opt-badge-glyph', optionGlyph(m.key, 14)), el('span', '', m.badge))
         const head = el('span', 'seat-opt-head')
         head.append(el('span', 'seat-opt-num', String(order.length)), el('span', 'seat-opt-label', m.label))
-        b.append(badge, head, svgHost('seat-opt-frame', optionArt(glyphInner(m.key), d * 8 + i)), el('span', 'seat-opt-tag', m.tag), el('span', 'seat-opt-note', m.note))
+        const risk = el('span', `seat-opt-risk risk-${m.stakes.risk}`, `Risk: ${m.stakes.risk}`)
+        b.append(badge, head, svgHost('seat-opt-frame', optionArt(glyphInner(m.key), d * 8 + i)), el('span', 'seat-opt-tag', m.tag), el('span', 'seat-opt-note', m.note), risk, ...(m.stakes.odds ? [el('span', 'seat-opt-odds', m.stakes.odds)] : []))
         b.addEventListener('click', () => choose(i))
         row.append(b)
       }
-      screen.append(banner, sit, authorityMeter(model.authority), row)
+      // lane N3: since the last card: the realm's news (who died, who reigns) and what came of earlier choices
+      const since = el('div', 'seat-since')
+      for (const t of model.news) since.append(el('p', 'seat-news', t))
+      for (const c of model.callbacks) since.append(el('p', 'seat-callback', c.text))
+      if (model.ambition) since.append(el('p', 'seat-ambition', model.ambition))
+      if (model.hud) {
+        const o = el('p', 'seat-odds')
+        o.append(el('span', 'seat-odds-label', 'Odds the realm stands 50 years: '), el('strong', '', model.hud.oddsText), el('span', `seat-odds-change trend-${model.hud.oddsTrend}`, model.hud.oddsChange ? ` ${model.hud.oddsChange}` : ''))
+        o.title = 'If things stay as they are: the chance of 50 years with no overthrow, contested succession, default, lost town or lost war (the throne panel has the hazards).'
+        since.append(o)
+      }
+      screen.append(banner, sit, ...(since.childElementCount ? [since] : []), authorityMeter(model.authority), row)
       // phone: Prev / Next under the carousel
       if (compact && order.length > 1) {
         const nav = el('div', 'seat-nav')
@@ -158,15 +172,18 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
       screen.append(actions)
       keys = (e: KeyboardEvent) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
-        if (screen.classList.contains('peek')) { if (e.key === 'Escape') { e.preventDefault(); setPeek(false) } return }
-        const k = Number(e.key)
-        if (k >= 1 && k <= order.length) { e.preventDefault(); choose(order[k - 1]) }
-        else if (e.key === 'Escape' && court >= 0) { e.preventDefault(); choose(court) }
+        if (screen.classList.contains('peek')) { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); setPeek(false) } return }
+        // (lane N3: the card's keys are its own while it is shown: 1-4 no longer also set the playback speed; capture phase)
+        if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault(); e.stopImmediatePropagation()
+          const k = Number(e.key)
+          if (k >= 1 && k <= order.length) choose(order[k - 1])
+        } else if (e.key === 'Escape' && court >= 0) { e.preventDefault(); e.stopImmediatePropagation(); choose(court) }
       }
-      window.addEventListener('keydown', keys)
+      window.addEventListener('keydown', keys, true)
       ;(row.firstElementChild as HTMLElement | null)?.focus({ preventScroll: true })
     },
-    message(title, text, buttons) {
+    message(title, text, buttons, _callbacks, extra) {
       clearKeys()
       screen.classList.add('hidden')
       setPeek(false)
@@ -174,6 +191,7 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
       msg.classList.remove('hidden')
       msg.classList.toggle('seat-compact', isCompact())
       msg.append(el('div', 'seat-msg-title', title), el('p', 'seat-msg-text', text))
+      if (extra) msg.append(extra)
       if (buttons) {
         const opts = el('div', 'seat-msg-buttons')
         for (const x of buttons) {

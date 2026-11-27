@@ -83,7 +83,7 @@ async function main() {
         ;(m as RunMetrics & { replay?: string }).replay = replays[replays.length - 1]
       }
       appendFileSync(outFile, JSON.stringify({ date: new Date().toISOString().slice(0, 10), personaVersion: PERSONA_VERSION, primerVersion: PRIMER_VERSION, seat: r.seatParam, o: r.o, ...m }) + '\n')
-      if (flag('json')) writeFileSync(arg('json')!.replace('.json', `-${seed}-${m.persona.replace(/[:#]/g, '_')}.json`), JSON.stringify({ seat: r.seatParam, o: r.o, years: r.history.years, hash: hashAll(r.history), cards: r.cards.map((c) => ({ year: c.model.year, title: c.model.title, options: c.model.options.map((o) => o.label), picked: c.decision.option, why: c.decision.why })) }, null, 1))
+      if (flag('json')) writeFileSync(arg('json')!.replace('.json', `-${seed}-${m.persona.replace(/[:#]/g, '_')}.json`), JSON.stringify({ seat: r.seatParam, o: r.o, years: r.history.years, hash: hashAll(r.history), cards: r.cards.map((c) => ({ year: c.model.year, title: c.model.title, situation: c.model.situation, news: c.model.news, callbacks: c.model.callbacks.map((x) => x.text), odds: c.model.hud?.oddsText, options: c.model.options.map((o) => o.label), notes: c.model.options.map((o) => o.note + ' [' + o.stakes.risk + (o.stakes.odds ? '; ' + o.stakes.odds : '') + ']'), picked: c.decision.option, why: c.decision.why })) }, null, 1))
     }
   }
   const stamp = { date: new Date().toISOString().slice(0, 10), personaVersion: PERSONA_VERSION, primerVersion: PRIMER_VERSION, preset, from, span }

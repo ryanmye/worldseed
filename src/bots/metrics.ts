@@ -103,9 +103,13 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
   const resolvedAt = new Map<number, number>()
   for (const e of h.events) if (e.type === ORDER_FULFILLED || e.type === ORDER_FAILED || e.type === ORDER_LAPSED) resolvedAt.set(e.value, e.year)
   let visible = 0
+  // (lane N3: a choice is visible when a later card's "Because you…" line names it within 20 years: CardModel.callbacks)
+  const referenced = new Set<number>()
+  for (const c of shown) for (const cb of c.model.callbacks ?? []) if (c.model.year - D.year[cb.d] <= 20) referenced.add(cb.d)
+  for (const m of run.messages) for (const d of m.callbacks ?? []) referenced.add(d)
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i]
-    const callback = /Because you/i.test(shown[i].model.situation)
+    const callback = referenced.has(d) || /Because you/i.test(shown[i].model.situation)
     const ks = ordersOf.get(d) ?? []
     const chron = ks.some((k) => { const y = resolvedAt.get(k) ?? R[k]?.year ?? -1; return y >= 0 && y <= D.year[d] + 20 })
     if (callback || chron) visible++
