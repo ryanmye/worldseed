@@ -162,6 +162,14 @@ import { LANDMARKS_ON } from './landmarks/params.ts'
 import { createLandmarks, landmarksYear } from './landmarks/system.ts'
 import type { LandmarksDiag } from './landmarks/state.ts'
 import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts'
+// disasters: natural shocks and climate regimes (disasters/).
+import { DX } from './disasters/params.ts'
+import { createDisasters } from './disasters/state.ts'
+import type { DisasterDiag, DisasterState } from './disasters/state.ts'
+import { climateYear } from './disasters/climate.ts'
+import { shockYear } from './disasters/shocks.ts'
+import { disasterYearEnd } from './disasters/yearEnd.ts'
+import { assembleDisasters, emptyDisasterHistory } from './disasters/assemble.ts'
 // orders: the player's nudges (orders/).
 import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
 
@@ -232,6 +240,9 @@ export interface HistoryDiagnostics {
   ideas?: IdeasDiag
   /** landmarks: the landmarks system's counters (absent when it is off). */
   landmarks?: LandmarksDiag
+  /** disasters: the disasters system's counters, and its live state (read only; absent when it is off). */
+  disasters?: DisasterDiag
+  disasterState?: DisasterState
 }
 
 /** goods: a copy of the goods records (the run goes on). */
@@ -427,6 +438,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
+  // disasters: natural shocks and climate, from the world alone (unless switched off).
+  const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount) : null
+  s.dx = dx
   const ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
   s.orders = ox
 
@@ -526,7 +540,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     s.year = year
     s.landYear = year % LAND.step === 0
     if (ox) ordersBegin(s, ox) // orders: the orders of the year given and put in force
+    if (dx) climateYear(s, dx) // disasters: the year's shock schedule and climate (world-only), before the weather
     weatherSystem(s, weather)
+    if (dx) shockYear(s, dx, weather) // disasters: eruptions, quakes, waves and floods where people live
     foodSystem(s)
     if (gx) goodsProduce(s, gx, explore) // goods: mines and furs, before the market
     tradeSystem(s, trade)
@@ -563,6 +579,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (dz || fled) milestoneSystem(s) // disease, religion: the year's last milestone pass (refugees from struck towns and persecution may lift a town over one)
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
+    if (dx) disasterYearEnd(s, dx) // disasters: droughts, epochs, the climate series
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
@@ -648,6 +665,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         renamings: renHist.renamings, // renaming:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
+        ...(dx ? assembleDisasters(world, dx, naming, years, peoples.map((p) => p.name)) : emptyDisasterHistory()), // disasters:
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
@@ -673,6 +691,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
         ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
         landmarks: lm ? { ...lm.diag } : undefined, // landmarks:
+        disasters: dx ? { ...dx.diag, eruptions: dx.diag.eruptions.slice(), winterYears: dx.diag.winterYears.slice() } : undefined, // disasters:
+        disasterState: dx ?? undefined, // disasters:
       },
     }
   }

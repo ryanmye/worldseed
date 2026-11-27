@@ -242,6 +242,17 @@ export const EventType = {
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
+  // disasters: natural shocks and climate epochs (260-269; none when HistoryOptions.disasters is false). In each, `value` is the
+  // History.disasters row and `settlement` a settlement living that year (no living settlement qualifies: no event; the row stays).
+  Eruption: 260, // a volcano erupted near `settlement` (the living settlement nearest it, within DX.witnessHops); `other` -1; `extra` the VEI
+  VolcanicWinter: 261, // the harvest failed after an eruption: `settlement` the largest town of the region that cooled most; `other` the settlement nearest the volcano, or -1; `extra` the peak cooling in degC (< 0)
+  Earthquake: 262, // an earthquake struck `settlement` (the one that lost most people); `other` -1; `extra` the magnitude
+  Tsunami: 263, // a great wave struck the port `settlement` (the one that lost most); `other` the settlement struck worst by its earthquake, or -1; `extra` the number of coastal settlements struck
+  CityDestroyed: 264, // `settlement` (>= TOWN_POPULATION) lost at least DX.destroyedShare of its people at once to an eruption, quake, wave or flood (row `value`); `other` -1; `extra` the share lost
+  Flood: 265, // a great flood of the river struck `settlement` (the largest river town struck); `other` -1; `extra` the share of its people lost
+  DroughtBegan: 266, // a persistent drought settled on the region of `settlement` (its largest town); `other` -1; `extra` the weather region
+  DroughtEnded: 267, // the drought broke; `settlement` the region's largest town (or the one where it began, if still alive); `other` -1; `extra` its years
+  ClimateTurned: 268, // the world's slow climate entered an epoch: `settlement` the world's largest town; `other` -1; `extra` +1 warm, -1 cold
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -552,6 +563,13 @@ export interface History {
   cradlePlaced?: Uint8Array
   /** Per people: 1 when another wished people began within sight of it (kept, but noted), else 0. */
   cradleCrowded?: Uint8Array
+  // disasters: natural shocks and climate (empty when HistoryOptions.disasters is false).
+  /** Every eruption, recorded earthquake, tsunami, great flood, persistent drought and climate epoch, in order of recording. */
+  disasters: Disasters
+  /** The world's climate per year (zero-length arrays when off). */
+  climate: ClimateSeries
+  /** Weather region per cell (the harvest regions), for drawing droughts and floods; empty when off. */
+  weatherRegion: Uint16Array
 }
 
 /**
@@ -1471,6 +1489,13 @@ export interface HistoryOptions {
    * encodeCradles / decodeCradles give a URL-safe text form, canonicalCradles the canonical list.
    */
   cradles?: number[]
+  /**
+   * disasters: volcanic eruptions and volcanic winters, slow climate epochs (warm ages, little ice ages), megadroughts,
+   * earthquakes, tsunamis and great river floods, drawn from the world alone (the same seed has the same shocks, whatever the
+   * orders or cradle wishes) and felt through the harvest, deaths and ruin. Default false (DX.enabled); false gives the history
+   * without them (the anonymous harvest crises of the weather instead; History.disasters, climate and weatherRegion empty).
+   */
+  disasters?: boolean
 }
 
 /**
@@ -2219,4 +2244,63 @@ export function orderFeasible(h: History, order: Order, year: number): OrderReas
     }
   }
   return OrderReason.NoTarget
+}
+
+// ---------- disasters: natural shocks and climate regimes (HistoryOptions.disasters; disasters-climate.md) ----------
+
+/** What a History.disasters row is. */
+export const DisasterKind = {
+  Eruption: 0, // a volcano erupted (VEI >= 5): `size` the VEI, `dT` its peak growing-season cooling (degC, <= 0)
+  Earthquake: 1, // `size` the magnitude (Mw, in tenths)
+  Tsunami: 2, // a great wave raised by the earthquake in row `cause`; `size` its reach in km
+  Flood: 3, // a great river flood in a region; `size` the share of that region's big-river settlements struck
+  Drought: 4, // a persistent drought over a weather region; `size` its years (so far, if endYear is -1); a megadrought when >= DX.megaYears
+  ColdEpoch: 5, // the world's slow climate turned cold: `dT` the lowest decadal anomaly reached
+  WarmEpoch: 6, // ... turned warm: `dT` the highest
+} as const
+export type DisasterKind = (typeof DisasterKind)[keyof typeof DisasterKind]
+
+/**
+ * Natural disasters and climate epochs, struct-of-arrays in order of recording (each row with the year it began; the table of a
+ * longer run begins with a shorter one's exactly, though a row still open at the end of the shorter run (endYear -1, a drought's
+ * or epoch's size) may be closed in the longer one). Shocks are drawn from the world alone, so the same seed always has the same
+ * eruptions, earthquakes, floods and climate, whatever the orders or cradle wishes; what they do depends on who lives there.
+ * Eruptions are all listed (VEI >= 5); earthquakes only when they killed someone in a settlement or reached M 8.5.
+ */
+export interface Disasters {
+  count: number
+  kind: Uint8Array
+  year: Int16Array
+  /** Last year of a drought or epoch (-1 while it lasts at the end of the run); the year itself for sudden shocks. */
+  endYear: Int16Array
+  /** Cell of the volcano, epicentre or flood's largest town; -1 for droughts and epochs. */
+  cell: Int32Array
+  /** Weather region (History.weatherRegion) for droughts and floods; -1 otherwise. */
+  region: Int16Array
+  /** VEI, magnitude, reach km, share, or years, by kind (see DisasterKind). */
+  size: Float32Array
+  /** Peak growing-season temperature anomaly it caused, degC (eruptions, epochs); 0 otherwise. */
+  dT: Float32Array
+  /** The settlement struck worst (largest loss in people), or -1 if none was struck. */
+  settlement: Int32Array
+  /** People killed outright (eruption, quake, wave, flood); famine deaths that followed are not counted here. */
+  deaths: Float32Array
+  /** Settlements that lost people to it outright. */
+  struck: Int32Array
+  /** Row of the event it followed from (a tsunami's earthquake), or -1. */
+  cause: Int32Array
+  /** Volcano id of an eruption (-1 otherwise): the same volcano erupts again under the same id. */
+  volcano: Int32Array
+  /** Volcano's name (eruptions of named volcanoes; '' otherwise). */
+  name: string[]
+}
+
+/** The world's climate per year (index = year, 0..years), derived from the world alone except `harvest`. */
+export interface ClimateSeries {
+  /** Global growing-season temperature anomaly, degC (slow regime + volcanic), area mean over the regions. */
+  temp: Float32Array
+  /** Its volcanic part alone (<= 0). */
+  volcanic: Float32Array
+  /** Population-weighted mean harvest multiplier (1 = average year). */
+  harvest: Float32Array
 }

@@ -20,6 +20,7 @@ import type { RulerState } from './rulers/state.ts' // rulers:
 import type { ReligionState } from './religion/state.ts' // religion:
 import type { TourismState } from './tourism/state.ts' // tourism:
 import type { IdeasState } from './ideas/state.ts' // ideas:
+import type { DisasterState } from './disasters/state.ts' // disasters:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
 export interface JourneyRecord {
@@ -166,6 +167,8 @@ export interface HistoryState {
   ideas: IdeasState | null
   // orders: the player's nudges (orders/state.ts), or null without orders (every hook is then a no-op).
   orders: OrdersState | null
+  // disasters: natural shocks and climate (disasters/state.ts), or null when switched off (every hook is then a no-op).
+  dx: DisasterState | null
 }
 
 /**
@@ -265,6 +268,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
     orders: null, // orders: (set by index.ts when there are orders)
+    dx: null, // disasters: (set by index.ts when the system is on)
   }
 }
 
