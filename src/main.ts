@@ -44,7 +44,7 @@ import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/active.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
-import { PLAY_PATHS, PlayPath, throneUrl } from './ui/onboard.ts'
+import { PLAY_PATHS, PlayPath } from './ui/onboard.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
@@ -458,6 +458,17 @@ function landingPreset(): PresetName {
 }
 /** The landing's throne link: a seat= link into a curated world (seed, seat). */
 const THRONE_LINK = { seed: 61343, seat: 'polity:0:700' } as const
+/** The landing's throne link for a preset: a curated seat link (EVALUATION.md §1c: seed 61343, its first realm from 700); onboarding's Rule a kingdom path goes here too. */
+function throneHrefFor(p: PresetName): string {
+  const u = new URL(window.location.href)
+  u.search = ''
+  u.searchParams.set('seed', String(THRONE_LINK.seed))
+  u.searchParams.set('seat', THRONE_LINK.seat)
+  if (p !== 'realistic') u.searchParams.set('preset', p)
+  u.searchParams.set('lang', typologyOn ? '2' : '1') // (a new world: drift on, as Start writes it)
+  u.searchParams.set('v', String(LINK_VERSION))
+  return u.pathname + u.search
+}
 /** The landing's Realistic / Dramatic toggle: the preset of the world about to start (written at Start). */
 function setPreset(p: PresetName) {
   const { preset: _old, ...rest } = presetOpts
@@ -825,7 +836,7 @@ const historyView = lazyHistoryView(
 // (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
 appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts')])).then(([{ createSeatController }, { createDecisionCard }]) => {
 seatCtl = createSeatController({
-  card: createDecisionCard(app),
+  card: createDecisionCard(app), // (bots: the card is made here, the controller takes it; both in the seat chunk)
   post: (req) => {
     extending = 0
     worker.postMessage({ ...req, requestId: ++requestId } as WorkerRequest)
@@ -1918,16 +1929,13 @@ if (showLanding) {
     years: Math.min(YEARS_MAX, Math.max(YEARS_MIN, numParam('years', 2000))),
     preset: landingPreset(), // (the start page starts new worlds: v=2)
     onPreset: setPreset,
-    throneHref(p) {
-      // a curated seat link (EVALUATION.md §1c: seed 61343, its first realm from 700); Lane 3 owns the full "Rule a kingdom" slice
-      const u = new URL(window.location.href)
-      u.search = ''
-      u.searchParams.set('seed', String(THRONE_LINK.seed))
-      u.searchParams.set('seat', THRONE_LINK.seat)
-      if (p !== 'realistic') u.searchParams.set('preset', p)
-      u.searchParams.set('lang', typologyOn ? '2' : '1') // (a new world: drift on, as Start writes it)
-      u.searchParams.set('v', String(LINK_VERSION))
-      return u.pathname + u.search
+    throneHref: (p) => throneHrefFor(p),
+    paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
+    onPath(path) {
+      if (path !== PlayPath.Rule) return false
+      // (Rule a kingdom: the throne link of the preset chosen on the page)
+      window.location.assign(throneHrefFor(presetOpts.preset === 'dramatic' ? 'dramatic' : 'realistic'))
+      return true
     },
     onSeed(seed) {
       currentSeed = seed
@@ -1938,12 +1946,6 @@ if (showLanding) {
       if (!landing?.planting) landing?.endPlanting(0)
       landing?.setLoading(true)
       requestWorld(seed, true)
-    },
-    paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
-    onPath(path) {
-      if (path !== PlayPath.Rule) return false
-      window.location.assign(throneUrl(heldUrl ?? new URL(window.location.href)).href)
-      return true
     },
     onStart(seed, years, path) {
       // the address: what the app wrote meanwhile, with the seed and the years chosen

@@ -207,7 +207,7 @@ export function createLanding(deps: LandingDeps): Landing {
   const setPresetUi = () => {
     presetHint.textContent = UI.presets.find((x) => x.value === preset)?.hint ?? ''
     const href = deps.throneHref?.(preset) ?? null
-    throne.hidden = href === null
+    throne.hidden = href === null || !!deps.paths // (onboarding: with the play paths, Rule a kingdom is the way to a throne)
     if (href !== null) throne.href = href
   }
   for (const pr of UI.presets) {
