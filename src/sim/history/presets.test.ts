@@ -25,13 +25,13 @@ describe('presets', () => {
     const e = expandPreset({ preset: 'realistic' })
     for (const k of REALISTIC_ON) expect(e[k], k).toBe(true)
     for (const k of ['families', 'coldWars', 'warRestraint', 'absentee', 'causes'] as const) expect(e[k], k).toBeUndefined()
-    expect(presetParams({ preset: 'realistic' })).toEqual({ dxFeedback: true, battleNeutral: false })
+    expect(presetParams({ preset: 'realistic' })).toEqual({ dxFeedback: true, battleNeutral: false, battleTerms: { height: true, mud: true, frozen: true } })
   })
 
   it('dramatic: every switch on; off: every switch off, no params', () => {
     const d = expandPreset({ preset: 'dramatic' })
     for (const k of PRESET_SWITCHES) expect(d[k], k).toBe(true)
-    expect(presetParams({ preset: 'dramatic' })).toEqual({ dxFeedback: true, battleNeutral: false })
+    expect(presetParams({ preset: 'dramatic' })).toEqual({ dxFeedback: true, battleNeutral: false, battleTerms: { season: true, height: true, mud: true, frozen: true } })
     const o = expandPreset({ preset: 'off' })
     for (const k of PRESET_SWITCHES) expect(o[k], k).toBe(false)
     expect(presetParams({ preset: 'off' })).toEqual({})

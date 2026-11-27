@@ -14,6 +14,7 @@
 
 import { createRng, type Rng } from '../../rng.ts'
 import { TYPO } from './params.ts'
+import { acosD, cosD, expD, logD, sinD } from '../../detMath.ts'
 
 /** How a language builds names (contract.ts MorphStyle mirrors these). */
 export const Style = { Isolating: 0, Suffixing: 1, Prefixing: 2, Compounding: 3, RootPattern: 4 } as const
@@ -58,12 +59,12 @@ function pickCat(prior: readonly number[], u: number): number {
 }
 function normal(rng: Rng): number {
   const u = 1 - rng.next(), v = rng.next()
-  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v)
+  return Math.sqrt(-2 * logD(u)) * cosD(2 * Math.PI * v)
 }
 /** Standard normal CDF (Abramowitz & Stegun 7.1.26 via erf; |error| < 1.5e-7). */
 export function phi(x: number): number {
   const t = 1 / (1 + 0.3275911 * Math.abs(x) / Math.SQRT2)
-  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x / 2)
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * expD(-x * x / 2)
   return x >= 0 ? 0.5 * (1 + y) : 0.5 * (1 - y)
 }
 
@@ -137,7 +138,7 @@ export function drawCradles(seed: number, C: number, centre: (c: number) => [num
     const a = centre(c)
     for (let e = 0; e < c; e++) {
       const b = centre(e)
-      const arc = Math.acos(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])))
+      const arc = acosD(Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])))
       if (arc < best) { best = arc; near = e }
     }
     const u = [rng.next(), rng.next(), rng.next(), rng.next(), rng.next()]
@@ -219,7 +220,7 @@ export function drawProfiles(seed: number, peoples: readonly ProfileInput[], cra
 
 /** A synthetic profile draw (harness and tests): `n` peoples over `C` cradles spread on a ring, from a seed. */
 export function syntheticProfiles(seed: number, n: number, C: number): TypoDraw[] {
-  const centre = (c: number): [number, number, number] => [Math.cos((2 * Math.PI * c) / C), Math.sin((2 * Math.PI * c) / C), 0]
+  const centre = (c: number): [number, number, number] => [cosD((2 * Math.PI * c) / C), sinD((2 * Math.PI * c) / C), 0]
   const peoples: ProfileInput[] = []
   for (let t = 0; t < n; t++) peoples.push({ tribe: t, cradle: t % C, fromCentre: t })
   return drawProfiles(seed, peoples, C, centre).draw

@@ -566,7 +566,7 @@ export function createRunner(world: World, optionsIn?: HistoryOptions, probe?: (
   if (pol && (options?.governments ?? GOV_ON)) s.gov = createGovernment(seed)
   const gov = s.gov
   // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
-  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s, pp.battleNeutral) : null
+  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s, pp.battleNeutral, pp.battleTerms) : null
   s.bat = bat
   // finance: crown treasuries and loans (they need the polities), unless switched off.
   if (pol && (options?.finance ?? FIN.enabled)) s.fin = createFinance(seed, s.count)

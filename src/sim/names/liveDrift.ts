@@ -23,6 +23,7 @@ import { createTreeBuilder, drawRates, extendTree, nodeAt, type TreeBuilder, typ
 import { coinWord, meaningRates } from './lexicon.ts'
 import type { Language } from './phonology.ts'
 import { buildLanguage } from './phonology.ts'
+import { logD } from '../detMath.ts'
 
 export const IB_C = { cLo: 0.6, cHi: 0.95 }
 
@@ -84,7 +85,7 @@ function listOf(ld: LiveDrift, n: number, m: number, Y: number): LexList {
   const rate = LANG.lambda * ld.rates[n] * ld.g[m]
   while (L.rng !== null) {
     if (L.next < 0) {
-      L.t += -Math.log(1 - L.rng.next()) * 1000 / rate
+      L.t += -logD(1 - L.rng.next()) * 1000 / rate
       const year = Math.floor(L.t)
       if (year > 32767) { L.rng = null; L.next = Infinity; break }
       coinWord(baseOf(ld, n), m, L.rng) // (keeps the stream aligned with drawLexicon)

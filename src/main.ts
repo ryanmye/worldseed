@@ -2223,3 +2223,21 @@ if (params.get('perf') === '1') {
 
 // the platform (src/platform): the PWA's service worker and the first-run persistent-storage request
 startPlatform()
+
+// detcheck=1 (debugging, src/detcheck.ts): this page's seed and history options at 2000 years, simulated from scratch in a
+// worker of its own; hashBase and hashValue are shown in the top-left corner, to compare engines (iPhone Safari vs Node/Chrome).
+if (params.get('detcheck') === '1') {
+  const box = document.createElement('div')
+  box.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99999;padding:6px 8px;background:#000c;color:#fff;font:12px/1.4 ui-monospace,monospace;white-space:pre;pointer-events:none'
+  const opts = historyOptionsNow(2000) ?? {}
+  const seed = currentSeed
+  box.textContent = `detcheck seed ${seed} ${JSON.stringify(opts)}\nsimulating 2000 years…`
+  document.body.appendChild(box)
+  const w = new Worker(new URL('./detcheck.ts', import.meta.url), { type: 'module' })
+  w.onmessage = (ev: MessageEvent<import('./detcheck.ts').DetcheckResponse>) => {
+    const r = ev.data
+    box.textContent = `detcheck seed ${seed} ${JSON.stringify(opts)}\n` + ('error' in r ? `error ${r.error}` : `hashBase  ${r.hashBase}\nhashValue ${r.hashValue}\n(${r.ms} ms)`)
+    w.terminate()
+  }
+  w.postMessage({ seed, world: WORLD_OPTIONS, options: opts } satisfies import('./detcheck.ts').DetcheckRequest)
+}

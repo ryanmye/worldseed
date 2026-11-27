@@ -16,7 +16,7 @@ export function emptyBattleHistory(): BattleHistory {
       target: new Int32Array(0), from: new Int32Array(0), attacker: new Int16Array(0), defender: new Int16Array(0), cmdA: new Int32Array(0),
       cmdD: new Int32Array(0), menA: new Float32Array(0), menD: new Float32Array(0), lossA: new Float32Array(0), lossD: new Float32Array(0),
       dead: new Float32Array(0), winner: new Uint8Array(0), hours: new Float32Array(0), weather: new Uint8Array(0), flags: new Uint16Array(0),
-      ratio: new Float32Array(0), breakA: new Float32Array(0), breakD: new Float32Array(0), siegeYear: new Uint8Array(0), name: [],
+      ratio: new Float32Array(0), breakA: new Float32Array(0), breakD: new Float32Array(0), siegeYear: new Uint8Array(0), course: new Uint16Array(0), name: [],
     },
     commanders: {
       count: 0, polity: new Int16Array(0), people: new Int16Array(0), reign: new Int32Array(0), dynasty: new Int32Array(0), born: new Int16Array(0),
@@ -42,6 +42,7 @@ export function assembleBattles(bs: BattleState, year: number, pEnded: Int32Arra
     menD: Float32Array.from(bs.bMenD), lossA: Float32Array.from(bs.bLossA), lossD: Float32Array.from(bs.bLossD), dead: Float32Array.from(bs.bDead),
     winner: Uint8Array.from(bs.bWinner), hours: Float32Array.from(bs.bHours), weather: Uint8Array.from(bs.bWeather), flags: Uint16Array.from(bs.bFlags),
     ratio: Float32Array.from(bs.bRatio), breakA: Float32Array.from(bs.bBreakA), breakD: Float32Array.from(bs.bBreakD), siegeYear: Uint8Array.from(bs.bSiegeYear),
+    course: Uint16Array.from({ length: B }, (_, i) => bs.bCourse[i] ?? 0),
     name: Array.from({ length: B }, (_, i) => battleNames[i] ?? ''),
   }
   const C = bs.cPolity.length

@@ -1751,6 +1751,36 @@ export const BattleFlag = {
 } as const
 
 /**
+ * What decided a battle (History.battles `course`, two slots): the modifier of the odds that moved them most, and the
+ * largest terrain or weather term of at least 15% (else the next largest), each with the side it favoured. Recorded only
+ * when the battles are not neutral (battles#6); 0 (None) in neutral runs and for naval battles.
+ */
+export const BattleFactor = {
+  None: 0,
+  Ground: 1, // the ground (the site's defensibility against the town's: wood, hills, a pass, marsh)
+  Ford: 2, // a river crossing the defenders held (the ford bonus)
+  Command: 3, // the commanders' skill
+  Supply: 4, // food: the marching side's stores against the defenders' (hunger in the ranks)
+  Sickness: 5, // an army stricken by disease
+  Surprise: 6, // one side caught unready (in fog, from cover)
+  Rain: 7, // rain or snow blunting the stronger side (x -> x^3/4)
+  Snow: 8, // the attackers in the snow
+  Heat: 9, // the attackers in the desert heat
+  Morale: 10, // the breaking points (cohesion, zeal, a famous captain, exhaustion)
+  Height: 11, // the higher ground (battle terms: height)
+  Winter: 12, // a winter campaign (battle terms: season)
+} as const
+export type BattleFactor = (typeof BattleFactor)[keyof typeof BattleFactor]
+
+/**
+ * History.battles `course` (Uint16; BattleFlag is full): bits 0-3 the first deciding factor (BattleFactor), bit 4 it
+ * favoured the defenders, bits 5-8 the second, bit 9 it favoured the defenders; then the course of the day (battle terms,
+ * battles-fiction §3.1.2 `course`): Winter (fought in the winter months: season), Mud (the field was mud after rain: the
+ * battle slowed, the pursuit bogged down), Frozen (the river froze: the crossing gave the defenders nothing). Bits 13-15 spare.
+ */
+export const BattleCourse = { Factor: 15, DefFavoured: 16, Factor2Shift: 5, DefFavoured2: 512, Winter: 1024, Mud: 2048, Frozen: 4096 } as const
+
+/**
  * Battles, struct-of-arrays in the order they were fought (the battle id is the index). Every contest of a war-year is
  * one battle: the attacker's strike on its best front, the defender's counterstroke. The battle's attacker is the side
  * that struck (for a counterstroke the war's defender: `counter` 1). The armies' figures are men under arms; `lossA` and
@@ -1791,6 +1821,8 @@ export interface Battles {
   breakA: Float32Array
   breakD: Float32Array
   siegeYear: Uint8Array
+  /** What decided it and the course of the day (BattleCourse bits; 0 when neutral). Absent in histories cached before n5. */
+  course: Uint16Array
   /** "the Battle of Vebena Ford", "the Siege of Kubeta", "the Second Battle of Ashtar Field" (names at the battle's year). */
   name: string[]
 }

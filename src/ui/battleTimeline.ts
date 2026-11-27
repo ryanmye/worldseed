@@ -9,7 +9,7 @@
 // seconds at 1x: Deploy 2 -> Advance 3..6 (longer over a ford) -> Clash 6..14 (the battle's hours) -> Flank (if flagged) ->
 // Break -> Rout -> End. Jitter is a hash of (battle, block): the same battle gives the same replay.
 
-import { BattleFlag, BattleKind } from '../contract.ts'
+import { BattleCourse, BattleFlag, BattleKind } from '../contract.ts'
 import type { History, World } from '../contract.ts'
 
 export type PhaseKind = 'deploy' | 'advance' | 'clash' | 'flank' | 'break' | 'rout' | 'end'
@@ -41,6 +41,11 @@ export interface Timeline {
   ford: boolean
   naval: boolean
   siege: boolean
+  /** n5: the day (BattleWeather), mud (a longer advance), a frozen river, a winter campaign (History.battles course). */
+  weather: number
+  mud: boolean
+  frozen: boolean
+  winter: boolean
   /** Unit vectors of the frame on the globe at the site (x the attack axis, y across, n up), for projecting terrain. */
   ex: [number, number, number]
   ey: [number, number, number]
@@ -116,7 +121,9 @@ export function buildTimeline(h: History, w: World, b: number): Timeline {
   let t = 0
   const push = (kind: PhaseKind, d: number): void => { phases.push({ kind, t0: t, t1: t + d }); t += d }
   push('deploy', 2)
-  push('advance', ford ? 6 : kind === BattleKind.Siege ? 4 : 3)
+  const course = B.course?.[b] ?? 0
+  const mud = (course & BattleCourse.Mud) !== 0, frozen = (course & BattleCourse.Frozen) !== 0
+  push('advance', (ford && !frozen ? 6 : kind === BattleKind.Siege ? 4 : 3) + (mud ? 2 : 0)) // (n5: a frozen river is no ford; mud slows the advance)
   const clash = 6 + 8 * Math.min(1, hours / 14) // (n4b: was 8..20 s, most of it lines nudging)
   push('clash', clash)
   if (flank) push('flank', 3)
@@ -134,7 +141,7 @@ export function buildTimeline(h: History, w: World, b: number): Timeline {
   const tauBreak = z > 1 ? Math.log(z) : 0.05
   const endA = menA > 0 ? 1 - B.lossA[b] / menA : 1
   const endD = menD > 0 ? 1 - B.lossD[b] / menD : 1
-  return { battle: b, seconds: t, phases, blocks, endA, endD, tauBreak, winner, flank, ford, naval, siege: kind === BattleKind.Siege, ex, ey, origin, cell }
+  return { battle: b, seconds: t, phases, blocks, endA, endD, tauBreak, winner, flank, ford, naval, siege: kind === BattleKind.Siege, weather: B.weather[b], mud, frozen, winter: (course & BattleCourse.Winter) !== 0, ex, ey, origin, cell }
 }
 
 export function phaseAt(tl: Timeline, t: number): Phase {

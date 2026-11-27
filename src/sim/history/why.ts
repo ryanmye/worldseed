@@ -14,6 +14,7 @@ import { CrisisBit, RIVALRY_PARTS, RivalryPart, UNREST_PARTS, UNREST_PART_GROUP,
 import type { PolityState } from './polity/state.ts'
 import type { RulerState } from './rulers/state.ts'
 import { RULERS, SUCCESSION } from './rulers/params.ts'
+import { log2D } from '../detMath.ts'
 
 const H = RULERS.heirs
 const RP = RIVALRY_PARTS
@@ -93,7 +94,7 @@ function q8(x: number, max: number): number {
 /** Log-coded: 2^((b - 128) / 32), 1..255 (0 is "not recorded"). */
 function qLog(x: number): number {
   if (!(x > 0)) return 1
-  const v = Math.round(128 + 32 * Math.log2(x))
+  const v = Math.round(128 + 32 * log2D(x))
   return v < 1 ? 1 : v > 255 ? 255 : v
 }
 

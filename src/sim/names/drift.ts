@@ -18,6 +18,7 @@ import { drawProfiles, type ProfileInput } from './typology/profile.ts'
 import { typoLanguage, withOrtho } from './typology/words.ts'
 import { deriveOrtho, drawOrtho, repairOrtho, romanize, writable } from './typology/orthography.ts'
 import { TYPO } from './typology/params.ts'
+import { hypotD } from '../detMath.ts'
 
 /** typology: what the profiles need (HistoryOptions.typology): each people's cradle (People.cradle) and each cradle's centre cell. */
 export interface TypoInput {
@@ -93,7 +94,7 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
     for (let n = 0; n < N; n++) if (tree.parent[n] < 0) roots.push(n)
     const P = world.grid.positions
     const unit = (cell: number): [number, number, number] => {
-      const x = P[cell * 3], y = P[cell * 3 + 1], z = P[cell * 3 + 2], r = Math.hypot(x, y, z) || 1
+      const x = P[cell * 3], y = P[cell * 3 + 1], z = P[cell * 3 + 2], r = hypotD(x, y, z) || 1
       return [x / r, y / r, z / r]
     }
     const C = typoIn.centres.length
