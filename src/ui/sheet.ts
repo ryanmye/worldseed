@@ -48,7 +48,7 @@ export interface SheetDeps {
 const TAB_KEY = 'worldseed.sheet.tab'
 const STATE_KEY = 'worldseed.sheet.state'
 /** Short names for the tabs where a panel's title is long. */
-const TAB_LABELS: Record<string, string> = { goods: 'Goods', inspector: 'Town' }
+const TAB_LABELS: Record<string, string> = { goods: 'Goods', inspector: 'Town', 'context-battle': 'Battle' } // (n4b: the battle context is empty when its tab is made)
 
 // ---------- moving a node out of its place and back ----------
 const marks = new WeakMap<Node, Comment>()
