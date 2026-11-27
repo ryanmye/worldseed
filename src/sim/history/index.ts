@@ -161,6 +161,7 @@ import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming
 // language: languages that split and drift (language/; names/drift.ts).
 import { LANGUAGE_ON } from '../names/languageParams.ts'
 import { TYPOLOGY_ON } from '../names/typology/params.ts'
+import { assembleScripts } from './language/scripts.ts'
 import { assembleLanguage, prepareLanguage } from './language/assemble.ts'
 import type { LanguageDiag } from './language/assemble.ts'
 // ideas: inventions and practices, carried by trade (ideas/).
@@ -711,6 +712,12 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     const langHist = langPrep ? assembleLanguage(langPrep, naming, settlements, renHist.renamings, renHist.forms, peoples, s.know.contact, population, interval, snapshotCount) : null // language:
+    // typology: writing systems ride the writing idea (absent without typology); their events go with the language's
+    const scrHist = langHist && langPrep && typoOn && ix ? assembleScripts({
+      drift: langPrep.drift, settlements, peoples, ideas: ideasHist.ideas, adoptions: ideasHist.ideaAdoptions, population, snapshotInterval: interval, snapshotCount,
+      polity: polSnap, polityPeople: pol ? pol.pPeople.subarray(0, pol.P) : new Int32Array(0), stateFaith: relHist.stateFaith, faiths: relHist.faiths,
+    }) : null
+    if (langHist && scrHist) { langHist.events = langHist.events.concat(scrHist.events); langHist.events.sort((a, b) => a.year - b.year) }
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
     const events = weaveEvents(weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), langHist ? langHist.events : []) // (renaming: PlaceRenamed woven in; landmarks: theirs after it; language: its events last)
     // causes: rows name the run's raw events; woven in, an event moves up by the renaming and landmark events of earlier years.
@@ -742,6 +749,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
         ...(langHist ? { languages: langHist.languages, speech: langHist.speech, nameForms: langHist.nameForms } : {}), // language: (absent when off)
+        ...(scrHist ? { scripts: scrHist.scripts, scriptUse: scrHist.scriptUse } : {}), // typology: writing systems (absent when off)
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         why: whyHist, // causes:
         ...(seat ? { seat: assembleSeat(seat, ox ? ox.given : [], years) } : {}), // seat: (absent without a seat)

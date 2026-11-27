@@ -14,7 +14,35 @@ import { namesYear } from './renamingData.ts'
 /** A town's name as said in the year names are told at (format.ts settlementName, without importing it). */
 const settlementName = (h: History, id: number): string => (id >= 0 && id < h.settlements.length ? spokenName(h, id, namesYear()) ?? h.settlements[id].name : 'a town')
 
-export const isLanguageEvent = (t: number): boolean => t >= EventType.LanguageSplit && t <= EventType.LanguageDied
+export const isLanguageEvent = (t: number): boolean => (t >= EventType.LanguageSplit && t <= EventType.LanguageDied) || isScriptEvent(t)
+/** typology: the writing events (400-404). */
+export const isScriptEvent = (t: number): boolean => t >= EventType.ScriptInvented && t <= EventType.ScriptLost
+
+const SCRIPT_TYPE_NAMES = ['logosyllabic script', 'syllabary', 'abugida', 'abjad', 'alphabet', 'featural script']
+const SCRIPT_DIR_NAMES = ['left to right', 'right to left', 'top to bottom', 'in alternate directions']
+/** "the Ashkari script" (or "the New Ashkari script"). */
+function scriptName(h: History, s: number): string {
+  const S = h.scripts
+  return S && s >= 0 && s < S.count ? `the ${S.name[s]} script` : 'a script'
+}
+const peopleOfScript = (h: History, s: number): string => {
+  const S = h.scripts
+  const p = S && s >= 0 && s < S.count ? S.people[s] : -1
+  return p >= 0 && p < h.peoples.length ? h.peoples[p].name : 'a people'
+}
+/** typology: "writes the Ashkari script (an abugida, left to right) since c. 1120", or null. */
+export function scriptLine(h: History, people: number, year: number): string | null {
+  const U = h.scriptUse, S = h.scripts
+  if (!U || !S || people < 0 || people + 1 >= U.start.length) return null
+  let k = -1
+  for (let r = U.start[people]; r < U.start[people + 1] && U.year[r] <= year; r++) k = r
+  if (k < 0) return null
+  const s = U.script[k]
+  if (s < 0) return `has lost writing (since c. ${U.year[k]})`
+  const t = SCRIPT_TYPE_NAMES[S.type[s]] ?? 'script'
+  const from = S.parent[s] >= 0 && S.people[S.parent[s]] !== people ? `the ${peopleOfScript(h, S.parent[s])}-derived ` : 'the '
+  return `writes ${from}${S.name[s]} script (${/^[aeiou]/.test(t) ? 'an' : 'a'} ${t}, ${SCRIPT_DIR_NAMES[S.direction[s]] ?? ''}) since c. ${U.year[k]}`
+}
 
 function langName(h: History, n: number): string {
   const L = h.languages
@@ -38,6 +66,27 @@ export function describeLanguageEvent(h: History, e: HistoryEvent): string | nul
       return `By about ${e.year} the townsfolk of ${town} speak the ${langName(h, e.value)} of their rulers`
     case EventType.LoanWave:
       return `Many ${langName(h, extra)} words have entered ${langName(h, e.value)}, it seems, under ${langName(h, extra)} rule`
+    // typology: writing (the lines hedged, as the plan's §3.3)
+    case EventType.ScriptInvented: {
+      const who = peopleOfScript(h, e.value)
+      return extra === 1
+        ? `Having heard of writing, the ${who} at ${town} have made, it is said, signs of their own`
+        : `At ${town}, it is said, the ${who} began to keep words in signs of their own`
+    }
+    case EventType.ScriptAdopted:
+      return `The ${peopleOfScript(h, e.value)} have learned to write from the ${peopleOfScript(h, extra)}, shaping ${peopleOfScript(h, extra)} signs to their tongue`
+    case EventType.ScriptReformed:
+      return `${peopleOfScript(h, e.value)} scribes have made their signs into ${h.scripts && h.scripts.type[e.value] === 4 ? 'letters, one for each sound' : `a new ${SCRIPT_TYPE_NAMES[h.scripts?.type[e.value] ?? 4] ?? 'script'}`}`
+    case EventType.ScriptReplaced: {
+      const S = h.scripts
+      const donor = S && S.parent[e.value] >= 0 ? peopleOfScript(h, S.parent[e.value]) : 'foreign'
+      const who = h.scripts ? (h.peoples[h.scripts.people[e.value]]?.name ?? 'the people') : 'the people'
+      return extra === 2 ? `Under ${donor} rule the ${who} have come to write in the ${donor} hand`
+        : extra === 3 ? `Following the faith of the ${donor}, the ${who} have come to write in the ${donor} hand`
+          : `The ${who} have taken up the ${donor} letters`
+    }
+    case EventType.ScriptLost:
+      return `No one now reads ${scriptName(h, e.value)}, it seems`
     case EventType.LanguageDied:
       return extra >= 0
         ? `The last speakers of ${langName(h, e.value)}, at ${town}, have given up their tongue for ${langName(h, extra)}`
@@ -140,6 +189,8 @@ export function peopleLanguageLines(h: History, p: number, year: number): string
   linesH = h
   linesKey = `${p}|${year}`
   linesOut = peopleLanguageLinesUncached(h, p, year)
+  const w = scriptLine(h, p, year) // typology: the people's script
+  if (w) linesOut.unshift(`${h.peoples[p]?.name ?? 'This people'} ${w}`)
   return linesOut.slice()
 }
 

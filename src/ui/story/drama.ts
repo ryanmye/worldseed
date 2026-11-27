@@ -341,6 +341,14 @@ R(T.LanguageShift, { cat: DramaCat.Culture, base: 2, scale: DramaScale.Town })
 I(T.LoanWave)
 R(T.LanguageDied, { cat: DramaCat.Culture, base: 4 })
 
+// --- writing (400-404, language-typology-scripts: present only with HistoryOptions.typology) ---
+// (a people's own invention scores like IdeaConceived; the rest are notices)
+R(T.ScriptInvented, { cat: DramaCat.Culture, base: 4, gate: (_c, e) => (e.extra ?? 0) === 0 })
+R(T.ScriptAdopted, { cat: DramaCat.Culture, base: 2 })
+R(T.ScriptReformed, { cat: DramaCat.Culture, base: 3 })
+R(T.ScriptReplaced, { cat: DramaCat.Culture, base: 3 })
+R(T.ScriptLost, { cat: DramaCat.Culture, base: 3 })
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })

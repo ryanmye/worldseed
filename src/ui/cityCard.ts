@@ -86,6 +86,9 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
       root.classList.toggle('flying', flying)
       const y = Math.floor(year)
       set(nameEl, spokenNameAt(h, id, y))
+      // typology: the scholarly spelling on hover (lang=2; language-typology-scripts.md §9.2, the MVP card line)
+      const sch = h.languages?.model === 1 ? spokenNameAt(h, id, y, -1, 'scholarly') : ''
+      if (nameEl.title !== sch) nameEl.title = sch
       const p = peopleOf(h, id)
       const people = p >= 0 ? peopleName(h, p) : null
       const pd = politiesOf(h)

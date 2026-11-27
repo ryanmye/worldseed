@@ -55,3 +55,28 @@ export const TYPO = {
   /** A daughter redraws 1-2 spelling slots at its split with this chance [A]. */
   orthoRedraw: 0.3,
 } as const
+
+/** typology: writing systems (history/language/scripts.ts; language-typology-scripts.md §5.5). Every value is [A] unless noted. */
+export const SCRIPT = {
+  /** A people's first script when none exists anywhere is logosyllabic with this chance (after the four commonly recognised independent inventions, each with logograms plus phonetic signs; a design default, not a measured rate). */
+  firstLogo: 0.85,
+  /** A later independent invention is logosyllabic with this chance (else by phonology fit). */
+  laterLogo: 0.6,
+  /** A learned script is a stimulus invention (only the idea spreads; Sequoyah's syllabary the best-documented case). */
+  stimulus: 0.12,
+  /** A borrowed logosyllabic script becomes a syllabary in a non-isolating language (logograms used for their sound). */
+  logoToSyllabary: 0.5,
+  /** A reform makes a featural script (Sampson's term for Hangul). */
+  featural: 0.04,
+  /** Weight of the state faith's holy-city script in exposure. */
+  faithMul: 0.4,
+  /** Replacement hazard per bin: shiftRate x E^2 when the mean exposure over the last 4 bins reaches shiftMin. */
+  shiftRate: 0.12,
+  shiftMin: 0.6,
+  /** Years per exposure bin (as LANG.bin). */
+  bin: 50,
+  /** A daughter keeps its parent's direction with this chance. */
+  keepDirection: 0.85,
+  /** A new family's direction: LTR, RTL, vertical, boustrophedon. */
+  direction: [0.45, 0.35, 0.15, 0.05],
+} as const
