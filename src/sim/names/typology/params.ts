@@ -71,7 +71,7 @@ export const SCRIPT = {
   /** Weight of the state faith's holy-city script in exposure. */
   faithMul: 0.4,
   /** Replacement hazard per bin: shiftRate x E^2 when the mean exposure over the last 4 bins reaches shiftMin. */
-  shiftRate: 0.12,
+  shiftRate: 0.08,
   shiftMin: 0.6,
   /** Years per exposure bin (as LANG.bin). */
   bin: 50,

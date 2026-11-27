@@ -23,6 +23,13 @@
 .city-tip.hidden {
   display: none;
 }
+.city-card .cc-script:empty {
+  display: none;
+}
+.city-card .cc-script {
+  margin: 2px 0 1px;
+  opacity: 0.85;
+}
 .city-card .cc-name {
   font-size: 17px;
   font-weight: 700;

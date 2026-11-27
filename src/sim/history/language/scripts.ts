@@ -14,9 +14,10 @@
 //   alphabet, invented    a reform of the people's own script into an alphabet (an abjad for root-and-pattern tongues, an
 //                         abugida from a syllabary or abugida of a simple-syllable tongue, featural with SCRIPT.featural).
 //                         ScriptReformed.
-//   alphabet, learned     the people takes an adapted daughter of the giver's script unless it already writes a segmental one.
-//                         ScriptReplaced (cause Idea).
-//   writing, lost         unwritten (a ScriptUse row with script -1); ScriptLost when no people writes that script any more.
+//   alphabet, learned     from writers of the same line: a reform as above; from another line, the people takes an adapted
+//                         daughter of the giver's script unless it already writes a segmental one. ScriptReplaced (cause Idea).
+//   writing, lost         unwritten (a ScriptUse row with script -1); ScriptLost when no people writes a script of that line any more
+//                         (also when the last writers of a line give it up for another).
 //   rule and faith        exposure E to a script family = the share of the people's population in realms whose ruling people
 //                         writes it, plus SCRIPT.faithMul x the share under a state faith whose holy city's people writes it;
 //                         hazard SCRIPT.shiftRate x E^2 per bin once the mean over the last 4 bins reaches SCRIPT.shiftMin.
@@ -108,9 +109,10 @@ export function assembleScripts(inp: ScriptInput): ScriptHistory {
     if (list.length && list[list.length - 1].year === year) list[list.length - 1] = { year, script, cause }
     else list.push({ year, script, cause })
     cur[p] = script
-    if (prev >= 0 && prev !== script) {
+    // (ScriptLost when a whole line of scripts goes unread: no people writes any script of its family)
+    if (prev >= 0 && (script < 0 || sc.family[script] !== sc.family[prev])) {
       let still = false
-      for (let q = 0; q < P && !still; q++) if (cur[q] === prev) still = true
+      for (let q = 0; q < P && !still; q++) if (cur[q] >= 0 && sc.family[cur[q]] === sc.family[prev]) still = true
       if (!still) events.push({ year, type: EventType.ScriptLost, settlement: largest(p, year), other: -1, value: prev, extra: p })
     }
   }
@@ -165,7 +167,9 @@ export function assembleScripts(inp: ScriptInput): ScriptHistory {
     // the alphabet
     if (how === IdeaHow.Lost || cur[p] < 0) return
     const own = cur[p]
-    if (how === IdeaHow.Invented) {
+    const gift = from >= 0 && from < P ? cur[from] : -1
+    // (learned from writers of the same line, the alphabet is made out of the people's own signs: a reform, as derived alphabets are)
+    if (how === IdeaHow.Invented || (gift >= 0 && sc.family[gift] === sc.family[own])) {
       if (SEGMENTAL(sc.type[own]) && sc.type[own] !== ScriptType.Abugida) return
       const d = drawOf(p)
       let type: number = ScriptType.Alphabet
@@ -179,8 +183,8 @@ export function assembleScripts(inp: ScriptInput): ScriptHistory {
       events.push({ year, type: EventType.ScriptReformed, settlement: at, other: -1, value: id, extra: own })
       return
     }
-    const src = from >= 0 && from < P ? cur[from] : -1
-    if (src < 0 || SEGMENTAL(sc.type[own]) || !SEGMENTAL(sc.type[src]) || sc.family[src] === sc.family[own]) return
+    const src = gift
+    if (src < 0 || SEGMENTAL(sc.type[own]) || !SEGMENTAL(sc.type[src])) return
     replaceWith(p, year, src, ScriptCause.Idea, from, rng)
   }
 

@@ -89,16 +89,16 @@ export function spokenFormAt(h: SpokenSource, id: number, year: number, people =
  * A form said by language `node` as a name to show: capitalised; typology (Languages.model 1): spelt in the language's tradition,
  * in `register` (plain by default: map labels, search; scholarly for the panels).
  */
-export function sayForm(L: Pick<NonNullable<History['languages']>, 'count'> & Partial<Pick<NonNullable<History['languages']>, 'model' | 'ortho'>>, form: string, node: number, register: Register = 'plain'): string {
-  if (L.model === 1 && L.ortho && node >= 0 && node < L.count) return capitalizeName(romanize(form, L.ortho[node], register))
+export function sayForm(L: Pick<NonNullable<History['languages']>, 'count'> & Partial<Pick<NonNullable<History['languages']>, 'model' | 'ortho'>>, form: string, node: number, register: Register = 'plain', supported?: (ch: string) => boolean): string {
+  if (L.model === 1 && L.ortho && node >= 0 && node < L.count) return capitalizeName(romanize(form, L.ortho[node], register, supported))
   return capitalizeName(form)
 }
 
 /** The name of `id` said at `year`, capitalised (see the file comment); typology: spelt, `register` plain by default. */
-export function spokenNameAt(h: SpokenSource, id: number, year: number, people = -1, register: Register = 'plain'): string {
+export function spokenNameAt(h: SpokenSource, id: number, year: number, people = -1, register: Register = 'plain', supported?: (ch: string) => boolean): string {
   const spec = spokenSpec(h, id, year, people)
   if (!spec) return settlementNameAt(h, id, year)
-  return sayForm(h.languages!, evolve(h.languages!, spec.form, spec.node, spec.from, year, LANG.minNameLetters), spec.node, register)
+  return sayForm(h.languages!, evolve(h.languages!, spec.form, spec.node, spec.from, year, LANG.minNameLetters), spec.node, register, supported)
 }
 
 /** A key that changes only when the spoken name of `id` at `year` can (the UI cache key). */

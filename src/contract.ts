@@ -266,7 +266,7 @@ export const EventType = {
   ScriptAdopted: 401, // a people learned to write another's script, fitted to its tongue: `settlement` where, `other` the source settlement; `value` the new (adapted) script id; `extra` the script it was adapted from
   ScriptReformed: 402, // a people made a new script out of its own (the alphabet idea, invented): `settlement` its largest town; `other` -1; `value` the new script; `extra` the old
   ScriptReplaced: 403, // a people gave up its script for another's: `settlement` its largest town, `other` the donor's capital or holy city; `value` the script now used; `extra` the ScriptCause (Rule, Faith, Idea)
-  ScriptLost: 404, // the last people writing script `value` lost writing or left it: `settlement` its largest town then; `other` -1; `extra` the people
+  ScriptLost: 404, // the last people writing a script of the line of script `value` (its family) lost writing or left it for another line: `settlement` its largest town then; `other` -1; `extra` the people
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
