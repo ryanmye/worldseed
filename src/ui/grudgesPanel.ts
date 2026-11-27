@@ -39,7 +39,10 @@ export function grudgeSection(h: History, pd: PolitiesData, p: number, year: num
     }
   }
   const coalition = [...threats.entries()].find(([, l]) => l.length >= 2)
-  if (held.length === 0 && borne.length === 0 && f < 0.3 && broken.length === 0 && m < 0.05 && races.length === 0 && !coalition && against < 2) return
+  const C = h.coldWars
+  const colds: number[] = []
+  if (C) for (let i = 0; i < C.count; i++) if ((C.a[i] === p || C.b[i] === p) && C.start[i] <= year && (C.end[i] < 0 || C.end[i] > year)) colds.push(i) // cold wars:
+  if (held.length === 0 && borne.length === 0 && f < 0.3 && broken.length === 0 && m < 0.05 && races.length === 0 && !coalition && against < 2 && colds.length === 0) return
   k.cap('Grudges')
   for (const g of held.slice(0, 4)) {
     const d = k.line('Against ', k.polityLink(g.other, pd.names[g.other]), ': ')
@@ -65,6 +68,7 @@ export function grudgeSection(h: History, pd: PolitiesData, p: number, year: num
       d.append(' · racing ', k.polityLink(o, pd.names[o]), ` since ${h.armsRaces.start[i]}`)
     }
   }
+  for (const i of colds.slice(0, 2)) { const o = C!.a[i] === p ? C!.b[i] : C!.a[i]; k.line('In a cold war with ', k.polityLink(o, pd.names[o]), ` since ${C!.start[i]}`) } // cold wars:
   if (coalition) {
     const [c, l] = coalition
     const d = k.line('Coalition: allied with ')

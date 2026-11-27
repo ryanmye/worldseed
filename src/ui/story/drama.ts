@@ -365,6 +365,14 @@ R(T.AllianceRevealed, { cat: DramaCat.Politics, base: 5, polities: pairPolities 
 R(T.ClaimExposed, { cat: DramaCat.Politics, base: 2, polities: realmPolities })
 I(T.BluffBegun, T.SecretAlliance, T.SpyCaught, T.ClaimForged)
 
+// --- cold wars (393-398, barriers-coldwar: only with HistoryOptions.coldWars) ---
+R(T.ColdWarBegan, { cat: DramaCat.Politics, base: 5, polities: pairPolities })
+R(T.ProxyWar, { cat: DramaCat.War, base: 3, polities: pairPolities })
+R(T.ClientDefected, { cat: DramaCat.Politics, base: 3, polities: pairPolities })
+R(T.Crisis, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 3, polities: pairPolities }) // (an escalated crisis: its WarDeclared scores)
+R(T.ColdWarEnded, { cat: DramaCat.Politics, base: 4, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: pairPolities }) // (a hot war: its WarDeclared scores)
+I(T.Detente)
+
 // --- crown finance (210-217, state-finances: only with HistoryOptions.finance) ---
 I(T.LoanTaken, T.ArmyUnpaid)
 R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })

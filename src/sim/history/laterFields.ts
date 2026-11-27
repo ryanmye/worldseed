@@ -8,6 +8,7 @@ export const LATER_KEYS: ReadonlySet<string> = new Set([
   'grievances', 'faithless', 'arms', 'armsRaces', // grudges-and-oaths
   'deference', // rulers: deference (seat steps 8-9 lane)
   'treasury', 'crownDebt', 'crownRevenue', 'crownSpending', 'creditRate', 'coinage', 'fiscalDistress', 'loans', 'loanBalance', // state-finances
+  'coldWars', // barriers-coldwar (cold wars)
   'socWage', 'socUrbanWage', 'socRent', 'socPsi', 'socMMP', 'socEMP', 'socSFD', 'socElite', 'socUrban', 'socClergy', 'socCoercion', 'socPhase', // society
   'strength', 'beliefs', 'beliefEst', 'beliefSd', 'beliefSource', 'bluffShown', 'spyService', 'credibility', // beliefs-and-deception
   'families', // merchant-families
