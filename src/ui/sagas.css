@@ -184,3 +184,15 @@
 .sg-links [hidden] {
   display: none;
 }
+/* partisan: the teller under the title, the tag line with its link to the record, the Told by select */
+.sg-pov {
+  font-style: italic;
+  margin: -2px 0 6px;
+  opacity: 0.85;
+}
+.sg-partisan {
+  margin: 2px 0 6px;
+}
+.sg-pov-select {
+  max-width: 100%;
+}
