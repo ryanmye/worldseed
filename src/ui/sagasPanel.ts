@@ -45,7 +45,7 @@ export interface SagasView {
   readonly legend: boolean
 }
 
-const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year' }
+const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year', commander: 'Commander' }
 /** Entries per subject list (the selected subject is always added). */
 const LIST_CAP = 80
 
@@ -77,7 +77,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   const kindSel = document.createElement('select')
   kindSel.className = 'view-select sg-kind'
   kindSel.title = 'What the saga is about'
-  for (const k of ['world', 'people', 'state', 'city', 'house'] as SagaKind[]) {
+  for (const k of ['world', 'people', 'state', 'city', 'house', 'commander'] as SagaKind[]) {
     const o = document.createElement('option')
     o.value = k
     o.textContent = KIND_LABEL[k]
@@ -243,6 +243,14 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
       for (const s of h.settlements) if (s.foundedYear <= year && !s.outpost) ids.push(s.id)
       return topBy(ids, (id) => 1 + c.peak(id).pop, LIST_CAP).map((id) => ({ id, label: `${c.name(id, year)}${c.alive(id) ? '' : ' (ruin)'}` }))
     }
+    if (kind === 'commander') {
+      // battles: commanders with a name who had fought by then, most famous first
+      const C = h.commanders
+      if (!C) return []
+      const ids: number[] = []
+      for (let k = 0; k < C.count; k++) if (C.firstYear[k] <= year && C.name[k] && C.battles[k] >= 2) ids.push(k)
+      return topBy(ids, (k) => 1 + C.fame[k] + 0.1 * C.wins[k], LIST_CAP).map((k) => ({ id: k, label: `${C.name[k]} (${c.pname(C.polity[k])}, from ${C.firstYear[k]})` }))
+    }
     const rd = c.rd
     if (!rd) return []
     const ids = h.dynasties.filter((d) => d.founded <= year).map((d) => d.id)
@@ -253,13 +261,13 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     kindSel.value = subject.kind
     for (const o of kindSel.options) {
       const k = o.value as SagaKind
-      o.disabled = !!history && ((k === 'state' && !(history.polities?.length)) || (k === 'house' && !(history.dynasties?.length)))
+      o.disabled = !!history && ((k === 'state' && !(history.polities?.length)) || (k === 'house' && !(history.dynasties?.length)) || (k === 'commander' && !(history.commanders?.count)))
     }
     subjSel.textContent = ''
     const items = history ? subjectsOf(subject.kind, year) : []
     if (subject.kind !== 'world' && !items.some((x) => x.id === subject.id) && history && sagaSubjectValid(history, subject, year)) {
       const c = new Ctx(history, world, year)
-      const label = subject.kind === 'city' ? c.name(subject.id, year) : subject.kind === 'state' ? c.pgreatTitle(subject.id) : subject.kind === 'people' ? `the ${history.peoples[subject.id].name}` : `House ${history.dynasties[subject.id].name}`
+      const label = subject.kind === 'city' ? c.name(subject.id, year) : subject.kind === 'state' ? c.pgreatTitle(subject.id) : subject.kind === 'people' ? `the ${history.peoples[subject.id].name}` : subject.kind === 'commander' ? history.commanders.name[subject.id] : `House ${history.dynasties[subject.id].name}`
       items.unshift({ id: subject.id, label })
     }
     for (const x of items) {

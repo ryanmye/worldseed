@@ -1,0 +1,34 @@
+/* seat: the decision card (decisionCard.ts). Phone first: a bottom panel, stacked full-width options >= 48 px tall. */
+.seat-card {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+  max-height: 62vh; overflow-y: auto; box-sizing: border-box;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  background: rgba(14, 18, 26, 0.96); color: #e8e4da; border-top: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+.seat-card.hidden { display: none; }
+.seat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.seat-card-title { font-weight: 600; font-size: 16px; }
+.seat-card-sub { opacity: 0.7; font-size: 12px; white-space: nowrap; }
+.seat-card-text { margin: 0 0 10px; opacity: 0.9; }
+.seat-card-options { display: flex; flex-direction: column; gap: 8px; }
+.seat-opt {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 48px;
+  padding: 10px 12px; text-align: left; cursor: pointer; touch-action: manipulation;
+  background: rgba(255, 255, 255, 0.07); color: inherit; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; font: inherit;
+}
+.seat-opt:hover, .seat-opt:focus-visible { background: rgba(255, 255, 255, 0.14); outline: none; border-color: rgba(255, 220, 150, 0.6); }
+.seat-opt-label { font-weight: 600; }
+.seat-opt-note { font-size: 12px; opacity: 0.75; }
+.seat-showme { margin-top: 10px; min-height: 44px; padding: 0 14px; background: none; color: #f0d79a; border: 1px solid rgba(240, 215, 154, 0.4); border-radius: 10px; font: inherit; cursor: pointer; }
+.seat-take { margin: 6px 0; min-height: 44px; padding: 0 12px; background: rgba(240, 215, 154, 0.14); color: #f0d79a; border: 1px solid rgba(240, 215, 154, 0.45); border-radius: 8px; font: inherit; cursor: pointer; }
+.seat-amb { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.seat-amb input { width: 22px; height: 22px; }
+/* wider screens: a card at the top centre */
+@media (min-width: 700px) {
+  .seat-card:not(.seat-card-compact) {
+    left: 50%; right: auto; bottom: auto; top: 64px; width: 420px; transform: translateX(-50%);
+    border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.16); max-height: calc(100vh - 140px);
+  }
+}

@@ -44,6 +44,8 @@ import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, emb
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
+import { notableBattlesOfWar } from './battlesData.ts' // battles:
+import { battleShortLine } from './battleFormat.ts' // battles:
 import type { LayerToggle } from './overlay.ts'
 import './polities.css'
 
@@ -69,6 +71,8 @@ export interface PolitiesViewDeps {
   layerOn: boolean
   /** polity=<id> from the URL. */
   initialPolity: number | null
+  /** seat mode: "Take this throne" on a living faction's detail (absent: no button). */
+  onTakeSeat?(polity: number, year: number): void
 }
 
 export interface PolitiesView {
@@ -619,6 +623,16 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     })
     titleEl.append(close)
     detail.append(titleEl)
+    if (deps.onTakeSeat && exists && lives) {
+      // seat: play on as this faction's ruler from the year shown (ui/seat)
+      const take = document.createElement('button')
+      take.type = 'button'
+      take.className = 'seat-take'
+      take.textContent = 'Take this throne'
+      const p = selected, y = Math.floor(year)
+      take.addEventListener('click', (e) => { e.stopPropagation(); deps.onTakeSeat?.(p, y) })
+      detail.append(take)
+    }
     const line = (...parts: (string | Node)[]) => {
       const d = document.createElement('div')
       d.className = 'fp-d-line'
@@ -833,6 +847,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         d.append(enemy >= 0 && enemy < pd.count ? polityLink(enemy, pd.names[enemy]) : 'rebels')
         if (!ongoing && W.outcome[w] !== WarOutcome.Ongoing) d.append(` (${warOutcomeWords(pd, w)})`)
         else if (ongoing) d.append(' (in progress)')
+        // battles: the war's notable battles fought by the year shown (winner and armies)
+        for (const b of notableBattlesOfWar(h, w, 3)) if (h.battles.year[b] <= year) { const bl = line(battleShortLine(h, b)); bl.classList.add('fp-faint', 'fp-battle'); bl.title = h.battles.name[b] }
       }
       if (ws.length > shown.length) line(`and ${ws.length - shown.length} earlier`).classList.add('fp-faint')
     }

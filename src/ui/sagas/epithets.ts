@@ -5,6 +5,7 @@
 import { AccessionHow, EventType, LandmarkKind, LandmarkRank, ReignEnd, WarOutcome } from '../../contract.ts'
 import { traitWords } from '../rulersData.ts'
 import type { Ctx } from './facts.ts'
+import { battlesOf } from '../battlesData.ts' // battles:
 
 /** What a reign did, up to the year told (shared by the state and house sagas). */
 export interface ReignFacts {
@@ -128,5 +129,37 @@ export function cityEpithet(c: Ctx, id: number): string {
   if (sieges >= 2) return 'the Unbowed'
   if (c.at(id, [EventType.PlaceRenamed]).length >= 2) return 'of Many Names'
   if (s.resort) return 'the Pleasant'
+  return ''
+}
+
+/** The core of a battle's name for an epithet ("the Battle of Vebena Ford" -> "Vebena Ford", "the Siege of Kubeta" -> "Kubeta"). */
+export function battlePlace(name: string): string {
+  return name.replace(/^the (\S+ )?(Battle|Siege|Ambush|Relief) (of|in|at) /, '').replace(/^the /, 'the ')
+}
+
+/**
+ * battles: a commander's epithet from his record up to the year told ('' none): three victories over one realm make him its
+ * "Hammer"; else his greatest victory names him ("the Victor of Vebena Ford"); an unbeaten record of three or more, "the Unbeaten".
+ */
+export function commanderEpithet(c: Ctx, k: number): string {
+  const bd = battlesOf(c.h)
+  if (!bd || k < 0 || k >= bd.C.count) return ''
+  const B = bd.B
+  const over = new Map<number, number>()
+  let best = -1, bestW = 0, wins = 0, losses = 0
+  for (const b of bd.byCommander[k]) {
+    if (B.year[b] > c.Y) break
+    const att = B.cmdA[b] === k
+    const won = (B.winner[b] === 0) === att
+    if (!won) { losses++; continue }
+    wins++
+    const foe = att ? B.defender[b] : B.attacker[b]
+    over.set(foe, (over.get(foe) ?? 0) + 1)
+    const w = att ? B.lossD[b] : B.lossA[b]
+    if (w > bestW) { bestW = w; best = b }
+  }
+  for (const [foe, n] of over) if (n >= 3 && foe >= 0) return `Hammer of ${c.pname(foe)}`
+  if (wins >= 3 && losses === 0) return 'the Unbeaten'
+  if (best >= 0 && B.name[best]) return `the Victor of ${battlePlace(B.name[best])}`
   return ''
 }

@@ -79,6 +79,18 @@ export function smoothstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t)
 }
 
+/**
+ * battles: the natural logarithm of y > 0 with + - * / sqrt only (the sim may not call Math.log): twelve square roots give
+ * y^(1/4096) = 1 + e, and ln y = 4096 ln(1 + e) by the series to e^4. Error below 1e-9 relative for y in [1e-6, 1e6].
+ */
+export function lnSqrt(y: number): number {
+  let x = y
+  for (let k = 0; k < 12; k++) x = Math.sqrt(x)
+  const e = x - 1
+  const e2 = e * e
+  return 4096 * (e - e2 / 2 + (e2 * e) / 3 - (e2 * e2) / 4)
+}
+
 /** Compact bump: 1 at d = 0, 0 for |d| >= w, smooth (C1) in between. */
 export function bump(d: number, w: number): number {
   const t = d / w

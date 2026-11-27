@@ -6,12 +6,14 @@
 import { AccessionHow, BondKind, EventType, LandmarkRank, OrderKind, PolityEnd, PolityOrigin, ReignEnd, WarKind, WarOutcome } from '../../contract.ts'
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { Ctx, topBy } from './facts.ts'
-import { reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
+import { commanderEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, list, num, people, plural, times, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
 import { OMEN_T, omenText, omensOfState } from './omens.ts'
+import { seatDecisionFacts } from '../seat/seatFormat.ts'
 import { Refs } from './refs.ts'
-import { conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { battleScenes, conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, siegeScenes, workScene, type Scene } from './scenes.ts'
+import { battlesOf } from '../battlesData.ts' // battles:
 import { warCalled, warName } from './wars.ts'
 import { reignChapters, REIGN_T } from './reigns.ts'
 import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
@@ -174,6 +176,9 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     ...c.type(EventType.RulerConverted).filter((i) => c.polityOf(c.ev(i).settlement, c.ev(i).year) === p && c.capital(p, c.ev(i).year) === c.ev(i).settlement).slice(0, 1).map((i) => conversionScene(c, v, i)),
     ...topBy(c.type(EventType.LandmarkCompleted).filter((i) => L0 && L0.polity[c.ev(i).value] === p), (i) => L0.completedYear[c.ev(i).value] - L0.begunYear[c.ev(i).value], 1).map((i) => workScene(c, v, i)),
     ...topBy(c.type(EventType.CityStricken).filter((i) => mineAt(c.ev(i).settlement, c.ev(i).year)), (i) => (c.ev(i).extra ?? 0) * c.pop(c.ev(i).settlement, c.ev(i).year), 1).map((i) => plagueScene(c, v, i, legend)),
+    // battles: its greatest battle, the longest siege of one of its towns
+    ...battleScenes(c, v, 1, (b) => h.battles.attacker[b] === p || h.battles.defender[b] === p),
+    ...siegeScenes(c, v, 1, (g) => { const bd = battlesOf(h)!; return bd.B.defender[bd.sieges[g].rows[0]] === p }),
   ], 3)
   const omens = omensOfState(c, p)
   const placed = new Set<number>()
@@ -297,12 +302,19 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     if (revolts.length >= 20) p3.push(v.p('revoltsMany', { most: crushed >= revolts.length * 0.9 ? 'nearly all' : crushed >= revolts.length * 0.6 ? 'most' : crushed >= revolts.length * 0.35 ? 'many' : 'few' }))
     else p3.push(v.p('revolts', { times: times(revolts.length), crushed: crushed === 0 ? 'none' : crushed >= revolts.length ? 'all' : num(crushed) }).replace('; all were put down', '; every one was put down').replace(', and all of the risings', ', and every one of the risings'))
   }
+  // battles: its most famous commander (a reference to his saga)
+  const bdc = battlesOf(h)
+  if (bdc) {
+    let best = -1
+    for (let k = 0; k < bdc.C.count; k++) if (bdc.C.polity[k] === p && bdc.C.fameYear[k] <= Y && bdc.C.fame[k] >= 15 && bdc.C.name[k] && (best < 0 || bdc.C.fame[k] > bdc.C.fame[best])) best = k
+    if (best >= 0) { const ep = commanderEpithet(c, best); p3.push(refs.cite(v.p('greatCommander', { name: bdc.C.name[best], feat: ep.startsWith('the Victor of ') ? `victor of ${ep.slice(14)}` : ep ? `called ${ep}` : `who led its armies from ${bdc.C.firstYear[best]}` }), { kind: 'commander', id: best })) }
+  }
   const kids = (pd.children[p] ?? []).filter((q) => pd.list[q].foundedYear <= Y && (pd.list[q].origin === PolityOrigin.Revolt || pd.list[q].origin === PolityOrigin.Colonial || pd.list[q].origin === PolityOrigin.CivilWar))
   if (kids.length) p3.push(v.p('seceded', { list: kids.length <= 3 ? list(kids.map((q) => c.pname(q))) : `${kids.slice(0, 2).map((q) => c.pname(q)).join(', ')} and ${num(kids.length - 2)} others` }))
   const part = c.type(EventType.Partitioned).map((i) => c.ev(i)).find((e) => e.value === p)
   if (part) p3.push(v.p('partitioned', { year: part.year }))
   p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
-  section('hWar', p3.join(' '), ['sack', 'plague'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
+  section('hWar', p3.join(' '), ['sack', 'plague', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----
   const p4: string[] = []
@@ -371,6 +383,9 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   }
   const rest = omens.filter((f) => !placed.has(f.k))
   if (rest.length) { book.chapter(v.p('hOmens')); for (const f of rest) book.omen(omenText(c, v, f)) }
+  // seat: the decisions the player took for this realm (seat-mode §3.8), told in the saga's register
+  const deeds = seatDecisionFacts(h, p, Y)
+  if (deeds.length) { book.chapter(legend ? 'The Choices of the Throne' : 'The Decisions of the Court'); book.add(deeds.map((f) => (legend ? f.legend : f.chronicle)).filter((x) => x).join(' ')) }
   section(ended ? 'hEnd' : 'hNow', p5.join(' '))
 
   const facts: string[] = [`founded ${fy} at ${c.name(x.capitals[0], fy)}`]

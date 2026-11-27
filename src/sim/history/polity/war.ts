@@ -55,6 +55,7 @@ import { breakExcess, breakFactor, joinChance, linkAlly, oathBroken, oathTruce, 
 import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
+import { battleFought } from '../battles/system.ts' // battles:
 import { whyPending, whyRelScale, whyWar } from '../why.ts' // causes:
 
 // --- Declarations ------------------------------------------------------------------------------------
@@ -206,8 +207,8 @@ export function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: n
   logEvent(s, EventType.PeaceMade, ps.pCapital[p], ps.pCapital[q], w)
 }
 
-/** A cosmetic army journey from u to v (a bounded cell search), arriving this year. */
-function armyJourney(s: HistoryState, ps: PolityState, u: number, v: number, edgeCost: number, mass: number): void {
+/** A cosmetic army journey from u to v (a bounded cell search), arriving this year. Returns its path of cells (null: no way within the budget, nothing logged). */
+function armyJourney(s: HistoryState, ps: PolityState, u: number, v: number, edgeCost: number, mass: number): number[] | null {
   const T = s.terrain
   const { neighborOffsets: off, neighbors: nb } = s.world.grid
   const { aDist, aPrev, aStamp, aHeap: heap } = ps
@@ -234,7 +235,7 @@ function armyJourney(s: HistoryState, ps: PolityState, u: number, v: number, edg
       heap.push(nd, j)
     }
   }
-  if (!found) return
+  if (!found) return null
   const path: number[] = []
   for (let c = t; c >= 0; c = aPrev[c]) path.push(c)
   path.reverse()
@@ -248,6 +249,7 @@ function armyJourney(s: HistoryState, ps: PolityState, u: number, v: number, edg
   if (depart < s.founded[u]) depart = s.founded[u]
   logJourney(s, { departYear: depart, arriveYear: arrive, from: u, to: v, size, kind: JourneyKind.Army, path })
   learnPath(s, u, path, false) // (the attacker's people learn the way they marched)
+  return path
 }
 
 /** Odds of a strike by p from u on q's v at graph cost d: A and D. */
@@ -401,9 +403,12 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
     }
     for (let k = 0; k < ps.wSiegeYears[w]; k++) r *= WAR.siegeAttrition
   }
-  const win = (r * r) / (r * r + 1)
-  // Casualties and devastation.
+  // (the journey reads no pop, danger or fields, and draws nothing: it goes before the roll, so battles can see its path)
+  const path = armyJourney(s, ps, u, v, d - ps.dist[u], ps.pMass[p])
+  const U = rng.next()
   const lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
+  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu + lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
+  // Casualties and devastation.
   s.pop[u] -= lu
   s.pop[v] -= lv
   dead[0] += attacker ? lu : lv
@@ -418,8 +423,7 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   const T = s.terrain
   const c = s.cell[v]
   for (let k = T.catchOff[c], e = T.catchBase[c]; k < e; k++) s.landUse[T.catchCell[k]] *= WAR.fields
-  armyJourney(s, ps, u, v, d - ps.dist[u], ps.pMass[p])
-  if (rng.next() < win) {
+  if (won) {
     if (conquer(s, ps, w, p, q, u, v, d, attacker)) capitalFalls(s, ps, w, p, q, v)
   } else if (attacker && siege) ps.wSiegeYears[w]++
 }
