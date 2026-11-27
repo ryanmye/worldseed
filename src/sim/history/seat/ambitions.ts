@@ -1,7 +1,7 @@
 // seat: the player's ambitions (SeatOptions.ambitions; seat-mode §3.8), judged yearly while the seat is held (pure reads).
-// AmbitionFulfilled 273 is logged once per ambition. Lane N3: Unify's share is 60% (SEAT.unifyShare), and Monument is judged: a great landmark finished at a town of the realm while the seat is
-// held (LandmarkCompleted 141).
-import { AmbitionKind, EventType, FaithKind } from '../../../contract.ts'
+// AmbitionFulfilled 273 is logged once per ambition. Lane N3: Unify's share is 60% (SEAT.unifyShare), and Monument is judged: a great landmark, or a town's great temple, finished by the realm while the
+// seat is held (the landmarks' state, SeatState.lm).
+import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
@@ -57,11 +57,11 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         break
       }
       case AmbitionKind.Monument: {
-        if (ps === null || p < 0) break
-        for (let e = s.events.length - 1; e >= 0 && s.events[e].year === s.year && !ok; e--) {
-          const x = s.events[e]
-          if (x.type === EventType.LandmarkCompleted && x.settlement >= 0 && x.settlement < ps.polity.length && ps.polity[x.settlement] === p) ok = true
-        }
+        // a great landmark, or a town's great temple (LandmarkKind.Temple, of the lesser rank), finished this year by the realm
+        // (lane N3: great landmarks alone are rare before ~1200: one in the world in 600-1000 on seed 61343)
+        const lm = st.lm
+        if (ps === null || p < 0 || !lm) break
+        for (let i = 0; i < lm.lDone.length && !ok; i++) if (lm.lDone[i] === s.year && lm.lPol[i] === p && (lm.lRank[i] === LandmarkRank.Great || lm.lKind[i] === LandmarkKind.Temple)) ok = true
         break
       }
       case AmbitionKind.Union: {

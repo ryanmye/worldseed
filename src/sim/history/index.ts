@@ -610,6 +610,7 @@ export function createRunner(world: World, optionsIn?: HistoryOptions, probe?: (
   if (pol) pol.why = why
   // seat: the player's seat, only with HistoryOptions.seat (none: the history is exactly the one without it).
   const seat: SeatState | null = options?.seat ? createSeatState(options.seat) : null
+  if (seat && lm) seat.lm = lm // (lane N3: the Monument ambition reads the landmarks' finished works)
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval

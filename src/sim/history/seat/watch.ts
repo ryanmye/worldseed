@@ -305,7 +305,10 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
       const law = n >= 1 ? pickHeir(R, p, R.law[people], cog, year) : -1
       const o = p * RULERS.heirs
       const lawBorn = law >= 0 ? R.hBorn[o + law] : -1
-      if (law >= 0 && !(st.heirReign === r && st.heirLaw === lawBorn)) {
+      // (the same reign again only when the heir the last card named as the law's has died since: no "grows old" every 20 years)
+      let lastAlive = false
+      for (let j = 0; j < R.hN[p]; j++) if (R.hBorn[o + j] === st.heirLaw && R.hDeath[o + j] > year) lastAlive = true
+      if (law >= 0 && !(st.heirReign === r && (st.heirLaw === lawBorn || lastAlive))) {
         const named = (i: number) => year - R.hBorn[o + i] >= SEAT.heirMinAge
         let other = -1
         for (let j = 0; j < n; j++) {

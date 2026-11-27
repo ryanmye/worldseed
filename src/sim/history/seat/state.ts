@@ -3,6 +3,7 @@
 // in HistoryState: no system reads it.
 import { DECISION_KIND_COUNT } from '../../../contract.ts'
 import type { SeatOptions } from '../../../contract.ts'
+import type { LandmarksState } from '../landmarks/state.ts'
 
 export interface SeatState {
   opts: SeatOptions
@@ -42,6 +43,8 @@ export interface SeatState {
   /** lane N3: the reign an Heir card was last given for and the law's heir it named (re-offered only when that changes). */
   heirReign: number
   heirLaw: number
+  /** lane N3: the landmarks' state (the Monument ambition), when landmarks are on. */
+  lm?: LandmarksState
   /** Events looked at for the year's Choice records (the deference pass, seat/system.ts). */
   chSeen: number
   /** Decision rows recorded this year (the pause test of HistoryRunner.playSeat). */

@@ -1942,6 +1942,8 @@ function fitCompactDistance() {
   controls.update()
 }
 let landing: Landing | null = null
+/** lane N3: the player chose a preset on the start page (else Rule a kingdom goes to Dramatic). */
+let landingPresetPicked = false
 if (showLanding) {
   controls.enabled = false
   setShortcutsEnabled(false)
@@ -1950,13 +1952,13 @@ if (showLanding) {
     seed: currentSeed,
     years: Math.min(YEARS_MAX, Math.max(YEARS_MIN, numParam('years', 2000))),
     preset: landingPreset(), // (the start page starts new worlds: v=2)
-    onPreset: setPreset,
+    onPreset: (p) => { landingPresetPicked = true; setPreset(p) },
     throneHref: (p) => throneHrefFor(p),
     paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
     onPath(path) {
       if (path !== PlayPath.Rule) return false
-      // (Rule a kingdom: the throne link of the preset chosen on the page)
-      window.location.assign(throneHrefFor(presetOpts.preset === 'dramatic' ? 'dramatic' : 'realistic'))
+      // (Rule a kingdom: the throne slice is played in Dramatic, EVALUATION §4 Lane 3, unless the player picked a preset on the page)
+      window.location.assign(throneHrefFor(!landingPresetPicked ? 'dramatic' : presetOpts.preset === 'dramatic' ? 'dramatic' : 'realistic'))
       return true
     },
     onSeed(seed) {
