@@ -479,6 +479,10 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
     } else historyView.setHistory(msg.history, historyYears) // (shorter than asked: shown at once, then extended to it)
+  } else if (msg.type === 'compare' || msg.type === 'compareProgress') {
+    // what-if: (wired with the compare panel)
+  } else if (msg.stage === 'compare') {
+    console.error('what-if comparison failed:', msg.message)
   } else if (msg.stage === 'world') {
     overlay.setGenerating(false)
     console.error('world generation failed:', msg.message)
