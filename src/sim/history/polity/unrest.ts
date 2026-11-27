@@ -17,6 +17,8 @@
 // cohesion fell below UNREST.acrit fragments it: every member's unrest jumps and all revolts are
 // resolved at once; if the rump left at the capital is small the polity ends (Fragmented).
 // Capitals move when a member has long been much larger and safer (and when the capital is lost).
+// society (s.soc): Ψ multiplies the revolt hazard once (C2 psiMul); immiseration, failed coercion and townsfolk's dear bread are
+// grievance terms (additive); disaffected elites strengthen rebels; elite pressure lengthens crises and erodes asabiya.
 
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:

@@ -82,6 +82,11 @@
 // (their own stream); disasterYearEnd, before the snapshots, opens and closes droughts and epochs and records the climate
 // series. Volcano catalogue from 'history-volcanoes', names from 'names-volcano-<id>'. Switched off, the history is exactly
 // the one without it.
+// society (society/; HistoryOptions.society, off by default, needs polities): classes, wages and rents, elite overproduction and
+// Goldstone's political stress Ψ = MMP · EMP · SFD per polity every POLITY.step (after cohesionStep), and a yearly scan of the
+// log after rulerYear that counts internal violence and thins elites. RNG-free: its effects ride the existing single draws
+// (revolt hazard C2, civil war, contested successions, overthrow C3, supply C5, asabiya); 'history-society' is reserved.
+// Switched off, the history is exactly the one without it.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.

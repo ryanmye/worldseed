@@ -4,7 +4,7 @@
 //   new settlements (graph link, cohesion, membership) -> members abandoned this year leave (a lost
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
-//   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
+//   danger, [society: classes and Ψ], unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
 //   v2 bonds (vassals, tribute, alliances), [oaths: allies desert or turn], coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
 //   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
