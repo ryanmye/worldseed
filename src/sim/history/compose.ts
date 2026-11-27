@@ -296,6 +296,20 @@ export function cbBattleX(r: number, f?: CBFactors): number {
   return m.any ? r * r * clamp(m.v, CB_CLAMP[0], CB_CLAMP[1]) : r * r
 }
 
+// ---------- J. Defensive join chance (war.ts declare, the protector path). Owner: cold wars (coordinator ruling on D-CW1). ----------
+
+export const J_CLAMP = [0.3, 1] as const
+export interface JFactors {
+  /** 1. restraint: a great power joining against another, 1 − 0.5 · (1 − rho) (treaty-bound: half the declaration's strength). */
+  restraint?: number
+}
+/** The chance an ally or overlord comes to a defence. 8cabf09: joinChance (oaths) or ALLIANCE.join. */
+export function jJoin(chance: number, f?: JFactors): number {
+  if (f === undefined) return chance
+  const m = prod(1, f.restraint)
+  return m.any ? chance * clamp(m.v, J_CLAMP[0], J_CLAMP[1]) : chance
+}
+
 // ---------- C8. Tax take (polity/system.ts taxSystem, the wealth tax w). Owner: state-finances. ----------
 
 export const C8_CLAMP = [0.3, 3] as const

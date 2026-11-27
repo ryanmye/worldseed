@@ -44,7 +44,7 @@ import type { Rng } from '../../rng.ts'
 import { createRng } from '../../rng.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
-import type { CBFactors, C7Factors } from '../compose.ts'
+import type { CBFactors, C7Factors, JFactors } from '../compose.ts'
 import { C1_RESTRAINT } from '../compose.ts'
 import { ALIGN, POLITY, WAR } from './params.ts'
 import type { PolityState } from './state.ts'
@@ -150,6 +150,8 @@ export interface ColdWarDiag {
   greatSteps: number
   conquestSteps: number
   calmed: number
+  /** Defensive joins whose chance restraint lowered (J stack). */
+  joinRestrained: number
   /** Detection checks that passed each condition (tuning). */
   gate: number[]
 }
@@ -197,7 +199,7 @@ export function createColdWars(seed: number, restraint = true): ColdWarState {
     active: [],
     aP: [], aS: [], aW: [], aCw: [], aStart: [], aEnd: [], aO: [], aAtt: [], activeAid: [],
     wAidA: [], wAidD: [], pSpy: [],
-    diag: { longRivalries: 0, longBecame: 0, proxies: 0, proxyEligible: 0, proxyLooked: 0, aidPaid: 0, aidUnpaid: 0, aidSpent: 0, defections: 0, crises: 0, escalated: 0, sphereN: 0, aidBattles: 0, restraintN: 0, restraintSum: 0, greatSteps: 0, conquestSteps: 0, calmed: 0, gate: [0, 0, 0, 0, 0] },
+    diag: { longRivalries: 0, longBecame: 0, proxies: 0, proxyEligible: 0, proxyLooked: 0, aidPaid: 0, aidUnpaid: 0, aidSpent: 0, defections: 0, crises: 0, escalated: 0, sphereN: 0, aidBattles: 0, restraintN: 0, restraintSum: 0, greatSteps: 0, conquestSteps: 0, calmed: 0, joinRestrained: 0, gate: [0, 0, 0, 0, 0] },
   }
 }
 
@@ -440,6 +442,19 @@ export function cwRestraint(ps: PolityState, p: number, q: number): number | und
   cw.diag.restraintN++
   cw.diag.restraintSum += v
   return v
+}
+
+/** J stack: x joining a defence against p, both great powers, neither a conquest power: 1 - 0.5 (1 - rho_x) (treaty-bound joins at half strength; breaking the oath has its own cost), else undefined. */
+const JF: JFactors = {}
+export function cwJoinRestraint(ps: PolityState, x: number, p: number): JFactors | undefined {
+  const cw = ps.cw
+  if (cw === null || !cw.rs || x >= cw.pGreat.length || p >= cw.pGreat.length) return undefined
+  if (cw.pGreat[x] !== 1 || cw.pGreat[p] !== 1 || cw.pConq[x] === 1 || cw.pConq[p] === 1) return undefined
+  const v = cw.pRho[x]
+  if (!(v < 1)) return undefined
+  cw.diag.joinRestrained++
+  JF.restraint = 1 - 0.5 * (1 - v)
+  return JF
 }
 
 /** beliefs hook (spy service target): CW.spy * the highest kappa of p's cold wars (as of the last cold-war step). */

@@ -61,8 +61,8 @@ import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
 import { battleFought } from '../battles/system.ts' // battles:
-import { cwAid, cwDeclared, cwRestraint } from './coldwar.ts' // cold wars:
-import { cbBattleX } from '../compose.ts' // CB stack
+import { cwAid, cwDeclared, cwJoinRestraint, cwRestraint } from './coldwar.ts' // cold wars:
+import { cbBattleX, jJoin } from '../compose.ts' // CB, J stacks
 import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/hooks.ts' // finance:
 import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
 import type { C6Factors } from '../compose.ts'
@@ -196,7 +196,8 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
     if (x === p || ps.pEnded[x] >= 0 || ps.pWars[x] >= WAR.maxWars || atWar(ps, x, p) || bound(ps, x, p)) continue
     const rx = relIdx(ps, x, p)
     if (rx < 0 || ps.relEdges[rx].length === 0 || ps.relWar[rx] >= 0) continue
-    if (rng.next() >= (ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
+    const jf = ps.cw !== null ? cwJoinRestraint(ps, x, p) : undefined // cold wars (ruling on D-CW1): a great power's restraint in joining (J stack)
+    if (rng.next() >= jJoin(ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join, jf)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
     if (ps.og !== null) linkAlly(ps.og, ps.wKind.length, w) // oaths: the war it joined
     const wj = ps.wKind.length
     const dd = s.bel !== null ? beliefJoin(s, ps, s.bel, x, q, p, wj) : false // beliefs: a secret pact comes to light; double-dealing
