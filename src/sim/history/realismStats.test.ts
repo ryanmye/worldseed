@@ -103,7 +103,7 @@ describe('realism ratchet', () => {
       if (!realismCheck(base, cand).ok) oldFail++
       if (!realismCheck(base, cand, REALISM_TOL, [], noise.filter((r) => r.jitter !== t)).ok) newFail++
     }
-    expect(oldFail).toBe(12) // every null perturbation fails the single-reference ratchet
+    expect(oldFail).toBeGreaterThanOrEqual(11) // (nearly) every null perturbation fails the single-reference ratchet: 12/12 on the 8cabf09 ensemble, 11/12 on the realistic one (2026-11-27)
     expect(newFail).toBeLessThanOrEqual(2) // leave-one-out against the other 11
   })
   it('with a null ensemble, the score tolerance widens to REALISM_Z score sds around the ensemble mean', () => {
