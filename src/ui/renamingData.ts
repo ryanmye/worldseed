@@ -14,6 +14,7 @@
 // histories, renaming: false): every caller then says what it said before.
 
 import { RenameCause, type History } from '../contract.ts'
+import { changeSlot } from './languageData.ts'
 
 /** One renamed settlement: its renamings (History.renamings rows) in order, with their years and names. */
 export interface RenamedPlace {
@@ -97,7 +98,8 @@ function slotOf(idx: RenamingIndex | null, y: number): number {
 export function setNamesYear(h: History | null, year: number): boolean {
   viewYear = year
   const idx = renamingsOf(h)
-  const slot = slotOf(idx, year)
+  // language: with drift, names also change when the year crosses a sound change, a shift or an exonym's borrowing
+  const slot = slotOf(idx, year) * 65536 + changeSlot(h, year)
   if (h === viewH && slot === viewSlot) return false
   viewH = h
   viewSlot = slot
@@ -108,6 +110,11 @@ export function setNamesYear(h: History | null, year: number): boolean {
 /** Moves on whenever the names in force at the view year change: add it to a panel's key to rebuild its names then. */
 export function namesEpoch(): number {
   return epoch
+}
+
+/** language: the year names are said at now: the event's year inside withEventNames, else the view year (Infinity before any is set). */
+export function namesYear(): number {
+  return Number.isNaN(eventYear) ? viewYear : eventYear
 }
 
 /** Runs fn with every town named as during `year` (before that year's renamings): the names of a line about an event. */

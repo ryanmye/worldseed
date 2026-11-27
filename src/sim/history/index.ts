@@ -152,6 +152,10 @@ import { RENAMING_ON } from './renaming/params.ts'
 import { createRenaming, renamingYear } from './renaming/system.ts'
 import type { RenamingDiag } from './renaming/state.ts'
 import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming/assemble.ts'
+// language: languages that split and drift (language/; names/drift.ts).
+import { LANGUAGE_ON } from '../names/languageParams.ts'
+import { assembleLanguage, prepareLanguage } from './language/assemble.ts'
+import type { LanguageDiag } from './language/assemble.ts'
 // ideas: inventions and practices, carried by trade (ideas/).
 import { IDEAS_ON } from './ideas/params.ts'
 import { createIdeasSystem, ideasYear } from './ideas/system.ts'
@@ -228,6 +232,8 @@ export interface HistoryDiagnostics {
   tourism?: TourismDiag
   /** renaming: the renaming system's counters (absent when it is off). */
   renaming?: RenamingDiag
+  /** language: counts and assembly time of language drift (absent when it is off). */
+  language?: LanguageDiag
   /** ideas: the ideas system's counters (absent when it is off). */
   ideas?: IdeasDiag
   /** landmarks: the landmarks system's counters (absent when it is off). */
@@ -421,6 +427,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   s.tz = tz
   // renaming: places renamed by history (a pure consequence layer, read-only on the rest), unless switched off.
   const rn = (options?.renaming ?? RENAMING_ON) ? createRenaming(s) : null
+  // language: a pure consequence layer at assembly (names only), unless switched off (the default; R32).
+  const langOn = options?.language ?? LANGUAGE_ON
   // ideas: inventions and practices (they set the technology caps), unless switched off.
   const ix = (options?.ideas ?? IDEAS_ON) ? createIdeasSystem(s) : null
   s.ideas = ix
@@ -599,7 +607,25 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     }
     // Settlement names and named geography, in the order things are founded and reached (names/featureNames.ts).
     const featureMap = featureMapCache ?? (featureMapCache = detectFeatures(world)) // (read only below)
-    const { names, features, naming } = nameWorld(world, settlements, featureMap)
+    // language: the tree, sound changes, vocabulary and contact, before any name is coined (absent when off).
+    let polSnap: Int16Array | null = null
+    if (langOn && pol && polSnaps) {
+      polSnap = new Int16Array(snapshotCount * S).fill(-1)
+      for (let q = 0; q < snapshotCount; q++) polSnap.set(polSnaps.pol.subarray(polSnaps.off[q], polSnaps.off[q] + polSnaps.count[q]), q * S)
+    }
+    const langPrep = langOn ? prepareLanguage(world, settlements, years, {
+      S, snapshotInterval: interval, snapshotCount, population, polity: polSnap,
+      polityPeople: pol ? pol.pPeople.subarray(0, pol.P) : new Int32Array(0),
+      capitalAt: (p, y) => {
+        if (!pol) return -1
+        const ids = pol.pCapIds[p], ys = pol.pCapYears[p]
+        let c = -1
+        if (ids) for (let i = 0; i < ids.length; i++) if (ys[i] <= y) c = ids[i]
+        return c
+      },
+      renamed: rn ? rn.ySettlement.map((v, k) => ({ settlement: v, year: rn.yYear[k], polity: rn.yPolity[k], form: rn.yForm[k] })) : [],
+    }) : null
+    const { names, features, naming } = nameWorld(world, settlements, featureMap, langPrep?.drift)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)
     const usedNames = new Set<string>() // species-v2: technique names unique among species names too
@@ -622,11 +648,12 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const tourismHist = tz ? assembleTourism(tz, tradeSnapshotCount, names, features, featureMap) : emptyTourismHistory() // tourism:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
+    const langHist = langPrep ? assembleLanguage(langPrep, naming, settlements, renHist.renamings, renHist.forms, peoples, s.know.contact, population, interval, snapshotCount) : null // language:
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
     return {
       history: {
         years, snapshotInterval: interval, snapshotCount, settlements, population, food, capacity,
-        events: weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), journeys, // (renaming: PlaceRenamed woven in; landmarks: theirs after it)
+        events: weaveEvents(weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), langHist ? langHist.events : []), journeys, // (renaming: PlaceRenamed woven in; landmarks: theirs after it; language: its events last)
         structures: s.structures.map((x) => ({ ...x })), // (later years may still mark them lost)
         landInterval, landSnapshotCount,
         landUse: landUse.slice(0, landSnapshotCount * N), degradation: degradation.slice(0, landSnapshotCount * N), road: road.slice(0, landSnapshotCount * N),
@@ -648,6 +675,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         renamings: renHist.renamings, // renaming:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
+        ...(langHist ? { languages: langHist.languages, speech: langHist.speech, nameForms: langHist.nameForms } : {}), // language: (absent when off)
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
@@ -671,6 +699,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
+        language: langHist ? langHist.diag : undefined, // language:
         ideas: ix ? { ...ix.diag, byHow: ix.diag.byHow.slice() } : undefined, // ideas:
         landmarks: lm ? { ...lm.diag } : undefined, // landmarks:
       },
