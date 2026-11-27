@@ -178,6 +178,18 @@ export function finSFD(s: HistoryState, ps: PolityState, p: number): number {
   return x < FIN.sfdMin ? FIN.sfdMin : x > FIN.sfdMax ? FIN.sfdMax : x
 }
 
+/** beliefs (amendment): the years of war p's crown could fund now (treasury and borrowing headroom over the war's yearly gap); Infinity when unmonetised, finance off or the surplus covers the war. Pure. */
+export function finFundYears(s: HistoryState, p: number): number {
+  const fin = s.fin
+  if (fin === null || p >= fin.pcap) return Infinity
+  const R0 = fin.revOrd[p]
+  if (R0 < FIN.minRev) return Infinity
+  const surplus = fin.rev[p] - fin.spendYear[p] - fin.interest[p]
+  const gap = FIN.warAtt * R0 - (surplus > 0 ? surplus : 0)
+  if (gap <= 1e-9) return Infinity
+  return ((fin.treas[p] > 0 ? fin.treas[p] : 0) + headroomOf(s, fin, p)) / gap
+}
+
 /** C1 factor 4: a crown that can fund a war declares readily; one with no money or a recent default holds back (undefined: skipped). */
 export function finWarDrive(s: HistoryState, ps: PolityState, p: number): number | undefined {
   const fin = s.fin

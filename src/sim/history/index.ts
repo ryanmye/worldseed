@@ -136,6 +136,11 @@ import { ALIGN, ARMS, OATH } from './polity/params.ts' // oaths, balance, arms:
 import { FIN } from './finance/params.ts' // finance:
 import { createFinance } from './finance/state.ts' // finance:
 import { assembleFinance, emptyFinanceHistory, finSnapshot, finTradeSnapshot } from './finance/assemble.ts' // finance:
+import { BELIEF } from './beliefs/params.ts' // beliefs:
+import { createBeliefs } from './beliefs/state.ts' // beliefs:
+import type { BeliefDiag } from './beliefs/state.ts' // beliefs:
+import { beliefSnapshot } from './beliefs/system.ts' // beliefs:
+import { assembleBeliefs, emptyBeliefHistory } from './beliefs/assemble.ts' // beliefs:
 import type { PolityDiag } from './polity/state.ts'
 // goods: worked goods, specialities, stocks and merchants, long-haul trade, posts, secrets, smuggling (goods/).
 import { GOODS_ON } from './goods/params.ts'
@@ -293,6 +298,8 @@ export interface HistoryDiagnostics {
   battles?: BattleDiag
   /** finance: its counters (absent when it is off). */
   finance?: FinanceDiag
+  /** beliefs: its counters (absent when it is off). */
+  beliefs?: BeliefDiag
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -512,6 +519,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // finance: crown treasuries and loans (they need the polities), unless switched off.
   if (pol && (options?.finance ?? FIN.enabled)) s.fin = createFinance(seed, s.count)
   const fin = s.fin
+  // beliefs: what states believe of each other (they need the polities), unless switched off.
+  if (pol && (options?.beliefs ?? BELIEF.enabled)) s.bel = createBeliefs(seed)
+  const bel = s.bel
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -611,6 +621,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
     if (pol && pol.og) grudgeSnapshot(pol, pol.og) // oaths, arms: faithless, armament
     if (pol && fin) finSnapshot(s, pol, fin) // finance:
+    if (pol && bel) beliefSnapshot(pol, bel) // beliefs: true strength
     if (gx) merchantSnapshot(s, gx) // goods: merchant capital
     if (dz) diseaseSnapshot(dz) // disease:
     if (rel) religionSnapshot(s, rel) // religion:
@@ -790,6 +801,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...polHist, // polities:
         ...assembleGrudges(pol, snapshotCount), // oaths, balance, arms: (empty when off)
         ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
+        ...(pol && bel ? assembleBeliefs(bel, pol.P, years, snapshotCount) : emptyBeliefHistory()), // beliefs: (empty when off)
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
@@ -828,6 +840,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
+        beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:

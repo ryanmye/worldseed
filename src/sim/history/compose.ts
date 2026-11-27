@@ -233,15 +233,17 @@ export interface C6Factors {
   debt?: number
   /** 3. court faction tired-peace factor (court §6.4). */
   court?: number
+  /** 3b. beliefs convergence: 1 + converge · max(0, 1 − gap/gap0) (beliefs §3.5; Slantchev 2003). */
+  converge?: number
   /** 4. battles decisivePeace (additive). */
   decisive?: number
 }
 /** The yearly chance of a tired peace. 8cabf09: WAR.peaceChance. WarBankrupt ends wars directly; it is not a factor. */
 export function c6Peace(chance: number, f?: C6Factors): number {
   if (f === undefined) return chance
-  let v = prod(f.tempo !== undefined ? f.tempo : chance, f.debt, f.court).v
+  let v = prod(f.tempo !== undefined ? f.tempo : chance, f.debt, f.court, f.converge).v
   if (f.decisive !== undefined) v += f.decisive
-  return f.tempo !== undefined || f.debt !== undefined || f.court !== undefined || f.decisive !== undefined ? (v > C6_MAX ? C6_MAX : v) : v
+  return f.tempo !== undefined || f.debt !== undefined || f.court !== undefined || f.converge !== undefined || f.decisive !== undefined ? (v > C6_MAX ? C6_MAX : v) : v
 }
 
 // ---------- C7. Alliance chance (bonds.ts allianceStep). Owner: grudges (balance). ----------

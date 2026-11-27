@@ -772,6 +772,7 @@ overlay.setViewModeAvailable(ViewMode.Cash, false)
 overlay.setViewModeAvailable(ViewMode.Factions, false)
 overlay.setViewModeAvailable(ViewMode.Danger, false)
 overlay.setViewModeAvailable(ViewMode.Credit, false) // finance: (offered with a history that has treasuries)
+overlay.setViewModeAvailable(ViewMode.Beliefs, false) // beliefs: (offered with a history that has beliefs)
 // the Resources view needs the history's goods (deposits, industries)
 overlay.setViewModeAvailable(ViewMode.Resources, false)
 overlay.addLayerToggle({

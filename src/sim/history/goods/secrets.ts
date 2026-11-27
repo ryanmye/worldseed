@@ -12,6 +12,7 @@
 // push (sack, famine, revolt, emigration) to another people (defection). SecretLeaked; MonopolyBroken once the first holder's
 // share of world output falls below half. A craft secret whose traditions all end is lost (a lost art).
 
+import { BELIEF } from '../beliefs/params.ts' // beliefs:
 import { CraftKind, EventType, LeakChannel, SecretKind, TECH_FIELD_COUNT, TechField, TOWN_POPULATION } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
@@ -300,6 +301,7 @@ function leaks(s: HistoryState, g: GoodsState, k: number, tk: TechState, big: In
         const x = smoothstep(X.spyLow, X.spyHigh, bill / income)
         if (x > 0) {
           r[LeakChannel.Espionage] = X.espionage * x * (1 - X.protect * pi) * cr
+          if (s.bel !== null && qp < s.bel.pcap && s.bel.spy[qp] > 0) r[LeakChannel.Espionage] *= 1 + BELIEF.spyLeak * s.bel.spy[qp] // beliefs: a spy service steals more (threshold-only)
           const cap = ps.pCapital[qp]
           const cost = X.spyCost * bill
           s.wealth[cap] = s.wealth[cap] > cost ? s.wealth[cap] - cost : 0
