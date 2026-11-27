@@ -305,7 +305,8 @@ function describePeoplesEventFor(h: History, e: HistoryEvent, id: number): strin
 }
 
 /** Good names (lower case), indexed by Good. */
-export const GOOD_NAMES: readonly string[] = ['grain', 'fish', 'livestock', 'timber', 'ore', 'salt', 'cloth', 'luxuries', 'stimulants', 'metalware', 'finery', 'treasure', 'wares']
+export { GOOD_NAMES } from './goodsNames.ts'
+import { GOOD_NAMES } from './goodsNames.ts'
 
 export function goodName(g: number): string {
   return GOOD_NAMES[g] ?? 'goods'

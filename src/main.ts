@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, World, WorldOptions } from './contract.ts'
 import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
-import { createSeatController, type SeatController } from './ui/seat/seatController.ts'
+import type { SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -11,7 +11,7 @@ import { buildAtmosphere, buildClouds, buildStarfield, CLOUD_DECK_RADIUS, type C
 import { buildSunDisc } from './render/sunDisc.ts'
 import { buildCitySky } from './render/citySky.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
-import { goodsInUse } from './ui/tradePanel.ts'
+import { goodsInUse } from './ui/goodsInUse.ts'
 import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
 import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
@@ -38,10 +38,11 @@ import { createGpuTimer } from './render/gpuTimer.ts'
 import { loadPref, savePref } from './ui/panels.ts'
 import { isCompact } from './ui/compact.ts'
 import { CityState, createCityView } from './render/cityView.ts'
-import { createCityCard } from './ui/cityCard.ts'
+import type { CityCard } from './ui/cityCard.ts'
+import { lazyObject } from './ui/lazy.ts'
 import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
-import { activeDioramaLayer } from './render/dioramas/layer.ts'
+import { activeDioramaLayer } from './render/dioramas/active.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
 import { PLAY_PATHS, PlayPath, throneUrl } from './ui/onboard.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
@@ -729,6 +730,8 @@ const intParam = (name: string): number | null => {
   return Number.isFinite(v) ? v : null
 }
 
+/** The start page: Start fetches the history view now if it has not come yet. */
+let historyViewGo: (() => void) | null = null
 const historyView = lazyHistoryView(
   {
     bottom: overlay.bottom,
@@ -772,9 +775,13 @@ const historyView = lazyHistoryView(
     cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
-).view
+  // (on the start page, once it has drawn: an idle moment, or Start, whichever comes first)
+  showLanding ? new Promise<void>((resolve) => { historyViewGo = resolve; const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number }).requestIdleCallback; window.setTimeout(() => (ric ? ric(() => resolve(), { timeout: 4000 }) : resolve()), 1500) }) : undefined,
+).value
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
+// (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
+import('./ui/seat/seatController.ts').then(({ createSeatController }) => {
 seatCtl = createSeatController({
   parent: app,
   post: (req) => {
@@ -793,6 +800,13 @@ seatCtl = createSeatController({
   watchYears: (y) => nextHistoryLength(y),
   progress: (label) => historyView.setSimProgress(0, 0, label),
 })
+if (pendingSeat && currentWorld && worldOnlyId === requestId) {
+  const s = pendingSeat
+  pendingSeat = null
+  worldOnlyId = -1
+  seatCtl.start(s, currentCradles)
+}
+}).catch((err) => console.error('seat mode failed to load', err))
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Crops, false)
 overlay.setViewModeAvailable(ViewMode.Herds, false)
@@ -990,12 +1004,13 @@ const pointerInput = attachPointer({
 
 // ---------- city view (render/cityView.ts): fly down into a town, orbit it, fly back ----------
 
-const cityCard = createCityCard(app, {
+// (a later chunk, onboarding bundle split: hidden until a town is flown into)
+const cityCard = lazyObject<CityCard>(() => import('./ui/cityCard.ts').then((m) => m.createCityCard(app, {
   onBack: () => cityView.flyOut(),
   onTurn: (rad) => cityView.turn(rad),
   onRaise: (k) => cityView.raise(k),
   onZoom: (k) => cityView.zoom(k),
-})
+})), {}, 'city card').value
 const cityView = createCityView({
   camera,
   canvas,
@@ -1892,6 +1907,7 @@ if (showLanding) {
       newWorldLanguage(url)
       window.history.replaceState(null, '', url)
       historyYears = wholeChunks(years)
+      historyViewGo?.()
       startHistory(seed)
       landingIdle = false
       spinning = turnByDefault()
