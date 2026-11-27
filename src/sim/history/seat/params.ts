@@ -135,6 +135,8 @@ export const SEAT = {
   // and a 10-point margin are met by a warlike persona on 5 of the 6 curated setups and by no passive one)
   unifyTaken: 10,
   unifyKeep: 0.1,
+  // lane N3b: a war counts for Unify when the seat ordered it (not deferred) within unifyOrderLead years before it began
+  unifyOrderLead: 10,
   // lane N3b: Monument: the great work begun within monumentAfter years of the seat's order that leads to it (ambitions.ts drivenBy)
   monumentAfter: 40,
   richesYears: 25,

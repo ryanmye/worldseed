@@ -7,7 +7,7 @@ import { SEAT } from '../../../sim/history/seat/params.ts'
 
 export const AMBITIONS: readonly { kind: number; label: string; goal: string; hint: string }[] = [
   { kind: AmbitionKind.Endure, label: 'Endure', goal: `Hold the throne ${SEAT.endureYears} years`, hint: 'Keep the house on the throne: placate the lords, name heirs, avoid reckless wars.' },
-  { kind: AmbitionKind.Unify, label: 'Unify the land', goal: `Take ${SEAT.unifyTaken} towns in your wars and hold your share of the landmass's people (vassals count; at most ${Math.round(SEAT.unifyKeep * 100)} points below where you began) ${SEAT.unifyYears} years running`, hint: 'Strike weak neighbours and hold what you take: placate the towns that rise; the war cards come more often.' },
+  { kind: AmbitionKind.Unify, label: 'Unify the land', goal: `Take ${SEAT.unifyTaken} towns in wars you declare (Strike, Join the war…) and hold your share of the landmass's people (vassals count; at most ${Math.round(SEAT.unifyKeep * 100)} points below where you began) ${SEAT.unifyYears} years running`, hint: 'Strike weak neighbours and hold what you take: placate the towns that rise; the war cards come more often.' },
   { kind: AmbitionKind.Faith, label: 'A faith of the realm', goal: 'A universal faith founded in the realm, or the state faith’s holy city in it', hint: 'Embrace a faith when many of your people follow it.' },
   { kind: AmbitionKind.Riches, label: 'The richest realm', goal: `The richest realm for ${SEAT.richesYears} years running`, hint: 'Take up crops and ideas, keep the peace, keep the treasury sound.' },
   { kind: AmbitionKind.Union, label: 'Two crowns', goal: 'The house holds two thrones at once', hint: 'Arrange matches with neighbouring houses; a marriage claim may bring their crown.' },

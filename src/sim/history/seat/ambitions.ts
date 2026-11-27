@@ -3,16 +3,33 @@
 // seat is held (the landmarks' state, SeatState.lm).
 // Lane N3b (throne balance r2): the bots found a landmass share barely moves with play (seed 61343's realm peaks at 0.52 under
 // every persona; seed 7's from 700 starts at 0.64 Dramatic, met by all, even the one that never decides): Unify is now won by the
-// sword: SEAT.unifyTaken towns taken in the realm's wars since the seat was taken (SeatState.townsTaken), and the realm's share of its
+// sword: SEAT.unifyTaken towns taken in the realm's wars since the seat was taken, wars declared on the seat's own order (SeatState.townsTaken), and the realm's share of its
 // landmass (vassals count) kept at least min(unifyShare, its share at the seat's year) - unifyKeep, unifyYears running. Monument is
 // a great work raised in the seat's time and of its doing: a great landmark begun and finished by the realm while the seat is
 // held, following an order of the seat's that leads to it (drivenBy); a town's temple, met by every realm, no longer counts.
-import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind } from '../../../contract.ts'
+import { AmbitionKind, DEFER_OPTIONS, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
 import { houseOf } from './system.ts'
 import { overlordOf } from '../polity/bonds.ts'
+
+/**
+ * lane N3b: the seat itself gave an order of `kind` by `actor` (at `target`, -1 any) acting from a year in [y0, y1]: one chosen on a
+ * card (its Choice record not the deferral's) or given by hand; the court's pick on a deferred card is not the player's act.
+ */
+export function seatOrdered(s: HistoryState, kind: number, actor: number, target: number, y0: number, y1: number): boolean {
+  const ox = s.orders
+  if (ox === null) return false
+  for (let i = 0; i < ox.n; i++) {
+    if (ox.kind[i] !== kind || ox.actor[i] !== actor || (target >= 0 && ox.target[i] !== target) || ox.year[i] < y0 || ox.year[i] > y1) continue
+    let j = i - 1
+    while (j >= 0 && ox.year[j] === ox.year[i] && ox.kind[j] !== OrderKind.Choice) j--
+    if (j >= 0 && ox.year[j] === ox.year[i] && ox.kind[j] === OrderKind.Choice && ox.target[j] % 8 === DEFER_OPTIONS.defer) continue
+    return true
+  }
+  return false
+}
 
 /**
  * lane N3b: a great work of kind `kind` begun in year `begun` follows an order of the seat's within SEAT.monumentAfter years
@@ -27,12 +44,7 @@ export function drivenBy(s: HistoryState, st: SeatState, kind: number, begun: nu
   const K = LandmarkKind
   const need: number[] | null = kind === K.Monument ? [OrderKind.War] : kind === K.GreatTemple || kind === K.Monastery ? [OrderKind.Faith] : kind === K.Library || kind === K.MarketHall || kind === K.Guildhall ? [OrderKind.Idea, OrderKind.Crop] : null
   if (need === null) return false
-  for (let i = 0; i < ox.n; i++) {
-    const k = ox.kind[i], y = ox.year[i]
-    if (need.indexOf(k) < 0 || y > begun || begun - y > SEAT.monumentAfter || y <= st.opts.from) continue
-    const a = ox.actor[i]
-    if (k === OrderKind.Idea || k === OrderKind.Crop ? a === st.people : a === st.polity) return true
-  }
+  for (const k of need) if (seatOrdered(s, k, k === OrderKind.Idea || k === OrderKind.Crop ? st.people : st.polity, -1, Math.max(st.opts.from + 1, begun - SEAT.monumentAfter), begun)) return true
   return false
 }
 
@@ -44,7 +56,12 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
   const p = st.polity
   const cap = ps !== null && p >= 0 ? ps.pCapital[p] : -1
   // (lane N3b: towns the realm took in war this year: Conquered events whose town is now the realm's)
-  if (ps !== null && p >= 0) for (let e = st.ambSeen; e < s.events.length; e++) { const x = s.events[e]; if (x.type === EventType.Conquered && x.settlement >= 0 && x.settlement < ps.polity.length && ps.polity[x.settlement] === p && s.year > st.opts.from) st.townsTaken++ }
+  // (only in a war the realm declared on the seat's own order: the player's wars, not the court's or the neighbours')
+  if (ps !== null && p >= 0) for (let e = st.ambSeen; e < s.events.length; e++) {
+    const x = s.events[e], w = x.value
+    if (x.type !== EventType.Conquered || s.year <= st.opts.from || x.settlement < 0 || x.settlement >= ps.polity.length || ps.polity[x.settlement] !== p) continue
+    if (w >= 0 && w < ps.wAtt.length && ps.wAtt[w] === p && seatOrdered(s, OrderKind.War, p, ps.wDef[w], ps.wStart[w] - SEAT.unifyOrderLead, ps.wStart[w])) st.townsTaken++
+  }
   st.ambSeen = s.events.length
   for (let i = 0; i < amb.length; i++) {
     if (st.ambitionYear[i] >= 0) continue
