@@ -3,7 +3,7 @@
 // on CI. powD (detMath.ts) is V8 12.4's pow in plain JS: these values were recorded with Math.pow on Node 22, and the test
 // passes on any engine. The scan below keeps raw pow / `**` out of the sim, and freezes the other transcendental calls.
 import { describe, expect, it } from 'vitest'
-import { powD } from './detMath.ts'
+import { acosD, cosD, expD, hypotD, log2D, logD, powD, sinD } from './detMath.ts'
 
 // [x, y, Math.pow(x, y) on Node 22]
 const PINS: [number, number, number][] = [
@@ -55,6 +55,55 @@ describe('detMath', () => {
     }
   })
 
+  it('expD, logD, log2D, sinD, cosD, acosD, hypotD over a generated set hash to Math.* on Node 22 and Node 25', () => {
+    // 20000 inputs each (normal ranges, huge-argument trig reduction, subnormals, any bit pattern). The ports were checked
+    // bit-exact against Math.* on 1M inputs per function plus edge cases on Node 22.23.5 and 25.9.0 (lane/detmath2,
+    // runs/detmath2/tools/cmp.ts); these hashes are Math.* on both.
+    let s = 2463534242
+    const r = (): number => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 }
+    const f = new Float64Array(1), u = new Uint32Array(f.buffer)
+    const wide = (): number => { u[0] = (r() * 4294967296) >>> 0; u[1] = (r() * 4294967296) >>> 0; return f[0] }
+    const trig = [() => 2 * Math.PI * r(), () => (r() - 0.5) * 2e6, () => wide(), () => (r() - 0.5) * 1e-7]
+    const ins: Record<string, (() => number)[]> = {
+      exp: [() => (r() - 0.5) * 1500, () => (r() - 0.5) * 2, () => -r() * 30, () => wide()],
+      log: [() => r(), () => 1 - r(), () => r() * 1e6, () => Math.abs(wide())],
+      log2: [() => r() * 1000, () => r(), () => 1 + (r() - 0.5) * 1e-5, () => Math.abs(wide())],
+      sin: trig,
+      cos: trig,
+      acos: [() => (r() - 0.5) * 2, () => 1 - r() * 1e-6, () => -1 + r() * 1e-6, () => (r() - 0.5) * 1e-9],
+      hypot: [() => (r() - 0.5) * 10, () => wide(), () => (r() - 0.5) * 1e-200, () => r()],
+    }
+    const fns: [string, (...x: number[]) => number, string][] = [
+      ['exp', expD, '4710cc06'], ['log', logD, '8401922d'], ['log2', log2D, 'fb72e84e'], ['sin', sinD, '3c9a39c3'],
+      ['cos', cosD, 'd70f99e9'], ['acos', acosD, '53e6724e'], ['hypot', hypotD, '2734eeb6'],
+    ]
+    for (const [name, fn, want] of fns) {
+      let h = 0x811c9dc5
+      const g = ins[name]
+      for (let i = 0; i < 20000; i++) {
+        const x = g[i % 4]()
+        f[0] = name === 'hypot' ? (i % 2 ? fn(x, g[(i + 1) % 4](), g[(i + 2) % 4]()) : fn(x, g[(i + 3) % 4]())) : fn(x)
+        h = Math.imul(h ^ u[0], 16777619) >>> 0; h = Math.imul(h ^ u[1], 16777619) >>> 0
+      }
+      expect(h.toString(16), name).toBe(want)
+    }
+  })
+
+  it('the ports keep the special cases', () => {
+    const v = [0, -0, 1, -1, 0.5, -0.5, 2, Infinity, -Infinity, NaN, 5e-324, 1e-310, 1e308, Math.PI, 710, -746]
+    for (const x of v) {
+      expect(Object.is(expD(x), Math.exp(x)), `exp ${x}`).toBe(true)
+      expect(Object.is(logD(x), Math.log(x)), `log ${x}`).toBe(true)
+      expect(Object.is(log2D(x), Math.log2(x)), `log2 ${x}`).toBe(true)
+      expect(Object.is(sinD(x), Math.sin(x)), `sin ${x}`).toBe(true)
+      expect(Object.is(cosD(x), Math.cos(x)), `cos ${x}`).toBe(true)
+      expect(Object.is(acosD(x), Math.acos(x)), `acos ${x}`).toBe(true)
+      for (const y of v) expect(Object.is(hypotD(x, y), Math.hypot(x, y)), `hypot ${x} ${y}`).toBe(true)
+    }
+    expect(hypotD()).toBe(0)
+    expect(hypotD(NaN, Infinity)).toBe(Infinity)
+  })
+
   // The replay path: every module under src/sim but tests and the measurement modules (*Stats.ts, stats.ts, realismFit.ts),
   // which no replay-path module imports.
   const sources = import.meta.glob('./**/*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -70,21 +119,11 @@ describe('detMath', () => {
     }
   })
 
-  // Other transcendental functions: none in src/sim/history (the sim's rule: + - * / sqrt floor; history/index.ts). The
-  // language modules' calls below predate this guard. They agree between Node 22 and Node 25 (200k inputs each, tools of
-  // lane/ci-determinism) but an engine is free to change them as V8 changed pow: port them to detMath.ts before adding more.
-  // A new call fails here; removing one means lowering its count.
-  const FROZEN: Record<string, number> = {
-    './history/why.ts': 1, // log2 (the Why panel's records; causes, dramatic only)
-    './names/contact.ts': 2,
-    './names/drift.ts': 1,
-    './names/languageTree.ts': 4,
-    './names/lexicon.ts': 5,
-    './names/liveDrift.ts': 1,
-    './names/script/glyphs.ts': 1,
-    './names/typology/profile.ts': 6,
-  }
-  it('no new exp, log or trig calls in the sim (frozen list)', () => {
+  // Other transcendental functions: none on the replay path. The language modules (names/*) and the Why panel's records
+  // (history/why.ts) call the detMath ports (expD, logD, log2D, sinD, cosD, acosD, hypotD) instead; port any other function
+  // to detMath.ts (from V8's src/base/ieee754.cc, bit-identical to Node 22 and 25) before using it.
+  const FROZEN: Record<string, number> = {}
+  it('no exp, log, trig, hypot or cbrt calls in the sim (detMath ports instead)', () => {
     const got: Record<string, number> = {}
     for (const [f, src] of replay) {
       const n = (code(src).match(/\bMath\.(exp|expm1|log|log2|log10|log1p|sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|cbrt|hypot)\b/g) ?? []).length
