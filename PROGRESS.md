@@ -10,7 +10,7 @@ Worktree /home/claude/wsx-absentee, branch lane/absentee (from origin/main a4d6b
 - Results in /home/claude/runs/absentee/: final_a/b.jsonl (harness 4 seeds), off2/on2.jsonl (realism rows), g0.txt
 
 ## Next
-- npm run build (gate), then push; report to coordinator.
+- build OK; pushed. Lane complete; awaiting coordinator merge.
 - Commands:
   - harness: node --experimental-strip-types --no-warnings src/sim/history/rulers/absenteeStats.ts 1 7 42 1234 --json
   - realism on: node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts 1 7 42 1234 --json --opts '{"absentee":true}' > /home/claude/runs/absentee/on2.jsonl
