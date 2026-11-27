@@ -34,7 +34,8 @@
   font-variant-numeric: tabular-nums;
 }
 .city-card .cc-focus,
-.city-card .cc-lm {
+.city-card .cc-lm,
+.city-card .cc-bt {
   color: var(--text-dim);
   font-size: 11px;
 }
@@ -70,6 +71,7 @@
 /* while the camera flies only the name and the way back */
 .city-card.flying .cc-ctl button:not(.cc-back),
 .city-card.flying .cc-lm,
+.city-card.flying .cc-bt,
 .city-card.flying .cc-focus {
   display: none;
 }

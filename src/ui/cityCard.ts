@@ -7,6 +7,7 @@
 import { landmarkNameAt, settlementNameAt, type History } from '../contract.ts'
 import { formatInt, peopleName, peopleOf } from './format.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
+import { battlesOf } from './battlesData.ts' // battles:
 import './cityCard.css'
 
 export interface CityCardCallbacks {
@@ -36,6 +37,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
     <div class="cc-pop"></div>
     <div class="cc-focus"></div>
     <div class="cc-lm"></div>
+    <div class="cc-bt"></div>
     <div class="cc-ctl">
       <button type="button" data-a="left" title="Turn left (Q)" aria-label="Turn left">⟲</button>
       <button type="button" data-a="right" title="Turn right (E)" aria-label="Turn right">⟳</button>
@@ -47,7 +49,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
     </div>`
   container.appendChild(root)
   const q = (s: string) => root.querySelector(s) as HTMLElement
-  const nameEl = q('.cc-name'), subEl = q('.cc-sub'), popEl = q('.cc-pop'), focusEl = q('.cc-focus'), lmEl = q('.cc-lm')
+  const nameEl = q('.cc-name'), subEl = q('.cc-sub'), popEl = q('.cc-pop'), focusEl = q('.cc-focus'), lmEl = q('.cc-lm'), btEl = q('.cc-bt')
   const ctl = q('.cc-ctl')
   ctl.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('button')
@@ -102,6 +104,19 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
         if (names.length >= 3) break
       }
       set(lmEl, names.length ? `In view: ${names.join(', ')}${landmarks.length > names.length ? '…' : ''}` : '')
+      // battles: the battles fought for this town by the year shown (a siege's assaults once)
+      const bd = battlesOf(h)
+      const fought: string[] = []
+      let nFought = 0
+      if (bd) for (const b of bd.byTarget.get(id) ?? []) {
+        if (bd.B.year[b] > y) break
+        const name = bd.B.name[b] || 'a battle'
+        if (fought.includes(name)) continue
+        nFought++
+        fought.push(name)
+      }
+      const last = fought.slice(-2)
+      set(btEl, nFought ? `Battles fought here: ${nFought}${last.length ? ` · last ${last.join(', ')}` : ''}` : '')
     },
     hover(text, x, y) {
       if (!text) {

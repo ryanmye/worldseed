@@ -245,6 +245,16 @@ export function createLibrary(deps: LibraryDeps): Library {
         out.push({ s: { kind: 'house', id: d }, label: `House ${D.name}`, years: ended ? `${D.founded}–${D.ended}` : `from ${D.founded}`, group: 'Ruling houses', dim: ended })
       }
     }
+    // battles: the renowned commanders (a saga's hero), most famous first
+    const C = h.commanders
+    if (C && C.count > 0) {
+      const ks: number[] = []
+      for (let k = 0; k < C.count; k++) if (C.firstYear[k] <= Y && C.name[k] && C.fame[k] >= 15 && C.fameYear[k] <= Y) ks.push(k)
+      for (const k of topBy(ks, (k) => C.fame[k], 12)) {
+        const done = C.fateYear[k] >= 0 && C.fateYear[k] <= Y
+        out.push({ s: { kind: 'commander', id: k }, label: C.name[k], years: done ? `${C.firstYear[k]}–${C.fateYear[k]}` : `from ${C.firstYear[k]}`, group: 'Commanders', dim: done })
+      }
+    }
     return out
   }
 

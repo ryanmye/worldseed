@@ -4,14 +4,16 @@
 // how many were lost, who died, what was left standing. Every clause is a recorded fact of that event or its year; the
 // voice only chooses the wording. A generator offers its candidates and keeps the best few by a rough measure of drama.
 
-import { EventType, ReignEnd, type HistoryEvent } from '../../contract.ts'
+import { BattleFlag, BattleKind, BattleWeather, EventType, ReignEnd, type HistoryEvent } from '../../contract.ts'
+import { battlesOf } from '../battlesData.ts' // battles:
+import { hoursWords, roundMen } from '../battleFormat.ts' // battles:
 
 import { settingOf, type Ctx } from './facts.ts'
 import { warName } from './wars.ts'
 import { cap, num, people, shareWords, times, type PhraseTable, type Voice } from './voice.ts'
 
 export interface Scene {
-  kind: 'sack' | 'plague' | 'founding' | 'landfall' | 'conversion' | 'work'
+  kind: 'sack' | 'plague' | 'founding' | 'landfall' | 'conversion' | 'work' | 'battle' | 'siege'
   year: number
   /** Rough drama: people lost or touched, or a fixed weight for a beginning. */
   score: number
@@ -78,6 +80,33 @@ export const SCENE_T: PhraseTable = {
   ],
   workBegun: [['{ruler} had begun it in {began}, and did not live to see it done.', 'It had been begun under {ruler} in {began}; {ruler2} did not see it finished.'], ['{ruler} had laid its first stone in {began}, but did not live to see the last.']],
   workSaw: [['{ruler}, who had begun it in {began}, lived to see it finished.'], ['{ruler}, who began it in {began}, lived to see it stand.']],
+  // battles (BATTLE_T, battles.md 8.2): every clause from the battle's record (men, losses, hours, weather, flags, commanders)
+  battleTitle: [['{Name}, {year}'], ['{Name}', 'The Day of {near}']],
+  battleA: [
+    ['In {year} the army of {att}, some {menA} strong{cmdA}, met {def}\'s {menD} near {near}{war}.', 'In {year}{war2} some {menA} of {att}{cmdA} came against perhaps {menD} of {def} near {near}.'],
+    ['In the year {year}{war2} {lead} led the spears of {att} down to {near}, where the host of {def} stood waiting.', 'In {year} the host of {att}, {menA} spears{cmdA}, came to {near}, and the host of {def} was there before them.'],
+  ],
+  battleFord: [['They forced the crossing of the {river} under the enemy\'s missiles.'], ['The {river} ran red where they waded.']],
+  battleAmbush: [['The {def} fell on them from cover before they could form.'], ['Out of the cover came the {def}, and the road became a grave.']],
+  battleRain: [['Rain had soaked the field, and neither side could make its horse tell.'], ['Heaven wept on both hosts alike.']],
+  battleSnow: [['They fought in falling snow.'], ['The snow fell on the living and the dead alike.']],
+  battleFog: [['A fog lay on the field, and the lines found each other late.'], ['Out of the fog came the enemy, close enough to touch.']],
+  battleBreak: [['{hours} the {loser} line broke; perhaps {lossL} fell or were taken, against {lossW} of the victors.'], ['{hours} the {loser} broke like ice in spring, and {lossL} did not go home.']],
+  battlePyrrhic: [['It was a victory that cost {winner} nearly as much as defeat.'], ['{winner} won the field and wept over it.']],
+  battleOdds: [['{winner} won outnumbered.'], ['Few against many, and the many fled.']],
+  battleRuler: [['{ruler} commanded in person.'], ['{ruler} rode at the head of the host.']],
+  battleFell: [['{who} fell on the field.'], ['{who} did not leave the field.']],
+  battleTaken: [['{who} was taken.'], ['{who} was led away in chains.']],
+  battleFall: [['{town} fell.'], ['And {town} fell.']],
+  siegeTitle: [['{Name}, {years}'], ['{Name}']],
+  siegeA: [
+    ['In {year}{war} the army of {att} laid siege to {town}.', '{town} was besieged by {att} from {year}{war}.'],
+    ['In {year}{war} the host of {att} drew its lines about {town}.', 'In the year {year} {att} came and sat down before the walls of {town}{war}.'],
+  ],
+  siegeAssaults: [['There were {n} assaults on the walls.'], ['{n} times they came against the walls.']],
+  siegeFell: [['In {year} the walls were carried, and the town fell.'], ['In {year} the walls gave way, and the town was theirs.']],
+  greatCommander: [['Its most famous commander was {name}, {feat}.'], ['Its greatest captain was {name}, {feat}.']],
+  siegeHeld: [['In {year} the last assault failed; the town held.'], ['In {year} the last assault broke on the walls, and the town stood.']],
 }
 
 const ev = (c: Ctx, i: number): HistoryEvent => c.ev(i)
@@ -206,6 +235,87 @@ export function workScene(c: Ctx, v: Voice, i: number): Scene | null {
     else parts.push(v.p('workSaw', { ruler, began: begun }))
   }
   return { kind: 'work', year: done, score: 1200 + (done - begun) * 25, title: v.p('workTitle', { Lm: cap(lm), lm, year: done }), text: parts.join(' '), place: L.settlement[k] }
+}
+
+// ---- battles: a battle and a siege as scenes ----
+
+/** Battle b as a scene (battles told at most up to the year told; small battles are no scene). */
+export function battleScene(c: Ctx, v: Voice, b: number): Scene | null {
+  const bd = battlesOf(c.h)
+  if (!bd || b < 0 || b >= bd.B.count) return null
+  const B = bd.B, C = bd.C
+  if (B.year[b] > c.Y || B.kind[b] === BattleKind.Siege) return null
+  const men = B.menA[b] + B.menD[b]
+  if (men < 600) return null
+  const year = B.year[b], fl = B.flags[b]
+  const won = B.winner[b] === 0
+  const pn = (p: number) => (p >= 0 ? c.pname(p) : 'its enemies')
+  const att = pn(B.attacker[b]), def = pn(B.defender[b])
+  const cmd = (k: number) => (k >= 0 && C.name[k] ? C.name[k] : '')
+  const cA = cmd(B.cmdA[b]), cD = cmd(B.cmdD[b])
+  const name = B.name[b] || 'the battle'
+  const near = name.replace(/^the (\w+ )?(Battle|Ambush|Relief) (of|in|at) (the )?/, '').replace(/ (Field|Ford|Pass|Hill|Strand|Marshes)$/, '')
+  const wn = warName(c, B.war[b])
+  const parts = [v.p('battleA', { year, att, def, menA: roundMen(B.menA[b]), menD: roundMen(B.menD[b]), cmdA: cA ? ` under ${cA}` : '', lead: cA || `the lord of ${att}`, near, war: wn ? `, in ${wn}` : '', war2: wn ? `, in ${wn},` : '' })]
+  if (fl & BattleFlag.RulerLed) { const r = C.reign[B.cmdA[b]] >= 0 ? cA : cD; if (r) parts.push(v.p('battleRuler', { ruler: r })) }
+  if (fl & BattleFlag.Ford) { const river = /the (.+) Ford$/.exec(name)?.[1]; parts.push(v.p('battleFord', { river: river ?? 'river' })) }
+  if (B.kind[b] === BattleKind.Ambush) parts.push(v.p('battleAmbush', { def }))
+  const w = B.weather[b]
+  if (w === BattleWeather.Rain) parts.push(v.p('battleRain'))
+  else if (w === BattleWeather.Snow) parts.push(v.p('battleSnow'))
+  else if (w === BattleWeather.Fog) parts.push(v.p('battleFog'))
+  const loser = won ? def : att, winner = won ? att : def
+  const lossL = won ? B.lossD[b] : B.lossA[b], lossW = won ? B.lossA[b] : B.lossD[b]
+  parts.push(cap(v.p('battleBreak', { hours: cap(hoursWords(B.hours[b])), loser, lossL: roundMen(lossL), lossW: roundMen(lossW) })))
+  if (fl & BattleFlag.Pyrrhic) parts.push(v.p('battlePyrrhic', { winner }))
+  else if (fl & BattleFlag.Outnumbered) parts.push(v.p('battleOdds', { winner }))
+  const lk = won ? B.cmdD[b] : B.cmdA[b]
+  if (lk >= 0 && C.fateBattle[lk] === b && C.name[lk]) parts.push(v.p(C.fate[lk] === 1 ? 'battleFell' : 'battleTaken', { who: C.name[lk] }))
+  if (won && B.kind[b] !== BattleKind.Relief) parts.push(v.p('battleFall', { town: c.name(B.target[b], year) }))
+  const Name = name.charAt(0).toUpperCase() + name.slice(1)
+  return { kind: 'battle', year, score: 1.2 * (B.lossA[b] + B.lossD[b]) + (fl & BattleFlag.RulerLed ? 400 : 0), title: v.p('battleTitle', { Name, year, near }), text: parts.join(' '), place: B.target[b] }
+}
+
+/** battles: the `n` greatest battles (by casualties, up to the year told) that `pick` accepts, as scenes. */
+export function battleScenes(c: Ctx, v: Voice, n: number, pick: (b: number) => boolean): (Scene | null)[] {
+  const bd = battlesOf(c.h)
+  if (!bd) return []
+  const B = bd.B
+  const rows: number[] = []
+  for (let b = 0; b < B.count && B.year[b] <= c.Y; b++) if (B.kind[b] !== BattleKind.Siege && B.menA[b] + B.menD[b] >= 600 && pick(b)) rows.push(b)
+  return rows.sort((a, b) => B.lossA[b] + B.lossD[b] - (B.lossA[a] + B.lossD[a]) || a - b).slice(0, n).map((b) => battleScene(c, v, b))
+}
+
+/** battles: the `n` longest sieges (most assaults, up to the year told) that `pick` accepts (a group id), as scenes. */
+export function siegeScenes(c: Ctx, v: Voice, n: number, pick: (g: number) => boolean): (Scene | null)[] {
+  const bd = battlesOf(c.h)
+  if (!bd) return []
+  const gs: number[] = []
+  for (let g = 0; g < bd.sieges.length; g++) if (bd.sieges[g].firstYear <= c.Y && pick(g)) gs.push(g)
+  return gs.sort((a, b) => bd.sieges[b].rows.length - bd.sieges[a].rows.length || a - b).slice(0, n).map((g) => siegeScene(c, v, g))
+}
+
+/** Siege group g (battlesData sieges) as a scene. */
+export function siegeScene(c: Ctx, v: Voice, g: number): Scene | null {
+  const bd = battlesOf(c.h)
+  const sg = bd?.sieges[g]
+  if (!bd || !sg || sg.firstYear > c.Y) return null
+  const rows = sg.rows.filter((b) => bd.B.year[b] <= c.Y)
+  if (rows.length < 2 && !(sg.fell && sg.lastYear <= c.Y)) return null
+  const B = bd.B
+  const first = rows[0], last = rows[rows.length - 1]
+  const town = c.name(sg.target, B.year[first])
+  const wn = warName(c, sg.war)
+  const att = B.attacker[first] >= 0 ? c.pname(B.attacker[first]) : 'its enemies'
+  const parts = [cap(v.p('siegeA', { year: B.year[first], att, town, war: wn ? `, in ${wn}` : '' }))]
+  if (rows.length > 1) parts.push(v.p('siegeAssaults', { n: cap(num(rows.length)) }))
+  parts.push(v.p(B.winner[last] === 0 ? 'siegeFell' : 'siegeHeld', { year: B.year[last] }))
+  let loss = 0
+  for (const b of rows) loss += B.lossA[b] + B.lossD[b]
+  const name = B.name[first] || `the siege of ${town}`
+  const Name = name.charAt(0).toUpperCase() + name.slice(1)
+  const years = B.year[last] > B.year[first] ? `${B.year[first]}–${B.year[last]}` : String(B.year[first])
+  return { kind: 'siege', year: B.year[first], score: 1.2 * loss + 300 * rows.length, title: v.p('siegeTitle', { Name, years }), text: parts.join(' '), place: sg.target }
 }
 
 /** The best `n` of the candidates (by drama, no two of one kind at one place), in the order they happened. */
