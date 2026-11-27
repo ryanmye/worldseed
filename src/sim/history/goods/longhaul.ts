@@ -30,6 +30,7 @@ import { hvPrice, moveAmt, secretSmuggled, theta } from './market.ts'
 import { ideaLand, ideaSea } from '../ideas/hooks.ts' // ideas:
 import { legRecord, legRecordEnd, legRecordOpen } from './legHistory.ts'
 import { merchantKeep, merchantResale, merchantTurnover } from './merchants.ts' // (merchant capital) // (History.longHaul's prefix-stable leg records)
+import { crownRev } from '../finance/hooks.ts' // finance:
 
 const G = GOOD_COUNT
 const KEY = 1 << 20
@@ -646,7 +647,7 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
           if (smug) {
             // Contraband only: a share seize * enforcement of it seized (its worth to the enforcer), the smugglers' cut to the hub.
             const seized = X.seize * enf * q
-            if (coll >= 0 && s.abandoned[coll] < 0 && seized > 0) { income[coll] += seized * pLocal; P2.pRevYear[collP] += seized * pLocal }
+            if (coll >= 0 && s.abandoned[coll] < 0 && seized > 0) crownRev(s, P2, income, coll, collP, seized * pLocal) // (finance: to the treasury when on)
             const c = X.hubCut * real * (q - seized)
             if (c > 0) hubCut(s, P2, hub, c, c, gd, collP, income)
             la[1] += (q - seized) * V[gd]
@@ -662,7 +663,7 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
             // The duty on the legal part, seizures of the smuggled part, the smugglers' cut.
             const caught = X.seize * enf
             const rev = duty * (1 - sig) * q * pLocal + caught * sig * q * pLocal
-            if (coll >= 0 && s.abandoned[coll] < 0 && rev > 0) { income[coll] += rev; P2.pRevYear[collP] += rev }
+            if (coll >= 0 && s.abandoned[coll] < 0 && rev > 0) crownRev(s, P2, income, coll, collP, rev) // (finance: to the treasury when on)
             const c = X.hubCut * (1 - caught) * sig * real * q
             if (c > 0) hubCut(s, P2, hub, c, c, gd, collP, income)
             la[0] += (1 - sig) * loads; la[1] += sig * (1 - caught) * loads

@@ -263,6 +263,14 @@ export const EventType = {
   Avenged: 192, // the polity ruled from `settlement` took back or repaid the wrong of grievance `value` (History.grievances) done by the one ruled from `other` (-1 if it has ended); `extra` the GrievanceKind (logged for broken truces, betrayals, holy cities and capitals only)
   Bandwagon: 193, // the polity ruled from `settlement`, too weak to balance, sided with the far stronger one ruled from `other` (HistoryOptions.balance): `value` the stronger polity; `extra` 0 an alliance against the stronger one's rival (Alliance follows), 1 tribute offered unasked (BecameVassal, value + 1000, follows)
   ArmsRace: 194, // the polities ruled from `settlement` and `other` armed against each other (HistoryOptions.arms): `value` the race (History.armsRaces); `extra` 0 it began, 1 it ended in war (WarDeclared the same year, just before), 2 it eased
+  // finance: crown treasuries, loans, default and bankruptcy (210-219; none when HistoryOptions.finance is false). 215 Debasement,
+  // 216 CoinageRestored and 218 PricesRose are reserved for the deferred debasement and money layers (D-S4).
+  LoanTaken: 210, // the crown of the polity ruled from `settlement` first borrowed from a lender seated at `other` (a mart's merchant houses, or a rich town): `value` the loan account (History.loans); `extra` the interest rate, a year's share (0.08)
+  CrownDefault: 211, // the crown of the polity ruled from `settlement` stopped its payments and wrote down its debts: `other` the seat of the lender that lost most (-1); `value` the polity id; `extra` the share of the debt written off (0..1)
+  Repudiation: 212, // a new ruler of the polity ruled from `settlement` (an usurper, a conqueror's choice or a new house) refused the crown's debts outright: `other` the seat of the largest lender; `value` the polity id; `extra` the debt repudiated (wealth units)
+  ArmyUnpaid: 213, // the soldiers of the polity ruled from `settlement` went unpaid in war `value` (History.wars): its treasury empty and its credit gone; `other` the enemy's capital; `extra` -1
+  WarBankrupt: 214, // war `value` ended because the polity ruled from `settlement` could no longer pay its armies (its PeaceMade follows the same year); `other` the enemy's capital; `extra` the years its soldiers had gone unpaid
+  HousesRuined: 217, // the merchant houses of `settlement` (a town pool) lost much of their capital when the crown ruled from `other` defaulted, repudiated or fell; `value` the loan account; `extra` the share of their capital lost
   // language: the languages of the world (250-259; none when HistoryOptions.language is off).
   LanguageSplit: 250, // a language parted from its parent: `settlement` the daughter's seat (its first town), `other` the parent's seat; `value` the language id (History.languages); `extra` the LanguageSplitCause
   LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
@@ -451,6 +459,24 @@ export interface History {
   arms: Uint8Array
   /** arms: arms races between rival polities (empty when HistoryOptions.arms is false). */
   armsRaces: ArmsRaces
+
+  // finance: crown treasuries and credit (all empty when HistoryOptions.finance is false).
+  /** Coin in each polity's treasury per snapshot (wealth units; negative: bills in arrears), row-major like `tariff`; 0 outside its life. */
+  treasury: Float32Array
+  /** Principal each polity's crown owed per snapshot, same layout. */
+  crownDebt: Float32Array
+  /** Ordinary revenue (coin a year at peace, smoothed) and spending a year (smoothed: court, garrisons, works, war, tribute, interest), same layout. */
+  crownRevenue: Float32Array
+  crownSpending: Float32Array
+  /** Interest rate the crown could borrow at per snapshot, 0..255 for 0..0.5 (255 also: no credit), same layout. */
+  creditRate: Uint8Array
+  /** Silver content of each polity's coin per snapshot, 0..255 for 0..1 (255 sound; 0 outside its life), same layout (always sound until debasement lands). */
+  coinage: Uint8Array
+  /** State fiscal distress per snapshot (finSFD), 0..255 for 0..FIN.sfdMax, same layout. */
+  fiscalDistress: Uint8Array
+  loans: Loans
+  /** Principal outstanding per trade snapshot per loan account: loanBalance[q * loans.count + k] (0 before it opened and after it closed). */
+  loanBalance: Float32Array
 
   // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
   /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
@@ -1365,7 +1391,7 @@ export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, 
 export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
 
 /** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
-export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4 } as const // (religion: Religious, a ruler of another faith or persecution)
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want)
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
@@ -1580,6 +1606,38 @@ export const BondEnd = {
   Betrayed: 5, // oaths: one ally broke faith: made a separate peace with the common enemy, turned on its ally, or attacked it (EventType.Betrayal / OathBroken extra 1); bA or bB, the one whose capital is the event's `settlement`, is the betrayer
 } as const
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
+
+/** finance: who lent (History.loans.lenderKind): a town's merchant pool (lender = settlement); a merchant family (lender = family id); a town's own wealth when goods are off (lender = settlement). */
+export const LenderKind = { Pool: 0, Family: 1, Town: 2 } as const
+export type LenderKind = (typeof LenderKind)[keyof typeof LenderKind]
+/**
+ * finance: how a loan account ended. Defaulted: written to nothing at defaults (an account written down only in part stays open,
+ * its `lost` counting it); Lost: the crown ended; LenderGone: the lender's seat abandoned (the crown kept the money); Seized: the
+ * crown took the lender's seat; Assumed: the realm was absorbed or reunified and its debts passed to the absorber (a new account
+ * there); Charter: cancelled in exchange for a town's charter (city-states).
+ */
+export const LoanEnd = { Ongoing: 0, Repaid: 1, Defaulted: 2, Repudiated: 3, Lost: 4, LenderGone: 5, Seized: 6, Assumed: 7, Charter: 8 } as const
+export type LoanEnd = (typeof LoanEnd)[keyof typeof LoanEnd]
+
+/** finance: crown loan accounts, struct-of-arrays in order of opening: one account per borrower and lender, opened at its first loan, closed when repaid or ended (a later loan from the same lender opens a new account). */
+export interface Loans {
+  count: number
+  /** Borrowing polity; lender kind (LenderKind) and id; the lender's seat (settlement) when the account opened. */
+  polity: Int16Array
+  lenderKind: Uint8Array
+  lender: Int32Array
+  seat: Int32Array
+  startYear: Int16Array
+  /** -1 while open at the end of the run. */
+  endYear: Int16Array
+  end: Uint8Array
+  /** Largest principal outstanding; rate at opening and the highest it reached (a year's share); interest paid; principal written off. */
+  peak: Float32Array
+  rate0: Float32Array
+  rateMax: Float32Array
+  paid: Float32Array
+  lost: Float32Array
+}
 
 /** oaths: kinds of grievance one polity holds against another (History.grievances). Other plans add theirs (MASTER-PLAN §3.2). */
 export const GrievanceKind = {
@@ -1850,6 +1908,8 @@ export interface HistoryOptions {
   oaths?: boolean
   /** balance (grudges-and-oaths; needs polities): alliances weighed by threat (power, proximity and intent), coalitions against the hegemon, and weak states that bandwagon. Default false. */
   balance?: boolean
+  /** finance (state-finances; needs polities): crown treasuries, borrowing from merchant capital, default and bankruptcy wars. Default false; false leaves the finance fields empty and the history exactly the one without them. */
+  finance?: boolean
   /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
   arms?: boolean
   /**

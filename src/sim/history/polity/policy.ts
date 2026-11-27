@@ -44,6 +44,8 @@ import type { PolityState } from './state.ts'
 import { zCell } from './territory.ts'
 import { atWar } from './formation.ts'
 import { rerouteStep } from './reroute.ts'
+import { finNeedYears } from '../finance/hooks.ts' // finance:
+import { FIN } from '../finance/params.ts' // finance:
 
 /** What the market reads per candidate pair this year (index = trade pair). Directions: AB = goods from a to b (b imports). */
 export interface PairPolicy {
@@ -175,7 +177,8 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
     const w = s.wealth[ps.pCapital[p]] / (X.needRef * ps.pMass[p] + 1e-9)
     let mr = maxR[p]
     if (mr > 1) mr = 1
-    let target = X.base[tier] + (ps.pWars[p] > 0 ? X.war : 0) + X.need * smoothstep(X.needHigh, X.needLow, w) + X.rivalry * mr
+    const fy = s.fin !== null ? finNeedYears(s, p) : NaN // finance: the treasury in years of revenue
+    let target = X.base[tier] + (ps.pWars[p] > 0 ? X.war : 0) + X.need * (fy === fy ? smoothstep(FIN.needHigh, FIN.needLow, fy) : smoothstep(X.needHigh, X.needLow, w)) + X.rivalry * mr
     if (target > X.max) target = X.max
     ps.pTariff[p] += k * (target - ps.pTariff[p])
   }

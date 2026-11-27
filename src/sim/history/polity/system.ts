@@ -38,6 +38,9 @@ import { cohesionStep, lostCapitals, realmStep, revoltStep, unrestStep } from '.
 import { campaigns, closeWar, declarations, declare, raids, warYear } from './war.ts'
 import { betrayalStep } from './oaths.ts' // oaths:
 import { armsStep, armsUpkeep } from './arms.ts' // arms:
+import { fiscalYear } from '../finance/system.ts' // finance:
+import { bookTax, finTaxPressure } from '../finance/hooks.ts' // finance:
+import type { C8Factors } from '../compose.ts'
 import { tariffStep } from './policy.ts'
 import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
@@ -138,6 +141,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     mapPass(s, ps, ts, mapHeap)
     if (s.year % PIRACY.laneStep === 0) laneMap(s, ps, ts) // (v2: the sea lanes near each coast)
   }
+  if (s.fin !== null) fiscalYear(s, ps, s.fin) // finance: the crown's fiscal year (income, spending, loans, arrears, default)
   campaigns(s, ps)
   warYear(s, ps)
   if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
@@ -191,6 +195,9 @@ function taxShares(s: HistoryState, ps: PolityState): void {
   }
 }
 
+/** C8 factors (scratch). */
+const C8F: C8Factors = {}
+
 /**
  * System (yearly, between trade and population): the grain tax. Each member sends
  * tax * supply * gamma * g / T of its food to its capital (remote and rough members pay little) and a
@@ -219,9 +226,12 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
     const pid = s.pop[id]
     s.food[id] = s.supply[id] >= pid ? 1 : s.supply[id] / pid
     inFood[cap] += tax
-    const w = c8Tax(wt * g * s.wealth[id]) // C8 (compose.ts): the tax take
+    const fin = s.fin
+    const pr = fin !== null ? finTaxPressure(s, p) : undefined // finance: tax pressure (C8 factor 1)
+    if (pr !== undefined) C8F.pressure = pr
+    const w = c8Tax(wt * g * s.wealth[id], pr !== undefined ? C8F : undefined) // C8 (compose.ts): the tax take
     s.wealth[id] -= w
-    s.wealth[cap] += w
+    if (fin === null || !bookTax(fin, p, id, w)) s.wealth[cap] += w // (finance: to the treasury)
     if (s.harvest[s.weatherRegion[s.cell[id]]] < UNREST.badHarvest) ps.badTax[id] = 1
   }
   if (ps.activeBonds.length > 0) tributeFlows(s, ps, inFood) // v2: vassals and tributaries pay their overlords

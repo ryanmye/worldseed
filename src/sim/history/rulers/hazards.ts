@@ -10,6 +10,8 @@ import type { PolityState } from '../polity/state.ts'
 import type { RulerState } from './state.ts'
 import { RULERS, SUCCESSION } from './params.ts'
 import { c3Overthrow } from '../compose.ts'
+import type { C3Factors } from '../compose.ts'
+import { finOverthrow } from '../finance/hooks.ts' // finance:
 
 const H = RULERS.heirs
 
@@ -81,8 +83,12 @@ export function overthrowHazard(s: HistoryState, ps: PolityState, R: RulerState,
   let e = ps.pExh[p]
   if (e > 1) e = 1
   const x = RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))
-  return c3Overthrow(x)
+  const f = s.fin !== null ? finOverthrow(s, p) : undefined // finance: an unpaid army (C3 factor 1)
+  if (f === undefined) return c3Overthrow(x)
+  C3F.fin = f
+  return c3Overthrow(x, C3F)
 }
+const C3F: C3Factors = {}
 
 /**
  * The chance that heir slot `heir` of p's pool succeeding reign `dead` under law `law` at `year` is contested (succession's

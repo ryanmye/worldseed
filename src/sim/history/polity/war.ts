@@ -56,6 +56,9 @@ import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
 import { battleFought } from '../battles/system.ts' // battles:
+import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/hooks.ts' // finance:
+import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
+import type { C6Factors } from '../compose.ts'
 import { whyPending, whyRelScale, whyWar } from '../why.ts' // causes:
 
 // --- Declarations ------------------------------------------------------------------------------------
@@ -76,8 +79,9 @@ function exposedFront(s: HistoryState, ps: PolityState, edges: readonly number[]
   return best
 }
 
-/** C1 factors (reused scratch; oaths: the grudge). */
+/** C1 factors (reused scratch; oaths: the grudge; finance: money), C6 factors (finance: debt). */
 const C1F: C1Factors = {}
+const C6F: C6Factors = {}
 
 /** System part (every step): rivals declare war. */
 export function declarations(s: HistoryState, ps: PolityState): void {
@@ -105,6 +109,8 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const g = og !== null ? grudge(og, p, q) : 0
       if (og !== null) C1F.grudge = 1 + OATH.drive * g // oaths: p's grudge against q
+      const money = s.fin !== null ? finWarDrive(s, ps, p) : undefined // finance: can the crown fund it (C1 factor 4)
+      C1F.money = money
       if (oath) {
         // oaths: one 'history-oaths' draw per candidate, damped by the excess of breaking (oaths.ts, shadow.ts)
         const kase = inTruce ? OathCase.Truce : OathCase.AllyAttack
@@ -121,7 +127,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       }
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge
+      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       if (ps.why) whyPending(ps.why, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r], adv, e, mul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0, frontV, drive) // causes:
       const w0 = ps.wKind.length
@@ -315,7 +321,7 @@ function conquer(s: HistoryState, ps: PolityState, w: number, p: number, q: numb
     ps.diag.sackDead += lost
     const loot = WAR.sackWealth * s.wealth[v]
     s.wealth[v] -= loot
-    s.wealth[ps.pCapital[p]] += WAR.plunder * loot
+    s.wealth[ps.pCapital[p]] += s.fin !== null ? bookPlunder(s.fin, p, WAR.plunder * loot) : WAR.plunder * loot // (finance: the crown's share to the treasury, next year)
     if (ps.walls[v] > 0 && rng.next() < WAR.slight) loseWalls(s, ps, v)
     if (ps.fort[v] >= 0 && rng.next() < WAR.slight) loseFort(s, ps, v) // v2
     if (s.dam[v] >= 0 && rng.next() < WAR.damLost) loseStructure(s, s.dam[v])
@@ -431,7 +437,9 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
 /** Exhaustion of p after a war-year with `dead` of its people killed. */
 function exhaust(s: HistoryState, ps: PolityState, p: number, dead: number): void {
   let e = ps.pExh[p] + WAR.perYear + (ps.pPop[p] > 0 ? (WAR.deaths * dead) / ps.pPop[p] : 0)
-  if (s.wealth[ps.pCapital[p]] < WAR.poorShare * ps.pMass[p]) e += WAR.poor
+  const fx = s.fin !== null ? finExhaust(s, p) : null // finance: unpaid soldiers (replaces the poor-capital term)
+  if (fx !== null) e += fx
+  else if (s.wealth[ps.pCapital[p]] < WAR.poorShare * ps.pMass[p]) e += WAR.poor
   ps.pExh[p] = e
 }
 
@@ -463,8 +471,13 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     if (ps.wTaken[w] > takenBefore) ps.wLastGain[w] = s.year
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
-    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < c6Peace(WAR.peaceChance)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
-    if (spent || tired) {
+    const fd = s.fin !== null ? finPeaceDebt(s, p, q) : undefined // finance: the more indebted side seeks terms (C6 factor 2)
+    if (fd !== undefined) C6F.debt = fd
+    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < c6Peace(WAR.peaceChance, fd !== undefined ? C6F : undefined)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
+    // finance: an army unpaid (ArmyUnpaid once per side and war); a bankrupt side's war ends (spent by it, or mutiny)
+    const broke = s.fin !== null ? warBroke(s, ps, w, p, q, spent) : -1
+    if (spent || tired || broke >= 0) {
+      if (broke >= 0) logWarBankrupt(s, ps, w, broke)
       const t = ps.wTaken[w], b = ps.wRetaken[w]
       closeWar(s, ps, w, t > b ? WarOutcome.AttackerGains : b > t ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)
     }

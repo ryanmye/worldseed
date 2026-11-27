@@ -28,6 +28,7 @@ import { ALLIANCE, OATH, POLITY, RELATION, VASSAL } from './params.ts'
 import { recordGrievance } from './grievances.ts' // oaths:
 import { repFactor } from './oaths.ts' // oaths:
 import { allianceStepBalance, bandwagonStep, threatLapsed } from './align.ts' // balance:
+import { FIN } from '../finance/params.ts' // finance:
 import type { C7Factors } from '../compose.ts'
 import type { GrudgeState } from './grudgeState.ts'
 import { ensureRelation, relIdx, relationOf } from './relations.ts'
@@ -309,6 +310,7 @@ export function tributeFlows(s: HistoryState, ps: PolityState, inFood: Float64Ar
     const share = kind === BondKind.Vassal ? VASSAL.share : VASSAL.tribute
     const x = share * inFood[ca]
     if (x > 0) { inFood[ca] -= x; inFood[cb] += x }
+    if (s.fin !== null && FIN.divert) continue // (finance: tribute in coin is paid in the fiscal year, from treasury to treasury)
     const w = share * WEALTH.decay * s.wealth[ca]
     s.wealth[ca] -= w
     s.wealth[cb] += w

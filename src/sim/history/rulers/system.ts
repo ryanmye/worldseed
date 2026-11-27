@@ -33,6 +33,7 @@ import type { RulerState } from './state.ts'
 import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim } from './marriage.ts'
 import { capitalFaith } from '../religion/system.ts' // religion:
 import { contestChanceOf, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
+import { finAccession } from '../finance/hooks.ts' // finance:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
 
 const H = RULERS.heirs
@@ -216,6 +217,7 @@ export function accede(s: HistoryState, ps: PolityState, R: RulerState, p: numbe
     if (ps.pCrisisUntil[p] < until) ps.pCrisisUntil[p] = until
     R.diag.regencies++
   }
+  if (s.fin !== null && (how === AccessionHow.Usurped || how === AccessionHow.Conquered || (dyn >= 0 && (pred < 0 || R.rDyn[pred] !== dyn)))) finAccession(s.fin, p, how) // finance: a new ruler may repudiate the crown's debts
   return r
 }
 

@@ -33,6 +33,7 @@ import { FAR, ensureRoutesP, localOf, projAt } from './state.ts'
 import type { PolityState } from './state.ts'
 import { atWar } from './formation.ts'
 import { legLaneMap, legOutlaw } from '../goods/longhaul.ts' // goods: the long-haul legs' sea lanes and roads
+import { crownRev } from '../finance/hooks.ts' // finance:
 
 /** Years between the market's accounts (duties, contraband, plunder paid out): flushAccounts at the end of each such year's market. */
 export const ACCOUNTS = 5
@@ -72,7 +73,7 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
         const caught = X.seize * e
         const rev = rate * (1 - sig) * db + caught * sig * pv
         const c = dir === 0 ? pc.cAB[p] : pc.cBA[p], q = dir === 0 ? pc.qAB[p] : pc.qBA[p]
-        if (rev > 0) { if (c >= 0 && s.abandoned[c] < 0) income[c] += rev; if (q >= 0) ps.pRevYear[q] += rev }
+        if (rev > 0) crownRev(s, ps, income, c, q, rev) // (finance: to the treasury when on)
         const x = sig * (1 - caught) * v
         sm += x
         smug += x
@@ -95,9 +96,9 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
       legal += pc.legal[p]
       pc.legal[p] = 0
       let x = pc.revAB[p]
-      if (x > 0) { const c = pc.cAB[p], q = pc.qAB[p]; if (c >= 0 && s.abandoned[c] < 0) income[c] += x; if (q >= 0) ps.pRevYear[q] += x; pc.revAB[p] = 0 }
+      if (x > 0) { crownRev(s, ps, income, pc.cAB[p], pc.qAB[p], x); pc.revAB[p] = 0 }
       x = pc.revBA[p]
-      if (x > 0) { const c = pc.cBA[p], q = pc.qBA[p]; if (c >= 0 && s.abandoned[c] < 0) income[c] += x; if (q >= 0) ps.pRevYear[q] += x; pc.revBA[p] = 0 }
+      if (x > 0) { crownRev(s, ps, income, pc.cBA[p], pc.qBA[p], x); pc.revBA[p] = 0 }
       x = pc.cutAB[p]
       if (x > 0) { cut(s, ps, pc.hAB[p], x, pc.bestAB[p], pc.gAB[p], pc.qAB[p], income); pc.cutAB[p] = 0; pc.bestAB[p] = 0 }
       x = pc.cutBA[p]
