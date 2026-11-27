@@ -175,6 +175,11 @@ import { assembleDisease, emptyDiseaseHistory } from './disease/assemble.ts'
 // rulers: named rulers, houses, successions, marriages and unions (rulers/).
 import { RULERS } from './rulers/params.ts'
 import { createRulers } from './rulers/state.ts'
+// governments: forms of government and city-states (government/).
+import { GOV_ON } from './government/params.ts'
+import { createGovernment } from './government/state.ts'
+import type { GovDiag } from './government/state.ts'
+import { assembleGovernments, emptyGovernmentHistory } from './government/assemble.ts'
 import type { RulerDiag } from './rulers/state.ts'
 import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
 // battles: the battles of the wars, their commanders (battles/).
@@ -334,6 +339,8 @@ export interface HistoryDiagnostics {
   ideas?: IdeasDiag
   /** landmarks: the landmarks system's counters (absent when it is off). */
   landmarks?: LandmarksDiag
+  /** governments: the government system's counters (absent when it is off). */
+  governments?: GovDiag
   /** families: the merchant families' counters (absent when they are off). */
   families?: FamilyDiag
   /** disasters: the disasters system's counters, and its live state (read only; absent when it is off). */
@@ -540,6 +547,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // rulers: rulers and houses (they need the polities), unless switched off.
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
+  // governments: forms of government (they need the polities; rulers optional), unless switched off.
+  if (pol && (options?.governments ?? GOV_ON)) s.gov = createGovernment(seed)
+  const gov = s.gov
   // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
   const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
   s.bat = bat
@@ -846,6 +856,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         families: famHist, // families:
+        ...(pol && gov ? assembleGovernments(gov, pol.P) : emptyGovernmentHistory()), // governments: (empty when off)
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
         ...(bat && pol ? assembleBattles(bat, years, pol.pEnded, rulHist.rulers, nameBattles(world, bat, { settlements, renamings: renHist.renamings }, features, featureMap), nameCommanders(world, bat, naming, rulHist.rulers)) : emptyBattleHistory()), // battles: (named after the renamings)
@@ -879,6 +890,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        governments: gov ? { ...gov.diag } : undefined, // governments:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:

@@ -349,6 +349,10 @@ function checkInvariants(w: World, h: History): void {
       case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
       case EventType.MerchantsMoved: // (goods/merchants.ts)
         break
+      // governments (checked against their table in government/government.test.ts).
+      case EventType.CharterBought: case EventType.CommuneProclaimed: case EventType.SignoriaSeized: case EventType.TheocracyProclaimed:
+      case EventType.GovernmentChanged: case EventType.CharterRevoked:
+        break
       // families (checked against their table in families/families.test.ts).
       case EventType.FamilyFounded: case EventType.FamilyBranch: case EventType.BranchClosed: case EventType.FamilyHead: case EventType.FamilyMoved:
       case EventType.FamilyMarriage: case EventType.FamilyBacked: case EventType.FamilyPatron: case EventType.FamilyFell:

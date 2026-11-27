@@ -27,6 +27,7 @@ import type { TourismState } from './tourism/state.ts' // tourism:
 import type { IdeasState } from './ideas/state.ts' // ideas:
 import type { DisasterState } from './disasters/state.ts' // disasters:
 import type { WhyRec } from './why.ts' // causes:
+import type { GovState } from './government/state.ts' // governments:
 import { whyAbandon } from './why.ts' // causes:
 
 /** A recorded journey before it is sorted and flattened into `Journeys`. */
@@ -174,6 +175,8 @@ export interface HistoryState {
   dz: DiseaseState | null
   // rulers: the rulers system's state (rulers/state.ts), or null when it (or the polity system) is off.
   rul: RulerState | null
+  // governments: forms of government (government/state.ts), or null when HistoryOptions.governments (or the polity system) is off.
+  gov: GovState | null
   // battles: the battles system's state (battles/state.ts), or null when it (or the polity system) is off.
   bat: BattleState | null
   // religion: the religion system's state (religion/state.ts), or null when it is switched off.
@@ -287,6 +290,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     ib: null, // barriers: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
     rul: null, // rulers: (set by index.ts when the system is on)
+    gov: null, // governments: (set by index.ts when the system is on)
     bat: null, // battles: (set by index.ts when the system is on)
     rel: null, // religion: (set by index.ts when the system is on)
     tz: null, // tourism: (set by index.ts when the system is on)

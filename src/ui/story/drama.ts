@@ -382,6 +382,16 @@ R(T.EliteFactions, { cat: DramaCat.Society, base: 3, polities: realmPolities })
 R(T.LabourDear, { cat: DramaCat.Society, base: 2, polities: realmPolities })
 I(T.Ennobled)
 
+// --- governments (200-205, city-states: only with HistoryOptions.governments) ---
+// (a commune proclaimed, a charter bought, a lord seizing a republic, a clergy taking its holy city and a charter revoked are
+// stories; GovernmentChanged (crowned, settled, secularised) a smaller one)
+R(T.CharterBought, { cat: DramaCat.Politics, base: 4, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
+R(T.CommuneProclaimed, { cat: DramaCat.Politics, base: 6, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
+R(T.SignoriaSeized, { cat: DramaCat.Politics, base: 4, polities: (_c, e) => [e.value] })
+R(T.TheocracyProclaimed, { cat: DramaCat.Faith, base: 5, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
+R(T.GovernmentChanged, { cat: DramaCat.Politics, base: 3, polities: (_c, e) => [e.value] })
+R(T.CharterRevoked, { cat: DramaCat.Politics, base: 4, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })

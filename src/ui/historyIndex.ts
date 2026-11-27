@@ -446,6 +446,8 @@ export function otherIsSettlement(type: number): boolean {
     type === 35 || type === 37 || type === 38 || type === 39 || type === 42 || type === 43 ||
     // oaths, balance, arms: the wronged ally's, the victim's, the stronger realm's, the rival's capital
     (type >= 190 && type <= 194) ||
+    // governments: the lord risen against or no longer paid, the overlord that sold or revoked a charter, the realm a holy city left
+    type === 200 || type === 201 || type === 203 || type === 205 ||
     // finance: the lender's seat, the largest lender's, the enemy's capital, the debtor crown's
     (type >= 210 && type <= 217) ||
     // beliefs: the other realm's capital (the pressed, the observer, the ally), or a claimed town

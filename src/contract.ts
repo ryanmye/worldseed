@@ -309,6 +309,13 @@ export const EventType = {
   DroughtBegan: 266, // a persistent drought settled on the region of `settlement` (its largest town); `other` -1; `extra` the weather region
   DroughtEnded: 267, // the drought broke; `settlement` the region's largest town (or the one where it began, if still alive); `other` -1; `extra` its years
   ClimateTurned: 268, // the world's slow climate entered an epoch: `settlement` the world's largest town; `other` -1; `extra` +1 warm, -1 cold
+  // governments: charters, communes, signorie and theocracies (200-209; none when HistoryOptions.governments is false; 206-209 spare).
+  CharterBought: 200, // the town `settlement` bought its liberties from the polity ruled from `other` and is now the free city `value` (a new polity, origin Charter, bound to it by a Charter bond); `extra` the price paid (wealth)
+  CommuneProclaimed: 201, // `settlement` became the capital of a republic: `value` the polity id (a new one for a rising or a stateless town, else its own); `other` the capital of the lord it rose against or stopped paying (-1 otherwise); `extra` how: 0 a rising won, 1 a free town constituted itself, 2 a free city stopped paying its due, 3 the council abolished the throne (or a league shrank to its head town), 4 the lords driven out and the republic restored
+  SignoriaSeized: 202, // a strongman made himself lord of the republic ruled from `settlement`: `value` the polity id; `other` -1; `extra` how: 0 a war captain (condottiere), 1 the leading merchant family, 2 a demagogue in a time of strife. The new lord's RulerAcceded (AccessionHow.Usurped) follows when rulers are on
+  TheocracyProclaimed: 203, // the clergy of faith `extra` (History.faiths) took the rule of its holy city `settlement`: `value` the polity id (a new one when the city broke away or was stateless); `other` the capital of the realm it broke from, or -1
+  GovernmentChanged: 204, // the polity `value` ruled from `settlement` took the form of government `extra` (Government) for a cause that has no event of its own (GovernmentCause Crowned, Secularised or Settled: History.governments says which); `other` -1
+  CharterRevoked: 205, // the polity ruled from `other` revoked the liberties of the free city `settlement` (its polity `value` ends Absorbed; the Charter bond ends Absorbed)
   // society: classes, wages and rents, elites and the secular cycle (240-249; none when HistoryOptions.society is false).
   SocialPhase: 240, // the polity `value` ruled from `settlement` entered a secular phase: `extra` the phase (SecularPhase: 2 a crisis of the social order, 0 a new expansion); `other` -1
   LabourDear: 241, // labour grew dear in the polity `value` ruled from `settlement` (its people fewer than its land wants): `other` the settlement of the epidemic that thinned it, or -1; `extra` the rise of the real wage (2 = doubled)
@@ -611,6 +618,12 @@ export interface History {
   // families: merchant families (empty when HistoryOptions.families or goods is false; then every other field is as without them, events aside).
   /** Named merchant families: their seats (home and factors), heads, lanes, marriages into ruling houses, backings and patronage. */
   families: MerchantFamilies
+  // governments: forms of government (all empty when HistoryOptions.governments or polities is false).
+  /** Forms of government over time (see Governments). */
+  governments: Governments
+  /** The rows of each polity: those of polity p are governmentIds[governmentOffsets[p] .. governmentOffsets[p + 1]). */
+  governmentOffsets: Uint32Array
+  governmentIds: Int32Array
 
   // disease: epidemics, endemic sickness and fever (all empty when HistoryOptions.disease is false).
   /** The diseases of this world (DiseaseInfo.id is the index); one that never appeared by the end of the run has firstYear -1 and no name. */
@@ -1233,7 +1246,7 @@ export interface Quarantines {
 export const AccessionHow = {
   Founded: 0, // founded the realm (or came to power with it: a revolt's leader, a successor state's first ruler)
   Inherited: 1, // by the realm's law of succession (or a share of a realm divided among heirs)
-  Elected: 2, // chosen by the great men of the realm (an elective throne, a new house raised when the old died out, a league's head)
+  Elected: 2, // chosen by the great men of the realm (an elective throne, a new house raised when the old died out, a league's, republic's, free city's or theocracy's head)
   Usurped: 3, // seized the throne (a general or a magnate overthrowing the ruler, or prevailing in a disputed succession)
   Conquered: 4, // set on the throne by a conqueror after the capital fell
   Union: 5, // inherited through a marriage claim while ruling another realm (a personal union)
@@ -1251,7 +1264,7 @@ export const ReignEnd = {
   Deposed: 5, // driven from the throne alive (a usurper, a lost disputed succession, a union split)
   Plague: 6, // died of an epidemic (disease system)
   RealmEnded: 7, // the realm itself ended (conquered, reunified, absorbed, fragmented, dwindled)
-  TermEnded: 8, // a league head's term ran out
+  TermEnded: 8, // an elected head's term ran out (a league, republic or free city)
 } as const
 export type ReignEnd = (typeof ReignEnd)[keyof typeof ReignEnd]
 
@@ -1280,7 +1293,7 @@ export interface Ruler {
   /** Year of death, -1 if alive at the end of the run or the reign ended without a death (deposed, realm gone, term ended). */
   died: number
   polity: number
-  /** Ruling house (History.dynasties), -1 for a league's elected head. */
+  /** Ruling house (History.dynasties), -1 for an elected head: a league's, a republic's or free city's (for a term), or a theocracy's (for life; governments). */
   dynasty: number
   how: AccessionHow
   end: ReignEnd
@@ -1559,6 +1572,8 @@ export const PolityOrigin = {
   Partition: 4, // an heir's share of a realm divided at a succession
   CivilWar: 5, // a rival centre that rose against its capital (see EventType.CivilWar)
   League: 6, // a league of trading towns of comparable size that bound together against a threat (the UI calls it a League whatever its size)
+  Charter: 7, // governments: a town (and its villages) that bought its liberties from its overlord: a free city, bound to it by a Charter bond
+  CityState: 8, // governments: a single city (and its villages) that made itself a state: it rose against its lord, a stateless trading town governed itself, or a holy city's clergy took it (see History.governments)
 } as const
 export type PolityOrigin = (typeof PolityOrigin)[keyof typeof PolityOrigin]
 
@@ -1577,7 +1592,7 @@ export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, 
 export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
 
 /** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
-export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5, Urban: 7 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want; 6 Burghers is city-states'; society: Urban, townsfolk rising over dear bread and low wages)
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5, Burghers: 6, Urban: 7 } as const // (governments: Burghers, the burghers of a rich trading town rose for their liberties; religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want; 6 Burghers is city-states'; society: Urban, townsfolk rising over dear bread and low wages)
 /** society: phase of a polity's secular cycle (Turchin & Nefedov's four phases; History.socPhase). */
 export const SecularPhase = { Expansion: 0, Stagflation: 1, Crisis: 2, Depression: 3 } as const
 export type SecularPhase = (typeof SecularPhase)[keyof typeof SecularPhase]
@@ -1813,6 +1828,7 @@ export const BondKind = {
   Vassal: 0, // `a` is the vassal of overlord `b`: it keeps its own government, pays part of its revenue, never fights `b`
   Tribute: 1, // `a` pays tribute to `b` for a term of years after a lost war
   Alliance: 2, // `a` and `b` are allies against a common rival (they may come to each other's defence)
+  Charter: 3, // governments: `a` is a free city chartered by its overlord `b`: it governs itself, pays a yearly due, owes no levy and never fights `b`; it is Freed when it stops paying, Absorbed when `b` revokes the charter
 } as const
 export type BondKind = (typeof BondKind)[keyof typeof BondKind]
 /** How a bond ended. */
@@ -1854,6 +1870,62 @@ export type HeadHow = (typeof HeadHow)[keyof typeof HeadHow]
 /** families: why a family moved its home. */
 export const FamilyMoveCause = { Bypassed: 0, TownLost: 1, Entrepot: 2 } as const
 export type FamilyMoveCause = (typeof FamilyMoveCause)[keyof typeof FamilyMoveCause]
+
+
+// ---------------------------------------------------------------------------
+// governments: forms of government and city-states (all empty when HistoryOptions.governments or polities is false).
+
+/** Form of government of a polity (History.governments: it may change over the polity's life). */
+export const Government = {
+  Monarchy: 0, // a hereditary ruler and court (king, chief, emperor): the ruling house of History.rulers
+  Republic: 1, // a merchant republic: a council of the great houses rules and elects a head for a term (no house; History.rulers.dynasty -1)
+  FreeCity: 2, // a self-governing city under a nominal overlord (History.bonds kind Charter): its own council and elected head, a yearly due, no levy
+  Signoria: 3, // a republic taken by a strongman or a family, who rule through its old council and pass it to their heirs (a house again)
+  Theocracy: 4, // ruled by the clergy of a faith from its holy city: a head chosen for life by the priests (no house)
+  Confederation: 5, // a confederation of herding chiefs who choose a paramount chief from among their houses (elective among houses)
+  League: 6, // a league of trading towns (PolityOrigin.League): its diet elects a head for a term
+} as const
+export type Government = (typeof Government)[keyof typeof Government]
+
+/** Why a polity's form of government became what it is (History.governments.cause). */
+export const GovernmentCause = {
+  Founded: 0, // the form it was founded with (a new state's first row)
+  Charter: 1, // a town bought its liberties from its overlord (EventType.CharterBought): a free city
+  Rising: 2, // the burghers rose against their lord and won (EventType.CommuneProclaimed, extra 0)
+  Free: 3, // a stateless trading town constituted itself (CommuneProclaimed, extra 1)
+  Freed: 4, // a free city stopped paying its due to its overlord (CommuneProclaimed, extra 2; its Charter bond ends Freed)
+  Council: 5, // the great houses abolished an extinct or fallen throne, or a league shrank to its head town (CommuneProclaimed, extra 3)
+  Restored: 6, // a signoria's lords were driven out and the republic restored (CommuneProclaimed, extra 4)
+  Strongman: 7, // a war captain or a demagogue made himself lord of a republic (EventType.SignoriaSeized, extra 0 / 2)
+  Family: 8, // the leading merchant family made itself master of a republic (SignoriaSeized, extra 1)
+  Crowned: 9, // a signoria's lords took a crown, or a confederation's khans became kings (EventType.GovernmentChanged)
+  Clergy: 10, // the clergy of a holy city took its rule (EventType.TheocracyProclaimed)
+  Secularised: 11, // the clergy lost the rule (the holy city's faith gone or the city of another faith now) (GovernmentChanged)
+  Settled: 12, // a confederation of herders settled into a kingdom (GovernmentChanged)
+} as const
+export type GovernmentCause = (typeof GovernmentCause)[keyof typeof GovernmentCause]
+
+/**
+ * governments: the form of government of every polity over time, struct-of-arrays in order of change (a polity's founding
+ * row first: every polity has one when the system is on). The form of polity p at year y is that of the last of its rows
+ * with year <= y (governmentIds[governmentOffsets[p] .. governmentOffsets[p + 1]), in year order). A change and the
+ * founding in one year: the later row wins.
+ */
+export interface Governments {
+  count: number
+  polity: Int16Array
+  year: Int16Array
+  /** Government. */
+  form: Uint8Array
+  /** GovernmentCause. */
+  cause: Uint8Array
+  /** The reign (History.rulers) that began with the change (a new elected head or lord), -1 if none (rulers off, or the head stayed). */
+  ruler: Int32Array
+  /** The settlement whose story it is (the capital, the town that rose or bought its charter). */
+  settlement: Int32Array
+  /** The merchant family (History.families) the head or lord came from (the capital's leading family; a Family signoria's house), -1 none or families off. */
+  family: Int32Array
+}
 
 /**
  * families: named merchant families, struct-of-arrays in order of founding (row = family id; prefix-stable: a longer run repeats a
@@ -2258,6 +2330,13 @@ export interface HistoryOptions {
    * A pure consequence layer while FAMILY.feedback is false: on or off, every other field is the same (events aside, which gain 161-169).
    */
   families?: boolean
+  /**
+   * governments (city-states; needs polities; rulers optional): forms of government (History.governments): monarchies, merchant
+   * republics, free cities under a nominal overlord, signorie, theocracies, tribal confederations and leagues, with the transitions
+   * wealth and force drive (charters bought, burghers' risings, strongmen) and their effects on war, trade, succession and unrest.
+   * Default false (GOV_ON); false gives History.governments empty and every other field as without it.
+   */
+  governments?: boolean
   /** finance (state-finances; needs polities): crown treasuries, borrowing from merchant capital, default and bankruptcy wars. Default false; false leaves the finance fields empty and the history exactly the one without them. */
   finance?: boolean
   /** society (society-secular-cycles; needs polities): classes, wages and rents, elite overproduction and political stress (Ψ) feeding revolts, civil wars and successions. Default false; false leaves the society fields empty and the history exactly the one without them. */
