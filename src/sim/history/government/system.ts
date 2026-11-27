@@ -308,6 +308,7 @@ export function govLocal(s: HistoryState, G: GovState, p: number, id: number): n
 
 /** bondStep hook: Charter bond k (free city a of overlord b): it stops paying (Freed), or b revokes it (Absorbed). */
 export function govCharterBond(s: HistoryState, ps: PolityState, G: GovState, k: number): void {
+  if (ps.bStart[k] === s.year) return // (a new charter is first weighed at the next step)
   const a = ps.bA[k], b = ps.bB[k]
   const d = distAcross(s, ps, b, a)
   const proj = d < FAR ? projAt(ps, b, d) : 0

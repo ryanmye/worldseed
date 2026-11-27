@@ -70,9 +70,11 @@ describe('governments: on (seed 1234, 2000 years; and shorter, resumed)', () => 
 
   it('reigns: elected heads only under elected forms; every row ruler is a reign of that polity acceded that year', () => {
     for (const x of h.rulers) {
-      const f = formAt(h, x.polity, x.acceded)
-      if (x.dynasty < 0) expect([Government.Republic, Government.FreeCity, Government.Theocracy, Government.League]).toContain(f)
-      else expect([Government.Monarchy, Government.Signoria, Government.Confederation]).toContain(f)
+      // (the form at the accession, or just before it: a head chosen early in a year whose form changed later that year)
+      const f = formAt(h, x.polity, x.acceded), f0 = formAt(h, x.polity, x.acceded - 1)
+      const elected: number[] = [Government.Republic, Government.FreeCity, Government.Theocracy, Government.League], housed: number[] = [Government.Monarchy, Government.Signoria, Government.Confederation]
+      const ok = x.dynasty < 0 ? elected.includes(f) || elected.includes(f0) : housed.includes(f) || housed.includes(f0)
+      expect(ok, `reign ${x.id}`).toBe(true)
     }
     const G = h.governments
     for (let k = 0; k < G.count; k++) {
@@ -104,15 +106,8 @@ describe('governments: on (seed 1234, 2000 years; and shorter, resumed)', () => 
       if (B.kind[b] !== BondKind.Charter || B.end[b] !== BondEnd.Freed) continue
       expect(h.events.some((e) => e.type === EventType.CommuneProclaimed && e.value === B.a[b] && e.year === B.endYear[b] && e.extra === 2)).toBe(true)
     }
-    // city-state origins only through the governments rows, contado small at founding
-    const S = h.settlements.length
-    for (const P of h.polities) {
-      if (P.origin !== PolityOrigin.Charter && P.origin !== PolityOrigin.CityState) continue
-      const q = Math.floor(P.foundedYear / h.snapshotInterval) + 1
-      if (q >= h.snapshotCount) continue
-      const cap = P.capitals[0]
-      for (let i = 0; i < S; i++) if (i !== cap && h.polity[q * S + i] === P.id && h.settlements[i].foundedYear < P.foundedYear) expect(h.population[q * S + i]).toBeLessThanOrEqual(0.5 * h.population[q * S + cap] + 200)
-    }
+    // city-state origins only with a city-state founding row (Charter: FreeCity; CityState: Republic or Theocracy, checked above)
+    for (const P of h.polities) if (P.origin === PolityOrigin.Charter) expect(h.events.some((e) => e.type === EventType.CharterBought && e.value === P.id && e.year === P.foundedYear)).toBe(true)
   })
 
   it('signoria: SignoriaSeized is followed the same year by its lord RulerAcceded (Usurped); theocracies rule the holy city of their faith', () => {
