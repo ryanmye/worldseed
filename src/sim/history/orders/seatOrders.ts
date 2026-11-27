@@ -267,3 +267,4 @@ export function seatState(s: HistoryState, ox: OrdersState, ps: PolityState | nu
   }
   return -1
 }
+

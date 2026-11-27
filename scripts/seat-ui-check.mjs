@@ -1,6 +1,6 @@
 // seat mode: a browser check of the decision card (Playwright with the system Chrome; not part of vitest).
 //
-//   node scripts/seat-ui-check.mjs <url with seat=...> [desktop|phone] [own realm name]
+//   node scripts/seat-ui-check.mjs <url with seat=...> [desktop|phone] [own realm name] [screenshot.png]
 //   (PLAYWRIGHT_FROM: a folder whose node_modules has playwright, default /home/claude/plans/perf-scripts/;
 //    CHROME: the browser, default /usr/bin/google-chrome)
 //
@@ -15,6 +15,7 @@ const { chromium, devices } = require('playwright')
 const url = process.argv[2]
 const mode = process.argv[3] || 'desktop'
 const own = process.argv[4] || ''
+const shot = process.argv[5] || '' // (optional: a screenshot of the decision screen)
 const from = Number(new URL(url).searchParams.get('seat')?.split(':')[2] ?? 0)
 const browser = await chromium.launch({ executablePath: process.env.CHROME ?? '/usr/bin/google-chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] })
 const ctx = mode === 'phone'
@@ -29,7 +30,7 @@ await page.goto(url)
 const years = []
 const sampler = setInterval(() => { page.evaluate(() => Number(document.querySelector('.tl-slider')?.value ?? -1)).then((y) => { if (y > 0) years.push(y) }).catch(() => {}) }, 400)
 let decision = false
-try { await page.locator('.seat-card:not(.hidden) .seat-opt-note').first().waitFor({ timeout: 240000 }); decision = true } catch { /* no card */ }
+try { await page.locator('.seat-screen:not(.hidden) .seat-opt-note').first().waitFor({ timeout: 240000 }); decision = true } catch { /* no card */ }
 clearInterval(sampler)
 const secs = (Date.now() - t0) / 1000
 check(decision, `a decision card shows (${secs.toFixed(0)} s)`)
@@ -39,21 +40,22 @@ if (decision) {
   check(below.length === 0, `the timeline jumped to the reign (years seen below ${from}: ${below.length ? below.slice(0, 5).join(', ') : 'none'})`)
   check(secs < 120, `the card came within 2 minutes of loading (${secs.toFixed(0)} s)`)
   const info = await page.evaluate(() => {
-    const card = document.querySelector('.seat-card:not(.hidden)')
+    const card = document.querySelector('.seat-screen:not(.hidden)')
     const alpha = (el) => { const m = getComputedStyle(el).backgroundColor.match(/rgba?\(([^)]+)\)/); const p = m ? m[1].split(',').map(Number) : [0, 0, 0, 0]; return p.length > 3 ? p[3] : 1 }
     const mine = (el) => { const r = el.getBoundingClientRect(); const x = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!x && card.contains(x) }
-    const buttons = [...card.querySelectorAll('.seat-opt, .seat-showme')]
+    const buttons = [...card.querySelectorAll('.seat-opt, .seat-skip, .seat-showme')].filter((b) => { const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth })
     return {
-      title: card.querySelector('.seat-card-title')?.textContent ?? '',
-      cardAlpha: alpha(card), optAlpha: Math.min(...[...card.querySelectorAll('.seat-opt')].map(alpha)),
+      title: card.querySelector('.seat-banner-title')?.textContent ?? '', backdrop: alpha(card), panelAlpha: alpha(card.querySelector('.seat-situation')),
+      optAlpha: Math.min(...[...card.querySelectorAll('.seat-opt')].map(alpha)),
       covered: buttons.filter((b) => !mine(b)).map((b) => b.textContent),
       bottom: Math.max(...buttons.map((b) => b.getBoundingClientRect().bottom)), vh: window.innerHeight,
     }
   })
   console.log(JSON.stringify(info))
+  if (shot) await page.screenshot({ path: shot })
   const subject = info.title.includes(': ') ? info.title.slice(info.title.indexOf(': ') + 2) : ''
   check(!own || subject !== own, `the card's subject "${subject}" is not the player's own realm "${own}"`)
-  check(info.cardAlpha === 1 && info.optAlpha === 1, `the card and its options are opaque (${info.cardAlpha}, ${info.optAlpha})`)
+  check(info.backdrop >= 0.85 && info.panelAlpha === 1 && info.optAlpha === 1, `the backdrop dims the globe (${info.backdrop}) and the panels and cards are opaque (${info.panelAlpha}, ${info.optAlpha})`)
   check(info.covered.length === 0, `nothing covers the options or Show me (${info.covered.join(' | ') || 'none'})`)
   check(info.bottom <= info.vh - 12, `the last button ends above the bottom edge (${info.bottom.toFixed(0)} of ${info.vh})`)
 }

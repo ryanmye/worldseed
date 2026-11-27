@@ -27,6 +27,11 @@ export interface SeatState {
   orderKind: number[]
   orderActor: number[]
   orderTarget: number[]
+  /** Per decision: how divisive (0..1), and the option a cautious court takes (seat/watch.ts). */
+  dDiv: number[]
+  dCourt: number[]
+  /** Events looked at for the year's Choice records (the deference pass, seat/system.ts). */
+  chSeen: number
   /** Decision rows recorded this year (the pause test of HistoryRunner.playSeat). */
   newRows: number
   /** Year of the last decision; per DecisionKind the year of its last decision. */
@@ -46,7 +51,7 @@ export function createSeatState(opts: SeatOptions): SeatState {
   return {
     opts: copySeat(opts),
     taken: false, lostYear: -1, polity: -1, people: -1, house: -1, polityAt: [], peopleAt: [],
-    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [],
+    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [], dDiv: [], dCourt: [], chSeen: 0,
     newRows: 0, lastCard: -1000000, lastKind: new Int32Array(18).fill(-1000000), epidemics: new Set(), evSeen: 0,
     ambitionYear: amb.map(() => -1), ambitionRun: amb.map(() => 0),
   }

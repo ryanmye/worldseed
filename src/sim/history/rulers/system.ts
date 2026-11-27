@@ -34,6 +34,7 @@ import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim }
 import { capitalFaith } from '../religion/system.ts' // religion:
 import { contestChanceOf, heirEligible, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
 import { designated } from '../orders/hooks.ts' // seat: Designate
+import { deferContestMul } from './deference.ts' // rulers: deference
 import { SEAT } from '../seat/params.ts' // seat:
 import { finAccession } from '../finance/hooks.ts' // finance:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
@@ -472,6 +473,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
       const S = SUCCESSION
       let chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
       if (named !== 0) chance *= named === 1 ? SEAT.designateLaw : SEAT.designateOver // seat: a designation against custom is contested more
+      if (s.defer !== null) chance *= deferContestMul(s, p) // rulers: deference: the deciding body and the rival centres are stronger (x1 at 0)
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
         if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year)) // causes: (before the heir accedes)

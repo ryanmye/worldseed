@@ -59,7 +59,6 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
     }
     const d = cards[i]
     const place = h.seat!.decisions.place[d]
-    if (place >= 0) deps.flyTo(place) // (the camera frames the card's place; the card stands aside of it)
     card.show(h, d, i + 1, cards.length, (option) => ask(h, cards, i + 1, [...chosen, ...decisionOrders(h, d, option)]), place >= 0 ? () => deps.flyTo(place) : null)
   }
 

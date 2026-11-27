@@ -250,6 +250,10 @@ export const EventType = {
   GeneralTurned: 226, // general `value` went over to the enemy ruled from `other` with the town he held, `settlement` (Defected follows); `extra` the war id
   CommanderDismissed: 227, // commander `value` (a general) was relieved after a defeat at `settlement`; `other` the capital; logged for commanders with fame >= BATTLE.renown / 2 only
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
+  // seat: deference (182-183, from the unassigned 182-189; none unless the player lets matters be decided without them).
+  SeatDeclined: 182, // the seat's realm, ruled from `settlement`, came to be ruled in all but name by the body that decides without the player (seat/decider): `value` the polity id; `other` -1; `extra` the deference x 100
+  DeferBlamed: 184, // the body that decided a divisive matter for the ruler of the realm ruled from `settlement` bore the blame for it: `value` the polity id; `other` -1; `extra` the DecisionKind (seat: a matter left to it)
+  SeatReasserted: 183, // the player took the seat's power back in the realm ruled from `settlement`: `value` the polity id; `other` -1; `extra` 0 by decisions taken in a row, 1 by reclaiming it (a risky act: the throne is less safe for years)
   // seat: the player's seat (seat-mode §3.7; 270-279; none when HistoryOptions.seat is undefined).
   SeatTaken: 270, // the player took the seat (HistoryOptions.seat) at its year: `settlement` the seat polity's capital (or the people's largest town); `other` -1; `value` the seat's id; `extra` the SeatKind
   SeatPassed: 271, // the seat passed to the polity `value` ruled from `settlement`: `other` the old capital (-1); `extra` how: 0 the house's other throne, 1 a partition heir's share, 2 the pretender's realm (civil war), 3 a seceded realm of the same house
@@ -666,6 +670,8 @@ export interface History {
   why?: CauseRecords
   /** seat: the player's seat, the polity it held year by year and the decisions offered (absent when HistoryOptions.seat is undefined). */
   seat?: SeatHistory
+  /** rulers: deference, how far realms grew used to being ruled without their rulers (rulers/deference.ts); absent when nothing fed it. */
+  deference?: DeferenceHistory
 }
 
 /**
@@ -2149,6 +2155,7 @@ export const UnrestPart = {
   Generations: 23, // future politics
   Disaster: 24, // disasters
   Immiseration: 25, Coercion: 26, // society
+  Deference: 28, // seat: a realm grown used to being ruled without its ruler (the player's deference; a Provincial term)
   Shock: 27, // a jump not made by grievance: the bitterness left by a crushed revolt, a realm breaking up (UNREST.crushAfter, fragment)
 } as const
 export type UnrestPart = (typeof UnrestPart)[keyof typeof UnrestPart]
@@ -2948,6 +2955,8 @@ export const SeatOptionKey = {
   Retrench: 28, Grant: 29, Refuse: 30, SeparatePeace: 31, StandBy: 32, Settle: 33, ExploreOn: 34, Stay: 35, TakeUp: 36, Seek: 37,
   /** Credit (finance): refuse the crown's debts (Repudiate with the realm itself as target). */
   RepudiateDebts: 38,
+  /** Crisis, while the deciding body rules in all but name: take the power back (Choice option DEFER_OPTIONS.reclaim; risky). */
+  Reclaim: 39,
 } as const
 export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
 
@@ -2969,6 +2978,23 @@ export interface SeatDecisions {
   orderTarget: Int32Array
   /** The option chosen (from the Choice orders given at year + 1), -1 when none was (no card answered: the court's own course). */
   chosen: Int8Array
+  /** How divisive the matter is, 0..1 (every course angers someone: a succession, a schism, a revolt, taxes; low for a new crop): a deferral of it costs less authority, and its blame falls on the deciding body. */
+  divisive: Float32Array
+  /** The option a cautious court takes when the matter is left to it (DEFER_OPTIONS.defer): the least risky. */
+  courtPick: Int8Array
+  /** 1 where the player left the matter to the deciding body (a deferral; `chosen` is then courtPick). */
+  deferred: Uint8Array
+}
+
+/** rulers: deference per polity at the end of the run (rulers/deference.ts). */
+export interface DeferenceHistory {
+  count: number
+  /** Per polity: the value (0 none; SEAT.deferDecline and over: the deciding body rules in all but name) and 1 while in decline. */
+  value: Float32Array
+  figurehead: Uint8Array
+  /** Per polity x cause (DeferenceCause: 0 Player, 1 Minor, 2 Absent, 3 Union, 4 Indolent, 5 Infirm, 6 Captive): the total fed. */
+  fed: Float32Array
+  causes: number
 }
 
 /** seat: (absent when HistoryOptions.seat is undefined). */
@@ -2985,15 +3011,29 @@ export interface SeatHistory {
   lostYear: number
 }
 
-/** The orders of option o of decision d (year d's year + 1), with the Choice record first (actor: the seat's people, target d * 8 + option). */
+/**
+ * seat: the Choice option indices with a meaning of their own (target row * 8 + index): `defer`, the matter left to the body
+ * that decides without the player (the court's own course; "Let ... decide", Esc, a timeout); `reclaim`, the Reclaim option.
+ * Both act on the seat's deference (orders/system.ts); every other index is the option's own.
+ */
+export const DEFER_OPTIONS = { reclaim: 6, defer: 7 } as const
+
+/**
+ * The orders of option o of decision d (year d's year + 1), with the Choice record first (actor: the seat's people, target
+ * d * 8 + option). `option` DEFER_OPTIONS.defer: the matter left to the deciding body, recorded as a deferral, with the
+ * orders of the option a cautious court takes (decisions.courtPick).
+ */
 export function decisionOrders(h: History, d: number, option: number): Order[] {
   const D = h.seat?.decisions
   if (!D || d < 0 || d >= D.count) return []
   const o0 = D.optStart[d], o1 = D.optStart[d + 1]
-  if (option < 0 || o0 + option >= o1) return []
   const year = D.year[d] + 1
   const people = h.seat!.peopleAt[D.year[d] - h.seat!.seat.from] ?? -1
-  const out: Order[] = [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + option }]
+  const defer = option === DEFER_OPTIONS.defer
+  if (defer) option = D.courtPick[d] // (the matter left to the deciding body: a cautious court's pick, with its orders)
+  if (option < 0 || o0 + option >= o1) return []
+  if (D.optKey[o0 + option] === SeatOptionKey.Reclaim) return [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + DEFER_OPTIONS.reclaim }]
+  const out: Order[] = [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + (defer ? DEFER_OPTIONS.defer : option) }]
   const o = o0 + option
   for (let k = D.orderStart[o]; k < D.orderStart[o + 1]; k++) {
     const x: Order = { year, kind: D.orderKind[k] as OrderKind, actor: D.orderActor[k] }

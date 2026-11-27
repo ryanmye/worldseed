@@ -35,10 +35,11 @@ import { MARRIAGE, RULERS } from '../rulers/params.ts'
 import { tied, unionBond } from '../rulers/marriage.ts'
 import { contestChance, eligibleHeirs, overthrowHazard, pickHeir } from '../rulers/hazards.ts'
 import { finNeed } from '../finance/hooks.ts'
+import { figureheadOf } from '../rulers/deference.ts'
 import { polityFaith } from '../religion/system.ts'
 import { chordCells } from '../orders/hooks.ts'
 import type { SeatState } from './state.ts'
-import { PRIORITY, SEAT, URGENT } from './params.ts'
+import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
 
 /** An order of an option: kind, actor, target (-1 none). */
 type O = [number, number, number]
@@ -121,6 +122,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
           cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, options: [
             { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
             { key: SeatOptionKey.Endure, orders: [] },
+            ...(figureheadOf(s, p) ? [{ key: SeatOptionKey.Reclaim, orders: [] as O[] }] : []), // (rulers: deference: take the power back, at a risk)
           ] })
           break
         }
@@ -431,6 +433,7 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
     if (s.year - st.lastKind[c.kind] < SEAT.cool[c.kind]) continue
     if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
+    if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
     seenKind.add(c.kind)
@@ -442,6 +445,12 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
 
 function record(st: SeatState, year: number, c: Card, opts: Option[]): void {
   st.dYear.push(year); st.dKind.push(c.kind); st.dPolity.push(st.polity); st.dSubject.push(c.subject); st.dPlace.push(c.place)
+  // how divisive (the kind's, a little more with more roads to choose from), and a cautious court's pick (the least risky option)
+  const div = DIVISIVE[c.kind] + (opts.length >= 3 ? 0.05 : 0)
+  st.dDiv.push(div > 1 ? 1 : div)
+  let pick = 0
+  for (let i = 1; i < opts.length; i++) if ((OPTION_RISK[opts[i].key] ?? 0.5) < (OPTION_RISK[opts[pick].key] ?? 0.5)) pick = i
+  st.dCourt.push(pick)
   st.lastKind[c.kind] = year
   for (const o of opts) {
     st.optKey.push(o.key)

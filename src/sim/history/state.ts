@@ -4,6 +4,7 @@
 
 import type { FinanceState } from './finance/state.ts'
 import type { OrdersState } from './orders/state.ts' // orders:
+import type { DeferenceState } from './rulers/deference.ts' // rulers: deference
 import type { AbandonCause as AbandonCauseT, EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
 import { AbandonCause, EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
@@ -177,6 +178,8 @@ export interface HistoryState {
   orders: OrdersState | null
   // disasters: natural shocks and climate (disasters/state.ts), or null when switched off (every hook is then a no-op).
   dx: DisasterState | null
+  // rulers: deference per polity (rulers/deference.ts), or null until something feeds it (every effect is then a no-op).
+  defer: DeferenceState | null
   // causes: the causal explorer's recorders (why.ts), or null when HistoryOptions.causes is off. Written only, never read by the sim.
   why: WhyRec | null
 }
@@ -281,6 +284,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     ideas: null, // ideas: (set by index.ts when the system is on)
     orders: null, // orders: (set by index.ts when there are orders)
     dx: null, // disasters: (set by index.ts when the system is on)
+    defer: null, // rulers: deference (created when first fed)
     why: null, // causes: (set by index.ts when HistoryOptions.causes is on)
   }
 }

@@ -14,6 +14,7 @@ import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isLandmarkEvent } from './landmarksFormat.ts'
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
+import { isSeatEvent } from './seat/seatFormat.ts'
 
 /** seat: the OrderFulfilled (171) of a Choice order (OrderKind 10): its OrderGiven line of the same year says it. */
 export function choiceEcho(h: History, e: { type: number; value: number }): boolean {
@@ -425,6 +426,7 @@ function isShownType(type: number): boolean {
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
   if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
+  if (isSeatEvent(type)) return true // 182-184, 270-279: the player's seat and deference (seat/seatFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)

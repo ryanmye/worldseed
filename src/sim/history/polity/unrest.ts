@@ -18,6 +18,7 @@
 // resolved at once; if the rump left at the capital is small the polity ends (Fragmented).
 // Capitals move when a member has long been much larger and safer (and when the capital is lost).
 
+import { deferUnrest } from '../rulers/deference.ts' // rulers: deference
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
 import { smoothstep } from '../../util.ts'
@@ -64,13 +65,17 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const peasant = fam + crowd + bt
   // (v2: corruption where contraband pays)
   const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
-  const provincial = dist + exh + cri + cor
+  let provincial = dist + exh + cri + cor
+  // rulers: deference: a realm ruled without its ruler is restive; the blame for divisive matters falls on the body that decided
+  const dv = s.defer !== null ? deferUnrest(s, p) : 0
+  if (dv !== 0) provincial = provincial + dv > 0 ? provincial + dv : 0
   const foreign = U.foreign * (1 - ps.assim[i])
   const ethnic = foreign + conquest
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
   if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
+  if (dv !== 0 && ps.why) ps.why.sub[UnrestPart.Deference] = dv // causes: (rulers: deference)
   // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
   const tax = s.fin !== null ? finTaxGrief(s, p) : 0
   terms[5] = tax
