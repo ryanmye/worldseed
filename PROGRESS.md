@@ -16,7 +16,8 @@ Spec: plans/EVALUATION.md §4 Lane 1, §1d. Brief: plans/_LANE_BRIEF.md. Runs: /
 - [x] 6 primer v4 + personas v2 (61b0810); metrics cardsByKind/nonLegacyPer50 (3bcb55f)
 - [x] play-test 1 items: breakaway beats + seat focus (fb62741), drama strip peaks (e13f743), Why fixes (e443d95)
 - [x] G0 OK (runs/n1/g0.log); build OK (runs/n1/build.log)
-- [ ] 7 after measurements, merge origin/main, final push
+- [x] 7 after measurements (runs/n1/after4-bots-*, after-storystats, after-pacing, tune logs), merged origin/main 39e8470, G0 6/6 OK, realism 0.371 -> 0.371
+- open: ci-determinism not on main yet (merge it when it lands; no Math.pow/** in n1 sim code); non-legacy cards ~0.6-1.2 per 50 y (target 1)
 
 ## Current / next commands
 - bots: n1-tools/bots-run.sh <worktree> <tag> -> runs/n1/<tag>-bots-<preset>.jsonl (before, after2, after3 running)
