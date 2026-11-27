@@ -4,12 +4,19 @@
 //   node --experimental-strip-types --no-warnings src/sim/history/presetStats.ts [seed ...]            (default 1 7 42 1234)
 //   ... --preset realistic|off measure another preset (default dramatic)
 //   ... --years N              run length (default 2000)
-//   ... --check                exit 1 if any Dramatic row breaks SANITY_BOUNDS
+//   ... --check                exit 1 if any (non-off) row breaks SANITY_BOUNDS
 //   ... --json                 one JSON row per seed
 //   ... --out rows.jsonl       append each seed's row as it finishes; seeds already in the file are read back, not rerun
 //
-// Measured (2026-11-27, lane/setup on main @ 363c570; 2000 y; seeds 1 / 7 / 42 / 1234). See docs/presets.md for the table.
-// The bounds are set loosely around these (about 2x headroom); they are a guard against a broken system, not a target.
+// Measured 2026-11-27 (lane/setup on main f20cb5f; 2000 y; seeds 1 / 7 / 42 / 1234; rows in /home/claude/runs/setup/*.jsonl):
+//   preset      events                     warless c.  reign median  short (<3y)        accessions/realm-c.  familyHead/c.         battles
+//   off         12251 13149 13683 15470    0 1 1 5     20 12 15 11   .079 .074 .068 .058  4.57 5.55 5.29 5.81  0                     0
+//   realistic   14004 17078 14123 16618    1 2 3 3     17 13 15 12   .089 .067 .060 .079  4.78 5.38 5.11 5.74  0                     282 314 427 309
+//   dramatic    17478 17635 15000 18923    3 2 3 5     16 12 18 13   .064 .061 .073 .067  5.16 5.75 4.81 5.47  70.7 52.5 29.4 37.3   347 378 384 403
+// No non-finite value and no realm above 80% of the world's people in any run. Successions are not a churn: the median reign
+// (12-18 y) is the off world's; the "every ~20 years" of the evaluation is the normal reign length. FamilyHead is 29-71 a
+// century (600-1400 a run): volume for the director to filter, not a flood. The bounds below are loose (about 2x the worst
+// measured value, and warless centuries at the off world's worst + 1); a guard against a broken system, not a target.
 
 import { EventType } from '../../contract.ts'
 import type { History, HistoryOptions, PresetName } from '../../contract.ts'
@@ -42,17 +49,17 @@ export interface SanityRow {
   eruptions: number
 }
 
-/** Loose bounds for Dramatic (EVALUATION.md §3 P1b; measured values in the header and docs/presets.md). */
+/** Loose bounds for Dramatic and Realistic (EVALUATION.md §3 P1b; measured values in the header). */
 export const SANITY_BOUNDS = {
   nonFinite: 0,
   dominanceYears: 300,
-  warlessCenturies: 3,
+  warlessCenturies: 6,
   reignMedianMin: 8,
-  reignShortMax: 0.3,
-  accessionsPerRealmCenturyMax: 8,
-  familyHeadPerCenturyMax: 250,
-  /** Dramatic events at most this multiple of Realistic's on the same seed (only checked when both are measured). */
-  eventsRatioMax: 2.5,
+  reignShortMax: 0.2,
+  accessionsPerRealmCenturyMax: 9,
+  familyHeadPerCenturyMax: 150,
+  /** Events at most this multiple of the off world's on the same seed (only checked when both are measured; measured <= 1.43). */
+  eventsRatioMax: 2,
 }
 
 export function sanityRow(seed: number, preset: PresetName, h: History): SanityRow {
@@ -115,8 +122,8 @@ export function sanityRow(seed: number, preset: PresetName, h: History): SanityR
   }
 }
 
-/** The bounds a Dramatic row breaks (empty: sane). `realistic`: the same seed's Realistic row, for the events ratio. */
-export function sanityViolations(r: SanityRow, realistic?: SanityRow): string[] {
+/** The bounds a row breaks (empty: sane). `off`: the same seed's off row, for the events ratio. */
+export function sanityViolations(r: SanityRow, off?: SanityRow): string[] {
   const B = SANITY_BOUNDS, v: string[] = []
   if (r.nonFinite > B.nonFinite) v.push(`nonFinite ${r.nonFinite}`)
   if (r.dominanceYears > B.dominanceYears) v.push(`dominanceYears ${r.dominanceYears} > ${B.dominanceYears}`)
@@ -125,7 +132,7 @@ export function sanityViolations(r: SanityRow, realistic?: SanityRow): string[] 
   if (r.reignShort > B.reignShortMax) v.push(`reignShort ${r.reignShort} > ${B.reignShortMax}`)
   if (r.accessionsPerRealmCentury > B.accessionsPerRealmCenturyMax) v.push(`accessionsPerRealmCentury ${r.accessionsPerRealmCentury} > ${B.accessionsPerRealmCenturyMax}`)
   if (r.familyHeadPerCentury > B.familyHeadPerCenturyMax) v.push(`familyHeadPerCentury ${r.familyHeadPerCentury} > ${B.familyHeadPerCenturyMax}`)
-  if (realistic && r.events > B.eventsRatioMax * realistic.events) v.push(`events ${r.events} > ${B.eventsRatioMax} x realistic ${realistic.events}`)
+  if (off && r.events > B.eventsRatioMax * off.events) v.push(`events ${r.events} > ${B.eventsRatioMax} x off ${off.events}`)
   return v
 }
 
@@ -154,7 +161,7 @@ if (PROC && import.meta.url === `file://${PROC.argv[1]}`) {
     const done = out && existsSync(out) ? readFileSync(out, 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l) as SanityRow) : []
     const r = done.find((x) => x.seed === seed && x.preset === preset && x.years === years) ?? runSanity(seed, preset, years)
     if (out && !done.includes(r)) appendFileSync(out, JSON.stringify(r) + '\n')
-    const v = preset === 'dramatic' ? sanityViolations(r) : []
+    const v = preset !== 'off' ? sanityViolations(r) : []
     if (json) console.log(JSON.stringify(r))
     else console.log(Object.entries(r).map(([k, x]) => `${k}=${x}`).join(' ') + (v.length ? `  VIOLATES: ${v.join('; ')}` : ''))
     if (v.length) bad++
