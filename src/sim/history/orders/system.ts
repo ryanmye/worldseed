@@ -28,7 +28,7 @@ import { QUARANTINE } from '../disease/params.ts'
 import { ORDERS } from './params.ts'
 import { chordCells } from './hooks.ts'
 import { createOrdersState } from './state.ts'
-import { isSeatKind, seatCheck, seatGive, seatInForce, seatMatch, seatPolityTarget, seatState } from './seatOrders.ts' // seat: the court kinds
+import { isSeatKind, seatCheck, seatSystemOff, seatGive, seatInForce, seatMatch, seatPolityTarget, seatState } from './seatOrders.ts' // seat: the court kinds
 import type { OrdersState } from './state.ts'
 
 const YEARS = describeOrderKinds().map((k) => k.years)
@@ -116,6 +116,7 @@ export function orderCheck(s: HistoryState, kd: number, a: number, t: number): n
   }
   if (ps === null) return R.SystemOff
   if (isPolityKind(kd)) {
+    if (isSeatKind(kd) && seatSystemOff(s, kd, a, t)) return R.SystemOff // (seat: the system the kind needs is off)
     if (!livePolity(ps, a)) return R.NoActor
     if (isSeatKind(kd)) return seatCheck(s, ps, kd, a, t) // seat: the court kinds
     if (kd === OrderKind.War || kd === OrderKind.Peace) {

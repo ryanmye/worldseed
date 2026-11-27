@@ -19,7 +19,7 @@ import { SEAT } from './params.ts'
  * The year's Choice records (given this year): a deferral feeds the decision polity's deference (less for a divisive matter,
  * whose blame the deciding body bears); a decision taken lowers it; Reclaim takes the power back (rulers/deference.ts).
  */
-function seatChoices(s: HistoryState, st: SeatState): void {
+export function seatChoices(s: HistoryState, st: SeatState): void {
   const ox = s.orders
   const ev = s.events
   const E = ev.length

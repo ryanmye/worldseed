@@ -80,6 +80,14 @@ export function allyWar(ps: PolityState, p: number, q: number): number {
   return -1
 }
 
+/** True when the system a seat kind needs is off (finance: Borrow, Repudiate of the debts; rulers: Marry, Designate, Purge; oaths: Betray). */
+export function seatSystemOff(s: HistoryState, kd: number, a: number, t: number): boolean {
+  if (kd === OrderKind.Borrow || (kd === OrderKind.Repudiate && t === a)) return s.fin === null
+  if (kd === OrderKind.Marry || kd === OrderKind.Designate || kd === OrderKind.Purge) return s.rul === null
+  if (kd === OrderKind.Betray) return s.pol === null || s.pol.og === null || !s.pol.og.oaths
+  return false
+}
+
 /** Why a seat kind could not act if given now (orders/system.ts orderCheck for kinds 11-20, 22; the polity is alive). */
 export function seatCheck(s: HistoryState, ps: PolityState, kd: number, a: number, t: number): number {
   const R = OrderReason
