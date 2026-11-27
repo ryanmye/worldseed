@@ -10,6 +10,7 @@ Goal: CI (ubuntu-26.04 x64, Node v25.9.0) G0 realistic seed 1 = 0e20763885721f5f
   V8 12.4 source (runs/ci/v8src/v8-12.4/src/base/ieee754.cc): Node 22 Math.pow = V8's fdlibm port (one changed line: r = z*t1/((t1-2)-(w+z*w))); Node 25 = std::pow (--use-std-math-pow).
 - [x] step 4: src/sim/detMath.ts powD = JS port of V8 12.4 pow: 0 mismatches vs Node 22 on 300k+80k inputs + specials. Used in outlaw.ts, lexicon.ts (2), species.ts (2 ** consts); drift.ts ** 2 -> products.
   Guard src/sim/detMath.test.ts (pins + hash recorded on Node 22; scan: no Math.pow / ** in src/sim replay path; other transcendentals frozen list (names/*, why.ts)). Passes on Node 22 and 25.
-- [ ] step 4b: G0 both nodes -> runs/ci/g0-node{22,25}.log ; typecheck, build, tests of touched files, realism:check
-- [ ] step 5: CI on lane branch (workflow runs on push to main / PR to main only: add a temporary trigger on the lane branch, or open a draft PR)
+- [x] step 4b: G0 6/6 OK on Node 22 AND Node 25.9.0 (runs/ci/g0-node{22,25}.log; hashValue equal too). typecheck, build OK. detMath/coverage/presets/bots tests 20/20. realism:check -> runs/ci/realism-check.log
+- [x] bots presets: resolveRun uses expandPreset from sim/history/presets.ts, names preset in options, url v=2; funHarness --preset dramatic smoke OK
+- [ ] step 5: CI: temporary .github/workflows/lane-ci-determinism.yml (lane branch only, Node 22+25 matrix). Runs 46010327723 (fix) and 46011560727 (final). `gh run list --branch lane/ci-determinism` from inside /home/claude/wsx-ci. After green: delete the workflow file (final commit).
 - [x] presets fix written (src/bots/presets.ts uses sim/history/presets expandPreset), not yet tested
