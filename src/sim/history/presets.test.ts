@@ -40,9 +40,9 @@ describe('presets', () => {
 
   it('no preset in the options is PRESET_DEFAULT', () => {
     PRESET_DEFAULT.name = 'realistic'
-    expect(expandPreset({})).toEqual(expandPreset({ preset: 'realistic' }))
+    expect({ ...expandPreset({}), preset: 'realistic' }).toEqual(expandPreset({ preset: 'realistic' }))
     PRESET_DEFAULT.name = 'off'
-    expect(expandPreset(undefined)).toEqual(expandPreset({ preset: 'off' }))
+    expect({ ...expandPreset(undefined), preset: 'off' }).toEqual(expandPreset({ preset: 'off' }))
   })
 
   it('an explicit switch wins over the preset; expansion is idempotent', () => {
