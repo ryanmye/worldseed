@@ -26,6 +26,8 @@ export interface ReignFacts {
   female: boolean
   /** oaths: truces and alliances broken in the reign (Betrayal, OathBroken at its realm's capital). */
   betrayals: number
+  /** society: bondage imposed (1) or ended (2) in the realm during the reign (the last one), 0 none. */
+  bondage: number
 }
 
 export function reignFacts(c: Ctx, r: number): ReignFacts {
@@ -52,8 +54,13 @@ export function reignFacts(c: Ctx, r: number): ReignFacts {
     const e = c.ev(i)
     if (e.year >= x.acceded && e.year <= (ended ? x.ended : c.Y) && c.capital(x.polity, e.year) === e.settlement) betrayals++
   }
+  let bondage = 0
+  for (const t of [EventType.SerfdomImposed, EventType.SerfdomEnded]) for (const i of c.type(t)) {
+    const e = c.ev(i)
+    if (e.value === x.polity && e.year >= x.acceded && e.year <= (ended ? x.ended : c.Y)) bondage = t === EventType.SerfdomImposed ? 1 : 2
+  }
   return {
-    betrayals,
+    betrayals, bondage,
     r, years: c.reignYears(r), founded: x.how === AccessionHow.Founded, usurped: x.how === AccessionHow.Usurped, claimed: x.how === AccessionHow.Claimed,
     regency: rd.regency[r] ?? 0, works, won, lost, ended, end: ended ? x.end : ReignEnd.Reigning, traits: traitWords(x, c.fd !== null), female: x.female,
   }
@@ -81,6 +88,8 @@ export function rulerEpithet(f: ReignFacts): string {
   if (f.founded) return 'the Founder'
   if (f.usurped) return 'the Usurper'
   if (f.betrayals >= 1) return 'the Faithless'
+  if (f.bondage === 2) return 'the Liberator' // society
+  if (f.bondage === 1) return 'the Binder' // society
   if (f.claimed) return 'the Pretender'
   if (f.regency > 0 && f.years >= 30) return f.female ? 'the Child-queen' : 'the Child-king'
   if (f.years >= 40) return 'the Long-reigning'
