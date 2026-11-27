@@ -47,6 +47,7 @@ import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
 import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
 import { rulerYear } from '../rulers/system.ts' // rulers:
+import { battlesYear } from '../battles/pretenders.ts' // battles:
 import { c8Tax } from '../compose.ts' // C8 stack
 import { grievanceStep } from './grievances.ts' // oaths:
 
@@ -145,6 +146,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   campaigns(s, ps)
   warYear(s, ps)
   if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
+  if (s.bat !== null) battlesYear(s, ps, s.bat) // battles: famous generals passed over turn (every step)
   if (s.year % POLITY.step !== 0) return
   controlPass(s, ps, ps.heap)
   dangerStep(s, ps)

@@ -3,6 +3,7 @@ import { BattleFlag, BattleKind, CommanderFate, EventType } from '../../../contr
 import type { History } from '../../../contract.ts'
 import { generateWorld, simulateHistory } from '../../index.ts'
 import { hashBase } from '../../../hashBase.ts'
+import { BATTLE_MODE } from './params.ts'
 
 /** hashBase with the battles' events (220-229) left out: the neutral record must change nothing else. */
 const baseOf = (h: History) => hashBase({ ...h, events: h.events.filter((e) => (e.type as number) < 220 || (e.type as number) > 229) })
@@ -12,7 +13,10 @@ describe('battles (neutral record)', () => {
     it(`seed ${seed}: on (neutral) equals off on every 8cabf09 field, and records every contest`, () => {
       const w = generateWorld(seed)
       const off = simulateHistory(w, { years: 600 })
-      const on = simulateHistory(w, { years: 600, battles: true })
+      const saved = BATTLE_MODE.neutral
+      BATTLE_MODE.neutral = true
+      let on: History
+      try { on = simulateHistory(w, { years: 600, battles: true }) } finally { BATTLE_MODE.neutral = saved }
       expect(off.battles.count).toBe(0)
       expect(off.events.some((e) => (e.type as number) >= 220 && (e.type as number) <= 229)).toBe(false)
       expect(baseOf(on)).toBe(hashBase(off))

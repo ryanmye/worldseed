@@ -65,6 +65,7 @@ export function wrongWords(h: History, i: number, name: (id: number) => string):
     case GrievanceKind.HolyCityTaken: return `the fall of the holy city of ${at} in ${y}`
     case GrievanceKind.CapitalTaken: return `the loss of its capital, ${at}, in ${y}`
     case GrievanceKind.CrownDefault: return `the unpaid debt of ${y}`
+    case GrievanceKind.GeneralTurned: return `the treason at ${at} in ${y}`
   }
   return `the wrong of ${y}`
 }

@@ -1769,6 +1769,7 @@ export const GrievanceKind = {
   HolyCityTaken: 5, // the offender, of another faith, took the holy city `settlement` (HolyCityFell); the polity that lost it holds it
   CapitalTaken: 6, // the offender took its capital `settlement`
   CrownDefault: 7, // (state-finances) the offender's crown defaulted on a loan from a lender seated in the wronged polity
+  GeneralTurned: 11, // (battles) a famous general of the wronged polity went over to the offender with the town `settlement` he held (GeneralTurned 226); 8-10 are beliefs'
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
 

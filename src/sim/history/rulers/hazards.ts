@@ -12,6 +12,7 @@ import { RULERS, SUCCESSION } from './params.ts'
 import { c3Overthrow } from '../compose.ts'
 import type { C3Factors } from '../compose.ts'
 import { finOverthrow } from '../finance/hooks.ts' // finance:
+import { battleCoup } from '../battles/commanders.ts' // battles:
 
 const H = RULERS.heirs
 
@@ -84,8 +85,10 @@ export function overthrowHazard(s: HistoryState, ps: PolityState, R: RulerState,
   if (e > 1) e = 1
   const x = RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))
   const f = s.fin !== null ? finOverthrow(s, p) : undefined // finance: an unpaid army (C3 factor 1)
-  if (f === undefined) return c3Overthrow(x)
+  const coup = s.bat !== null && s.bat.pretenders ? battleCoup(s, s.bat, p) : undefined // battles: a famous general (C3 factor 3)
+  if (f === undefined && coup === undefined) return c3Overthrow(x)
   C3F.fin = f
+  C3F.coup = coup
   return c3Overthrow(x, C3F)
 }
 const C3F: C3Factors = {}
