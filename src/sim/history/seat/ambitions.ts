@@ -5,14 +5,36 @@
 // every persona; seed 7's from 700 starts at 0.64 Dramatic, met by all, even the one that never decides): Unify is now won by the
 // sword: SEAT.unifyTaken towns taken in the realm's wars since the seat was taken (SeatState.townsTaken), and the realm's share of its
 // landmass (vassals count) kept at least min(unifyShare, its share at the seat's year) - unifyKeep, unifyYears running. Monument is
-// a great work raised in the seat's time: a great landmark begun and finished by the realm while the seat is held, not the
-// castle or palace every old capital raises (a town's temple, met by every realm, no longer counts).
-import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank } from '../../../contract.ts'
+// a great work raised in the seat's time and of its doing: a great landmark begun and finished by the realm while the seat is
+// held, following an order of the seat's that leads to it (drivenBy); a town's temple, met by every realm, no longer counts.
+import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
 import { houseOf } from './system.ts'
 import { overlordOf } from '../polity/bonds.ts'
+
+/**
+ * lane N3b: a great work of kind `kind` begun in year `begun` follows an order of the seat's within SEAT.monumentAfter years
+ * before it (the player's own act, not the realm's drift): a victory monument a war the seat ordered (Strike, Join the war,
+ * Avenge it, Call the bluff), a great temple or monastery a faith it embraced, a library, market hall or guildhall an idea or a
+ * crop it sought. Every other great work (the capital's castle and palace, a mausoleum, baths, a lighthouse, a council house)
+ * comes to a realm whatever its ruler does and does not count.
+ */
+export function drivenBy(s: HistoryState, st: SeatState, kind: number, begun: number): boolean {
+  const ox = s.orders
+  if (ox === null) return false
+  const K = LandmarkKind
+  const need: number[] | null = kind === K.Monument ? [OrderKind.War] : kind === K.GreatTemple || kind === K.Monastery ? [OrderKind.Faith] : kind === K.Library || kind === K.MarketHall || kind === K.Guildhall ? [OrderKind.Idea, OrderKind.Crop] : null
+  if (need === null) return false
+  for (let i = 0; i < ox.n; i++) {
+    const k = ox.kind[i], y = ox.year[i]
+    if (need.indexOf(k) < 0 || y > begun || begun - y > SEAT.monumentAfter || y <= st.opts.from) continue
+    const a = ox.actor[i]
+    if (k === OrderKind.Idea || k === OrderKind.Crop ? a === st.people : a === st.polity) return true
+  }
+  return false
+}
 
 /** Ambitions of the year (after the seat is resolved; the seat is held). */
 export function seatAmbitions(s: HistoryState, st: SeatState): void {
@@ -75,7 +97,7 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         if (ps === null || p < 0 || !lm) break
         for (let j = 0; j < lm.lDone.length && !ok; j++) {
           if (lm.lDone[j] !== s.year || lm.lPol[j] !== p || lm.lRank[j] !== LandmarkRank.Great || lm.lBegun[j] <= st.opts.from) continue
-          if (lm.lKind[j] !== LandmarkKind.Castle && lm.lKind[j] !== LandmarkKind.Palace) ok = true
+          if (lm.lKind[j] !== LandmarkKind.Castle && lm.lKind[j] !== LandmarkKind.Palace && drivenBy(s, st, lm.lKind[j], lm.lBegun[j])) ok = true
         }
         break
       }

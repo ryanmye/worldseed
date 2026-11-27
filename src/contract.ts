@@ -3332,7 +3332,7 @@ export const AmbitionKind = {
   Faith: 2, // a universal faith founded in a member town, or the state faith's holy city in the realm
   Riches: 3, // the richest realm (the sum of member wealth) for 25 years running
   Union: 4, // the house holds two thrones at once (a personal union, or two realms ruled by it)
-  Monument: 5, // a great landmark (not a castle or palace) begun and finished by the realm while the seat is held (lane N3b; lane N3 also counted a town's temple)
+  Monument: 5, // a great landmark begun and finished by the realm while the seat is held, within 40 years of the seat's order that leads to it (a war: a victory monument; a faith: a great temple or monastery; an idea or crop: a library, market hall or guildhall; lane N3b, seat/ambitions.ts drivenBy)
 } as const
 export type AmbitionKind = (typeof AmbitionKind)[keyof typeof AmbitionKind]
 /** AmbitionKind rows 0-5 (seat); 6-15 character-mode (registry §3.2). */

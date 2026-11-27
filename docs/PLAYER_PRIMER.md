@@ -19,7 +19,8 @@ Changelog:
   betrayals and bluffs.
 - v6 (2026-11-27, lane/n3 throne slice; written as v4 in the lane, renumbered at the merge after n4b v4 and n1 v5): Rule a kingdom opens Dramatic; the seat dashboard ("Your throne": arms, medallions, ambition picker, 50-year odds, hazards with Why?, the realm's feed, reigns with share links); cards show the news since the last card, "Because you…" lines, named heirs, each option's risk and odds move; Crush is now "Garrison the town" (a real order); card keys are exclusive while a card is shown; reign-end summaries; Authority shows its number.
 - v7 (2026-11-28, lane/n3b throne balance r2): Unify is won by war (10 towns taken, your share of the land held); Monument
-  is a great work begun and finished in your time (not the capital's castle or palace, not a town's temple); the Overlord
+  is a great work of your doing (begun within 40 years of the order that leads to it: a war, a faith, an idea or a crop you
+  sought; not the capital's castle or palace, not a town's temple); the Overlord
   card warns when the overlord is about to take the realm whole (Keep paying / Defy / Defy, with an ally); the surfacing
   lane's options (Send relief, Reward the army, Recall the general, Offer terms…) say what follows and move the odds; a
   reign's share link keeps only that reign's choices and opens at its year; the ambition picker asks before it restarts
@@ -140,9 +141,11 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
 - **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify the land by war (lane N3b: take 10 towns
   in your wars since the seat's year and hold your share of the landmass's people, vassals' and tributaries' counting, at
   most 10 points below your share at the start (or below 60%), 10 years running, with 5 towns of your own), 2 a faith of the
-  realm, 3 the richest realm for 25 years, 4 two crowns at once, 5 a great monument (a great landmark begun and finished by
-  the realm while you hold the seat: a victory monument after a war won, a great temple, a market hall, a library, a
-  mausoleum…; not the castle or palace every old capital raises, not a town's temple). The **first** ambition is
+  realm, 3 the richest realm for 25 years, 4 two crowns at once, 5 a great monument of your doing (lane N3b: a great landmark begun and finished by the realm while
+  you hold the seat, within 40 years of your order that leads to it: a victory monument after a war you ordered (Strike,
+  Join the war, Avenge it, Call the bluff), a great temple or monastery after you embraced a faith, a library, market hall
+  or guildhall after you sought an idea or took up a crop; the castle, palace, a mausoleum or a town's temple do not
+  count, they come whatever you do). The **first** ambition is
   the reign's: the dashboard shows how it stands, and with Unify first the "A neighbour is weak" card comes more often (every
   10 years instead of 25; seat/watch.ts coolOf). Otherwise they are judged only. **Picker:** the dashboard's "Change
   ambition…" list; choosing another one asks first, then restarts the reign from its first year (the address keeps the
@@ -187,8 +190,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - Alliance made: Honour it / Renounce it
   - Alliance sought: Seek an ally / Decline
   - Overlord: Pay / Defy. Lane N3b: when the overlord could soon take the realm whole (a vassal for most of 80 years and
-    far the stronger at your capital), the card says so and comes every 10 years: **Keep paying** (the court's course; it
-    ends with the realm absorbed) / Defy / **Defy, with an ally** (the tribute stops and an alliance is sought with the
+    far the stronger at your capital), the card says so and comes every 10 years: **Keep paying** (what the court does if you leave it
+    to them; it ends with the realm absorbed) / Defy / **Defy, with an ally** (the tribute stops and an alliance is sought with the
     overlord's rival in the same breath; only when such a rival is known).
   - Match: Arrange the match / Decline
   - General: Honour him / Purge him / Ignore it (Honour gives gold to the court: a Placate order)

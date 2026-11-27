@@ -762,6 +762,8 @@ function record(s: HistoryState, st: SeatState, year: number, c: Card, opts: Opt
   st.dDiv.push(div > 1 ? 1 : div)
   let pick = 0
   for (let i = 1; i < opts.length; i++) if ((OPTION_RISK[opts[i].key] ?? 0.5) < (OPTION_RISK[opts[pick].key] ?? 0.5)) pick = i
+  // (lane N3b: left the looming Overlord card, the court bows and pays on: the realm's end is the deferral's, not the court's daring)
+  if (c.kind === DecisionKind.Overlord && c.info === 1) { const kp = opts.findIndex((o) => o.key === SeatOptionKey.KeepPaying); if (kp >= 0) pick = kp }
   st.dCourt.push(pick)
   st.lastKind[c.kind] = year
   for (const o of opts) {

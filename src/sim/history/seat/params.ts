@@ -135,6 +135,8 @@ export const SEAT = {
   // and a 10-point margin are met by a warlike persona on 5 of the 6 curated setups and by no passive one)
   unifyTaken: 10,
   unifyKeep: 0.1,
+  // lane N3b: Monument: the great work begun within monumentAfter years of the seat's order that leads to it (ambitions.ts drivenBy)
+  monumentAfter: 40,
   richesYears: 25,
   // ---- lane N3 (the throne slice; design defaults, tuned with the bots harness) ----
   // Heir: an heir younger than heirMinAge is never offered by name (the law may still pick the infant: "Let the law decide")

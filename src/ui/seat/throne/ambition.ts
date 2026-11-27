@@ -11,7 +11,7 @@ export const AMBITIONS: readonly { kind: number; label: string; goal: string; hi
   { kind: AmbitionKind.Faith, label: 'A faith of the realm', goal: 'A universal faith founded in the realm, or the state faith’s holy city in it', hint: 'Embrace a faith when many of your people follow it.' },
   { kind: AmbitionKind.Riches, label: 'The richest realm', goal: `The richest realm for ${SEAT.richesYears} years running`, hint: 'Take up crops and ideas, keep the peace, keep the treasury sound.' },
   { kind: AmbitionKind.Union, label: 'Two crowns', goal: 'The house holds two thrones at once', hint: 'Arrange matches with neighbouring houses; a marriage claim may bring their crown.' },
-  { kind: AmbitionKind.Monument, label: 'A great monument', goal: 'A great work begun and finished by the realm in your time (not the capital’s castle or palace)', hint: 'Win a war (a victory monument), take up a faith (a great temple), grow rich trading towns (a market hall, a library).' },
+  { kind: AmbitionKind.Monument, label: 'A great monument', goal: 'A great work of your doing, begun and finished in your time: a victory monument after a war you ordered, a great temple to a faith you embraced, a library or market hall after an idea or crop you sought', hint: 'Order the war, the faith or the learning; the great work follows within a generation, if the realm is rich and strong enough.' },
 ]
 
 /** "Ambition: Unify the land — not yet (rule 60%…)", or "achieved in 812". '' when none declared. */
