@@ -835,8 +835,9 @@ const historyView = lazyHistoryView(
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 // (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
 appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts')])).then(([{ createSeatController }, { createDecisionCard }]) => {
+const seatCard = createDecisionCard(app)
 seatCtl = createSeatController({
-  card: createDecisionCard(app), // (bots: the card is made here, the controller takes it; both in the seat chunk)
+  card: seatCard, // (bots: the card is made here, the controller takes it; both in the seat chunk)
   post: (req) => {
     extending = 0
     worker.postMessage({ ...req, requestId: ++requestId } as WorkerRequest)
@@ -849,7 +850,7 @@ seatCtl = createSeatController({
     setUrlParam('o', currentOrders.length > 0 ? encodeOrders(currentOrders) : null)
   },
   setUrlParam,
-  flyTo: (id) => historyView.select(id, true),
+  flyTo: (id) => historyView.peek(id, () => seatCard.open), // n4b: Show me; following resumes once the card closes
   watchYears: (y) => nextHistoryLength(y),
   progress: (label) => historyView.setSimProgress(0, 0, label),
 })

@@ -14,8 +14,8 @@ export interface Caption {
   title: string
   /** The scene's text, or the chronicle line when the title is a scene's; '' for none. */
   body: string
-  /** "Read more": opens the saga of the main subject (null: no link). */
-  more: (() => void) | null
+  /** n4b: "Read more" expands the caption itself with more text (the subject's saga where it tells this moment); null: no button. */
+  more: (() => CaptionMore | null) | null
   /** causes: "Why?": opens the Why panel on the beat's event (null or absent: no button). */
   why?: (() => void) | null
   /** Reduced motion: "Show" cuts the camera to the place (null: no button). */
@@ -24,6 +24,13 @@ export interface Caption {
   share?: (() => void) | null
   /** battles: "Watch the battle" opens the 2D replay of the beat's battle (null or absent: no button). */
   battle?: (() => void) | null
+}
+
+/** n4b: what "Read more" adds to the caption: a few paragraphs, and optionally a link to the whole saga. */
+export interface CaptionMore {
+  paragraphs: string[]
+  /** "The whole saga" (opens the Sagas panel on the subject); absent: no link. */
+  open?: () => void
 }
 
 export interface Notice {
@@ -55,6 +62,11 @@ export interface StoryCard {
   flash(text: string): void
   /** A ring at a screen point (CSS px in the host), for a beat that needs no flight. */
   pulseAt(x: number, y: number): void
+  /** n4b: the caption's place on the globe: a pin with its name at a screen point (CSS px in the host); null hides it. */
+  pinAt(x: number, y: number, label: string): void
+  hidePin(): void
+  /** n4b: whether the caption is expanded by Read more (the reader holds the story there). */
+  readonly reading: boolean
 }
 
 export interface StoryCardDeps {
@@ -63,6 +75,8 @@ export interface StoryCardDeps {
   onResume(): void
   onNext(): void
   onClose(): void
+  /** n4b: Read more expanded (true) or folded (false) the caption. */
+  onReading?(on: boolean): void
 }
 
 const MAX_BODY = 220
@@ -109,6 +123,9 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   moreText.type = 'button'
   moreText.className = 'story-expand'
   moreText.textContent = 'more'
+  // n4b: Read more's text, inside the card
+  const moreBox = document.createElement('div')
+  moreBox.className = 'story-more hidden'
   const row = document.createElement('div')
   row.className = 'story-actions'
   const showBtn = document.createElement('button')
@@ -143,11 +160,49 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   closeBtn.setAttribute('aria-label', 'Close')
   closeBtn.textContent = '×'
   row.append(showBtn, battleBtn, readBtn, whyBtn, shareBtn, nextBtn)
-  card.append(closeBtn, eyebrow, title, body, moreText, row)
+  card.append(closeBtn, eyebrow, title, body, moreText, moreBox, row)
   root.append(toasts, chip, card)
+  // n4b: the paused chip sits above a caption shown with it (they share the lower left corner)
+  const placeChip = () => {
+    const up = !card.classList.contains('hidden') && !chip.classList.contains('hidden')
+    chip.style.bottom = up ? `calc(var(--story-bottom) + ${card.offsetHeight + 8}px)` : ''
+  }
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(placeChip).observe(card)
 
   let full = ''
   let caption: Caption | null = null
+  let reading = false
+  const setReading = (on: boolean) => {
+    if (on === reading) return
+    reading = on
+    readBtn.textContent = on ? 'Less' : 'Read more'
+    readBtn.setAttribute('aria-expanded', String(on))
+    moreBox.classList.toggle('hidden', !on)
+    card.classList.toggle('reading', on)
+    deps.onReading?.(on)
+  }
+  const openMore = () => {
+    if (reading) { setReading(false); return }
+    const m = caption?.more?.()
+    moreBox.replaceChildren()
+    setBody(true)
+    for (const t of m?.paragraphs ?? []) {
+      const p = document.createElement('p')
+      p.textContent = t
+      moreBox.appendChild(p)
+    }
+    if (moreBox.childElementCount === 0) moreBox.appendChild(Object.assign(document.createElement('p'), { className: 'story-more-none', textContent: 'The record says no more of it yet.' }))
+    if (m?.open) {
+      const a = document.createElement('button')
+      a.type = 'button'
+      a.className = 'story-more-link'
+      a.textContent = 'The whole saga ›'
+      a.addEventListener('click', () => m.open?.())
+      moreBox.appendChild(a)
+    }
+    setReading(true)
+    moreBox.scrollTop = 0
+  }
   const setBody = (expanded: boolean) => {
     const long = full.length > MAX_BODY
     body.textContent = long && !expanded ? `${full.slice(0, full.lastIndexOf(' ', MAX_BODY - 1) > 0 ? full.lastIndexOf(' ', MAX_BODY - 1) : MAX_BODY)}…` : full
@@ -194,7 +249,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
     }
   })
   showBtn.addEventListener('click', () => caption?.show?.())
-  readBtn.addEventListener('click', () => caption?.more?.())
+  readBtn.addEventListener('click', () => openMore())
   whyBtn.addEventListener('click', () => caption?.why?.())
   battleBtn.addEventListener('click', () => caption?.battle?.())
   shareBtn.addEventListener('click', () => caption?.share?.())
@@ -226,6 +281,15 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   onFreeViewportChange(place)
   window.addEventListener('resize', place)
 
+  // n4b: the caption's place, pinned on the globe with its name
+  const pin = document.createElement('div')
+  pin.className = 'story-pin hidden'
+  pin.setAttribute('aria-hidden', 'true')
+  const pinLabel = document.createElement('span')
+  pinLabel.className = 'story-pin-label'
+  pin.append(Object.assign(document.createElement('span'), { className: 'story-pin-ring' }), pinLabel)
+  root.insertBefore(pin, root.firstChild)
+
   const visible = new Map<number, { el: HTMLElement; key: number; extra: number; text: HTMLElement; base: string }>()
   const maxToasts = () => (isCompact() ? 1 : 3)
 
@@ -238,6 +302,7 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       title.textContent = c.title
       full = c.body
       card.classList.remove('expanded')
+      setReading(false)
       setBody(false)
       body.hidden = c.body === ''
       showBtn.hidden = !c.show
@@ -251,14 +316,19 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       card.classList.remove('enter')
       void card.offsetWidth
       card.classList.add('enter')
+      placeChip()
     },
     hideCaption() {
       caption = null
+      setReading(false)
+      pin.classList.add('hidden')
       if (card.contains(document.activeElement)) (document.activeElement as HTMLElement).blur()
       card.classList.add('hidden')
+      placeChip()
     },
     setPaused(paused) {
       chip.classList.toggle('hidden', !paused)
+      placeChip()
     },
     addNotice(n) {
       for (const v of visible.values()) {
@@ -317,6 +387,18 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       button.classList.toggle('on', on)
       button.setAttribute('aria-pressed', String(on))
       button.disabled = !available
+    },
+    get reading() {
+      return reading
+    },
+    pinAt(x, y, label) {
+      pin.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
+      if (pinLabel.textContent !== label) pinLabel.textContent = label
+      pinLabel.hidden = label === ''
+      pin.classList.remove('hidden')
+    },
+    hidePin() {
+      pin.classList.add('hidden')
     },
     pulseAt(x, y) {
       const ring = document.createElement('div')

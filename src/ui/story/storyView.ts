@@ -10,14 +10,14 @@
 // replay inline as their year comes; the timeline shows the time left; a caption's Share links to the moment.
 
 import * as THREE from 'three'
-import { EventType, type History, type World } from '../../contract.ts'
+import { EventType, settlementNameAt, type History, type World } from '../../contract.ts'
 import { surfaceRadius } from '../../render/globe.ts'
 import type { CameraFly } from '../../render/cameraFly.ts'
 import type { Chronicle } from '../chronicle.ts'
 import type { HistoryIndex } from '../historyIndex.ts'
 import type { LayerToggle } from '../overlay.ts'
 import type { Timeline } from '../timeline.ts'
-import type { SagaSubject } from '../sagas/index.ts'
+import { decadeOf, generateSaga, type SagaSubject } from '../sagas/index.ts'
 import { Ctx } from '../sagas/facts.ts'
 import { conversionScene, landfallScene, plagueScene, sackScene, SCENE_T, workScene, type Scene } from '../sagas/scenes.ts'
 import { Voice } from '../sagas/voice.ts'
@@ -34,7 +34,7 @@ import type { BattleOpenOptions } from '../battleMap.ts'
 import { battleTitle, describeBattle } from '../battleFormat.ts'
 import { contextChanged, registerContext } from '../contextPanel.ts'
 import { createDramaStrip } from './dramaStrip.ts'
-import { createStoryCard, type StoryCard } from './storyCard.ts'
+import { createStoryCard, type CaptionMore, type StoryCard } from './storyCard.ts'
 
 export interface StoryViewDeps {
   /** The overlay root (the card and notices go in it). */
@@ -71,6 +71,8 @@ export interface StoryViewDeps {
 export interface StoryView {
   /** The history shown changed (or grew, `extend`). */
   commit(h: History | null, w: World | null, ix: HistoryIndex | null, extend: boolean): void
+  /** n4b: a decision card's Show me flew away: following resumes once `stillOpen` says the card has closed. */
+  resumeAfter(stillOpen: () => boolean): void
   /** Polities whose stories get the focus factor (the selection); rebuilds the plan when it changes. */
   setFocus(polities: readonly number[]): void
   /** A camera move the director did not make (a panel's fly-to, a pick): suspend following. */
@@ -211,6 +213,33 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     if (target >= 0 && target < h.settlements.length) return { kind: 'city', id: target }
     return null
   }
+  /**
+   * n4b: Read more: the subject's saga where it tells this moment (its paragraphs naming the year, else its latest), and
+   * the decade's chronicle when that is short; `lead` (the chronicle's line when the title is a scene's) first.
+   */
+  function moreOf(subject: SagaSubject | null, year: number, lead: string): CaptionMore | null {
+    const h = history
+    if (!h) return null
+    const Y = Math.max(0, Math.min(h.years, Math.ceil(year)))
+    const legend = deps.legend()
+    const yr = new RegExp(`\\b${Math.floor(year)}\\b`)
+    const out: string[] = lead ? [lead] : []
+    const take = (s: SagaSubject, max: number) => {
+      try {
+        const saga = generateSaga(h, world, s, legend, Y)
+        let ps = saga.paragraphs.filter((p) => yr.test(p))
+        if (ps.length === 0) ps = saga.paragraphs.slice(-1)
+        if (ps.length === 0 && saga.epigraph) ps = [saga.epigraph]
+        for (const p of ps.slice(-max)) if (!out.includes(p)) out.push(p)
+      } catch (err) {
+        console.warn('story: read more failed', err)
+      }
+    }
+    if (subject) take(subject, 2)
+    if (out.join(' ').length < 240) take(decadeOf(Math.floor(year)), 1)
+    const s = subject ?? decadeOf(Math.floor(year))
+    return { paragraphs: out, open: () => deps.openSaga(s) }
+  }
   /** The caption of entry `entry` told at `year`. */
   function captionOf(entry: number, year: number, cell: number, scale: number) {
     const h = history!
@@ -235,6 +264,11 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     }
     const yearText = line?.year ?? String(Math.floor(year))
     const subject = subjectOf(entry, line?.target ?? -1)
+    // n4b: the place pinned on the globe (the line's town, else a town on the beat's cell) and its name then
+    let pinId = line && line.target >= 0 && line.target < h.settlements.length ? line.target : -1
+    if (pinId < 0 && cell >= 0) pinId = h.settlements.findIndex((st) => st.cell === cell && st.foundedYear <= year)
+    const pinCell = pinId >= 0 ? h.settlements[pinId].cell : cell
+    const pinLabel = pinId >= 0 ? settlementNameAt(h, pinId, Math.floor(year)) : ''
     // battles: a beat told by a battle offers its replay
     const be = rep >= 0 ? h.events[rep] : null
     const battle = be && (be.type as number) === EventType.BattleFought && deps.openBattle && h.battles && be.value >= 0 && be.value < h.battles.count ? be.value : -1
@@ -242,7 +276,9 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       eyebrow: `${DRAMA_CAT_NAMES[drama!.cat[entry]] ?? 'Story'} · ${yearText}`,
       title: scene?.title ?? line?.text ?? '',
       body: scene ? scene.text : '',
-      more: subject ? () => deps.openSaga(subject) : null,
+      more: () => moreOf(subject, year, scene && line && scene.title !== line.text ? line.text : ''),
+      pinCell,
+      pinLabel,
       why: rep >= 0 && deps.openWhy ? () => deps.openWhy!(rep) : null, // causes:
       show: reducedMotion() && validCell(cell) ? () => flyTo(cell, [1.8, 2.3, 2.8][scale] ?? 2.3, 0) : null,
       battle: battle >= 0 ? () => replay(battle, false) : null,
@@ -396,15 +432,38 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     return t
   }
   let progressClock = 1
+  /**
+   * n4b: the estimate is the plan's story time at the chosen speed, scaled by how fast the story has really gone so far:
+   * the real seconds of following against the story seconds the model says they took (a slow device, the director's
+   * dwells, cards), summed over every stretch of playback since the history showed. Without that the estimate stayed at
+   * the model's figure while the story ran several times slower (play-test #1: "~7 min" frozen for minutes).
+   */
+  const pace = { k: 1, real: 0, model: 0, t0: 0, model0: -1 }
+  const PACE_MIN_S = 4
   function syncProgress(dt: number, year: number) {
     progressClock += dt
     if (progressClock < 1) return
     progressClock = 0
     if (!director.on || !history || year >= history.years - 1) {
       card.setProgress('')
+      pace.model0 = -1
       return
     }
-    const sec = secondsLeft(year)
+    const sec0 = secondsLeft(year)
+    const now = performance.now()
+    if (!deps.timeline.playing || director.state === DirectorState.Suspended || deps.timeline.intro) pace.model0 = -1
+    else if (pace.model0 < 0) Object.assign(pace, { t0: now, model0: sec0 })
+    else if (now - pace.t0 >= PACE_MIN_S * 1000) {
+      const used = pace.model0 - sec0
+      // (a jump or a speed change moves the model's figure by more than the time that passed: not a sample)
+      if (used > 0 && used < 4 * (now - pace.t0) / 1000 + 30) {
+        pace.real += (now - pace.t0) / 1000
+        pace.model += used
+        if (pace.model > 6) pace.k = Math.max(0.5, Math.min(8, pace.real / pace.model))
+      }
+      Object.assign(pace, { t0: now, model0: sec0 })
+    }
+    const sec = sec0 * pace.k
     const min = Math.max(1, Math.round(sec / 60))
     const ff = director.fastForward ? '⏩ ' : ''
     card.setProgress(`${ff}~${min} min`, `${director.fastForward ? 'Quiet years go by fast. ' : ''}About ${min} ${min === 1 ? 'minute' : 'minutes'} of story to year ${history.years} at this speed`)
@@ -422,37 +481,115 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     showCaption(b) {
       if (!plan) return
       const c = captionOf(plan.beatEntry[b], plan.beatYear[b], plan.beatCell[b], plan.beatScale[b])
-      card.showCaption(c)
+      showCap(c, false)
       captionBattle = c.battleId >= 0
       if (captionBattle) setContextBattle(c.battleId)
     },
     hideCaption: () => {
-      card.hideCaption()
+      hideCap()
       if (captionBattle && !replaying) setContextBattle(-1)
       captionBattle = false
     },
     onState(s) {
       card.setPaused(s === DirectorState.Suspended)
+      // n4b: a caption the director did not show (a drama-strip jump) goes once following goes on
+      if (s !== DirectorState.Suspended && looseCaption) hideCap()
       syncButton()
     },
   })
   card = createStoryCard({
     host: deps.host,
     onToggle: () => setFollow(!director.on),
-    onResume: () => director.resume(),
-    onNext: () => director.next(),
-    onClose: () => (director.state === DirectorState.Dwell ? director.next() : card.hideCaption()),
+    // n4b: Resume follows again and plays on (a strip jump or a card paused the timeline)
+    onResume: () => {
+      director.resume()
+      if (!deps.timeline.playing) deps.play?.()
+    },
+    onNext: () => (director.state === DirectorState.Dwell ? director.next() : hideCap()),
+    onClose: () => (director.state === DirectorState.Dwell ? director.next() : hideCap()),
+    // n4b: reading an expanded caption holds the story there (the timeline pauses, and plays on when the reading ends)
+    onReading: (on) => {
+      if (on && deps.timeline.playing) {
+        heldByReading = true
+        deps.timeline.pause()
+      } else if (!on && heldByReading) {
+        heldByReading = false
+        deps.play?.()
+      }
+    },
   })
+  let heldByReading = false
+  // n4b: the caption shown, its place pinned on the globe while it shows; `loose`: not the director's (a strip jump)
+  let pinCell = -1
+  let pinLabel = ''
+  let looseCaption = false
+  function showCap(c: ReturnType<typeof captionOf>, loose: boolean) {
+    card.showCaption(c)
+    pinCell = c.pinCell
+    pinLabel = c.pinLabel
+    looseCaption = loose
+    syncPin()
+  }
+  function hideCap() {
+    card.hideCaption()
+    pinCell = -1
+    looseCaption = false
+    card.hidePin()
+  }
+  function syncPin() {
+    if (pinCell < 0 || !validCell(pinCell) || flat.t > 0.01) {
+      card.hidePin()
+      return
+    }
+    cellWorld(pinCell, tmp)
+    const C = deps.camera.position
+    if (tmp.dot(C) / (tmp.length() * C.length()) < 0.2) {
+      card.hidePin()
+      return
+    }
+    tmp.project(deps.camera)
+    const rect = deps.canvas.getBoundingClientRect()
+    const host = deps.host.getBoundingClientRect()
+    const x = rect.left - host.left + ((tmp.x + 1) / 2) * rect.width
+    const y = rect.top - host.top + ((1 - tmp.y) / 2) * rect.height
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) card.hidePin()
+    else card.pinAt(x, y, pinLabel)
+  }
+  /** n4b: a drama-strip jump: the strongest story at the peak is captioned and framed (following lets go). */
+  function jumpTo(y: number) {
+    director.suspend()
+    deps.timeline.pause()
+    const h = history
+    let best = -1
+    if (h && drama && index) {
+      const NY = index.notableYear
+      // the peak's year is the strip's smoothed maximum: look a few years either side of it
+      const lo = y - 4, hi = y + 10
+      let a = 0, b = NY.length
+      while (a < b) { const m = (a + b) >> 1; if (NY[m] < lo) a = m + 1; else b = m }
+      // (a story with a place first: the jump is framed there)
+      let bs = 0
+      for (let k = a; k < NY.length && NY[k] <= hi; k++) {
+        const sc = drama.score[k] * (drama.cell[k] >= 0 ? 4 : 1)
+        if (sc > bs) { bs = sc; best = k }
+      }
+    }
+    if (best < 0 || !h || !drama || !index) {
+      deps.timeline.setYear(Math.min(y, deps.timeline.years))
+    } else {
+      const ey = index.notableYear[best]
+      deps.timeline.setYear(Math.min(Math.ceil(ey), deps.timeline.years))
+      const cell = drama.cell[best], scale = drama.scale[best]
+      if (cell >= 0) flyTo(cell, Math.min(DIRECTOR.dist[scale] ?? 2.3, 2.3), reducedMotion() ? 0 : 1.2)
+      showCap(captionOf(best, Math.ceil(ey), cell, scale), true)
+    }
+    deps.requestRender()
+    deps.wake()
+  }
   deps.timeline.addControl(card.button)
   deps.timeline.addControl(card.progress)
   // ui-additions 3: the drama strip over the slider; a click jumps to the peak there (following lets go)
-  const strip = createDramaStrip((y) => {
-    director.suspend()
-    deps.timeline.pause()
-    deps.timeline.setYear(Math.min(y, deps.timeline.years))
-    deps.requestRender()
-    deps.wake()
-  })
+  const strip = createDramaStrip((y) => jumpTo(y))
   deps.timeline.addAboveSlider(strip.root)
   director.setPacing(true)
   const syncButton = () => card.setButton(director.on, !!plan)
@@ -575,6 +712,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
 
   let tickYear = 0
   let captionBattle = false
+  /** n4b: Show me on a decision card: resume following once this says the card has closed. */
+  let peekOpen: (() => boolean) | null = null
   const api: StoryView = {
     director,
     commit(h, w, ix, extend) {
@@ -586,7 +725,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       topBattles = bd && deps.openBattle ? Array.from({ length: h!.battles.count }, (_, b) => b).filter((b) => bd.siegeOf[b] < 0 || bd.sieges[bd.siegeOf[b]].rows[bd.sieges[bd.siegeOf[b]].rows.length - 1] === b).sort((a, b) => battleWeight(bd.B, b) - battleWeight(bd.B, a) || a - b).slice(0, TOP_BATTLES) : []
       if (!extend) {
         replayed.clear()
-        card.hideCaption()
+        hideCap()
         card.clearNotices()
       }
       rebuildPlan()
@@ -599,6 +738,9 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       focusKey = key
       focus = next
       if (drama) rebuildPlan()
+    },
+    resumeAfter(stillOpen) {
+      peekOpen = director.on ? stillOpen : null
     },
     userMoved: () => {
       turn.active = false
@@ -625,6 +767,11 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
         if (deps.timeline.playing && director.state !== DirectorState.Suspended && year > prevYear && year - prevYear < 50) battlesDue(prevYear, year)
       }
       syncProgress(dt, year)
+      if (pinCell >= 0) syncPin()
+      if (peekOpen && !peekOpen()) {
+        peekOpen = null
+        if (director.state === DirectorState.Suspended) director.resume()
+      }
       if (director.on || notesOn) notices(dt, year)
       if (card.button.disabled !== !plan) syncButton()
     },
@@ -639,6 +786,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       beats: () => (plan ? Array.from(plan.beatYear) : []),
       notes: () => plan?.noteYear.length ?? 0,
       follow: (on: boolean) => setFollow(on),
+      secondsLeft: () => ({ model: secondsLeft(deps.timeline.year), pace: pace.k }), // n4b
     }
   }
   return api

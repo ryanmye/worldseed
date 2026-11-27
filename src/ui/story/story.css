@@ -326,3 +326,84 @@ html.compact .tl-follow .tl-follow-label {
 .story-root.compact .story-card {
   touch-action: pan-y;
 }
+
+/* n4b: Read more expands the caption itself (the subject's saga where it tells this moment) */
+.story-more {
+  margin-top: 6px;
+  max-height: min(240px, 34vh);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.story-more.hidden {
+  display: none;
+}
+.story-more p {
+  margin: 0 0 6px;
+}
+.story-more .story-more-none {
+  font-style: italic;
+  color: var(--text-faint);
+}
+.story-more-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.story-card.reading {
+  max-width: 420px;
+}
+
+/* n4b: the caption's place on the globe, a ring and its name (positioned each frame by storyView) */
+.story-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none !important;
+  z-index: 0;
+}
+.story-pin.hidden {
+  display: none;
+}
+.story-pin-ring {
+  position: absolute;
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  border: 2px solid rgba(255, 214, 138, 0.95);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35), 0 0 10px rgba(255, 196, 92, 0.6);
+  animation: story-pin-breathe 1.8s ease-in-out infinite;
+}
+@keyframes story-pin-breathe {
+  50% {
+    transform: scale(1.25);
+  }
+}
+.story-pin-label {
+  position: absolute;
+  left: 15px;
+  top: -24px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  background: rgba(20, 16, 10, 0.78);
+  border: 1px solid rgba(255, 214, 138, 0.6);
+  color: #ffe7b8;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .story-pin-ring {
+    animation: none;
+  }
+}

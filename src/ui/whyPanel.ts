@@ -49,6 +49,7 @@ export function createWhyPanel(deps: WhyPanelDeps): WhyPanel {
   closeBtn.className = 'why-close'
   closeBtn.textContent = '×'
   closeBtn.setAttribute('aria-label', 'Close the Why panel')
+  closeBtn.title = 'Close (Esc; R goes back to the factions)'
   head.append(title, closeBtn)
   const bar = document.createElement('div')
   bar.className = 'why-bar'
@@ -212,6 +213,8 @@ export function createWhyPanel(deps: WhyPanelDeps): WhyPanel {
   recordBtn.addEventListener('click', () => { record = !record; render() })
   backBtn.addEventListener('click', () => { const k = back.pop(); if (k) { key = k; deps.setUrlParam('why', k); render() } })
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'Close the Why panel', group: 'Panels', first: true, run: () => { if (!key) return false; api.close(); return true } })
+  // n4b: the Why panel holds the context slot while open, so R (Factions) closes it and the Factions panel is back
+  addShortcut({ keys: ['r', 'R'], label: 'R', description: 'Close the Why panel (back to the factions)', group: 'Panels', first: true, run: () => { if (!key) return false; api.close(); return true } })
 
   const api: WhyPanel = {
     open(k, n = '') {
@@ -221,7 +224,12 @@ export function createWhyPanel(deps: WhyPanelDeps): WhyPanel {
       depthOf = new Map()
       deps.setUrlParam('why', k)
       render()
-      root.scrollIntoView?.({ block: 'nearest' })
+      // n4b: once the column has put it in the context slot (a microtask), bring it into view at a usable height
+      requestAnimationFrame(() => {
+        if (!key) return
+        root.scrollIntoView?.({ block: 'nearest' })
+        closeBtn.focus({ preventScroll: true })
+      })
     },
     close() {
       key = null

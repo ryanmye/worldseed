@@ -43,3 +43,11 @@ html.compact .battle-map.bm-inline {
   transform: translateX(-50%);
   width: min(300px, 80vw);
 }
+/* n4b: the side legend (colours to realm names) */
+.bm-sides { display: flex; flex-wrap: wrap; gap: 3px 12px; font-size: 12px; }
+.bm-side { display: inline-flex; align-items: center; gap: 5px; }
+.bm-side i { width: 14px; height: 10px; border-radius: 2px; border: 1px solid rgba(0,0,0,0.6); }
+/* n4b: the bar fits the inline width (a phone's 300 px): the scrubber gives way, the buttons narrow */
+.bm-scrub { min-width: 0; }
+.battle-map.bm-inline .bm-bar { gap: 4px; }
+.battle-map.bm-inline .bm-bar button { min-width: 26px; padding: 0 4px; }
