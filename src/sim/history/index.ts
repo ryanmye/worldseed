@@ -883,7 +883,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
-        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
+        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice(), factors: bat.diag.factors.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         society: soc ? { ...soc.diag, steps: soc.diag.steps.slice() } : undefined, // society:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:

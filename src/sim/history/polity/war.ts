@@ -60,7 +60,8 @@ import { breakExcess, breakFactor, joinChance, linkAlly, oathBroken, oathTruce, 
 import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
-import { battleFought } from '../battles/system.ts' // battles:
+import { battleDecisive, battleFought } from '../battles/system.ts' // battles:
+import { BATTLE } from '../battles/params.ts' // battles:
 import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/hooks.ts' // finance:
 import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
 import type { C6Factors } from '../compose.ts'
@@ -443,16 +444,18 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   // (the journey reads no pop, danger or fields, and draws nothing: it goes before the roll, so battles can see its path)
   const path = armyJourney(s, ps, u, v, d - ps.dist[u], ps.pMass[p])
   const U = rng.next()
-  const lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
-  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu + lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
+  let lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
+  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu, lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
   if (s.bel !== null) beliefBattle(s, w, p, q, strikeA, strikeD) // beliefs: war reveals strength (battles §3.8: keep this call)
+  let rp = 0, rq = 0
+  if (s.bat !== null && !s.bat.neutral) { lu = s.bat.tollU; lv = s.bat.tollV; rp = s.bat.realmP; rq = s.bat.realmQ } // battles: the toll shared by casualties; the realm's levies (already deducted)
   // Casualties and devastation.
   s.pop[u] -= lu
   s.pop[v] -= lv
-  dead[0] += attacker ? lu : lv
-  dead[1] += attacker ? lv : lu
-  ps.wDead[w] += lu + lv
-  ps.diag.warDead += lu + lv
+  dead[0] += attacker ? lu + rp : lv + rq
+  dead[1] += attacker ? lv + rq : lu + rp
+  ps.wDead[w] += lu + lv + rp + rq
+  ps.diag.warDead += lu + lv + rp + rq
   if (ps.ravage[v] < WAR.ravage) ps.ravage[v] = WAR.ravage
   spike(ps, v, siege ? WAR.sackDanger : WAR.frontDanger)
   spike(ps, u, WAR.frontDanger)
@@ -485,7 +488,7 @@ export function cedeTowns(s: HistoryState, ps: PolityState, from: number, to: nu
 
 /** Exhaustion of p after a war-year with `dead` of its people killed. */
 function exhaust(s: HistoryState, ps: PolityState, p: number, dead: number): void {
-  let e = ps.pExh[p] + WAR.perYear + (ps.pPop[p] > 0 ? (WAR.deaths * dead) / ps.pPop[p] : 0)
+  let e = ps.pExh[p] + (s.bat !== null && s.bat.tempo ? BATTLE.perYear : WAR.perYear) + (ps.pPop[p] > 0 ? (WAR.deaths * dead) / ps.pPop[p] : 0)
   const fx = s.fin !== null ? finExhaust(s, p) : null // finance: unpaid soldiers (replaces the poor-capital term)
   if (fx !== null) e += fx
   else if (s.wealth[ps.pCapital[p]] < WAR.poorShare * ps.pMass[p]) e += WAR.poor
@@ -525,7 +528,11 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     C6F.debt = fd
     const cv = s.bel !== null && !BELIEF.shadow ? convergeFactor(s, ps, s.bel, w) : undefined // beliefs: beliefs converge, peace comes (C6 factor 3b)
     C6F.converge = cv
-    const tired = (s.year - ps.wStart[w] >= WAR.peaceAfter && s.year - ps.wLastGain[w] >= WAR.winning && rng.next() < c6Peace(WAR.peaceChance, fd !== undefined || cv !== undefined ? C6F : undefined)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
+    const bt = s.bat !== null && s.bat.tempo // battles: war tempo (C6 factor 1) and a decisive battle this year (C6 factor 4, which lifts the gates)
+    const dec = bt && battleDecisive(s.bat!, w, s.year)
+    C6F.tempo = bt ? BATTLE.peaceChance : undefined
+    C6F.decisive = dec ? BATTLE.decisivePeace : undefined
+    const tired = (((s.year - ps.wStart[w] >= (bt ? BATTLE.peaceAfter : WAR.peaceAfter) && s.year - ps.wLastGain[w] >= WAR.winning) || dec) && rng.next() < c6Peace(WAR.peaceChance, fd !== undefined || cv !== undefined || bt ? C6F : undefined)) || (s.orders !== null && peaceUrged(s, s.orders, p, q, ps.wStart[w])) // orders: envoys seek terms
     // finance: an army unpaid (ArmyUnpaid once per side and war); a bankrupt side's war ends (spent by it, or mutiny)
     const broke = s.fin !== null ? warBroke(s, ps, w, p, q, spent) : -1
     if (spent || tired || broke >= 0) {

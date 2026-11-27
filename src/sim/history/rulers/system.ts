@@ -38,6 +38,8 @@ import { deferContestMul } from './deference.ts' // rulers: deference
 import { SEAT } from '../seat/params.ts' // seat:
 import { finAccession } from '../finance/hooks.ts' // finance:
 import { socCivilMul, socContest, socCrisisPlus } from '../society/api.ts' // society:
+import { BATTLE } from '../battles/params.ts' // battles:
+import { battleRose, battleSeized, battleUsurper, generalBase } from '../battles/pretenders.ts' // battles:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
 
 const H = RULERS.heirs
@@ -249,12 +251,13 @@ export function checkHouse(s: HistoryState, ps: PolityState, R: RulerState, d: n
 }
 
 /** A new house's founder takes p's throne (how), with siblings and children of their own. */
-export function newHouseAccede(s: HistoryState, ps: PolityState, R: RulerState, p: number, how: number): number {
+export function newHouseAccede(s: HistoryState, ps: PolityState, R: RulerState, p: number, how: number, bornAs?: number, femaleAs?: number): number {
   const rng = R.rng
   const d = newHouse(s, R, p)
   R.hN[p] = 0
-  const born = s.year - rng.int(RULERS.founderAge0, RULERS.founderAge1)
-  const female = rng.next() < 0.06 ? 1 : 0
+  let born = s.year - rng.int(RULERS.founderAge0, RULERS.founderAge1)
+  let female = rng.next() < 0.06 ? 1 : 0
+  if (bornAs !== undefined) { born = bornAs; female = femaleAs ?? 0 } // battles: a general takes the throne (after the usual draws: the stream stays aligned)
   founderSiblings(R, p, born, s.year)
   const r = accede(s, ps, R, p, born, female, d, how, -1, -1, 0)
   backfill(R, p, r, s.year)
@@ -328,7 +331,8 @@ export function rulerNewPolity(s: HistoryState, ps: PolityState, R: RulerState, 
     if (R.ctxDyn >= 0) {
       const r = accede(s, ps, R, p, R.ctxBorn, R.ctxFemale, R.ctxDyn, AccessionHow.Claimed, -1, -1, 0) // (a kinsman: brother, uncle or cousin)
       backfill(R, p, r, s.year)
-    } else newHouseAccede(s, ps, R, p, AccessionHow.Claimed)
+    } else if (R.ctxGeneral >= 0) newHouseAccede(s, ps, R, p, AccessionHow.Claimed, R.ctxBorn, R.ctxFemale) // battles: a famous general's rising
+    else newHouseAccede(s, ps, R, p, AccessionHow.Claimed)
     R.ctx = Ctx.None
     return
   }
@@ -408,7 +412,7 @@ export function rulerYear(s: HistoryState, ps: PolityState, R: RulerState, ts: T
     let cause = 0
     if (R.kill[p] !== 0) { cause = R.kill[p]; R.kill[p] = 0 }
     else if (year >= R.rDeath[r]) cause = ReignEnd.Natural
-    else if (ps.pWars[p] > 0 && rng.next() < RULERS.battle * (0.4 + R.rWar[r]) * (R.rFemale[r] ? RULERS.womanBattle : 1)) cause = ReignEnd.Battle
+    else if (ps.pWars[p] > 0 && rng.next() < RULERS.battle * (0.4 + R.rWar[r]) * (R.rFemale[r] ? RULERS.womanBattle : 1) * (s.bat !== null && !s.bat.neutral ? BATTLE.rulerBattleCut : 1)) cause = ReignEnd.Battle // (battles: rulers in the field also fall in the battles)
     else {
       // (the draw is made whenever the ruler is exposed, even if an order sets x to 0: the stream stays aligned)
       if (overthrowExposed(R, r, year)) {
@@ -439,7 +443,9 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
   let clean = true
   // Overthrown or deposed: the usurper's new house.
   if (cause === ReignEnd.Overthrown || cause === ReignEnd.Deposed) {
-    newHouseAccede(s, ps, R, p, AccessionHow.Usurped)
+    const g = s.bat !== null && s.bat.pretenders ? battleUsurper(s, s.bat, p) : -1 // battles: a famous general seizes the throne
+    const nr = g >= 0 ? newHouseAccede(s, ps, R, p, AccessionHow.Usurped, s.bat!.cBorn[g], s.bat!.cFemale[g]) : newHouseAccede(s, ps, R, p, AccessionHow.Usurped)
+    if (g >= 0) battleSeized(s, s.bat!, g, p, nr)
     R.diag.usurped++
     clean = false
     if (rng.next() < SUCCESSION.extinctContested) contested(s, ps, R, ts, p, -1, dead)
@@ -533,13 +539,18 @@ function contested(s: HistoryState, ps: PolityState, R: RulerState, ts: TradeSta
   if (ps.why) whyCrisis(ps.why, s.events.length - 1) // causes:
   if (ps.pMembers[p] < CIVIL.minMembers || ps.pSub[p] >= 0) return
   const members = membersOf(s, ps, p)
-  const rc = rivalCentre(s, ps, p, members)
+  const gen = s.bat !== null && s.bat.pretenders ? generalBase(s, s.bat, p, members) : -1 // battles: a famous general's base is the rival centre
+  const rc = gen >= 0 ? s.bat!.cBase[gen] : rivalCentre(s, ps, p, members)
   if (ps.why && rc >= 0) whyCrisisRival(ps.why) // causes:
   const cx = S.civil * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)
   if (rc >= 0 && rng.next() < (s.soc !== null ? cx * socCivilMul(s, p) : cx)) { // (society h3: Ψ)
     R.ctx = Ctx.Civil; R.ctxDyn = rivalDyn; R.ctxBorn = rivalDyn >= 0 ? born : 0; R.ctxFemale = female; R.ctxDead = dead
     if (rivalDyn >= 0 && s.year - born < RULERS.majority) R.ctxBorn = s.year - RULERS.majority - R.rng.int(0, 20)
-    if (civilWar(s, ps, ts, p, rc, members)) {
+    if (gen >= 0) { R.ctxDyn = -1; R.ctxGeneral = gen; R.ctxBorn = s.bat!.cBorn[gen]; R.ctxFemale = s.bat!.cFemale[gen] } // battles: the general founds his own house
+    const civ = civilWar(s, ps, ts, p, rc, members)
+    R.ctxGeneral = -1
+    if (civ && gen >= 0) battleRose(s, s.bat!, gen, rc, ps.pCapital[p], ps.wKind.length - 1) // battles: GeneralRose (after CivilWar)
+    if (civ) {
       R.diag.civil++
       // (the pretender leaves the capital's pool)
       if (rivalDyn >= 0) for (let k = R.hN[p] - 1; k >= 0; k--) if (R.hBorn[p * H + k] === born && R.hFemale[p * H + k] === female) { dropHeir(R, p, k); break }

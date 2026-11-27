@@ -171,6 +171,7 @@ Press `?` in the app for the full list.
 | `B` | Library |
 | `S` | Sun and quality settings |
 | `J` | Credits and licence |
+| `.` | Replay the latest battle (at the selected town if it saw one); needs battles on |
 | `Esc` | Close a popup, leave the city view, or deselect |
 
 ### URL parameters

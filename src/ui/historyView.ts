@@ -44,6 +44,7 @@ import { buildTradeLayer, type TradeLayer } from '../render/trade.ts'
 import { buildRoadLayer, type RoadLayer } from '../render/roads.ts'
 import { tradeNetwork } from '../render/routeCurves.ts'
 import { addShortcut } from './shortcuts.ts'
+import { createBattleMap } from './battleMap.ts' // battles:
 import { createLabelLayer, type LabelLayer } from '../render/labels.ts'
 import { setNamesYear } from './renamingData.ts'
 import { detectFeatures, featuresAt, type FeatureMap } from '../sim/names/features.ts'
@@ -383,7 +384,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     },
     southern: (id) => (world && index && id >= 0 && id < index.count ? world.grid.positions[index.history.settlements[id].cell * 3 + 1] < 0 : false),
     onWhy: (ev, n) => why.open(`event:${ev}`, n > 1 ? `One of ${n} in this entry.` : ''), // causes: the Why panel
+    onReplay: (b) => battleMap.open(b), // battles: the 2D replay
   })
+  // battles: the 2D tactical replay (battleMap.ts); `.` replays the latest battle up to the year shown (at the selected town if it saw one)
+  const battleMap = createBattleMap({ host: document.body, history: () => index?.history ?? null, world: () => world, setYear: (y) => { timeline.pause(); timeline.setYear(y); requestRender(); deps.wake() }, fps: () => (matchMedia('(pointer: coarse)').matches ? 24 : 30) })
+  addShortcut({ keys: ['.'], label: '.', description: 'Replay the latest battle (at the selected town if it saw one)', group: 'View', run: () => { const b = battleMap.pick(year, selected); if (b < 0) return false; battleMap.open(b) } })
   // causes: the Why panel (whyPanel.ts), below the chronicle
   const why = createWhyPanel({ host: deps.right, history: () => index?.history ?? null, seed: () => world?.seed ?? 0, select: (id) => api.select(id, true), setUrlParam: deps.setUrlParam })
   // peoples panel, known-world view, inspector people section (its Esc comes first: Esc leaves the known world before it deselects)
