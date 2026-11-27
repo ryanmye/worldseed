@@ -181,6 +181,7 @@ import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
 import { assembleBattles, emptyBattleHistory } from './battles/assemble.ts'
 import { nameBattles, nameCommanders } from './battles/names.ts'
 import { BATTLES_ON } from './battles/params.ts'
+import { expandPreset, presetParams } from './presets.ts'
 import { createBattles } from './battles/state.ts'
 import type { BattleDiag } from './battles/state.ts'
 // religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
@@ -498,7 +499,9 @@ export interface HistoryRunner {
  * run will be, and assembling a History copies everything out of the state, which goes on unchanged.
  * `probe`, if given, is called with the internal state at the end of every year (tuning only; it must not modify anything).
  */
-export function createRunner(world: World, options?: HistoryOptions, probe?: (s: HistoryState, t: TradeState, k: TechState) => void, measureKnowledge = false): HistoryRunner {
+export function createRunner(world: World, optionsIn?: HistoryOptions, probe?: (s: HistoryState, t: TradeState, k: TechState) => void, measureKnowledge = false): HistoryRunner {
+  const options = expandPreset(optionsIn) // presets: the preset's switches where the options leave them undefined (presets.ts)
+  const pp = presetParams(optionsIn)
   const interval = Math.max(1, Math.floor(options?.snapshotInterval ?? HISTORY_DEFAULTS.snapshotInterval))
   const seed = world.seed
 
@@ -542,7 +545,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
   // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
-  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
+  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s, pp.battleNeutral) : null
   s.bat = bat
   // finance: crown treasuries and loans (they need the polities), unless switched off.
   if (pol && (options?.finance ?? FIN.enabled)) s.fin = createFinance(seed, s.count)
@@ -574,7 +577,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
   // disasters: natural shocks and climate, from the world alone (unless switched off).
-  const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount) : null
+  const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount, pp.dxFeedback) : null
   s.dx = dx
   // (live append, seat-mode §3.2: addOrders creates it later if there are none yet; created then, it is the state a run with
   // those orders would have had all along, because no hook acts and the stream draws nothing before an order's year)

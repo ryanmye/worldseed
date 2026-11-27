@@ -2204,7 +2204,16 @@ export interface Structure {
   lostYear: number
 }
 
+/** A named bundle of switches (src/sim/history/presets.ts; URL `preset=`): realistic is today's defaults, dramatic every merged system on. */
+export type PresetName = 'realistic' | 'dramatic'
+
 export interface HistoryOptions {
+  /**
+   * preset (EVALUATION.md §3 P1): fills the switches this object leaves undefined (explicit values win; expandPreset) and sets
+   * the preset's params for the run (dramatic: DX.feedback on, BATTLE_MODE.neutral off). Default none, the same as 'realistic':
+   * the history of a link without a preset. The UI writes no preset for realistic, so its cache key is a plain link's.
+   */
+  preset?: PresetName
   /** realism null ensemble only (realismStats --noise): discard `draws` draws of the migration (or structures) stream at `year`: the same model, another realisation of the trajectory. Default none: no draws. */
   jitter?: { year: number; draws: number; stream?: 'migration' | 'structures' }
   /** Length of the run in years. Default 2000. */

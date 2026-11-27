@@ -1,7 +1,7 @@
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Order, World, WorldOptions } from './contract.ts'
+import type { Order, PresetName, World, WorldOptions } from './contract.ts'
 import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import { createSeatController, type SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
@@ -47,6 +47,7 @@ import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
 import { startPlatform } from './platform/index.ts'
+import { presetOptionsFromParams } from './sim/history/presets.ts'
 
 // ---------- URL parameters ----------
 // seed, view (terrain|elevation|...|population), spin=0, lon/lat/az (degrees), dist, clouds=0|1, rivers=0,
@@ -76,6 +77,9 @@ import { startPlatform } from './platform/index.ts'
 // cmp=<orders> (what-if, ui/whatifPanel.ts: the other world's order list, `-` for none): reopens the comparison of the world
 // shown with that run (simulated again, or read from the cache, on open); written while a comparison is open, cleared with
 // a new seed. The other world is simulated whole on desktops and kept as a skeleton on phones and weak devices (memory).
+// preset=dramatic (src/sim/history/presets.ts: every merged system on, battles non-neutral, disasters' feedback; realistic, the
+// default, is no preset) and oaths= balance= arms= families= finance= society= beliefs= barriers= disasters= battles= causes=
+// (1 on, 0 off, over the preset): part of the history like o=, kept in the address (share and seat links carry them).
 // lang=1 (language drift, HistoryOptions.language: names that split and wear with their speakers; MASTER-PLAN R32): part of
 // the history like o=. A new world (Start on the start page, a seed typed or drawn) writes lang=1; a link without it (every
 // link made before drift) keeps the names it always had. lang=2 is drift + typology (HistoryOptions.typology: typological
@@ -427,14 +431,27 @@ function newWorldLanguage(url?: URL) {
   if (url) url.searchParams.set('lang', v)
   else setUrlParam('lang', v)
 }
+/**
+ * presets (src/sim/history/presets.ts): preset=dramatic (realistic is written as no preset: the options of a plain link) and the
+ * per-switch overrides oaths= balance= arms= families= finance= society= beliefs= barriers= disasters= battles= causes= (1 on, 0
+ * off; an explicit switch wins over the preset). They stay in the address, so share and seat links carry them.
+ */
+let presetOpts = presetOptionsFromParams(params)
+/** The landing's throne link: a seat= link into a curated world (seed, seat). */
+const THRONE_LINK = { seed: 61343, seat: 'polity:0:700' } as const
+/** The landing's Realistic / Dramatic toggle: the preset of the world about to start (written at Start). */
+function setPreset(p: PresetName) {
+  const { preset: _old, ...rest } = presetOpts
+  presetOpts = p === 'dramatic' ? { preset: p, ...rest } : rest
+}
 function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
   const o: HistoryOptions = {}
+  for (const [k, v] of Object.entries(presetOpts)) if (v !== undefined) (o as Record<string, unknown>)[k] = v
   if (years !== 2000) o.years = years
   if (languageOn) o.language = true
   if (languageOn && typologyOn) o.typology = true
   if (currentOrders.length > 0) o.orders = currentOrders
   if (currentCradles.length > 0) o.cradles = currentCradles
-  if (params.get('causes') === '1') o.causes = true // causes: record why things happened (the Why panel's records; causes=1)
   return Object.keys(o).length > 0 ? o : undefined
 }
 /** A re-simulation with new orders is on its way: the year to keep when it arrives (-1 none). */
@@ -1858,6 +1875,18 @@ if (showLanding) {
     canvas,
     seed: currentSeed,
     years: Math.min(YEARS_MAX, Math.max(YEARS_MIN, numParam('years', 2000))),
+    preset: presetOpts.preset ?? 'realistic',
+    onPreset: setPreset,
+    throneHref(p) {
+      // a curated seat link (EVALUATION.md §1c: seed 61343, its first realm from 700); Lane 3 owns the full "Rule a kingdom" slice
+      const u = new URL(window.location.href)
+      u.search = ''
+      u.searchParams.set('seed', String(THRONE_LINK.seed))
+      u.searchParams.set('seat', THRONE_LINK.seat)
+      if (p === 'dramatic') u.searchParams.set('preset', p)
+      u.searchParams.set('lang', typologyOn ? '2' : '1') // (a new world: drift on, as Start writes it)
+      return u.pathname + u.search
+    },
     onSeed(seed) {
       currentSeed = seed
       overlay.setSeed(seed)
@@ -1878,6 +1907,8 @@ if (showLanding) {
       else url.searchParams.set('years', String(years))
       if (currentCradles.length > 0) url.searchParams.set('c', encodeCradles(currentCradles))
       else url.searchParams.delete('c')
+      if (presetOpts.preset) url.searchParams.set('preset', presetOpts.preset)
+      else url.searchParams.delete('preset')
       newWorldLanguage(url)
       window.history.replaceState(null, '', url)
       historyYears = wholeChunks(years)

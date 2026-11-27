@@ -189,6 +189,9 @@ useful ones:
 | `view` | Start in a view (`terrain`, `biomes`, `factions`, `faiths`, `fever`, ...) | [`?seed=42&year=1500&view=factions`](https://ryanmye.github.io/worldseed/?seed=42&year=1500&view=factions) |
 | `select` | Select a settlement by id | `?seed=42&select=<id>` |
 | `fly` | Open in the city view of a settlement by id | `?seed=42&fly=<id>` |
+| `preset` | `realistic` (default) or `dramatic` (every merged system on; see Presets below) | [`?seed=42&preset=dramatic`](https://ryanmye.github.io/worldseed/?seed=42&preset=dramatic) |
+| `oaths` … `causes` | One system on (`1`) or off (`0`), over the preset | `?seed=42&preset=dramatic&battles=0` |
+| `seat` | Take a throne: `polity:<id>:<year>` | [`?seed=61343&seat=polity:0:700`](https://ryanmye.github.io/worldseed/?seed=61343&seat=polity:0:700) |
 | `o` | Nudges: `year:kind:actor[:target]` joined by `;` | `?seed=42&o=1000:explore:5:12345;1000:fortify:14` |
 | `saga`, `legend=1` | Sagas subject (`world`, `people:<id>`, `state:<id>`, `city:<id>`, `house:<id>`) and register | [`?seed=42&saga=world&legend=1`](https://ryanmye.github.io/worldseed/?seed=42&saga=world&legend=1) |
 | `library=1`, `told` | Open the Library, told at year `told` | [`?seed=42&library=1&told=1500`](https://ryanmye.github.io/worldseed/?seed=42&library=1&told=1500) |
@@ -250,6 +253,39 @@ band widths, lower is better). `scripts/realism-sweep.sh` runs it on the
 22-seed sweep, and `--check docs/realism-baseline.jsonl` is the ratchet that
 fails when a change makes the score worse; see the header comment of
 `realismStats.ts` for the run lines and how to re-baseline.
+
+The single 8cabf09 realisation is noisy: on 4 seeds it flags null perturbations as
+WORSE. `npm run realism:check:noise` (the same as
+`npm run realism:check -- --noise docs/realism-noise.jsonl`) judges a target WORSE only
+when its mean miss exceeds the null ensemble's mean by more than max(0.1, 3 sd). The
+ensemble is the baseline re-run with jittered draws, 12 x 4 runs. Use it for the
+Realistic preset's gate.
+
+### Presets
+
+`preset=realistic` (the default; a link without `preset` is realistic) runs today's
+defaults, so every post-8cabf09 system is off until its own flip. `preset=dramatic`
+turns on every merged system:
+
+- oaths, balance and arms;
+- families and finance;
+- society;
+- beliefs and barriers;
+- disasters, with the Phase-2 feedback;
+- battles, non-neutral;
+- causes.
+
+Any switch can be set per link, and an explicit switch wins over the preset. The
+switches are `oaths= balance= arms= families= finance= society= beliefs= barriers=
+disasters= battles= causes=`, each `1` or `0`. For example,
+`?seed=7&preset=dramatic&battles=0` is the dramatic world without battles. The keys
+stay in the address, so share links and seat links (`seat=polity:0:700`) carry them.
+The start page has a Realistic / Dramatic toggle and an "Or take a throne" link.
+
+Dramatic is not realism-ratcheted. Its guard against incoherent churn is
+`node --experimental-strip-types --no-warnings src/sim/history/presetStats.ts --check`
+(seeds 1 7 42 1234; the bounds and the measured values are in that file). See
+`src/sim/history/presets.ts` and `docs/REGISTRY.md` for the registry.
 
 ## How it is built
 
