@@ -72,6 +72,8 @@ const T: PhraseTable = {
     ['{times} the crown was torn away by force, and first to seize it was {ruler}, in {year}.'],
   ],
   regencies: [['{n} came to the throne as children and were ruled for by regents.'], ['{n} were crowned in their cradles, and others ruled in their name.']],
+  // absentee: reigns in which the court governed in the ruler's name (CouncilRuled), other than a child's
+  ruledAfar: [['{n} let others govern in their name, the first {ruler}, from {year}.', '{n} reigned while the council governed for them, the first {ruler}, from {year}.'], ['{n} wore the crown while others ruled, and {ruler} was the first, from {year}.']],
   battleDeath: [['{ruler} fell in battle in {year}.', 'In {year} {ruler} was killed in battle.'], ['In {year} {ruler} fell in the spear-storm.']],
   battleDeaths: [['{n} of its rulers fell in battle, among them {ruler}, in {year}.'], ['{n} of its kings fell in the spear-storm, and {ruler} among them, in {year}.']],
   plagueDeath: [['{ruler} died of plague in {year}.'], ['In {year} {ruler} was taken by the plague.']],
@@ -253,6 +255,10 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     }
     const regs = reigns.filter((r) => (rd.regency[r] ?? 0) > 0)
     if (regs.length >= 2) p2.push(v.p('regencies', { n: plural(regs.length, 'ruler') }))
+    // absentee: reigns ruled from afar or by the council (CouncilRuled, other than a minority)
+    const afar: { r: number; year: number }[] = []
+    for (const i of c.type(EventType.CouncilRuled)) { const e = c.ev(i); if (e.value === p && (e.extra ?? 0) !== 1 && reigns.includes(e.other)) afar.push({ r: e.other, year: e.year }) }
+    if (afar.length >= 1) p2.push(v.p('ruledAfar', { n: afar.length === 1 ? 'One ruler' : plural(afar.length, 'ruler'), ruler: legend ? withEpithet(c.ruler(afar[0].r), rulerEpithet(reignFacts(c, afar[0].r))) : c.ruler(afar[0].r), year: afar[0].year }))
     const battle = reigns.filter((r) => c.reignEndedBy(r) && rd.rulers[r].end === ReignEnd.Battle)
     if (battle.length === 1) p2.push(v.ps('battleDeath', sfx, { ruler: c.ruler(battle[0]), year: rd.rulers[battle[0]].ended }))
     else if (battle.length > 1) p2.push(v.p('battleDeaths', { n: num(battle.length), ruler: c.ruler(battle[0]), year: rd.rulers[battle[0]].ended }))

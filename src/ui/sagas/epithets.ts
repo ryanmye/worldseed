@@ -31,6 +31,9 @@ export interface ReignFacts {
   /** beliefs: a war begun in the reign believing itself at least twice as strong as it was, and lost (the Rash); a show of strength that kept a foe off (the Fox). */
   rash: boolean
   fox: boolean
+  /** absentee: the cause of a decline in the reign (CouncilRuled: DeferenceCause 1-6; 0 none), and taken captive (RulerTaken). */
+  absent: number
+  captive: boolean
 }
 
 export function reignFacts(c: Ctx, r: number): ReignFacts {
@@ -73,7 +76,12 @@ export function reignFacts(c: Ctx, r: number): ReignFacts {
     const e = c.ev(i)
     if ((e.extra ?? 0) === 1 && e.year >= x.acceded && e.year <= (ended ? x.ended : c.Y) && c.capital(x.polity, e.year) === e.other) fox = true
   }
+  // absentee: a decline in the reign (CouncilRuled `other` the reign; extra the DeferenceCause), taken captive (RulerTaken)
+  let absent = 0, captive = false
+  for (const i of c.type(EventType.CouncilRuled)) { const e = c.ev(i); if (e.other === r && e.year <= c.Y) { absent = e.extra ?? 0; break } }
+  for (const i of c.type(EventType.RulerTaken)) { const e = c.ev(i); if (e.value === r && e.year <= c.Y) { captive = true; break } }
   return {
+    absent, captive,
     betrayals, rash, fox, bondage,
     r, years: c.reignYears(r), founded: x.how === AccessionHow.Founded, usurped: x.how === AccessionHow.Usurped, claimed: x.how === AccessionHow.Claimed,
     regency: rd.regency[r] ?? 0, works, won, lost, ended, end: ended ? x.end : ReignEnd.Reigning, traits: traitWords(x, c.fd !== null), female: x.female,
@@ -108,6 +116,10 @@ export function rulerEpithet(f: ReignFacts): string {
   if (f.fox) return 'the Fox' // beliefs
   if (f.claimed) return 'the Pretender'
   if (f.regency > 0 && f.years >= 30) return f.female ? 'the Child-queen' : 'the Child-king'
+  if (f.captive) return 'the Captive' // absentee: taken in battle
+  if (f.absent === 2 || f.absent === 3) return 'the Absent' // absentee: on campaign far away, or reigning from another throne
+  if (f.absent === 4) return 'the Idle' // absentee: the court governed while he took little part
+  if (f.absent === 5) return 'the Old' // absentee: old and failing
   if (f.years >= 40) return 'the Long-reigning'
   if (f.end === ReignEnd.Battle) return 'the Fallen'
   if (f.end === ReignEnd.Plague) return 'the Plague-taken'
