@@ -26,7 +26,7 @@ function seeded() {
 }
 
 /** Seed 7 at 1200 years, default options: the beats as `year:entry`. */
-const GOLDEN = ['31:18', '503:143', '593:203', '645:263', '700:304', '751:332', '778:356', '840:433', '911:524', '970:637', '1028:729', '1100:847', '1155:950', '1200:1079']
+const GOLDEN = ['31:18', '174:32', '396:92', '500:138', '590:193', '645:260', '700:304', '751:332', '778:356', '840:433', '911:524', '970:637', '1028:729', '1080:816', '1155:950', '1200:1079'] // (re-recorded, surfacing lane: the freshness term and the floor)
 
 describe('story plan', () => {
   it('is deterministic', { timeout: 300_000 }, () => {

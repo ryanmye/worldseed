@@ -13,9 +13,10 @@ import { DECIDER, deciderNameOf } from './seat/decider.ts'
 
 // The story director's rules (ui/story/drama.ts; base weights a design default [A]): a realm governed in its ruler's name is
 // politics, a ruler taken captive in battle a war story.
-registerDrama(185, { cat: DramaCat.Politics, base: 4 }) // CouncilRuled
+// (surfacing lane: weighed by the realm, and a captive ruler is the world's first such story once)
+registerDrama(185, { cat: DramaCat.Politics, base: 4, polities: (_c, e) => [e.value], mag: (c, e) => c.polityPop(e.value, e.year) }) // CouncilRuled
 registerDrama(186, { cat: DramaCat.Politics, base: 2 }) // RuledInPerson
-registerDrama(187, { cat: DramaCat.War, base: 6 }) // RulerTaken
+registerDrama(187, { cat: DramaCat.War, base: 7, first: true, polities: (c, e) => [e.other >= 0 ? c.polityBefore(e.other, e.year) : -1, c.polityBefore(e.settlement, e.year)], mag: (c, e) => (e.other >= 0 ? c.polityPop(c.polityBefore(e.other, e.year), e.year) : 0) }) // RulerTaken
 
 /** Whether an event type is an absentee event (185-187). */
 export const isAbsenteeEvent = (t: number): boolean => t >= 185 && t <= 187

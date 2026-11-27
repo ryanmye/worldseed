@@ -17,6 +17,25 @@ import { CITY_POPULATION, EventType, ReignEnd, TOWN_POPULATION, WarOutcome, Poli
 import { capitalAt, eventPolities, polityAt, polityAtYear, politiesOf, snapAfter, snapBefore, statIndex, tierAt, type PolitiesData } from '../politiesData.ts'
 import type { HistoryIndex } from '../historyIndex.ts'
 
+/** The merged systems (post-8cabf09) by event-type range: their beats are the surfacing lane's measure (storyStats.ts), and
+ * the plan's freshness term counts a system's stories as one kind (a battle, a siege and a fallen commander are all battles). */
+export const MERGED_SYSTEMS: readonly (readonly [string, (t: number) => boolean])[] = [
+  ['families', (t) => t >= 161 && t <= 169],
+  ['absentee', (t) => t >= 185 && t <= 187],
+  ['oaths', (t) => t >= 190 && t <= 194],
+  ['governments', (t) => t >= 200 && t <= 205],
+  ['finance', (t) => t >= 210 && t <= 217],
+  ['battles', (t) => t >= 220 && t <= 229],
+  ['beliefs', (t) => t >= 230 && t <= 238],
+  ['society', (t) => t >= 240 && t <= 246],
+  ['disasters', (t) => t >= 260 && t <= 269],
+  ['coldWars', (t) => t >= 393 && t <= 398],
+]
+const systemIndex = (t: number): number => MERGED_SYSTEMS.findIndex(([, f]) => f(t))
+export const systemOf = (t: number): string | null => MERGED_SYSTEMS[systemIndex(t)]?.[0] ?? null
+/** The freshness kind of an event type: its merged system (1000 + index), else the type itself. */
+export const storyKind = (t: number): number => { const i = systemIndex(t); return i >= 0 ? 1000 + i : t }
+
 /** Kind of story, for the category spread and the novelty term. */
 export const DramaCat = {
   War: 0,
@@ -429,10 +448,12 @@ I(T.Ennobled)
 // --- governments (200-205, city-states: only with HistoryOptions.governments) ---
 // (a commune proclaimed, a charter bought, a lord seizing a republic, a clergy taking its holy city and a charter revoked are
 // stories; GovernmentChanged (crowned, settled, secularised) a smaller one)
-R(T.CharterBought, { cat: DramaCat.Politics, base: 4, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
-R(T.CommuneProclaimed, { cat: DramaCat.Politics, base: 6, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
-R(T.SignoriaSeized, { cat: DramaCat.Politics, base: 4, polities: (_c, e) => [e.value] })
-R(T.TheocracyProclaimed, { cat: DramaCat.Faith, base: 5, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
+// (surfacing lane: by the city's people over its first century, and each the world's first once)
+const cityPeak = (c: DramaCtx, e: HistoryEvent) => Math.max(townPop(c, e), c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON))
+R(T.CharterBought, { cat: DramaCat.Politics, base: 4, scale: DramaScale.Town, polities: (_c, e) => [e.value], mag: cityPeak, first: true })
+R(T.CommuneProclaimed, { cat: DramaCat.Politics, base: 7, scale: DramaScale.Town, polities: (_c, e) => [e.value], mag: cityPeak, first: true })
+R(T.SignoriaSeized, { cat: DramaCat.Politics, base: 6, polities: (_c, e) => [e.value], mag: cityPeak, first: true })
+R(T.TheocracyProclaimed, { cat: DramaCat.Faith, base: 7, scale: DramaScale.Town, polities: (_c, e) => [e.value], mag: cityPeak, first: true })
 R(T.GovernmentChanged, { cat: DramaCat.Politics, base: 3, polities: (_c, e) => [e.value] })
 R(T.CharterRevoked, { cat: DramaCat.Politics, base: 4, scale: DramaScale.Town, polities: (_c, e) => [e.value] })
 
@@ -449,8 +470,8 @@ R(T.FamilyFounded, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town, gate:
 I(T.FamilyBranch, T.BranchClosed, T.FamilyHead, T.FamilyPatron)
 R(T.FamilyMoved, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town })
 R(T.FamilyMarriage, { cat: DramaCat.Dynasty, base: 4, mag: realmPop, first: true }) // (a merchant house marries into a crown: by the realm)
-R(T.FamilyBacked, { cat: DramaCat.Politics, base: 2 })
-R(T.FamilyFell, { cat: DramaCat.Trade, base: 5, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1, mag: townPop, first: true }) // (surfacing: a house's ruin, by the town it fell in)
+R(T.FamilyBacked, { cat: DramaCat.Politics, base: 4, mag: (c, e) => warDead(c, e.extra ?? -1) }) // (a house backing a side of a civil war, by its dead)
+R(T.FamilyFell, { cat: DramaCat.Trade, base: 6, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1, mag: townPop, first: true }) // (surfacing: a house's ruin, by the town it fell in)
 
 // --- orders (170-173), cradles (180) ---
 I(T.OrderGiven, T.OrderLapsed, T.CradlePlaced)
@@ -546,7 +567,8 @@ export interface StaticDrama {
   key: Int32Array
   /** The representative event (index into History.events; -1 none) and the two main polities (-1 none). */
   rep: Int32Array
-  /** The representative event's type (-1 none): the plan's freshness term (a kind of story not told for a while). */
+  /** The representative event's story kind (storyKind: its merged system, else its type; -1 none): the plan's freshness
+   * term (a kind of story not told for a while) and its like-story rule. */
   type: Int16Array
   polA: Int32Array
   polB: Int32Array
@@ -615,7 +637,7 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
     const sc = repRule.scale
     out.scale[k] = sc === undefined ? DramaScale.Region : typeof sc === 'function' ? sc(ctx, e) : sc
     out.rep[k] = rep
-    out.type[k] = e.type as number
+    out.type[k] = storyKind(e.type as number)
     out.polA[k] = pols[0] ?? -1
     out.polB[k] = pols.find((p) => p !== pols[0]) ?? -1
     const people = h.settlements[e.settlement]?.people ?? 0

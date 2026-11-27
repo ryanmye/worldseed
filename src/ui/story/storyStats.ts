@@ -13,24 +13,10 @@
 import { EventType, type PresetName } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../../sim/index.ts'
 import { buildHistoryIndex } from '../historyIndex.ts'
-import { buildStaticDrama, DRAMA_CAT_NAMES, dramaRule } from './drama.ts'
+import { buildStaticDrama, DRAMA_CAT_NAMES, dramaRule, systemOf } from './drama.ts'
+export { MERGED_SYSTEMS, systemOf } from './drama.ts'
 import { buildStoryPlan, keptCount, STORY } from './plan.ts'
 import { loadDramaRules } from '../../bots/metrics.ts'
-
-/** The merged systems (post-8cabf09) by event-type range: a beat of one of these is a "new-system" beat. */
-export const MERGED_SYSTEMS: readonly (readonly [string, (t: number) => boolean])[] = [
-  ['families', (t) => t >= 161 && t <= 169],
-  ['absentee', (t) => t >= 185 && t <= 187],
-  ['oaths', (t) => t >= 190 && t <= 194],
-  ['governments', (t) => t >= 200 && t <= 205],
-  ['finance', (t) => t >= 210 && t <= 217],
-  ['battles', (t) => t >= 220 && t <= 229],
-  ['beliefs', (t) => t >= 230 && t <= 238],
-  ['society', (t) => t >= 240 && t <= 246],
-  ['disasters', (t) => t >= 260 && t <= 269],
-  ['coldWars', (t) => t >= 393 && t <= 398],
-]
-export const systemOf = (t: number): string | null => MERGED_SYSTEMS.find(([, f]) => f(t))?.[0] ?? null
 
 const ETYPE = new Map(Object.entries(EventType).map(([k, v]) => [v as number, k]))
 
