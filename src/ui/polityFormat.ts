@@ -6,6 +6,7 @@
 import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
 import { renamedName } from './renamingData.ts'
+import { isOathEvent, OathEvent } from './grudgesData.ts' // oaths, balance, arms:
 import { capitalAt, isPolityEventType, polityAt, polityAtYear, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, TRIBUTE_BASE, wallSlighted, type PolitiesData } from './politiesData.ts'
 
 /** Good names (lower case) for the smuggling lines, indexed by Good (as format.ts GOOD_NAMES). */
@@ -213,6 +214,98 @@ function describeV2For(h: History, pd: PolitiesData, e: HistoryEvent, id: number
   return null
 }
 
+// ---- oaths, balance, arms (190-194; grudges-and-oaths §3.9): the chronicle register states the record, no motives ----
+
+/** " after N years of arming" for a war that an arms race between its sides preceded (Wars.race), else ''. */
+function armingWords(h: History, w: number): string {
+  const R = h.armsRaces, W = h.wars
+  const r = W.race ? W.race[w] : -1
+  if (!R || r === undefined || r < 0 || r >= R.count) return ''
+  const n = W.startYear[w] - R.start[r]
+  return n >= 10 ? ` after ${n} years of arming` : ''
+}
+
+/** The end year of the latest war between polities p and q that ended at or before `year` (-1 none). */
+function lastPeace(pd: PolitiesData, p: number, q: number, year: number, before: number): number {
+  const W = pd.wars
+  if (!W) return -1
+  let y = -1
+  for (let v = 0; v < before && v < W.count; v++) if (((W.attacker[v] === p && W.defender[v] === q) || (W.attacker[v] === q && W.defender[v] === p)) && W.endYear[v] >= 0 && W.endYear[v] <= year && W.endYear[v] > y) y = W.endYear[v]
+  return y
+}
+
+/** Chronicle line for an oath event (190-194), or null. */
+function describeOath(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const t = e.type as number
+  const x = polOf(pd, e.settlement, e.year), q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+  const xn = polityName(pd, x, settlementName(h, e.settlement)), qn = polityName(pd, q, e.other >= 0 ? settlementName(h, e.other) : 'a rival')
+  const W = pd.wars
+  switch (t) {
+    case OathEvent.Betrayal: {
+      const enemy = W && e.value >= 0 && e.value < W.count ? polityName(pd, W.defender[e.value], 'the enemy') : 'the enemy'
+      if (e.extra === 1) return `${xn} abandons ${qn} and turns on it`
+      let ceded = 0
+      for (const f of h.events) if (f.year === e.year && (f.type as number) === PolityEvent.Joined && f.value === x && W && e.value >= 0 && polOf(pd, f.settlement, e.year - 1) === W.defender[e.value]) ceded++
+      return `${xn} breaks faith with ${qn} and makes a separate peace with ${enemy}` + (ceded > 0 ? ` (${ceded === 1 ? 'a town' : `${ceded} towns`} ceded)` : '')
+    }
+    case OathEvent.OathBroken: {
+      if (e.extra === 1) return `${xn} makes war on its own ally ${qn}`
+      const y0 = lastPeace(pd, x, q, e.year, e.value)
+      return y0 >= 0 ? `${xn} breaks the truce of ${y0} and makes war on ${qn}` : `${xn} breaks its truce and makes war on ${qn}`
+    }
+    case OathEvent.Avenged:
+      return `${xn} repays an old wrong of ${qn}`
+    case OathEvent.Bandwagon:
+      return e.extra === 1 ? `${xn} offers tribute to ${polityName(pd, e.value, qn)} unasked` : `${xn} sides with the mighty ${polityName(pd, e.value, qn)}`
+    case OathEvent.ArmsRace:
+      if (e.extra === 0) return `${xn} and ${qn} arm against each other`
+      if (e.extra === 2) return `The arming of ${xn} and ${qn} slackens`
+      return null
+  }
+  return null
+}
+
+/** Inspector line for an oath event from the point of view of settlement `id`, or null. */
+function describeOathFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const t = e.type as number
+  const self = e.settlement === id
+  const other = self ? (e.other >= 0 ? polOf(pd, e.other, e.year) : -1) : polOf(pd, e.settlement, e.year)
+  const on = polityName(pd, other, settlementName(h, self ? e.other : e.settlement))
+  const W = pd.wars
+  switch (t) {
+    case OathEvent.Betrayal: {
+      const enemy = W && e.value >= 0 && e.value < W.count ? polityName(pd, W.defender[e.value], 'the enemy') : 'the enemy'
+      return self ? `Broke faith with its ally ${on} (a separate peace with ${enemy})` + oathClause(h, pd, e) : `Betrayed by its ally ${on}`
+    }
+    case OathEvent.OathBroken:
+      if (e.extra === 1) return self ? `Made war on its own ally ${on}` + oathClause(h, pd, e) : `Attacked by its own ally ${on}`
+      return self ? `Broke the truce with ${on}` + oathClause(h, pd, e) : `${on} broke the truce with it`
+    case OathEvent.Avenged:
+      return self ? `Repaid an old wrong of ${on}` : `${on} repaid an old wrong`
+    case OathEvent.Bandwagon:
+      return self ? (e.extra === 1 ? `Offered tribute to ${on} unasked` : `Sided with the mighty ${on}`) : (e.extra === 1 ? `${on} offered it tribute unasked` : `${on} sided with it`)
+    case OathEvent.ArmsRace:
+      if (e.extra === 0) return `Armed against ${on} (and ${on} in turn)`
+      if (e.extra === 2) return `The arming against ${on} slackened`
+      return null
+  }
+  return null
+}
+
+/** ", its ruler old and without an heir" / ", during a disputed succession" from the record at the year (hedged), or ''. */
+function oathClause(h: History, pd: PolitiesData, e: HistoryEvent): string {
+  const p = polOf(pd, e.settlement, e.year)
+  const R = h.rulers
+  if (!R || p < 0) return ''
+  for (let r = 0; r < R.length; r++) {
+    const x = R[r]
+    if (x.polity !== p || x.acceded > e.year || (x.ended >= 0 && x.ended < e.year)) continue
+    if (e.year - x.born >= 60) return ', its ruler old'
+  }
+  for (const f of h.events) if ((f.type as number) === PolityEvent.SuccessionCrisis && f.value === p && f.year <= e.year && f.year >= e.year - 10) return ', during a disputed succession'
+  return ''
+}
+
 // ---- claims: border disputes (EventType.BorderDispute) ----
 
 /** Whether events of type t are border disputes (claims). */
@@ -303,6 +396,7 @@ export function isDisputeHeadline(h: History, e: HistoryEvent): boolean {
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
   const t = e.type as number
   if (isDisputeEvent(t)) return describeDispute(h, e)
+  if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   const name = settlementName(h, e.settlement)
@@ -345,7 +439,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
       const at = polityName(pd, W.attacker[e.value]), df = polityName(pd, W.defender[e.value])
       if (W.kind[e.value] === WarKind.CivilWar) return `Civil war: ${at} rises against ${df}`
       if (W.kind[e.value] === WarKind.Blockade) return `${at} blockades ${df}`
-      return `${at} declares war on ${df}`
+      return `${at} declares war on ${df}` + armingWords(h, e.value) // (arms: after the race between them)
     }
     case PolityEvent.PeaceMade: {
       if (!W || e.value < 0 || e.value >= W.count) return `Peace between ${name} and ${settlementName(h, e.other)}`
@@ -424,6 +518,7 @@ function lossWords(f: number): string {
 export function describePolityEventFor(h: History, e: HistoryEvent, id: number): string | null {
   const t = e.type as number
   if (isDisputeEvent(t)) return describeDisputeFor(h, e, id)
+  if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   if (isWallEvent(h, e)) {
@@ -528,6 +623,13 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
       return 'blockade'
     case EventType.BorderDispute:
       return 'dispute'
+    // oaths, balance, arms
+    case OathEvent.Betrayal: case OathEvent.OathBroken: case OathEvent.Avenged:
+      return 'betrayal'
+    case OathEvent.Bandwagon:
+      return 'alliance'
+    case OathEvent.ArmsRace:
+      return 'arms'
   }
   return null
 }
@@ -663,6 +765,9 @@ export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   const t = e.type as number
   // claims: a border dispute only when war between the two follows it
   if (isDisputeEvent(t)) return isDisputeHeadline(h, e)
+  // oaths: betrayals, broken oaths and bandwagoning are rare headlines; arms races and avenging are not
+  if (t === OathEvent.Betrayal || t === OathEvent.OathBroken || t === OathEvent.Bandwagon) return true
+  if (isOathEvent(t)) return false
   // (a realm ended by reunification: its Reunified line is the headline)
   if (t === PolityEvent.Ended && politiesOf(h)?.list[e.value]?.endCause === PolityEnd.Reunified) return false
   if (t === PolityEvent.Founded || t === PolityEvent.Ended || t === PolityEvent.WarDeclared || t === PolityEvent.PeaceMade || t === PolityEvent.Seceded) return true

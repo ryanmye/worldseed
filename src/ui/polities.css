@@ -437,6 +437,15 @@
   border-radius: 1px;
   background: repeating-linear-gradient(45deg, #ff3a2a 0 2px, #f4ece0 2px 4px);
 }
+/* oaths: broken faith (a split dot), arms races (steel blue) */
+.ev-betrayal .ev-text::before {
+  background: linear-gradient(90deg, #8fd0ff 50%, #3a0a10 50%);
+  box-shadow: 0 0 0 1px #c80f28;
+}
+.ev-arms .ev-text::before {
+  border-radius: 1px;
+  background: #6f8fb0;
+}
 /* claims: border disputes (two claims meeting over unsettled land) */
 .ev-dispute .ev-text::before {
   border-radius: 1px;

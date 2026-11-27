@@ -14,6 +14,7 @@ import { Refs } from './refs.ts'
 import { conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 import { warCalled, warName } from './wars.ts'
 import { reignChapters, REIGN_T } from './reigns.ts'
+import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
 
 const T: PhraseTable = {
   title: [['A History of the {state}'], ['The Saga of the {state}']],
@@ -161,7 +162,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
   const pd = c.pd!
   const x = pd.list[p]
-  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T)
+  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T)
   const Y = c.Y
   const state = c.pgreatTitle(p)
   const book = new Book()
@@ -300,6 +301,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   if (kids.length) p3.push(v.p('seceded', { list: kids.length <= 3 ? list(kids.map((q) => c.pname(q))) : `${kids.slice(0, 2).map((q) => c.pname(q)).join(', ')} and ${num(kids.length - 2)} others` }))
   const part = c.type(EventType.Partitioned).map((i) => c.ev(i)).find((e) => e.value === p)
   if (part) p3.push(v.p('partitioned', { year: part.year }))
+  p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
   section('hWar', p3.join(' '), ['sack', 'plague'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----
