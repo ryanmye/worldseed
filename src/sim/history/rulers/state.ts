@@ -94,6 +94,8 @@ export interface RulerState {
   ctxDyn: number
   ctxBorn: number
   ctxFemale: number
+  /** battles: the general (History.commanders row) whose rising the civil war under way is (-1). */
+  ctxGeneral: number
   ctxDead: number
   /** Events already scanned (lost wars). */
   evSeen: number
@@ -155,7 +157,7 @@ export function createRulers(s: HistoryState): RulerState {
     law, cognatic,
     mA: [], mB: [], mDA: [], mDB: [], mYear: [], mEnd: [], mActive: [],
     uSenior: [], uJunior: [], uRuler: [], uStart: [], uEnd: [], uCause: [], uBond: [], uActive: [], sWars: [],
-    ctx: Ctx.None, ctxSrc: -1, ctxDyn: -1, ctxBorn: 0, ctxFemale: 0, ctxDead: -1, evSeen: 0,
+    ctx: Ctx.None, ctxSrc: -1, ctxDyn: -1, ctxBorn: 0, ctxFemale: 0, ctxGeneral: -1, ctxDead: -1, evSeen: 0,
     surv: survival(),
     diag: { successions: 0, clean: 0, regencies: 0, contested: 0, extinct: 0, usurped: 0, partible: 0, civil: 0, partitions: 0, unions: 0, passedOver: 0, wars: 0, marriages: 0, cadet: 0 },
   }

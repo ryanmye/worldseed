@@ -29,7 +29,7 @@ function newRow(bs: BattleState, s: HistoryState, ps: PolityState, p: number, re
   bs.cSkill.push(skill); bs.cSkill0.push(skill); bs.cFirst.push(s.year); bs.cLast.push(s.year); bs.cBattles.push(0); bs.cWins.push(0)
   bs.cFame.push(0); bs.cFameYear.push(s.year); bs.cPeak.push(0); bs.cPeakYear.push(s.year)
   bs.cFate.push(CommanderFate.Serving); bs.cFateYear.push(-1); bs.cFateBattle.push(-1); bs.cFateWar.push(-1); bs.cReignAfter.push(-1)
-  bs.cRetire.push(retire); bs.cBase.push(-1); bs.cHome.push(-1); bs.cLastBattle.push(-1); bs.cRenowned.push(0)
+  bs.cRetire.push(retire); bs.cBase.push(-1); bs.cHome.push(-1); bs.cLastBattle.push(-1); bs.cRenowned.push(0); bs.cWar.push(-1)
   bs.diag.commanders++
   return c
 }
@@ -95,4 +95,42 @@ export function fameGain(lossLoser: number, menLoser: number, menWinner: number,
   let odds = menWinner > 0 ? menLoser / menWinner : 1
   if (odds > 3) odds = 3
   return BATTLE.fameWin * (lossLoser >= BATTLE.decisive ? 2 : 1) * Math.sqrt(odds) + (capital ? BATTLE.fameCapital : 0) + (BATTLE.fameEnemy * enemyFame) / BATTLE.renown
+}
+
+// --- Interfaces for court-politics (its 0.4): row creation with given values (no draws), and the veteran to recall. ---
+
+/** A new general of polity p with the given birth year, sex, skill and house (-1 none), no draws; returns his row. */
+export function battleNewCommander(s: HistoryState, bs: BattleState, p: number, born: number, female: number, skill: number, dyn: number): number {
+  const ps = s.pol!
+  return newRow(bs, s, ps, p, -1, dyn, born, female, clampSkill(skill), BATTLE.retireMin + BATTLE.retireSpan)
+}
+
+/** Commander `cmd` is the one polity p recalls for its next war (the court's Marshal). */
+export function battleRecall(bs: BattleState, p: number, cmd: number): void {
+  while (bs.pVeteran.length <= p) bs.pVeteran.push(-1)
+  bs.pVeteran[p] = cmd
+}
+
+/** p's most famous serving general (not a ruler) with fame >= renown / 2 this year, or -1. */
+export function famousGeneral(s: HistoryState, bs: BattleState, p: number): number {
+  let best = -1, bestF = BATTLE.renown / 2
+  const C = bs.cPolity.length
+  // (fame needs a recent victory: only generals who fought in the last 40 years can be famous enough)
+  for (let c = C - 1; c >= 0; c--) {
+    if (bs.cPolity[c] !== p || bs.cReign[c] >= 0 || bs.cFate[c] !== CommanderFate.Serving) continue
+    if (s.year - bs.cLast[c] > 40 || s.year - bs.cBorn[c] >= bs.cRetire[c]) continue
+    const f = fameNow(bs, c, s.year)
+    if (f >= bestF) { best = c; bestF = f }
+  }
+  return best
+}
+
+/** C3 factor 3: p's overthrow chance x (1 + coup min(2, fame / renown)) while a famous general serves (1 otherwise). */
+export function battleCoup(s: HistoryState, bs: BattleState, p: number): number {
+  if (!bs.pretenders) return 1
+  const c = famousGeneral(s, bs, p)
+  if (c < 0) return 1
+  let k = bs.cFame[c] / BATTLE.renown
+  if (k > 2) k = 2
+  return 1 + BATTLE.coup * k
 }

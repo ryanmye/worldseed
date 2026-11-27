@@ -37,6 +37,8 @@ export interface ChronicleCallbacks {
   southern?(id: number): boolean
   /** causes: "Why?" on a row: the entry's representative event (its first member) and how many events the entry stands for. */
   onWhy?(event: number, members: number): void
+  /** battles: "replay" on a battle's row (its History.battles row). */
+  onReplay?(battle: number): void
 }
 
 export interface Chronicle {
@@ -114,6 +116,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     const text = document.createElement('span')
     text.className = 'ev-text'
     li.append(year, text)
+    if (callbacks.onReplay) { const rp = document.createElement('button'); rp.type = 'button'; rp.className = 'ev-replay'; rp.textContent = '▶'; rp.tabIndex = -1; rp.hidden = true; rp.setAttribute('aria-label', 'Replay the battle'); li.append(rp) } // battles:
     if (callbacks.onWhy) { const why = document.createElement('button'); why.type = 'button'; why.className = 'ev-why'; why.textContent = '?'; why.tabIndex = -1; why.setAttribute('aria-label', 'Why?'); li.append(why) } // causes:
     li.hidden = true
     li.tabIndex = 0
@@ -160,12 +163,20 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     for (let q = lo; q < hi; q++) if (index.notableMembers[q] >= 0) return { event: index.notableMembers[q], members: hi - lo }
     return null
   }
+  /** battles: the History.battles row of a BattleFought row (its first event), or -1. */
+  const battleOf = (row: Row): number => {
+    const w = whyOf(row)
+    if (!w || !index) return -1
+    const e = index.history.events[w.event]
+    return e && e.type === EventType.BattleFought ? e.value : -1
+  }
   const activate = (e: Event) => {
     const li = (e.target as HTMLElement).closest('li')
     if (!li || !index) return
     const row = rows.find((r) => r.li === li)
     const w = row && (e.target as HTMLElement).closest('.ev-why') ? whyOf(row) : null // causes: the "?" button
     if (w && callbacks.onWhy) { callbacks.onWhy(w.event, w.members); return }
+    if (row && callbacks.onReplay && (e.target as HTMLElement).closest('.ev-replay')) { const b = battleOf(row); if (b >= 0) { callbacks.onReplay(b); return } } // battles:
     if (row && row.entry >= 0 && row.target >= 0) callbacks.onSelect(row.target)
   }
   list.addEventListener('click', activate)
@@ -518,6 +529,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
         // (renaming: towns named as during the year of the entry's latest member shown, so the text is a function of the entry)
         const ix = index
         withEventNames(ix.notableMemberYear[lo + m - 1], () => render(ix, r, entry, m))
+        if (callbacks.onReplay) { const rp = r.li.querySelector('.ev-replay') as HTMLButtonElement | null; if (rp) rp.hidden = battleOf(r) < 0 } // battles:
       }
     },
   }

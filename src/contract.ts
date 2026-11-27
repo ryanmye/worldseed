@@ -2007,7 +2007,8 @@ export const GrievanceKind = {
   TownCeded: 8, // (beliefs) the offender took `settlement` from the wronged under threat, without war (EventType.Coerced; the towns of one crisis merged: `towns`)
   SpyCaught: 9, // (beliefs) the wronged caught the offender's spies (EventType.SpyCaught)
   ClaimForged: 10, // (beliefs) the offender's forged claim on the wronged was exposed (EventType.ClaimExposed)
-  // 11-16 reserved (MASTER-PLAN §3.2: battles, riots, court, MIR, FP, infrastructure)
+  GeneralTurned: 11, // (battles) a famous general of the wronged polity went over to the offender with the town `settlement` he held (GeneralTurned 226)
+  // 12-16 reserved (MASTER-PLAN §3.2: riots, court, MIR, FP, infrastructure)
   ProxyAid: 17, // (cold wars) the offender, a cold-war principal, backed the wronged's enemy in a war it did not fight (EventType.ProxyWar)
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
