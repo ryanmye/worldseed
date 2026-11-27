@@ -41,6 +41,11 @@ import { socCivilMul, socContest, socCrisisPlus } from '../society/api.ts' // so
 import { BATTLE } from '../battles/params.ts' // battles:
 import { battleRose, battleSeized, battleUsurper, generalBase } from '../battles/pretenders.ts' // battles:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
+import { Government } from '../../../contract.ts' // governments:
+import type { GovState } from '../government/state.ts' // governments:
+import { govElected, govOf } from '../government/hooks.ts' // governments:
+import { govAtSuccession, govTermEnded } from '../government/system.ts' // governments:
+import { CITY, GOV } from '../government/params.ts' // governments:
 
 const H = RULERS.heirs
 
@@ -276,12 +281,45 @@ function cadetAccede(s: HistoryState, ps: PolityState, R: RulerState, p: number,
   return r
 }
 
-/** A league's elected head takes office (no house; a term). */
-function electHead(s: HistoryState, ps: PolityState, R: RulerState, p: number): number {
+/**
+ * An elected head takes office (no house): a league's, republic's or free city's for a term; with `life` (governments: a
+ * theocracy) a high priest chosen for life (born U(45, 70) years ago, his death from the mortality table).
+ */
+export function electHead(s: HistoryState, ps: PolityState, R: RulerState, p: number, life = false): number {
   const rng = R.rng
   R.hN[p] = 0
+  if (life) {
+    const born = s.year - rng.int(45, 70)
+    return accede(s, ps, R, p, born, 0, -1, AccessionHow.Elected, -1, -1, 0)
+  }
   const born = s.year - rng.int(40, 65)
   return accede(s, ps, R, p, born, 0, -1, AccessionHow.Elected, -1, -1, rng.int(RULERS.termMin, RULERS.termMax))
+}
+
+/**
+ * governments: the throne of p is abolished (a council, a restored republic, a clergy): the reign ends Deposed (unless it already
+ * ended: a succession), the house ends if it holds no other throne, and an elected head takes office. Returns the new reign.
+ */
+export function abolishThrone(s: HistoryState, ps: PolityState, R: RulerState, p: number, life = false): number {
+  const r = R.cur[p]
+  if (r >= 0 && R.rEnd[r] < 0) endReign(s, ps, R, p, ReignEnd.Deposed)
+  R.hN[p] = 0
+  if (r >= 0) checkHouse(s, ps, R, R.rDyn[r], p, r)
+  return electHead(s, ps, R, p, life)
+}
+
+/** governments: a strongman takes the republic p: its elected head is put out (Deposed), a new house accedes (Usurped). Returns the reign. */
+export function seizeSignoria(s: HistoryState, ps: PolityState, R: RulerState, p: number): number {
+  const r = R.cur[p]
+  if (r >= 0 && R.rEnd[r] < 0) endReign(s, ps, R, p, ReignEnd.Deposed)
+  return newHouseAccede(s, ps, R, p, AccessionHow.Usurped)
+}
+
+/** governments: a theocracy's clergy lose the rule: the high priest's reign ends Deposed and a new house is founded. */
+export function secularThrone(s: HistoryState, ps: PolityState, R: RulerState, p: number): number {
+  const r = R.cur[p]
+  if (r >= 0 && R.rEnd[r] < 0) endReign(s, ps, R, p, ReignEnd.Deposed)
+  return newHouseAccede(s, ps, R, p, AccessionHow.Founded)
 }
 
 /** Heir slot k of p's pool takes the throne (the rest of the pool stay as siblings of the new ruler). */
@@ -308,7 +346,7 @@ export function rulerNewPolity(s: HistoryState, ps: PolityState, R: RulerState, 
   R.union[p] = -1
   R.lost[p] = -1000000
   const origin = ps.pOrigin[p]
-  if (origin === PolityOrigin.League) { electHead(s, ps, R, p); return }
+  if (origin === PolityOrigin.League || (s.gov !== null && govElected(s.gov, p))) { electHead(s, ps, R, p, s.gov !== null && govOf(s.gov, p) === Government.Theocracy); return } // (governments: republics, free cities, theocracies too)
   if (R.ctx === Ctx.Partition && R.ctxSrc >= 0) {
     // A share of a divided realm: an adult son of the dead ruler (a brother of the new one), else a kinsman of the house.
     const src = R.ctxSrc, dyn = R.ctxDyn, year = s.year
@@ -392,6 +430,23 @@ function scanWars(s: HistoryState, ps: PolityState, R: RulerState): void {
   R.evSeen = ev.length
 }
 
+/**
+ * governments: an elected head's year (league, republic, free city, theocracy): a sack kills him (Sack); a theocracy's high
+ * priest dies (Natural), others' terms run out (TermEnded); then the next is chosen, and a republic's or free city's term's
+ * end may open factional strife (govTermEnded).
+ */
+function electedYear(s: HistoryState, ps: PolityState, R: RulerState, G: GovState, p: number, r: number): void {
+  const form = govOf(G, p)
+  const theo = form === Government.Theocracy
+  let cause = 0
+  if (R.kill[p] !== 0) { cause = R.kill[p]; R.kill[p] = 0 }
+  else if (s.year >= R.rDeath[r]) cause = theo ? ReignEnd.Natural : ReignEnd.TermEnded
+  if (cause === 0) return
+  endReign(s, ps, R, p, cause)
+  electHead(s, ps, R, p, theo)
+  if (form === Government.Republic || form === Government.FreeCity) govTermEnded(s, ps, G, p)
+}
+
 /** System (yearly, in politySystem after the campaigns): deaths, births, overthrows, successions; ties and unions every slow step. */
 export function rulerYear(s: HistoryState, ps: PolityState, R: RulerState, ts: TradeState): void {
   ensureRulerPolities(R, ps.P)
@@ -406,6 +461,7 @@ export function rulerYear(s: HistoryState, ps: PolityState, R: RulerState, ts: T
     if (R.union[p] >= 0) { R.kill[p] = 0; continue } // (a junior realm's ruler is the senior's: deaths and births go with the senior)
     if (R.rDyn[r] < 0) {
       // A league: the head's term.
+      if (s.gov !== null) { electedYear(s, ps, R, s.gov, p, r); continue } // governments: republics, free cities, theocracies
       if (year >= R.rDeath[r]) { endReign(s, ps, R, p, ReignEnd.TermEnded); electHead(s, ps, R, p) }
       continue
     }
@@ -436,9 +492,11 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
   endReign(s, ps, R, p, cause)
   R.diag.successions++
   pruneHeirs(R, p, year)
+  if (s.gov !== null && govAtSuccession(s, ps, s.gov, R, p, cause)) { unionsOnSuccession(s, ps, R, p, false); checkHouse(s, ps, R, dyn, p, dead); return } // governments: a council, the republic restored or the clergy took the throne
   const people = ps.pPeople[p]
   if (rng.next() < RULERS.lawChange) R.law[people] = drawLaw(rng)
-  const law = R.law[people]
+  const confed = s.gov !== null && govOf(s.gov, p) === Government.Confederation // governments: the khans choose among their houses
+  const law = confed ? 2 : R.law[people]
   const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
   let clean = true
   // Overthrown or deposed: the usurper's new house.
@@ -461,7 +519,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
     if (dz >= 0) for (let k = 0; k < R.hN[p]; k++) if (R.hBorn[p * H + k] === dz && heirEligible(R, p * H + k, R.cognatic[people] === 1, year)) { named = k === heir ? 1 : 2; heir = k; break }
     let how: number = AccessionHow.Inherited
     if (tier === Tier.Chiefdom && rng.next() < RULERS.chiefHouse) heir = -2 // (a chief from another family)
-    else if (law === 2) { if (rng.next() < RULERS.electOther) heir = -2; else how = AccessionHow.Elected }
+    else if (law === 2) { if (rng.next() < (confed ? CITY.confedOther : RULERS.electOther)) heir = -2; else how = AccessionHow.Elected }
     if (heir === -2) {
       newHouseAccede(s, ps, R, p, AccessionHow.Elected)
       clean = false
@@ -482,6 +540,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
       if (s.soc !== null) chance += socContest(s, p) // (society h4: too many magnates)
       if (named !== 0) chance *= named === 1 ? SEAT.designateLaw : SEAT.designateOver // seat: a designation against custom is contested more
       if (s.defer !== null) chance *= deferContestMul(s, p) // rulers: deference: the deciding body and the rival centres are stronger (x1 at 0)
+      if (s.gov !== null && GOV.contest[govOf(s.gov, p)] !== 0) chance += GOV.contest[govOf(s.gov, p)] // (governments: a confederation's khans, a signoria's lords contest more)
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
         if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year) | (s.defer !== null && deferenceK(s, p) >= 0.4 ? CrisisBit.Deference : 0)) // causes: (before the heir accedes; absentee: the court had governed)

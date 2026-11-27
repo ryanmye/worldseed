@@ -26,6 +26,8 @@
 // preyed-upon lanes, bandit roads, havens, hubs, blockades, pirate ships) is built and driven
 // from here with the territory layer.
 
+import { governmentAt, governmentCauseWords, governmentPhrase, governmentRowAt, governmentTimeline } from './governmentsData.ts' // governments:
+import { Government, GovernmentCause } from '../contract.ts' // governments:
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
 import { BondKind, BondEnd, EventType, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
@@ -508,9 +510,10 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         r.shown.pop = pp
         r.pop.textContent = formatPopulation(pp)
       }
-      if (t !== r.shown.tier) {
-        r.shown.tier = t
-        const title = `${tierWord(pd, r.p, t)} of ${pd.names[r.p]}`
+      const tk = t + 8 * governmentAt(pd.history, r.p, year) // (governments: the title changes with the form too)
+      if (tk !== r.shown.tier) {
+        r.shown.tier = tk
+        const title = `${tierWord(pd, r.p, t, year)} of ${pd.names[r.p]}`
         r.name.textContent = title
         const cap = capitalAt(pd, r.p, year)
         const people = peopleName(pd.history, pd.list[r.p].people)
@@ -750,6 +753,19 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       e.classList.add('fp-ended')
       if (by >= 0 && by !== selected) e.append(x.endCause === 5 ? ' to ' : x.endCause === 4 ? ' into ' : ' by ', polityLink(by, pd.names[by]))
     }
+    // governments: the form of government, how it came about, and its timeline
+    if (pd.history.governments && pd.history.governments.count > 0) {
+      const gr = governmentRowAt(pd.history, selected, year)
+      const form = governmentAt(pd.history, selected, year)
+      if (gr >= 0 && (form !== Government.Monarchy || pd.history.governments.cause[gr] !== GovernmentCause.Founded)) {
+        cap('Government')
+        const gy = pd.history.governments.year[gr]
+        const ph = governmentPhrase(form)
+        line(`${ph.charAt(0).toUpperCase()}${ph.slice(1)} since ${gy}: ${governmentCauseWords(pd.history.governments.cause[gr])}.`)
+        const tl = governmentTimeline(pd.history, selected)
+        if (tl.includes('·')) line(tl)
+      }
+    }
     // bonds: vassalage, tribute, alliances (in force, then past)
     if (B && pd.bondsOf[selected].some((b) => B.startYear[b] <= year)) {
       cap('Bonds')
@@ -769,7 +785,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
           const d = line('Allied with ', polityLink(o, pd.names[o]))
           if (rival >= 0) d.append(' against ', polityLink(rival, pd.names[rival]))
           d.append(` since ${B.startYear[b]}`)
-        } else if (B.a[b] === selected) line(kind === BondKind.Vassal ? 'Vassal of ' : 'Pays tribute to ', polityLink(o, pd.names[o]), ` since ${B.startYear[b]}`).classList.add('fp-bond-line')
+        } else if (B.a[b] === selected) line(kind === BondKind.Vassal ? 'Vassal of ' : kind === BondKind.Charter ? 'Free city under ' : 'Pays tribute to ', polityLink(o, pd.names[o]), ` since ${B.startYear[b]}`).classList.add('fp-bond-line')
         else subjects.push(b)
       }
       const vs = subjects.filter((b) => B.kind[b] === BondKind.Vassal), ts = subjects.filter((b) => B.kind[b] === BondKind.Tribute)
@@ -784,6 +800,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       }
       listOf(vs.length === 1 ? 'Overlord of ' : `Overlord of ${vs.length}: `, vs)
       listOf('Receives tribute from ', ts)
+      listOf('Chartered the free cities of ', subjects.filter((b) => B.kind[b] === BondKind.Charter)) // governments:
       if (vs.length > 0 && lives) {
         let m = 0, pp = 0
         for (const q of [selected, ...vs.map((b) => B.a[b])]) {
@@ -802,8 +819,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         const d = line()
         d.classList.add('fp-faint')
         if (kind === BondKind.Alliance) d.append('Allied with ', polityLink(o, pd.names[o]))
-        else if (B.a[b] === selected) d.append(kind === BondKind.Vassal ? 'Vassal of ' : 'Paid tribute to ', polityLink(o, pd.names[o]))
-        else d.append(kind === BondKind.Vassal ? 'Overlord of ' : 'Took tribute from ', polityLink(o, pd.names[o]))
+        else if (B.a[b] === selected) d.append(kind === BondKind.Vassal ? 'Vassal of ' : kind === BondKind.Charter ? 'Free city under ' : 'Paid tribute to ', polityLink(o, pd.names[o]))
+        else d.append(kind === BondKind.Vassal ? 'Overlord of ' : kind === BondKind.Charter ? 'Chartered the free city of ' : 'Took tribute from ', polityLink(o, pd.names[o]))
         d.append(` ${B.startYear[b]}–${B.endYear[b]}${endW}`)
       }
       if (past.length > shown.length) line(`and ${past.length - shown.length} earlier bonds`).classList.add('fp-faint')
@@ -1026,7 +1043,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       ipLine.append(capOf === p ? 'Capital of the ' : 'Part of the ', polityLink(p))
       if (ob >= 0) {
         const B = pd.bonds!
-        ipLine.append(B.kind[ob] === BondKind.Vassal ? ', vassal of ' : ', tributary of ', polityLink(B.b[ob], pd.names[B.b[ob]]))
+        ipLine.append(B.kind[ob] === BondKind.Vassal ? ', vassal of ' : B.kind[ob] === BondKind.Charter ? ', a free city under ' : ', tributary of ', polityLink(B.b[ob], pd.names[B.b[ob]]))
       }
     } else ipLine.append('Stateless: governs itself')
     ipDanger.textContent = pd.land?.danger ? `Danger: ${dangerWords(d).toLowerCase()}` : ''
@@ -1323,7 +1340,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const p = cells && cell >= 0 && cell < cells.length ? cells[cell] : -1
       if (p === WATER || p < 0) return ''
       const ob = overlordBond(data, p, year)
-      const bond = ob >= 0 ? `${data.bonds!.kind[ob] === BondKind.Vassal ? 'vassal' : 'tributary'} of ${data.names[data.bonds!.b[ob]]}` : ''
+      const bond = ob >= 0 ? `${data.bonds!.kind[ob] === BondKind.Vassal ? 'vassal' : data.bonds!.kind[ob] === BondKind.Charter ? 'free city' : 'tributary'} of ${data.names[data.bonds!.b[ob]]}` : ''
       // claims: land the state calls its own that no settlement holds (at the land snapshot the map shows)
       if (claimedAt(data, cell, landSnapNear(data, s0 * data.interval))) return `Claimed by the ${polityTitle(data, p, s0)}${bond ? `, ${bond}` : ''} (no settlement)`
       return bond ? `${polityTitle(data, p, s0)} (${bond})` : polityTitle(data, p, s0)

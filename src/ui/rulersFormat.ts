@@ -10,6 +10,8 @@
 // cities fallen are headlines. Every function tolerates a history without the tables (null: the
 // caller falls back to what it said before).
 
+import { governmentAt } from './governmentsData.ts' // governments:
+import { Government } from '../contract.ts' // governments:
 import { AccessionHow, EventType, FaithKind, ReignEnd, UnionEnd, type History, type HistoryEvent } from '../contract.ts'
 import { capitalAt, polityAtYear, politiesOf, statIndex } from './politiesData.ts'
 import { peopleName, peopleOf, settlementName } from './format.ts'
@@ -143,7 +145,8 @@ function successionLine(rd: RulersData, x: SuccessionParts, forId = -1): string 
       else s = `${name} inherits ${throne}`
       break
     case AccessionHow.Elected:
-      if (z.dynasty < 0) s = `${rd.title[r]} is elected head of the league${here ? '' : ` of ${pname(rd, q)}`}`
+      if (z.dynasty < 0 && rd.pd.history.governments && rd.pd.history.governments.count > 0 && governmentAt(rd.pd.history, q, z.acceded) !== Government.League) s = governmentAt(rd.pd.history, q, z.acceded) === Government.Theocracy ? `The clergy raise ${rd.title[r]}${here ? '' : ` in ${pname(rd, q)}`}` : `${rd.title[r]} is elected${here ? '' : ` in ${pname(rd, q)}`}` // governments: a republic's consul, a free city's burgomaster, a high priest
+      else if (z.dynasty < 0) s = `${rd.title[r]} is elected head of the league${here ? '' : ` of ${pname(rd, q)}`}`
       else if (x.newHouse) s = `The great men ${here ? 'here ' : ''}raise ${rd.title[r]} of ${hn} to ${throne}`
       else s = `The great men ${here ? 'here ' : `of ${pname(rd, q)} `}elect ${name}`
       break

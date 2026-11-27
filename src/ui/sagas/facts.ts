@@ -196,7 +196,7 @@ export class Ctx {
     if (pd.lastSnap[p] >= 0 && s > pd.lastSnap[p]) s = pd.lastSnap[p]
     if (s < pd.firstSnap[p]) s = pd.firstSnap[p]
     const st = this.pstat(p, s)
-    return `${tierWord(pd, p, st ? st.tier : 0)} of ${pd.names[p]}`
+    return `${tierWord(pd, p, st ? st.tier : 0, y)} of ${pd.names[p]}`
   }
   /** Its greatest title up to the year told ("Empire of Rilkochal"). */
   pgreatTitle(p: number): string {

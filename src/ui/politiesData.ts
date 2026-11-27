@@ -23,6 +23,7 @@
 // for a settlement and a year, the wall rings in use with their build years, slighted walls,
 // how recently it was sacked, whether it is a capital, and a rough garrison size.
 
+import { governmentAt, governmentWord } from './governmentsData.ts' // governments:
 import { BondKind, CITY_POPULATION, EventType, JourneyKind, PolityEnd, PolityOrigin, StructureType, WarKind, type Bonds, type Embargoes, type History, type HistoryEvent, type Polity, type RaidSummary, type Wars, type World } from '../contract.ts'
 
 export const PolityTier = { Chiefdom: 0, Kingdom: 1, Empire: 2 } as const
@@ -601,14 +602,20 @@ export function tierAt(pd: PolitiesData, p: number, s: number): PolityTier {
 }
 
 /** The title word of polity p at tier `tier`: "League" for a league of towns whatever its size, else the tier's word. */
-export function tierWord(pd: PolitiesData, p: number, tier: number): string {
+export function tierWord(pd: PolitiesData, p: number, tier: number, year?: number): string {
+  // governments: the form of government overrides the tier word (callers pass the year; without it, or with the table empty, as before)
+  if (year !== undefined && pd.history.governments && pd.history.governments.count > 0) {
+    const w = governmentWord(governmentAt(pd.history, p, year), tier === 0)
+    if (w !== null) return w
+    return TIER_WORDS[tier] ?? 'Chiefdom'
+  }
   return pd.list[p]?.origin === PolityOrigin.League ? 'League' : TIER_WORDS[tier] ?? 'Chiefdom'
 }
 
 /** "Kingdom of North Vashtar" ("League of Vashtar") at snapshot s. */
 export function polityTitle(pd: PolitiesData, p: number, s: number): string {
   if (p < 0 || p >= pd.count) return 'a state'
-  return `${tierWord(pd, p, tierAt(pd, p, s))} of ${pd.names[p]}`
+  return `${tierWord(pd, p, tierAt(pd, p, s), s * pd.interval)} of ${pd.names[p]}`
 }
 
 // ---------------------------------------------------------------------------

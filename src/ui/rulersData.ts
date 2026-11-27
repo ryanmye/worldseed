@@ -6,6 +6,7 @@
 // Everything the UI shows at a year is a cheap function of the year: the ruler of a state at y is the
 // last of its reigns acceded by y (a binary search), unless that reign had ended before y.
 
+import { governmentAt, governmentRulerWord } from './governmentsData.ts' // governments:
 import { AccessionHow, EventType, ReignEnd, type Dynasty, type History, type HistoryEvent, type Ruler } from '../contract.ts'
 import { PolityTier, polityAtYear, politiesOf, tierAt, type PolitiesData } from './politiesData.ts'
 
@@ -309,8 +310,9 @@ export function rulerFaithAt(rd: RulersData, r: number, year: number): number {
 export function rulerWord(rd: RulersData, r: number, year: number): string {
   const x = rd.rulers[r]
   const pd = rd.pd
-  if (x.dynasty < 0 || pd.list[x.polity]?.origin === 6) return 'Elected head'
   const t = tierAt(pd, x.polity, Math.floor(year / pd.interval))
+  if (pd.history.governments && pd.history.governments.count > 0) { const w = governmentRulerWord(governmentAt(pd.history, x.polity, year), x.female, t === PolityTier.Chiefdom); if (w !== null) return w } // governments: Consul, Burgomaster, Lord, High Priest, Khan
+  if (x.dynasty < 0 || pd.list[x.polity]?.origin === 6) return 'Elected head'
   if (t === PolityTier.Empire) return x.female ? 'Empress' : 'Emperor'
   if (t === PolityTier.Kingdom) return x.female ? 'Queen' : 'King'
   return x.female ? 'Chieftainess' : 'Chief'

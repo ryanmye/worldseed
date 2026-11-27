@@ -3,6 +3,8 @@
 // polity data, so the caller falls back to its own wording). Claims: BorderDispute (130),
 // two states' claims meeting over unsettled land.
 
+import { governmentRowAt } from './governmentsData.ts' // governments:
+import { GovernmentCause, PolityOrigin } from '../contract.ts' // governments:
 import { spokenName } from './languageData.ts' // language: names as said in the year
 import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarMotive, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
@@ -587,6 +589,64 @@ function describeSocietyFor(h: History, pd: PolitiesData, e: HistoryEvent, id: n
   return line
 }
 
+// ---- governments (200-205; city-states §7.3): charters, communes, signorie and theocracies ----
+
+/** Whether events of type t are government events. */
+export const isGovernmentEventType = (t: number) => t >= 200 && t <= 209
+
+/** Chronicle line for a government event, or null. */
+function describeGovernment(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const t = e.type as number
+  const name = settlementName(h, e.settlement)
+  const lord = e.other >= 0 ? polityName(pd, polOf(pd, e.other, e.year), settlementName(h, e.other)) : ''
+  const self = polityName(pd, e.value, name)
+  switch (t) {
+    case EventType.CharterBought: return `${name} buys a charter of liberties from ${lord} and governs itself as a free city`
+    case EventType.CommuneProclaimed:
+      switch (e.extra ?? 0) {
+        case 0: return `${name} throws off ${lord} and proclaims itself a republic`
+        case 1: return `The merchants of ${name} govern themselves: the Republic of ${pd.names[e.value] ?? name}`
+        case 2: return lord ? `The free city of ${name} stops paying its due to ${lord}: the Republic of ${pd.names[e.value] ?? name}` : `The free city of ${name}, its overlord gone, stands alone as a republic`
+        case 3: return h.polities[e.value]?.origin === PolityOrigin.League ? `What is left of the League of ${pd.names[e.value] ?? name} governs itself as a republic` : `The great houses of ${name} abolish the throne: the Republic of ${pd.names[e.value] ?? name}`
+        default: return `${name} drives out its lords and restores the republic`
+      }
+    case EventType.SignoriaSeized:
+      switch (e.extra ?? 0) {
+        case 0: return `The captain of ${name}'s hired armies makes himself its lord`
+        case 1: return `The leading merchant family of ${name} makes itself master of ${self}`
+        default: return `Amid strife a strongman seizes ${name} and rules it as its lord`
+      }
+    case EventType.TheocracyProclaimed: return `The priests of the ${h.faiths[e.extra ?? -1]?.name ?? 'old'} faith take the rule of ${name}`
+    case EventType.GovernmentChanged: {
+      const r = governmentRowAt(h, e.value, e.year)
+      const c = r >= 0 ? h.governments.cause[r] : -1
+      if (c === GovernmentCause.Settled) return `The khans of ${self} rule as kings now`
+      if (c === GovernmentCause.Secularised) return `The priests of ${name} lose the rule of the city`
+      return `The lords of ${name} take a crown: ${self} becomes a kingdom`
+    }
+    case EventType.CharterRevoked: return `${lord} revokes the liberties of ${name}`
+  }
+  return null
+}
+
+/** Inspector line for a government event from the point of view of settlement `id`, or null. */
+function describeGovernmentFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const t = e.type as number
+  const lord = e.other >= 0 ? polityName(pd, polOf(pd, e.other, e.year), settlementName(h, e.other)) : ''
+  if (e.other === id && e.settlement !== id) {
+    if (t === EventType.CharterBought) return `Sold ${settlementName(h, e.settlement)} a charter of liberties`
+    if (t === EventType.CharterRevoked) return `Revoked the liberties of ${settlementName(h, e.settlement)}`
+    if (t === EventType.CommuneProclaimed) return `${settlementName(h, e.settlement)} threw off its rule and became a republic`
+    if (t === EventType.TheocracyProclaimed) return `Its holy city ${settlementName(h, e.settlement)} broke away under its priests`
+    return null
+  }
+  if (t === EventType.CharterBought) return `Bought its liberties from ${lord}: a free city`
+  if (t === EventType.CharterRevoked) return `Its liberties were revoked by ${lord}`
+  if (t === EventType.CommuneProclaimed && (e.extra ?? 0) === 0) return `Rose against ${lord} and proclaimed a republic`
+  if (t === EventType.CommuneProclaimed && (e.extra ?? 0) === 1) return 'Its merchants made it a republic'
+  return describeGovernment(h, pd, e)
+}
+
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
   const t = e.type as number
@@ -594,6 +654,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoney(h, pd, e) : null } // finance
   if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSociety(h, pd, e) : null } // society
+  if (isGovernmentEventType(t)) { const pd = politiesOf(h); return pd ? describeGovernment(h, pd, e) : null } // governments
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBelief(h, pd, e) : null } // beliefs
   if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWar(h, pd, e) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
@@ -674,6 +735,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
         case RevoltCause.Peasant: return `Peasants rise at ${name} against ${against}`
         case RevoltCause.Taxes: return `Townsmen rise at ${name} against the tax-gatherers of ${against}` // (finance)
         case RevoltCause.Urban: return `The townsfolk of ${name} rise against ${against}` // (society: dear bread, low wages)
+        case RevoltCause.Burghers: return `The burghers of ${name} rise for their liberties against ${against}` // (governments)
         case RevoltCause.Ethnic: {
           const pp = (h.settlements[e.settlement] as { people?: number }).people
           const pn = pp !== undefined ? h.peoples?.[pp]?.name : undefined
@@ -724,6 +786,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoneyFor(h, pd, e, id) : null } // finance
   if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSocietyFor(h, pd, e, id) : null } // society
+  if (isGovernmentEventType(t)) { const pd = politiesOf(h); return pd ? describeGovernmentFor(h, pd, e, id) : null } // governments
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBeliefFor(h, pd, e, id) : null } // beliefs
   if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWarFor(h, pd, e, id) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
@@ -840,6 +903,7 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
   }
   if (t >= 210 && t <= 219) return 'money' // finance
   if (t >= 240 && t <= 249) return 'polity' // society
+  if (t >= 200 && t <= 209) return 'polity' // governments
   if (t >= 230 && t <= 239) return 'intrigue' // beliefs
   return null
 }

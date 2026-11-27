@@ -5,8 +5,9 @@
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
 //   danger, [society: classes and Ψ], unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
+//   [governments: charters, burghers' risings, free cities alone, signorie and crowns, mercenaries' pay (govStep)],
 //   v2 bonds (vassals, tribute, alliances), [oaths: allies desert or turn], coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
-//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
+//   also formation, v2 leagues, [governments: free towns, league remnants, holy cities, confederations (govSlow)], accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
 //   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger; [claims every mapStep years:
 //   the land states claim beyond their settlements' (claims.ts)].
@@ -53,6 +54,7 @@ import { c8Tax } from '../compose.ts' // C8 stack
 import { grievanceStep } from './grievances.ts' // oaths:
 import { beliefStep } from '../beliefs/system.ts' // beliefs:
 import { coldWarStep } from './coldwar.ts' // cold wars:
+import { govSlow, govStep } from '../government/system.ts' // governments:
 
 let mapHeap: Heap | null = null
 
@@ -159,6 +161,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   unrestStep(s, ps)
   revoltStep(s, ps)
   realmStep(s, ps, ts)
+  if (s.gov !== null) govStep(s, ps, s.gov) // governments: charters and risings, free cities alone, signorie, crowns, mercenaries' pay
   bondStep(s, ps) // v2: vassals, tribute, alliances
   if (ps.og !== null && ps.og.oaths) betrayalStep(s, ps, ps.og, (w, o) => closeWar(s, ps, w, o, false), (r, p, q) => declare(s, ps, r, p, q, WarKind.Conquest, true)) // oaths: allies desert or turn
   if (ps.exId.length > 0) coastRaids(s, ps) // v2: pirates raid the coasts
@@ -166,6 +169,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   if (s.year % POLITY.slowStep === 0) {
     formation(s, ps)
     leagues(s, ps, ts) // v2: city leagues
+    if (s.gov !== null) govSlow(s, ps, s.gov) // governments: stateless free towns, league remnants, holy cities, confederations settling
     accretion(s, ps)
     absorption(s, ps)
     const long = s.year % POLITY.mapStep === 0

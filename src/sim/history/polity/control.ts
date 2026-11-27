@@ -9,6 +9,7 @@
 // capital cannot reach through its own lands (an exclave without a sea link) has g = 0. A_p is the
 // population-weighted mean cohesion of the members. Also rebuilds the member lists per polity.
 
+import { govLocal } from '../government/system.ts' // governments:
 import { seatMass } from '../orders/hooks.ts' // seat:
 import type { Heap } from '../heap.ts'
 import type { HistoryState } from '../state.ts'
@@ -94,6 +95,7 @@ function controlOf(s: HistoryState, ps: PolityState, p: number, heap: Heap, list
   const over = ps.worldPop > 0 && POLITY.stretch > 0 ? pop / ps.worldPop - POLITY.great : 0
   if (over > 0) ps.pMass[p] /= 1 + over / POLITY.stretch
   if (s.rul !== null) ps.pMass[p] *= rulerMass(s.rul, p) // rulers: an able ruler's realm is stronger
+  if (s.gov !== null) { const gm = govLocal(s, s.gov, p, cap); if (gm !== 1) ps.pMass[p] *= gm } // governments: money hires armies (GOV.merc)
   if (s.orders !== null && s.orders.nPolity > 0) ps.pMass[p] *= seatMass(s.orders, p) // seat: a purge holds (the army's best men gone)
   let multi = 0
   for (let q = 0; q < NP; q++) if (pop > 0 && peoplePop[q] >= POLITY.multiShare * pop) multi++

@@ -20,6 +20,9 @@
 // society (s.soc): Ψ multiplies the revolt hazard once (C2 psiMul); immiseration, failed coercion and townsfolk's dear bread are
 // grievance terms (additive); disaffected elites strengthen rebels; elite pressure lengthens crises and erodes asabiya.
 
+import { govOf, govUnrestMul } from '../government/hooks.ts' // governments:
+import { GOV } from '../government/params.ts' // governments:
+import type { C2GrievanceFactors } from '../compose.ts'
 import { deferUnrest } from '../rulers/deference.ts' // rulers: deference
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
@@ -55,6 +58,16 @@ export function cohesionStep(s: HistoryState, ps: PolityState): void {
     const a = asab[i]
     asab[i] = clampAsab(f !== 0 ? a + step * C.grow * a * (1 - a) * (f & 2 ? C.steppe : 1) : a - step * C.decay * a)
   }
+}
+
+/** C2 form factors (scratch): GOV.unrest of p's form (undefined: no factor, skipped). */
+const C2G: C2GrievanceFactors = {}
+function govC2(s: HistoryState, p: number): C2GrievanceFactors | undefined {
+  if (s.gov === null) return undefined
+  const m = govUnrestMul(s.gov, p)
+  if (m === undefined) return undefined
+  C2G.form = m
+  return C2G
 }
 
 /** Grievance terms of member i of polity p, grouped: [peasant, provincial, ethnic, colonial]. */
@@ -93,8 +106,8 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   terms[5] = tax
   if (tax > 0 && ps.why) ps.why.sub[UnrestPart.Taxes] = tax // causes:
   const add = urb > 0 ? tax + urb : tax // (society: the urban term, additive; C2 D is a sum)
-  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + r + add : peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
-  return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + add : peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + r + add : peasant + provincial + ethnic + colonial + r, govC2(s, p)) } // religion: a ruler of another faith, persecution
+  return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + add : peasant + provincial + ethnic + colonial, govC2(s, p)) // C2 (compose.ts): the form multiplier on the grievance sum
 }
 
 function causeOf(): number {
@@ -246,6 +259,7 @@ export function realmStep(s: HistoryState, ps: PolityState, ts: TradeState): voi
     else if (s.year >= ps.pNextSucc[p]) {
       ps.pNextSucc[p] = s.year + U.next + Math.floor(rng.next() * U.spreadYears)
       let chance = U.crisisBase + U.crisisAsab * (1 - ps.pAsab[p]) + (ps.pMulti[p] ? U.crisisMulti : 0)
+      if (s.gov !== null && GOV.crisis[govOf(s.gov, p)] !== 1) chance *= GOV.crisis[govOf(s.gov, p)] // governments: rulers off, the form's strife (city-states §4.8)
       if (s.soc !== null) chance += socContest(s, p) // society (h4): too many magnates for the offices
       if (!inCrisis(s, ps, p) && rng.next() < chance) {
         ps.pCrisisUntil[p] = s.year + U.crisisMin + Math.floor(rng.next() * (U.crisisMax - U.crisisMin + 1 + (s.soc !== null ? socCrisisPlus(s, p) : 0))) // (society h4: longer)

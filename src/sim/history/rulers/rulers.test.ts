@@ -1,5 +1,7 @@
 // rulers: tests of rulers, houses, successions, marriages and unions (src/sim/history/rulers), and of the off switches.
 
+import { Government } from '../../../contract.ts' // governments:
+import { formAt } from '../government/governmentStats.ts' // governments:
 import { describe, expect, it } from 'vitest'
 import { AccessionHow, BondKind, EventType, PolityOrigin, ReignEnd, UnionEnd } from '../../../contract.ts'
 import type { History, World } from '../../../contract.ts'
@@ -116,7 +118,8 @@ function checkRulers(h: History): void {
     if (x.dynasty >= 0) {
       expect(x.dynasty).toBeLessThan(D)
       expect(h.dynasties[x.dynasty].founded).toBeLessThanOrEqual(x.acceded)
-    } else expect(h.polities[x.polity].origin).toBe(PolityOrigin.League)
+    } else if (h.governments.count > 0) expect([Government.League, Government.Republic, Government.FreeCity, Government.Theocracy]).toContain(formAt(h, x.polity, x.acceded)) // (governments: an elected form at the accession)
+    else expect(h.polities[x.polity].origin).toBe(PolityOrigin.League)
     expect(x.person).toBeLessThanOrEqual(r)
     if (x.person !== r) { expect(x.how === AccessionHow.Union || x.how === AccessionHow.Inherited).toBe(true); expect(h.rulers[x.person].name).toBe(x.name) }
     if (x.predecessor >= 0) { expect(x.predecessor).toBeLessThan(r); expect(h.rulers[x.predecessor].polity).toBe(x.polity) }

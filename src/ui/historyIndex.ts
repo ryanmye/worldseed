@@ -432,6 +432,7 @@ function isShownType(type: number): boolean {
   if (isAbsenteeEvent(type)) return true // 185-187: absentee and do-nothing rulers (absenteeFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
+  if (type >= 200 && type <= 205) return true // 200-205: governments (polityFormat.ts)
   if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
   if (isFamilyEvent(type)) return true // 161-169: merchant families (familiesFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
@@ -456,6 +457,8 @@ export function otherIsSettlement(type: number): boolean {
     type === 35 || type === 37 || type === 38 || type === 39 || type === 42 || type === 43 ||
     // oaths, balance, arms: the wronged ally's, the victim's, the stronger realm's, the rival's capital
     (type >= 190 && type <= 194) ||
+    // governments: the lord risen against or no longer paid, the overlord that sold or revoked a charter, the realm a holy city left
+    type === 200 || type === 201 || type === 203 || type === 205 ||
     // finance: the lender's seat, the largest lender's, the enemy's capital, the debtor crown's
     (type >= 210 && type <= 217) ||
     // beliefs: the other realm's capital (the pressed, the observer, the ally), or a claimed town

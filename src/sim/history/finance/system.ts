@@ -20,6 +20,7 @@
 // Economic Studies 48(2): 289-309, https://doi.org/10.2307/2296886), serial defaulters (Reinhart & Rogoff 2009, This Time Is
 // Different), the fiscal-military state (Brewer 1989, The Sinews of Power); every number is a design default.
 
+import { CITY } from '../government/params.ts' // governments:
 import { socPatronO } from '../society/api.ts' // society:
 import { BondKind, EventType, GrievanceKind, LenderKind, LoanEnd, OrderKind, PolityEnd, WarKind } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
@@ -178,7 +179,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     const sb = ps.pSub[p]
     if (sb >= 0 && ps.bEnd[sb] < 0) {
       const b = ps.bB[sb]
-      trib = (ps.bKind[sb] === BondKind.Vassal ? VASSAL.share : VASSAL.tribute) * R
+      trib = (ps.bKind[sb] === BondKind.Vassal ? VASSAL.share : ps.bKind[sb] === BondKind.Charter ? CITY.due : VASSAL.tribute) * R // (governments: a free city's due)
       if (b >= 0 && ps.pEnded[b] < 0 && divert) { if (b >= fin.pcap) ensureFinPolities(fin, b + 1); fin.coinNext[b] += trib; ps.pRevYear[b] += trib; fin.diag.inTrib += trib }
     }
     const E = court + garrison + works + war + trib
