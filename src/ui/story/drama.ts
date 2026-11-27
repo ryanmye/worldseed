@@ -256,7 +256,14 @@ R(T.Discovery, { cat: DramaCat.Discovery, base: 5, place: (c, e) => (e.other >= 
 R(T.Epidemic, { cat: DramaCat.Plague, base: 6, mag: (c, e) => e.value * c.peoplePop(c.h.settlements[e.settlement]?.people ?? -1, e.year) })
 
 // --- polities (20-43) ---
-R(T.PolityFounded, { cat: DramaCat.Politics, base: 4, first: true, polities: (_c, e) => [e.value], mag: (c, e) => c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON), scale: (c, e) => empireScale(c, e, e.value) })
+// (a breakaway: a state founded where another realm ruled within BREAKAWAY_YEARS (a successor's parent, or the realm its
+// capital fell away from) is that realm's story too, and a larger one: play-test 1, a chiefdom founded beside the player's capital)
+export const BREAKAWAY_YEARS = 20
+const brokeFrom = (c: DramaCtx, e: HistoryEvent) => {
+  const q = e.other >= 0 ? c.polityBefore(e.other, e.year) : c.polityBefore(e.settlement, Math.max(1, e.year - BREAKAWAY_YEARS))
+  return q !== e.value ? q : -1
+}
+R(T.PolityFounded, { cat: DramaCat.Politics, base: 4, first: true, polities: (c, e) => [e.value, brokeFrom(c, e)], mag: (c, e) => c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON), boost: (c, e) => (brokeFrom(c, e) >= 0 ? 1.5 : 1), scale: (c, e) => empireScale(c, e, e.value) })
 R(T.PolityEnded, {
   cat: DramaCat.Politics,
   base: 8,
@@ -329,7 +336,7 @@ R(T.GeneralRose, { cat: DramaCat.War, base: 6 })
 R(T.GeneralTurned, { cat: DramaCat.War, base: 5, scale: DramaScale.Town })
 R(T.CommanderDismissed, { cat: DramaCat.War, base: 2 })
 R(T.Revolt, { cat: DramaCat.Politics, base: 3, scale: DramaScale.Town })
-R(T.Seceded, { cat: DramaCat.Politics, base: 4, mag: (c, e) => c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON) })
+R(T.Seceded, { cat: DramaCat.Politics, base: 6, polities: (c, e) => [e.value, e.other >= 0 ? c.polityBefore(e.other, e.year) : -1], mag: (c, e) => c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON) }) // (surfacing: a breakaway is its parent's story too)
 R(T.SuccessionCrisis, { cat: DramaCat.Dynasty, base: 3, polities: (_c, e) => [e.value], mag: (c, e) => c.polityPop(e.value, e.year) })
 R(T.CivilWar, { cat: DramaCat.War, base: 7, mag: (c, e) => warDead(c, e.value), polities: (c, e) => warSides(c, e.value) })
 R(T.Partitioned, { cat: DramaCat.Politics, base: 6, polities: (_c, e) => [e.value], mag: (c, e) => c.polityPop(e.value, e.year), scale: (c, e) => empireScale(c, e, e.value) })

@@ -46,7 +46,7 @@ export const STORY: {
   debut: 1,
   /** The beat search's floor: an entry scores at least floor·S0 whatever came before it. */
   floor: 0.6,
-  /** Of two stories of one type within likeYears, the greater is told if it scores at least like × the pick now. */
+  /** Of two stories within likeYears, the greater (S0) is told if it scores at least like × the pick now. */
   like: 0.8,
   likeYears: 2,
   /** An entry just past the window (within gMin of the pick) that scores ahead × the pick is told instead. */
@@ -146,10 +146,10 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       }
     }
     if (best >= 0 && sd.type) {
-      // of two like stories told at once (the same type within likeYears), tell the greater if it scores nearly as well now
+      // of two stories told at once (within likeYears), tell the greater if it scores nearly as well now
       let alt = -1
       for (let n = lo; n < hi; n++) {
-        if (n === best || sd.type[n] !== sd.type[best] || Math.abs(years[n] - years[best]) > STORY.likeYears || sd.score[n] <= sd.score[alt < 0 ? best : alt]) continue
+        if (n === best || Math.abs(years[n] - years[best]) > STORY.likeYears || sd.score[n] <= sd.score[alt < 0 ? best : alt]) continue
         if (at(n)[0] >= STORY.like * bestS) alt = n
       }
       // and a lesser beat does not block a far greater one just past the window (within gMin of it)
