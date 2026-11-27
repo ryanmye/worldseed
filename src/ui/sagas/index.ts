@@ -12,9 +12,12 @@ import { houseSaga } from './house.ts'
 import { yearSaga } from './year.ts'
 import { commanderSaga } from './commander.ts' // battles:
 import type { Saga, SagaKind } from './types.ts'
-import { polish } from './voice.ts'
+import { polish, Voice } from './voice.ts'
+import type { Pov } from './lens.ts'
+import { PARTISAN_T } from './partisan.ts'
 
 export type { Saga, SagaKind, SagaMark, SagaRef } from './types.ts'
+export type { Pov } from './lens.ts'
 
 export interface SagaSubject {
   kind: SagaKind
@@ -23,15 +26,15 @@ export interface SagaSubject {
 
 const cache = new WeakMap<History, Map<string, Saga>>()
 
-/** The saga of `subject` told at `year` in the chronicle or legend register (cached per history). */
-export function generateSaga(h: History, world: World | null, subject: SagaSubject, legend: boolean, year: number): Saga {
+/** The saga of `subject` told at `year` in the chronicle or legend register (cached per history); `pov`: told by a people or a state (partisan; null the neutral record). */
+export function generateSaga(h: History, world: World | null, subject: SagaSubject, legend: boolean, year: number, pov: Pov | null = null): Saga {
   const Y = Math.max(0, Math.min(h.years, Math.floor(year)))
   let m = cache.get(h)
   if (!m) cache.set(h, (m = new Map()))
-  const key = `${subject.kind}:${subject.id}:${legend ? 1 : 0}:${Y}`
+  const key = `${subject.kind}:${subject.id}:${legend ? 1 : 0}:${Y}:${pov ? pov.kind[0] + pov.id : '-'}`
   const hit = m.get(key)
   if (hit) return hit
-  const c = new Ctx(h, world, Y)
+  const c = new Ctx(h, world, Y, pov)
   let s: Saga
   switch (subject.kind) {
     case 'people': s = peopleSaga(c, subject.id, legend); break
@@ -53,6 +56,15 @@ export function generateSaga(h: History, world: World | null, subject: SagaSubje
   // (chapters only in a long saga: a short one reads as one piece)
   const plain = s.paragraphs.filter((_, i) => !s.marks?.[i])
   if (s.heads && s.kind !== 'world' && (plain.length < 6 || plain.join(' ').length < 2400)) s.heads = s.heads.map(() => null)
+  // partisan: the teller under the title, and the legend's epigraph credited to the teller's song
+  if (c.lens) {
+    const L = c.lens
+    const v = new Voice(c.seed, `told${L.suffix}`, legend, PARTISAN_T)
+    s.pov = { kind: L.pov.kind, id: L.pov.id }
+    const capOf = L.pov.kind === 'state' ? c.capital(L.pov.id, Y) : (h.peoples[L.pov.id]?.founder ?? -1)
+    s.told = L.pov.kind === 'state' ? v.p('toldState', { state: c.ptitle(L.pov.id, Y) }) : v.p('toldPeople', { people: c.peopleName(L.pov.id) })
+    if (legend) s.epigraph += v.p('credit', { cap: c.name(capOf, Y) })
+  }
   s.epigraph = polish(s.epigraph)
   s.closing = polish(s.closing)
   if (m.size > 160) m.clear()
@@ -97,11 +109,11 @@ export function sagaMarkdown(s: Saga): string {
     out.push(s.marks?.[i] === 'omen' ? `*${p}*` : p)
     return out.join('\n\n')
   }).join('\n\n')
-  return `# ${s.title}\n\n*${s.epigraph}*\n\n${body}\n\n*${s.closing}*\n`
+  return `# ${s.title}\n\n${s.told ? `*${s.told}*\n\n` : ''}*${s.epigraph}*\n\n${body}\n\n*${s.closing}*\n`
 }
 
 /** The saga as plain text (Copy). */
 export function sagaText(s: Saga): string {
   const body = s.paragraphs.map((p, i) => [s.heads?.[i], s.titles?.[i], p].filter(Boolean).join('\n\n')).join('\n\n')
-  return `${s.title}\n\n${s.epigraph}\n\n${body}\n\n${s.closing}\n`
+  return `${s.title}\n\n${s.told ? `${s.told}\n\n` : ''}${s.epigraph}\n\n${body}\n\n${s.closing}\n`
 }

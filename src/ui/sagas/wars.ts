@@ -91,3 +91,24 @@ function nameAll(c: Ctx): string[] {
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+
+/**
+ * partisan: the war's name from the teller's side (experience §3.4). Without a lens, warCalled. A defensive war the
+ * teller won with >= 3000 dead is "the War of Deliverance"; a war the foe won against the teller "the {Foe} Invasion of
+ * {year}"; a war the teller began "the {Our} Campaign against {foe}". The neutral name (warName) is unchanged: the
+ * neutral sagas and the chronicle keep one name per war.
+ */
+export function warCalledBy(c: Ctx, w: number, p: number): string {
+  const L = c.lens
+  const W = c.pd?.wars
+  if (!L || !W) return warCalled(c, w, p)
+  const s = L.sideOfWar(w, c.Y)
+  if (s.side === 'none' || W.kind[w] === WarKind.CivilWar) return warCalled(c, w, p)
+  const foe = s.side === 'attacker' ? W.defender[w] : W.attacker[w]
+  const ours = s.side === 'attacker' ? W.attacker[w] : W.defender[w]
+  const base = (q: number) => c.h.polities[q]?.name ?? ''
+  if (s.side === 'defender' && s.won && W.dead[w] >= 3000) return 'the War of Deliverance'
+  if (s.lost && s.side === 'defender') return `the ${base(foe)} Invasion of ${W.startYear[w]}`
+  if (s.side === 'attacker') return `the ${base(ours)} Campaign against ${c.pname(foe)}`
+  return warCalled(c, w, p)
+}

@@ -5,6 +5,7 @@
 
 import { CITY_POPULATION, EventType, FeatureKind, OrderKind, OrderStatus, TOWN_POPULATION, WarKind } from '../../contract.ts'
 import { goodsOf } from '../goodsData.ts'
+import { PARTISAN_T } from './partisan.ts' // partisan: (the sack scenes through the lens)
 import { Ctx, topBy } from './facts.ts'
 import { list, num, people, plural, shareWords, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
@@ -145,7 +146,7 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function worldSaga(c: Ctx, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, 'world', legend, T, SCENE_T, OMEN_T, DIVINE_T)
+  const v = new Voice(c.seed, `world${c.povSuffix}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, PARTISAN_T)
   const Y = c.Y
   const P = h.peoples.length
   const book = new Book()

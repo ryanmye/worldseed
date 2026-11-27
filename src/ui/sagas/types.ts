@@ -33,6 +33,9 @@ export interface Saga {
   /** The year it is told at (nothing later is said). */
   year: number
   legend: boolean
+  /** partisan: whose telling (lens.ts Pov; absent: the neutral record), and the line under the title ("as the Vashtari tell it"). */
+  pov?: { kind: string; id: number }
+  told?: string
 }
 
 /**
