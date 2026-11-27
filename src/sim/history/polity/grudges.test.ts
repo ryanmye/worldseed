@@ -60,7 +60,7 @@ function checkOaths(h: History): { truces: number; allies: number; betrayals: nu
     return false
   }
   const rowFor = (kind: number, wronged: number, offender: number, year: number) => {
-    for (let i = 0; i < g.count; i++) if (g.kind[i] === kind && g.wronged[i] === wronged && g.offender[i] === offender && g.year[i] === year) return true
+    for (let i = 0; i < g.count; i++) if (g.kind[i] === kind && (g.wronged[i] === wronged || g.offender[i] === offender) && g.year[i] === year) return true // (one side may since have been absorbed: its rows re-pointed)
     return false
   }
   let truces = 0, allies = 0, betrayals = 0
@@ -76,11 +76,11 @@ function checkOaths(h: History): { truces: number; allies: number; betrayals: nu
         for (let v = 0; v < w; v++) if (((W.attacker[v] === p && W.defender[v] === q) || (W.attacker[v] === q && W.defender[v] === p)) && W.endYear[v] >= 0 && W.endYear[v] <= e.year) last = Math.max(last, W.endYear[v])
         expect(last).toBeGreaterThanOrEqual(0)
         expect(e.year - last).toBeLessThan(WAR.truce)
-        expect(rowFor(GrievanceKind.TruceBroken, q, p, e.year)).toBe(true)
+        expect(rowFor(GrievanceKind.TruceBroken, q, p, e.year), `truce row ${e.year} ${p}->${q}`).toBe(true)
       } else {
         allies++
-        expect(betrayedIn(p, q, e.year)).toBe(true)
-        expect(rowFor(GrievanceKind.AllyBetrayed, q, p, e.year)).toBe(true)
+        expect(betrayedIn(p, q, e.year), `ally attack ${e.year} ${p}->${q}`).toBe(true)
+        expect(rowFor(GrievanceKind.AllyBetrayed, q, p, e.year), `ally row ${e.year}`).toBe(true)
       }
       const sn = Math.ceil(e.year / h.snapshotInterval)
       if (sn < h.snapshotCount && h.polities[p].endedYear < 0) expect(h.faithless[sn * P + p]).toBeGreaterThan(0)
@@ -92,12 +92,12 @@ function checkOaths(h: History): { truces: number; allies: number; betrayals: nu
       expect(W.ally[w]).toBeGreaterThanOrEqual(0)
       expect(W.ally[w]).toBeLessThan(w)
       const q = W.defender[W.ally[w]]
-      expect(betrayedIn(x, q, e.year)).toBe(true)
-      expect(rowFor(GrievanceKind.AllyBetrayed, q, x, e.year)).toBe(true)
+      expect(betrayedIn(x, q, e.year), `betrayal bond ${e.year}`).toBe(true)
+      expect(rowFor(GrievanceKind.AllyBetrayed, q, x, e.year), `betrayal row ${e.year}`).toBe(true)
       if (e.extra === 1) {
         let found = false
         for (let v = w + 1; v < W.count; v++) if (W.attacker[v] === x && W.defender[v] === q && W.startYear[v] === e.year) found = true
-        expect(found).toBe(true)
+        expect(found, `turned war ${e.year}`).toBe(true)
       }
     }
   }

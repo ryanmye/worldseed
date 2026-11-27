@@ -58,6 +58,7 @@ import { sunUniforms } from './sun.ts'
 import { requestRender } from './invalidate.ts'
 import { capitalSlotHeight } from './markerSlots.ts'
 import { bondActive, capitalAt, cellPolities, embargoesAt, landSnapNear, polityAt, PolityEvent, SACK_YEARS, type PolitiesData } from '../ui/politiesData.ts'
+import { armsRacesAt } from '../ui/grudgesData.ts' // arms:
 import { BondKind, WarKind } from '../contract.ts'
 
 const TEX_W = 512
@@ -65,6 +66,8 @@ const PAL_W = 256
 const MAX_WARS = 16
 /** Embargoed pairs drawn at once (two per vec4). */
 const MAX_EMB = 24
+/** arms: open arms races drawn at once (pairs and level). */
+const MAX_ARMS = 16
 const MAX_ARMIES = 96
 const GHOSTS = 3
 /** Years the Danger view keeps showing an event's icon. */
@@ -179,6 +182,8 @@ uniform sampler2D uPalette;
 uniform sampler2D uRel;
 uniform vec4 uEmb[${MAX_EMB / 2}];
 uniform int uEmbCount;
+uniform vec4 uArms[${MAX_ARMS}];
+uniform int uArmsCount;
 uniform float uPxR;
 uniform int uMode;
 uniform float uFrac;
@@ -253,6 +258,16 @@ bool pl_embargo(float a, float b) {
     if (abs(q.x - lo) < 0.5 && abs(q.y - hi) < 0.5) return true;
   }
   return false;
+}
+// arms: the level (0..1) of the open arms race between a and b, 0 none
+float pl_arms(float a, float b) {
+  float lo = min(a, b), hi = max(a, b);
+  for (int i = 0; i < ${MAX_ARMS}; i++) {
+    if (i >= uArmsCount) break;
+    vec4 e = uArms[i];
+    if (abs(e.x - lo) < 0.5 && abs(e.y - hi) < 0.5) return e.z;
+  }
+  return 0.0;
 }
 // position (0..1) within a dash along a border whose screen normal is g, period in pixels: the border's direction
 // snapped to 45 degrees, so the dashes hold steady along a stretch of a noisy border
@@ -472,6 +487,7 @@ void main() {
       inner = (vd && abs(overD - sec) < 0.5) || (vs && abs(overS - dom) < 0.5) || (vd && vs && abs(overD - overS) < 0.5);
     }
     bool emb = both && war <= 0.0 && !inner && uEmbCount > 0 && pl_embargo(dom, sec);
+    float arms = both && war <= 0.0 && !inner && !emb && uArmsCount > 0 ? pl_arms(dom, sec) : 0.0;
     float w = uBorderPx * (both ? 1.0 : 0.62) * (political ? 1.15 : 1.0) * (danger ? 0.7 : 1.0) * (inner ? 0.5 : 1.0);
     vec3 lc;
     float la;
@@ -504,6 +520,13 @@ void main() {
       w *= 1.25;
       lc = mix(vec3(0.03, 0.025, 0.02), vec3(1.0, 0.68, 0.12), on);
       la = 1.0;
+    } else if (arms > 0.0) {
+      // an arms race short of war: steel-blue ticks across the line, denser and brighter as the race climbs
+      float f = pl_dash(lrg, mix(10.0, 5.0, arms) * uPxR, 0.0);
+      float on = smoothstep(0.0, 0.06, f) * (1.0 - smoothstep(0.3, 0.36, f));
+      w *= 1.0 + 0.5 * arms;
+      lc = mix(lc, vec3(0.44, 0.58, 0.74), on * (0.5 + 0.5 * arms));
+      la = max(la, 0.7 + 0.3 * arms);
     }
     if (sel && (abs(dom - uSel) < 0.5 || abs(sec - uSel) < 0.5)) {
       w *= 1.3;
@@ -789,6 +812,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
   // ---- territory overlay ----
   const wars = Array.from({ length: MAX_WARS }, () => new THREE.Vector4(-9, -9, 0, 0))
   const embs = Array.from({ length: MAX_EMB / 2 }, () => new THREE.Vector4(-9, -9, -9, -9))
+  const armsU = Array.from({ length: MAX_ARMS }, () => new THREE.Vector4(-9, -9, 0, 0)) // arms:
   const ou = {
     uReliefK: reliefUniforms.uReliefK,
     ...flatUniforms,
@@ -797,6 +821,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uRel: { value: relTex },
     uEmb: { value: embs },
     uEmbCount: { value: 0 },
+    uArms: { value: armsU },
+    uArmsCount: { value: 0 },
     uPxR: { value: 1 },
     uMode: { value: 1 },
     uFrac: { value: 0 },
@@ -1062,6 +1088,18 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     ou.uEmbCount.value = n
   }
 
+  /** arms: open races at the whole year `y` (grudgesData armsRacesAt), the highest first. */
+  function writeArmsRaces(y: number) {
+    const r = armsRacesAt(pd.history, Math.floor(y))
+    const idx: number[] = []
+    for (let i = 0; i < r.length; i += 3) idx.push(i)
+    idx.sort((a, b) => r[b + 2] - r[a + 2])
+    const n = Math.min(MAX_ARMS, idx.length)
+    for (let i = 0; i < MAX_ARMS; i++) armsU[i].set(-9, -9, 0, 0)
+    for (let i = 0; i < n; i++) { const k = idx[i]; const a = r[k], b = r[k + 1]; armsU[i].set(Math.min(a, b), Math.max(a, b), Math.max(0.15, r[k + 2]), 0) }
+    ou.uArmsCount.value = n
+  }
+
   const tmpA = new THREE.Vector3()
   function writeArmies(y: number) {
     if (!A || !J || !armyLen || !armyOff) {
@@ -1241,6 +1279,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
         writeWars(y)
         writeRelations(y)
         writeEmbargoes(y)
+        writeArmsRaces(y) // arms:
       }
       if (y !== shownArmyYear) {
         shownArmyYear = y

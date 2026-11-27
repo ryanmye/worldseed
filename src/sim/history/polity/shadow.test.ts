@@ -53,7 +53,8 @@ describe('shadow of the future', () => {
       expect(oathDelta(...fixture(age, 'adult', 0, true))).toBeLessThan(a)
       expect(oathDelta(...fixture(age, 'adult', 0, false, 0.5))).toBeLessThan(a)
     }
-    // Worked value of the plan (3.6a): a 25-year-old with an adult heir under primogeniture, about 0.87.
-    expect(Math.abs(oathDelta(...fixture(25, 'adult')) - 0.87)).toBeLessThan(0.03)
+    // Worked value of the plan (3.6a): a 25-year-old with an adult heir under primogeniture, about 0.87 at delta0 0.9 (delta
+    // is proportional to delta0, tuned to 0.8 in step 9).
+    expect(Math.abs(oathDelta(...fixture(25, 'adult')) - (0.87 * OATH.delta0) / 0.9)).toBeLessThan(0.03)
   })
 })
