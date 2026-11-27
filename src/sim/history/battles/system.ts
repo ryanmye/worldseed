@@ -32,6 +32,8 @@ import { BATTLE } from './params.ts'
 import { byWater, pickSite, siteFlags } from './site.ts'
 import type { BattleState } from './state.ts'
 import { commanderOf, fameGain, fameNow } from './commanders.ts'
+import { cbBattleX } from '../compose.ts' // CB stack
+import type { CBFactors } from '../compose.ts'
 
 function logEx(s: HistoryState, type: EventType, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -79,10 +81,10 @@ function served(s: HistoryState, bs: BattleState, c: number, b: number, won: boo
  * the war's odds r (after siege attrition), its outcome draw U, the army's path (or null), the front towns' dead and the
  * strengths A and D (war.ts strike). Records it and returns whether p won.
  */
-export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, w: number, p: number, q: number, u: number, v: number, attacker: boolean, siege: boolean, r: number, U: number, path: readonly number[] | null, dead: number, A: number, D: number): boolean {
+export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, w: number, p: number, q: number, u: number, v: number, attacker: boolean, siege: boolean, r: number, U: number, path: readonly number[] | null, dead: number, A: number, D: number, cbf?: CBFactors): boolean {
   const rng = bs.rng
   const b = bs.bWar.length
-  const x = r * r, xs = 1 // (neutral; the modifiers of 3.3 enter here once tuned: battles#6)
+  const x = cbBattleX(r, cbf), xs = 1 // (CB stack: cold-war aid; neutral otherwise; the modifiers of 3.3 enter here once tuned: battles#6)
   const won = U < x / (x + xs)
   // Kind.
   let kind: number = !attacker && relieves(ps, w, v) ? BattleKind.Relief : siege ? BattleKind.Siege : hasSea(s, path) ? BattleKind.Landing : BattleKind.Field

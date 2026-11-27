@@ -60,6 +60,8 @@ import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
 import { battleFought } from '../battles/system.ts' // battles:
+import { cwAid, cwDeclared } from './coldwar.ts' // cold wars:
+import { cbBattleX } from '../compose.ts' // CB stack
 import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/hooks.ts' // finance:
 import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
 import type { C6Factors } from '../compose.ts'
@@ -178,6 +180,7 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
   ps.pWars[p]++
   ps.pWars[q]++
   ps.warEpoch++
+  if (ps.cw !== null) cwDeclared(s, ps, ps.cw, r, w) // cold wars: a war between the principals ends it (HotWar)
   if (ps.og !== null && ps.og.balance && kind === WarKind.Conquest && !joined) noteAggression(s, ps.og, p) // balance: offensive intent
   if (kind === WarKind.CivilWar) { logEvent(s, EventType.CivilWar, ps.pCapital[p], ps.pCapital[q], w); return }
   logEvent(s, EventType.WarDeclared, ps.pCapital[p], ps.pCapital[q], w)
@@ -443,7 +446,9 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   const path = armyJourney(s, ps, u, v, d - ps.dist[u], ps.pMass[p])
   const U = rng.next()
   const lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
-  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu + lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
+  const cbf = ps.cw !== null ? cwAid(ps, w, p) : undefined // cold wars: proxy aid (CB stack, compose.ts)
+  const xb = cbBattleX(r, cbf)
+  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu + lv, strikeA, strikeD, cbf) : U < xb / (xb + 1) // battles: the contest recorded (neutral: the same test)
   if (s.bel !== null) beliefBattle(s, w, p, q, strikeA, strikeD) // beliefs: war reveals strength (battles §3.8: keep this call)
   // Casualties and devastation.
   s.pop[u] -= lu

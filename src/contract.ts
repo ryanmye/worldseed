@@ -304,6 +304,13 @@ export const EventType = {
   LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
   LoanWave: 252, // the language spoken at `settlement` (its largest town then) took many words from another (at least LANG.waveLoans of its visible words in LANG.waveYears): `other` the donor's seat (its largest town then); `value` the recipient language id; `extra` the donor language id
   LanguageDied: 253, // the last town that spoke language `value` (`settlement`) gave it up or was abandoned; `other` -1; `extra` the language that replaced it there, or -1
+  // cold wars (barriers-coldwar §3; 393-398; none when HistoryOptions.coldWars is false; 390-392 are barriers', 399 spare).
+  ColdWarBegan: 393, // the polities ruled from `settlement` and `other`, great rivals deterred from war, entered a cold war: `value` the cold war (History.coldWars); `extra` 1 when ideological (Phase 4), else 0
+  ProxyWar: 394, // the polity ruled from `settlement` backed a side in a war it did not fight: `other` the backed side's capital; `value` the war (History.wars); `extra` the cold war (History.coldWars)
+  ClientDefected: 395, // the client polity ruled from `settlement` left its patron for the rival principal ruled from `other`: `value` the cold war; `extra` the old patron's polity id
+  Crisis: 396, // a crisis between the cold-war principals ruled from `settlement` and `other`: `value` the cold war; `extra` the CrisisOutcome (0 the first backed down, 1 the second, 2 a compromise, 3 war: WarDeclared follows)
+  Detente: 397, // the cold war `value` between the polities ruled from `settlement` and `other` eased (extra 0: its intensity fell below half its peak) or froze again (extra 1)
+  ColdWarEnded: 398, // the cold war `value` between the polities ruled from `settlement` and `other` ended: `extra` the ColdWarEnd (0 thaw, 1 hot war, 2 one side collapsed, 3 one side eclipsed, 4 one side ended)
   // typology: writing (400-409; none when HistoryOptions.typology is false; 405-409 spare). History.scripts / scriptUse.
   ScriptInvented: 400, // a people made writing of its own: `settlement` where (the IdeaAdoptions via), `other` the settlement it heard of writing from (Stimulus) or -1; `value` the script id (History.scripts); `extra` the ScriptOrigin (Invented or Stimulus)
   ScriptAdopted: 401, // a people learned to write another's script, fitted to its tongue: `settlement` where, `other` the source settlement; `value` the new (adapted) script id; `extra` the script it was adapted from
@@ -493,6 +500,8 @@ export interface History {
   arms: Uint8Array
   /** arms: arms races between rival polities (empty when HistoryOptions.arms is false). */
   armsRaces: ArmsRaces
+  /** cold wars: cold wars between great rivals (empty when HistoryOptions.coldWars is false). */
+  coldWars: ColdWars
 
   // finance: crown treasuries and credit (all empty when HistoryOptions.finance is false).
   /** Coin in each polity's treasury per snapshot (wealth units; negative: bills in arrears), row-major like `tariff`; 0 outside its life. */
@@ -1828,6 +1837,8 @@ export const GrievanceKind = {
   TownCeded: 8, // (beliefs) the offender took `settlement` from the wronged under threat, without war (EventType.Coerced; the towns of one crisis merged: `towns`)
   SpyCaught: 9, // (beliefs) the wronged caught the offender's spies (EventType.SpyCaught)
   ClaimForged: 10, // (beliefs) the offender's forged claim on the wronged was exposed (EventType.ClaimExposed)
+  // 11-16 reserved (MASTER-PLAN §3.2: battles, riots, court, MIR, FP, infrastructure)
+  ProxyAid: 17, // (cold wars) the offender, a cold-war principal, backed the wronged's enemy in a war it did not fight (EventType.ProxyWar)
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
 
@@ -1893,6 +1904,48 @@ export interface ArmsRaces {
   peakYear: Int16Array
   levelOff: Int32Array
   level: Uint8Array
+}
+
+/** cold wars: how a cold war ended (History.coldWars.endCause; barriers-coldwar §3.5). */
+export const ColdWarEnd = {
+  Thaw: 0, // rivalry fell below CW.thawR for CW.thawYears
+  HotWar: 1, // a war was declared between the two
+  Collapsed: 2, // one side fell into crisis (default, civil war, a contested throne) and lost a third of its strength, or broke apart
+  Eclipsed: 3, // the balance tipped: the weaker had under CW.eclipse of the stronger's strength for CW.eclipseYears
+  Ended: 4, // a side ended otherwise (conquered, dwindled, absorbed)
+} as const
+export type ColdWarEnd = (typeof ColdWarEnd)[keyof typeof ColdWarEnd]
+/** cold wars: how a crisis between the principals was resolved (EventType.Crisis extra). */
+export const CrisisOutcome = { BackdownA: 0, BackdownB: 1, Compromise: 2, Escalated: 3 } as const
+export type CrisisOutcome = (typeof CrisisOutcome)[keyof typeof CrisisOutcome]
+
+/**
+ * cold wars (barriers-coldwar §3): cold wars between two great rivals deterred from fighting each other, struct-of-arrays in
+ * order of starting. A cold war is open from ColdWarBegan until ColdWarEnded; meanwhile its principals back sides in other
+ * wars (proxies), court and lose clients, spy, and face crises. `kappa` is its intensity at each slow step, 0..255 for 0..1
+ * (kappa[kappaOff[i] .. kappaOff[i + 1])). Empty when HistoryOptions.coldWars is false.
+ */
+export interface ColdWars {
+  count: number
+  /** Polity ids of the principals. */
+  a: Int16Array
+  b: Int16Array
+  start: Int16Array
+  /** Year it ended (-1 open at the end of the run), how (ColdWarEnd), and the war that ended it (HotWar) or -1. */
+  end: Int16Array
+  endCause: Uint8Array
+  war: Int32Array
+  /** 1 when ideological (Phase 4; always 0 for now). */
+  ideological: Uint8Array
+  /** Proxy interventions, crises, client defections. */
+  proxies: Uint16Array
+  crises: Uint16Array
+  defections: Uint16Array
+  /** Peak intensity (0..255) and its year. */
+  peak: Uint8Array
+  peakYear: Int16Array
+  kappaOff: Int32Array
+  kappa: Uint8Array
 }
 
 /**
@@ -2107,6 +2160,13 @@ export interface HistoryOptions {
   /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
   arms?: boolean
   /**
+   * coldWars (barriers-coldwar §3, owner grudges; needs polities): two great rivals at parity, long hostile and arming, but
+   * deterred from fighting, wage a cold war: proxy aid to sides in others' wars, courting and stealing clients, spies, crises
+   * that may escalate, and endings by thaw, hot war, collapse or eclipse. Default false; false gives the history exactly as
+   * without it (History.coldWars empty).
+   */
+  coldWars?: boolean
+  /**
    * disasters: volcanic eruptions and volcanic winters, slow climate epochs (warm ages, little ice ages), megadroughts,
    * earthquakes, tsunamis and great river floods, drawn from the world alone (the same seed has the same shocks, whatever the
    * orders or cradle wishes) and felt through the harvest, deaths and ruin. Default false (DX.enabled); false gives the history
@@ -2178,7 +2238,7 @@ export const RivalryPart = {
   Reputation: 12, // reputation for faithlessness (grudges)
   Secession: 13, // a break: a province seceded, a civil war or partition split them, a vassal threw off its overlord
   Alarm: 14, // alarm at the other's attack on a small neighbour (bonds: buffer states)
-  // 15 reserved
+  ColdWar: 15, // a cold war between them (barriers-coldwar §3): a crisis compromise (negative)
 } as const
 export type RivalryPart = (typeof RivalryPart)[keyof typeof RivalryPart]
 export const RIVALRY_PARTS = 16

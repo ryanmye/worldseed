@@ -7,6 +7,7 @@ import type { History } from '../../contract.ts'
 export const LATER_KEYS: ReadonlySet<string> = new Set([
   'grievances', 'faithless', 'arms', 'armsRaces', // grudges-and-oaths
   'treasury', 'crownDebt', 'crownRevenue', 'crownSpending', 'creditRate', 'coinage', 'fiscalDistress', 'loans', 'loanBalance', // state-finances
+  'coldWars', // barriers-coldwar (cold wars)
   'strength', 'beliefs', 'beliefEst', 'beliefSd', 'beliefSource', 'bluffShown', 'spyService', 'credibility', // beliefs-and-deception
 ])
 

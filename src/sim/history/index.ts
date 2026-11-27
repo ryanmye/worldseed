@@ -129,6 +129,8 @@ import { POLITY } from './polity/params.ts'
 import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
 import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot, polTradeSnapshot } from './polity/assemble.ts'
 import { createGrudgeState } from './polity/grudgeState.ts'
+import { CW, assembleColdWars, createColdWars } from './polity/coldwar.ts' // cold wars:
+import type { ColdWarDiag } from './polity/coldwar.ts' // cold wars:
 import type { GrudgeDiag } from './polity/grudgeState.ts'
 import type { FinanceDiag } from './finance/state.ts' // oaths, balance, arms:
 import { assembleGrudges, grudgeSnapshot } from './polity/grudgeAssemble.ts' // oaths, balance, arms:
@@ -296,6 +298,8 @@ export interface HistoryDiagnostics {
   rulers?: RulerDiag
   /** oaths, balance, arms: their counters (absent when all three are off). */
   grudges?: GrudgeDiag
+  /** cold wars: their counters (absent when off). */
+  coldWars?: ColdWarDiag
   /** battles: counters of the battles system (absent when it is off). */
   battles?: BattleDiag
   /** finance: its counters (absent when it is off). */
@@ -509,6 +513,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   if (pol) {
     const oaths = options?.oaths ?? OATH.enabled, balance = options?.balance ?? ALIGN.enabled, arms = options?.arms ?? ARMS.enabled
     if (oaths || balance || arms) pol.og = createGrudgeState(seed, oaths, balance, arms)
+    if (options?.coldWars ?? CW.enabled) pol.cw = createColdWars(seed) // cold wars (grudges; barriers-coldwar §3)
   }
   const polSnaps = pol ? createSnaps(pol) : null
   // goods: the goods system, unless switched off.
@@ -806,6 +811,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
         ...assembleGrudges(pol, snapshotCount), // oaths, balance, arms: (empty when off)
+        coldWars: assembleColdWars(pol), // cold wars: (empty when off)
         ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
         ...(pol && bel ? assembleBeliefs(bel, pol.P, years, snapshotCount) : emptyBeliefHistory()), // beliefs: (empty when off)
         ...goodsHist, // goods:
@@ -844,6 +850,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
+        coldWars: pol && pol.cw ? { ...pol.cw.diag, gate: pol.cw.diag.gate.slice() } : undefined, // cold wars:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:

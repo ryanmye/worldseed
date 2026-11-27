@@ -502,6 +502,58 @@ export function isDisputeHeadline(h: History, e: HistoryEvent): boolean {
   }
   return false
 }
+// ---- cold wars (393-398; barriers-coldwar §3): the record, hedged ----
+
+export const isColdWarEvent = (t: number) => t >= 393 && t <= 398
+
+const CW_END_WORDS = ['the rivalry cooled', 'it turned to open war', 'one side fell into ruin', 'the balance between them was lost', 'one side was no more']
+
+/** Chronicle line for a cold-war event, or null. */
+function describeColdWar(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const p = polOf(pd, e.settlement, e.year)
+  const pn = polityName(pd, p, settlementName(h, e.settlement))
+  const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+  const qn = polityName(pd, q, e.other >= 0 ? settlementName(h, e.other) : 'a rival')
+  const C = h.coldWars
+  const since = C && e.value >= 0 && e.value < C.count ? C.start[e.value] : -1
+  switch (e.type as number) {
+    case EventType.ColdWarBegan: return `${pn} and ${qn} arm and watch each other but do not fight: a cold war, it seems`
+    case EventType.ProxyWar: {
+      const W = h.wars
+      const enemy = W && e.value >= 0 && e.value < W.count ? polityName(pd, W.attacker[e.value] === q ? W.defender[e.value] : W.attacker[e.value], 'its enemy') : 'its enemy'
+      return `${pn} sends money and advisers to ${qn} in its war with ${enemy}`
+    }
+    case EventType.ClientDefected: return `${pn} leaves ${polityName(pd, e.extra ?? -1, 'its patron')} for ${qn}`
+    case EventType.Crisis: {
+      const x = e.extra ?? 0
+      if (x === 0) return `A crisis between ${pn} and ${qn}; ${pn} backs down`
+      if (x === 1) return `A crisis between ${pn} and ${qn}; ${qn} backs down`
+      if (x === 2) return `A crisis between ${pn} and ${qn} ends in a compromise`
+      return `A crisis between ${pn} and ${qn} slips into war`
+    }
+    case EventType.Detente: return e.extra === 1 ? `The quarrel of ${pn} and ${qn} hardens again` : `${pn} and ${qn} ease their rivalry`
+    case EventType.ColdWarEnded: {
+      const n = since >= 0 ? e.year - since : 0
+      return `The cold war of ${pn} and ${qn}${n >= 10 ? `, ${n} years long,` : ''} ends: ${CW_END_WORDS[e.extra ?? 0] ?? 'it passed'}`
+    }
+  }
+  return null
+}
+
+/** Inspector line for a cold-war event from the point of view of settlement `id`, or null. */
+function describeColdWarFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const self = e.settlement === id
+  const on = polityName(pd, polOf(pd, self ? e.other : e.settlement, e.year), settlementName(h, self ? e.other : e.settlement))
+  switch (e.type as number) {
+    case EventType.ColdWarBegan: return `Entered a cold war with ${on}`
+    case EventType.ProxyWar: return self ? `Backed ${on} in a war it did not fight` : `Backed by ${on} in its war`
+    case EventType.ClientDefected: return self ? `Left its patron for ${on}` : `${on} came over to it`
+    case EventType.Crisis: return `A crisis with ${on}` + (['', '', ', settled by compromise', ', which led to war'][e.extra ?? 0] ?? '')
+    case EventType.Detente: return e.extra === 1 ? `Its rivalry with ${on} hardened again` : `Eased its rivalry with ${on}`
+    case EventType.ColdWarEnded: return `Its cold war with ${on} ended`
+  }
+  return null
+}
 
 /** Chronicle line for a political event (types 20-34) or walls, or null. */
 export function describePolityEvent(h: History, e: HistoryEvent): string | null {
@@ -510,6 +562,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoney(h, pd, e) : null } // finance
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBelief(h, pd, e) : null } // beliefs
+  if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWar(h, pd, e) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   const name = settlementName(h, e.settlement)
@@ -637,6 +690,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoneyFor(h, pd, e, id) : null } // finance
   if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBeliefFor(h, pd, e, id) : null } // beliefs
+  if (isColdWarEvent(t)) { const pd = politiesOf(h); return pd ? describeColdWarFor(h, pd, e, id) : null } // cold wars
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   if (isWallEvent(h, e)) {

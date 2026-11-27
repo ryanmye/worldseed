@@ -258,6 +258,10 @@ export interface C7Factors {
   affinity?: number
   /** 4. court Chancellor 0.8 + 0.2c and the faction policy (court §5.4, §6.4). */
   court?: number
+  /** 5. barriers `talk` 0.6 + 0.4 e_elite (barriers-coldwar §2.5; not built yet). */
+  talk?: number
+  /** 6. cold wars `sphere` 1 + CW.sphere · kappa: a principal courting a partner against the rival principal (barriers-coldwar §3.3). */
+  sphere?: number
   // Order factor (after the clamp):
   /** seat Ally ×4. */
   seat?: number
@@ -265,10 +269,27 @@ export interface C7Factors {
 /** The alliance chance per slow step. 8cabf09: ALLIANCE.chance · marriage (MARRIAGE.alliance when the houses are tied, else 1). */
 export function c7Alliance(chance: number, marriage: number, f?: C7Factors): number {
   if (f === undefined) return chance * marriage
-  const m = prod(1, f.balance, f.reputation, f.affinity, f.court)
+  const m = prod(1, f.balance, f.reputation, f.affinity, f.court, f.talk, f.sphere)
   let v = m.any ? chance * marriage * clamp(m.v, C7_CLAMP[0], C7_CLAMP[1]) : chance * marriage
   if (f.seat !== undefined) v *= f.seat
   return v
+}
+
+// ---------- CB. Battle odds x = r² (war.ts battle; battles battleFought). Owner: battles. ----------
+// New stack (cold wars lane): battles §3.3 builds x = r² · M_ground · M_cmd · M_supply · M_sick · M_surprise · M_weather; while
+// BATTLE.neutral those are all 1 and live inside battles. The cold-war aid ratio M_aid (battles addendum "barriers & cold
+// war") is the first factor shared by another plan, so it enters here; battles' own modifiers join this stack when tuned.
+
+export const CB_CLAMP = [0.25, 4] as const
+export interface CBFactors {
+  /** 1. cold wars M_aid = (1 + CW.aidK · aid_A) / (1 + CW.aidK · aid_D) (battles addendum; barriers-coldwar §3.2). */
+  aid?: number
+}
+/** The battle odds x (the striker wins with x / (x + 1)). 8cabf09: r · r. */
+export function cbBattleX(r: number, f?: CBFactors): number {
+  if (f === undefined) return r * r
+  const m = prod(1, f.aid)
+  return m.any ? r * r * clamp(m.v, CB_CLAMP[0], CB_CLAMP[1]) : r * r
 }
 
 // ---------- C8. Tax take (polity/system.ts taxSystem, the wealth tax w). Owner: state-finances. ----------

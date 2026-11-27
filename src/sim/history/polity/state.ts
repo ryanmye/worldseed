@@ -22,6 +22,7 @@ import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
 import { c4Reach } from '../compose.ts' // C4 stack
 import type { GrudgeState } from './grudgeState.ts' // oaths, balance, arms:
+import type { ColdWarState } from './coldwar.ts' // cold wars:
 import { grudgeEnded, grudgeNewPolity } from './grievances.ts' // oaths:
 import { finPolityEnded } from '../finance/system.ts' // finance:
 import type { WhyRec } from '../why.ts' // causes:
@@ -333,6 +334,8 @@ export interface PolityState {
   diag: PolityDiag
   /** Grudges and oaths, balance of threat, arms races (grudgeState.ts; null when HistoryOptions.oaths, balance and arms are all off). */
   og: GrudgeState | null
+  /** Cold wars (coldwar.ts; null when HistoryOptions.coldWars is off). */
+  cw: ColdWarState | null
 }
 
 export interface PolityDiag {
@@ -457,6 +460,7 @@ export function createPolityState(s: HistoryState): PolityState {
     wayRisk: new Float32Array(N), wayYear: -1, waySea: [], seaZ: new Float32Array(N), seaZCells: [], rRisk: f64(256), rCause: new Int8Array(256), rPeak: f64(256), rForsaken: i32(256, -1), rRe: i32(256, -1), rTry: i32(256, -1), rTryCost: f64(256), rOrig: [] as number[][], laneDirty: false,
     cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), cDisp: new Int32Array(N).fill(-1), relDispute: [], relDisputeOn: [], claimYear: -1,
     og: null,
+    cw: null,
   }
   return Object.assign(base, v2) as PolityState
 }
