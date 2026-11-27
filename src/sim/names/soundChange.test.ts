@@ -16,7 +16,8 @@ const v = (kind: number, label: string): number => SOUND_CHANGES[kind].findIndex
 describe('sound change catalogue', () => {
   it('the contract enum matches the catalogue', () => {
     expect(SOUND_CHANGES.length).toBe(SOUND_CHANGE_KINDS)
-    for (const [k, id] of Object.entries(SoundChangeKind)) expect(SC[k as keyof typeof SC], k).toBe(id)
+    // (ids from SOUND_CHANGE_KINDS on are the phoneme model's only: soundChangeF.test.ts)
+    for (const [k, id] of Object.entries(SoundChangeKind)) if (id < SOUND_CHANGE_KINDS) expect(SC[k as keyof typeof SC], k).toBe(id)
   })
 
   it('each kind rewrites a hand-made word', () => {

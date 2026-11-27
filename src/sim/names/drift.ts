@@ -7,7 +7,8 @@ import type { World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { buildLexicon, GEO_CLASSES, type Lexicon } from './featureNames.ts'
 import { LANG } from './languageParams.ts'
-import { buildTree, drawRates, drawRules, nodeAt, type LanguageTree, type TreeSettlement } from './languageTree.ts'
+import { buildTree, drawRates, drawRules, nodeAt, type LanguageTree, type RuleCatalogue, type TreeSettlement } from './languageTree.ts'
+import { applyUnitsF, FEATURE_CHANGES } from './soundChangeF.ts'
 import { drawLexicon, MEANING, protoWords, wordAt, type LexState } from './lexicon.ts'
 import type { Language } from './phonology.ts'
 import { buildLanguage, MEANING_CLASSES } from './phonology.ts'
@@ -139,7 +140,9 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
     for (let m = 0; m < LANG.visible + 12 && m < w.length; m++) for (const x of w[m].split('|')) if (x.indexOf(' ') < 0) out.push(x)
     return out
   }
-  const rules = packRules(N, tree.parent, tree.splitYear, drawRules(seed, tree, rates, sample, years))
+  // typology: the phoneme catalogue under each language's gate (the dates and draws are lang=1's)
+  const catalogue: RuleCatalogue | undefined = typoBits ? { changes: FEATURE_CHANGES, apply: (n, u, k, v) => applyUnitsF(u, k, v, 2, typoBits![n]) } : undefined
+  const rules = packRules(N, tree.parent, tree.splitYear, drawRules(seed, tree, rates, sample, years, catalogue))
   if (typoBits) rules.typo = typoBits
   const t2 = performance.now()
   const lex = drawLexicon(seed, tree, rates, proto, base, years)

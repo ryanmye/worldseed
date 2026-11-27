@@ -653,6 +653,19 @@ export const SoundChangeKind = {
   Depalatalise: 11, // a palatal turns back (sh > s, ch > t, y > l)
   Fortition: 12, // a word-initial w, y or v hardens (w > v, y > g before back vowels, v > b)
   Prothesis: 13, // a vowel is put before an initial s-cluster (sp > esp)
+  // typology: phoneme model only (names/soundChangeF.ts FEATURE_CHANGES; kinds 0-13 have feature versions there too). Next free 26.
+  Tonogenesis: 14, // a final stop falls and leaves a contour tone on the vowel (falling after a voiceless one, rising after a voiced or glottal)
+  Nasalise: 15, // a vowel before a nasal that closes its syllable takes on nasality and the nasal falls (aN > ã)
+  Deaspirate: 16, // aspirated stops merge with plain ones
+  Deglottalise: 17, // ejectives (or implosives) become plain stops
+  UvularMerge: 18, // uvulars move to velar (q > k, χ > x)
+  RetroflexMerge: 19, // retroflexes merge with alveolars
+  Debuccalise: 20, // s > h, or a final k/t > ʔ
+  LengthChange: 21, // long vowels shorten, or a lost coda lengthens the vowel (compensatory lengthening)
+  ToneMerge: 22, // two tone levels merge (M and L, rising and high, falling and low)
+  HarmonyLoss: 23, // vowel harmony stops applying to new suffixes (inherited words keep their vowels)
+  Prenasal: 24, // prenasalised stops become plain voiced stops, or nasals
+  ClusterBreak: 25, // an echo vowel breaks a cluster the template does not allow (CC > CVC)
 } as const
 export type SoundChangeKind = (typeof SoundChangeKind)[keyof typeof SoundChangeKind]
 

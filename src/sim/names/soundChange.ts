@@ -13,6 +13,8 @@
 // the borrowing year for a loan or an exonym).
 
 import { letterCount, isEuphonicDrift, toUnits, capitalizeName } from './words.ts'
+import { applyUnitsF, ruleSpecF } from './soundChangeF.ts'
+import { hasPhonemes } from './typology/phoneme.ts'
 
 /** The kinds of regular sound change (contract.ts SoundChangeKind mirrors these ids). */
 export const SC = {
@@ -305,9 +307,9 @@ export const SOUND_CHANGES: ReadonlyArray<ReadonlyArray<RuleSpec>> = [
   [prothesis('e'), prothesis('i')],
 ]
 
-/** The rule a language row holds: SOUND_CHANGES[kind][variant] (a description for an unknown pair). */
-export function ruleSpec(kind: number, variant: number): RuleSpec | null {
-  return SOUND_CHANGES[kind]?.[variant] ?? null
+/** The rule a language row holds: SOUND_CHANGES[kind][variant] (a description for an unknown pair); typology: FEATURE_CHANGES. */
+export function ruleSpec(kind: number, variant: number, phonemes = false): RuleSpec | null {
+  return phonemes ? ruleSpecF(kind, variant) : SOUND_CHANGES[kind]?.[variant] ?? null
 }
 
 /**
@@ -387,6 +389,9 @@ export function rulesCrossed(L: LanguageRules, node: number, from: number, to: n
  */
 export function evolve(L: LanguageRules, form: string, node: number, from: number, to: number, minLetters = 2): string {
   if (node < 0 || node >= L.count) return form
+  // typology: a phoneme form goes through the feature catalogue (soundChangeF.ts) under its language's gate
+  const bits = L.typo && hasPhonemes(form) ? L.typo[node] : -1
+  const step = bits >= 0 ? (u: readonly string[], k: number, v: number) => applyUnitsF(u, k, v, 2, bits) : (u: readonly string[], k: number, v: number) => applyUnits(u, k, v, 2)
   const parts = form.split(/([ -])/)
   const units: (string[] | null)[] = parts.map((w, i) => (i % 2 === 0 && w ? toUnits(w).map((u) => u.s) : null))
   let total = letterCount(form)
@@ -395,7 +400,7 @@ export function evolve(L: LanguageRules, form: string, node: number, from: numbe
     for (let i = 0; i < units.length; i += 2) {
       const u = units[i]
       if (!u) continue
-      const out = applyUnits(u, kind, variant, 2)
+      const out = step(u, kind, variant)
       if (out === null) continue
       const before = letterCount(u.join('')), after = letterCount(out.join(''))
       if (total - before + after < minLetters) continue

@@ -93,6 +93,18 @@ describe('typology wiring (HistoryOptions.typology, lang=2)', () => {
     }
     expect(h4.peoples.map((p) => p.name)).toEqual(h.peoples.map((p) => p.name))
     expect(Array.from(h4.languages!.ortho!)).toEqual(Array.from(h.languages!.ortho!.subarray(0, h4.languages!.count)))
+    // step 8: the phoneme catalogue drew rules, and old names wear (said now, they stay pronounceable)
+    expect(B.ruleStart[B.count]).toBeGreaterThan(0)
+    let old = 0, worn = 0, unsayable = 0
+    for (let id = 0; id < S; id++) {
+      const now = spokenNameAt(h, id, years)
+      if (!plainOk(now)) unsayable++
+      if (h.settlements[id].foundedYear > 200) continue
+      old++
+      if (now !== h.settlements[id].name) worn++
+    }
+    expect(worn / Math.max(1, old)).toBeGreaterThan(0.1)
+    expect(unsayable / S).toBeLessThan(0.02)
     // the sound differs from lang=1
     let same = 0
     for (let id = 0; id < S; id++) if (h.settlements[id].name === l1.settlements[id].name) same++

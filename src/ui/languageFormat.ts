@@ -162,7 +162,7 @@ function peopleLanguageLinesUncached(h: History, p: number, year: number): strin
     const rules: string[] = []
     for (let r = L.ruleStart[n + 1] - 1; r >= L.ruleStart[n] && rules.length < 2; r--) {
       if (L.ruleYear[r] > year) continue
-      const spec = ruleSpec(L.ruleKind[r], L.ruleVariant[r])
+      const spec = ruleSpec(L.ruleKind[r], L.ruleVariant[r], L.model === 1)
       if (spec) rules.push(`c. ${L.ruleYear[r]}: ${spec.label}`)
     }
     out.push(`${'· '.repeat(depth)}${langName(h, n)}: ${towns[n] ? `${towns[n]} town${towns[n] === 1 ? '' : 's'}` : 'no speakers'}${from}${river ? ` · "river" ${river}` : ''}${rules.length ? ` · ${rules.join('; ')}` : ''}`)
