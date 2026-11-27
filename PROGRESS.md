@@ -12,5 +12,7 @@ Goal: CI (ubuntu-26.04 x64, Node v25.9.0) G0 realistic seed 1 = 0e20763885721f5f
   Guard src/sim/detMath.test.ts (pins + hash recorded on Node 22; scan: no Math.pow / ** in src/sim replay path; other transcendentals frozen list (names/*, why.ts)). Passes on Node 22 and 25.
 - [x] step 4b: G0 6/6 OK on Node 22 AND Node 25.9.0 (runs/ci/g0-node{22,25}.log; hashValue equal too). typecheck, build OK. detMath/coverage/presets/bots tests 20/20. realism:check -> runs/ci/realism-check.log
 - [x] bots presets: resolveRun uses expandPreset from sim/history/presets.ts, names preset in options, url v=2; funHarness --preset dramatic smoke OK
-- [ ] step 5: CI: temporary .github/workflows/lane-ci-determinism.yml (lane branch only, Node 22+25 matrix). Runs 46010327723 (fix) and 46011560727 (final). `gh run list --branch lane/ci-determinism` from inside /home/claude/wsx-ci. After green: delete the workflow file (final commit).
+- [x] step 5: CI GREEN (both runs; final 46011560727: build (22) and build (25) success, 82/82 test files, G0 realistic 3 seeds OK). realism:check OK 0.371 -> 0.371. Then the temporary workflow was deleted (final commit; code unchanged). Was: temporary .github/workflows/lane-ci-determinism.yml (lane branch only, Node 22+25 matrix). Runs 46010327723 (fix) and 46011560727 (final). `gh run list --branch lane/ci-determinism` from inside /home/claude/wsx-ci. After green: delete the workflow file (final commit).
 - [x] presets fix written (src/bots/presets.ts uses sim/history/presets expandPreset), not yet tested
+
+LANE COMPLETE. No golden changes.
