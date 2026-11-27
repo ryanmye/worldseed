@@ -12,9 +12,13 @@ Spec: plans/EVALUATION.md §4 Lane 1, §1d. Brief: plans/_LANE_BRIEF.md. Runs: /
 - [x] 4 drama fixes + tuning (0b679ca, then freshness/debut/like/ahead/debut-swap). Tune: n1-tools/tune.ts <preset> seeds
       After: dramatic 41% new-system beats, 38/40 system-seed pairs, top battle a beat 4/4; realistic 35%.
 - [x] merged origin/main 39e8470 (onboard)
-- [ ] 5 throne cards
-- [ ] 6 primer + personas bump
+- [x] 5 throne cards: DecisionKind 102-112, SeatOptionKey 160-166 (34462e0); battleMen 300 (c8c15a4)
+- [x] 6 primer v4 + personas v2 (61b0810); metrics cardsByKind/nonLegacyPer50 (3bcb55f)
+- [x] play-test 1 items: breakaway beats + seat focus (fb62741), drama strip peaks (e13f743), Why fixes (e443d95)
+- [x] G0 OK (runs/n1/g0.log); build OK (runs/n1/build.log)
 - [ ] 7 after measurements, merge origin/main, final push
 
 ## Current / next commands
-- step 5 cards: new DecisionKinds 102+ (registry next free; N3 uses 80-85, N5 may use 94-101), SeatOptionKeys 160+
+- bots: n1-tools/bots-run.sh <worktree> <tag> -> runs/n1/<tag>-bots-<preset>.jsonl (before, after2, after3 running)
+- realism:check -> runs/n1/realism.log; storyStats 61343 -> runs/n1/after-storystats.jsonl; pacing -> runs/n1/{before,after}-pacing.jsonl
+- (old) step 5 cards: new DecisionKinds 102+ (registry next free; N3 uses 80-85, N5 may use 94-101), SeatOptionKeys 160+
