@@ -20,6 +20,7 @@
 // Economic Studies 48(2): 289-309, https://doi.org/10.2307/2296886), serial defaulters (Reinhart & Rogoff 2009, This Time Is
 // Different), the fiscal-military state (Brewer 1989, The Sinews of Power); every number is a design default.
 
+import { socPatronO } from '../society/api.ts' // society:
 import { BondKind, EventType, GrievanceKind, LenderKind, LoanEnd, PolityEnd, WarKind } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { CLASS } from '../goods/params.ts'
@@ -32,7 +33,8 @@ import { FIN } from './params.ts'
 import type { FinanceState } from './state.ts'
 import { ensureFinPolities, ensureFinSettlements } from './state.ts'
 import type { LenderOffer } from './lenders.ts'
-import { lenderCandidates, lenderGive, lenderLose, lenderRoom, lenderTake, poolsOfYear } from './lenders.ts'
+import { lenderAlive, lenderCandidates, lenderGive, lenderLose, lenderRoom, lenderTake, poolsOfYear } from './lenders.ts'
+import { familyAssumed, familyForgive } from '../families/api.ts' // families: (feedback only)
 import { headroomOf, rateOf } from './hooks.ts'
 import { recordGrievance } from '../polity/grievances.ts' // oaths:
 import { at } from '../polity/grudgeState.ts'
@@ -45,18 +47,18 @@ const pools: number[] = []
 const offers: LenderOffer[] = []
 
 /** The account of (p, kind, id): open if none (LoanTaken). */
-function account(s: HistoryState, ps: PolityState, fin: FinanceState, p: number, kind: number, id: number, rate: number): number {
+function account(s: HistoryState, ps: PolityState, fin: FinanceState, p: number, kind: number, id: number, rate: number, seat = id): number {
   const key = p * 16777216 + kind * 4194304 + id
   const k0 = fin.acct.get(key)
   if (k0 !== undefined) return k0
   const k = fin.lPol.length
-  fin.lPol.push(p); fin.lKind.push(kind); fin.lId.push(id); fin.lSeat.push(id); fin.lStart.push(s.year); fin.lEnd.push(-1); fin.lCause.push(LoanEnd.Ongoing)
+  fin.lPol.push(p); fin.lKind.push(kind); fin.lId.push(id); fin.lSeat.push(seat); fin.lStart.push(s.year); fin.lEnd.push(-1); fin.lCause.push(LoanEnd.Ongoing)
   fin.lPrin.push(0); fin.lRate.push(rate); fin.lRate0.push(rate); fin.lRateMax.push(rate); fin.lPeak.push(0); fin.lPaid.push(0); fin.lLost.push(0)
   while (fin.open.length <= p) fin.open.push([])
   fin.open[p].push(k)
   fin.acct.set(key, k)
   if (fin.diag.rates.length < 4096) fin.diag.rates.push(rate)
-  logX(s, EventType.LoanTaken, ps.pCapital[p], id, k, rate)
+  logX(s, EventType.LoanTaken, ps.pCapital[p], seat, k, rate)
   return k
 }
 
@@ -88,7 +90,7 @@ function writeOff(s: HistoryState, ps: PolityState, fin: FinanceState, p: number
     fin.lPrin[k] -= lost
     fin.lLost[k] += lost
     total += lost
-    const share = lenderLose(s, fin, fin.lKind[k], fin.lId[k], lost)
+    const share = lenderLose(s, fin, fin.lKind[k], fin.lId[k], lost, p)
     const seat = fin.lSeat[k]
     if (lost > worstX) { worstX = lost; worst = seat }
     if (fin.lKind[k] === LenderKind.Pool && share >= FIN.ruinShare && s.abandoned[seat] < 0) { logX(s, EventType.HousesRuined, seat, ps.pCapital[p], k, share > 1 ? 1 : share); fin.diag.ruined++ }
@@ -137,7 +139,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     if (p < fin.open.length && fin.open[p].length > 0) {
       for (const k of fin.open[p].slice()) {
         const seat = fin.lSeat[k]
-        if (s.abandoned[seat] >= 0) { lenderLose(s, fin, fin.lKind[k], fin.lId[k], fin.lPrin[k]); fin.lLost[k] += fin.lPrin[k]; fin.lPrin[k] = 0; closeAccount(s, fin, k, LoanEnd.LenderGone) }
+        if (!lenderAlive(s, fin.lKind[k], fin.lId[k], seat)) { lenderLose(s, fin, fin.lKind[k], fin.lId[k], fin.lPrin[k], p); fin.lLost[k] += fin.lPrin[k]; fin.lPrin[k] = 0; closeAccount(s, fin, k, LoanEnd.LenderGone) }
         else if (fin.lKind[k] === LenderKind.Pool && seat < ps.seen && ps.polity[seat] === p && fin.lStart[k] < s.year && seizedSince(ps, seat, fin.lStart[k])) { lenderLose(s, fin, fin.lKind[k], fin.lId[k], fin.lPrin[k]); fin.lLost[k] += fin.lPrin[k]; fin.lPrin[k] = 0; closeAccount(s, fin, k, LoanEnd.Seized) }
       }
     }
@@ -155,7 +157,9 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     let ms = Math.sqrt(ps.pMembers[p] / FIN.courtRef)
     if (ms < FIN.courtMin) ms = FIN.courtMin
     else if (ms > FIN.courtMax) ms = FIN.courtMax
-    const court = FIN.court * R0 * ms
+    let court = FIN.court * R0 * ms
+    const po = s.soc !== null ? socPatronO(s, p) : undefined // society (state-finances 2.4.2 amendment): an overproduced elite costs more in patronage
+    if (po !== undefined) { const f = FIN.patronBase + FIN.patronK * po; court *= f < FIN.patronBase ? FIN.patronBase : f > FIN.patronMax ? FIN.patronMax : f }
     let garrison: number
     if (ps.og !== null && ps.og.arms) garrison = FIN.garrison * R0 * (1 + ARMS.costMul * at(ps.og.pArms, p, 0)) // arms: the cost of arms replaces rivalArmy
     else garrison = FIN.garrison * R0 * (1 + FIN.rivalArmy * maxRivalry(ps, p))
@@ -188,7 +192,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
       for (const k of open!) {
         const due = fin.lRate[k] * fin.lPrin[k]
         const paid = due * paidShare
-        if (paid > 0) { fin.lPaid[k] += paid; if (divert) lenderTake(s, fin, fin.lKind[k], fin.lId[k], paid, false) }
+        if (paid > 0) { fin.lPaid[k] += paid; if (divert) lenderTake(s, fin, fin.lKind[k], fin.lId[k], paid, false, p) }
         if (paid < due) { fin.lPrin[k] += due - paid; if (fin.lPrin[k] > fin.lPeak[k]) fin.lPeak[k] = fin.lPrin[k] } // (arrears of interest capitalised)
       }
       fin.treas[p] -= interest * paidShare
@@ -214,13 +218,13 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
         lenderCandidates(s, ps, fin, p, pools, offers)
         for (const o of offers) {
           if (!(need > 0) || !(room > 0)) break
-          let x = lenderRoom(s, fin, o)
+          let x = lenderRoom(s, fin, o, p)
           if (x > need) x = need
           if (x > room) x = room
           if (x < FIN.minLoan * R0 * 0.25) continue
           const rr = r + (o.foreign ? FIN.rForeign : 0)
-          const k = account(s, ps, fin, p, o.kind, o.id, rr)
-          const y = lenderGive(s, fin, o.kind, o.id, x)
+          const k = account(s, ps, fin, p, o.kind, o.id, rr, o.seat)
+          const y = lenderGive(s, fin, o.kind, o.id, x, p)
           if (!(y > 0)) continue
           fin.lRate[k] = (fin.lPrin[k] * fin.lRate[k] + y * rr) / (fin.lPrin[k] + y)
           if (fin.lRate[k] > fin.lRateMax[k]) fin.lRateMax[k] = fin.lRate[k]
@@ -240,7 +244,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
           fin.treas[p] -= x
           pay -= x
           fin.diag.repaid += x
-          lenderTake(s, fin, fin.lKind[k], fin.lId[k], x, true)
+          lenderTake(s, fin, fin.lKind[k], fin.lId[k], x, true, p)
           if (fin.lPrin[k] <= 1e-9) { fin.lPrin[k] = 0; closeAccount(s, fin, k, LoanEnd.Repaid) }
         }
       }
@@ -341,6 +345,7 @@ export function finPolityEnded(s: HistoryState, ps: PolityState, fin: FinanceSta
     const prin = fin.lPrin[k]
     if (pass) {
       closeAccount(s, fin, k, LoanEnd.Assumed)
+      if (fin.lKind[k] === LenderKind.Family) familyAssumed(s, fin.lId[k], p, x, prin) // (families: the claim follows the debt)
       const key = x * 16777216 + fin.lKind[k] * 4194304 + fin.lId[k]
       let j = fin.acct.get(key)
       if (j === undefined) {
@@ -355,7 +360,7 @@ export function finPolityEnded(s: HistoryState, ps: PolityState, fin: FinanceSta
       fin.lPrin[j] += prin
       if (fin.lPrin[j] > fin.lPeak[j]) fin.lPeak[j] = fin.lPrin[j]
     } else {
-      const share = lenderLose(s, fin, fin.lKind[k], fin.lId[k], prin)
+      const share = lenderLose(s, fin, fin.lKind[k], fin.lId[k], prin, p)
       fin.lLost[k] += prin
       fin.diag.lost += prin
       const seat = fin.lSeat[k]
@@ -378,8 +383,8 @@ export function finCharterOffset(s: HistoryState, p: number, town: number, price
     const x = left < fin.lPrin[k] ? left : fin.lPrin[k]
     fin.lPrin[k] -= x
     left -= x
-    const e = fin.expo[fin.lId[k]] - x
-    fin.expo[fin.lId[k]] = e > 0 ? e : 0
+    if (fin.lKind[k] === LenderKind.Family) familyForgive(s, fin.lId[k], p, x) // (families: a family's claim is cancelled, not its exposure)
+    else { const e = fin.expo[fin.lId[k]] - x; fin.expo[fin.lId[k]] = e > 0 ? e : 0 }
     if (fin.lPrin[k] <= 1e-9) { fin.lPrin[k] = 0; closeAccount(s, fin, k, LoanEnd.Charter) }
   }
   fin.debt[p] = debtOf(fin, p)

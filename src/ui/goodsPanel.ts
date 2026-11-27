@@ -31,6 +31,8 @@ import { loadFlag, loadPref, panelToggled, registerPanel, saveFlag, savePref } f
 import { addShortcut } from './shortcuts.ts'
 import { loadLayerPrefs, type LayerToggle } from './overlay.ts'
 import './goods.css'
+import { familiesOf, familyHomeAt, familyTitle, type FamilyData } from './familiesData.ts' // families:
+import { houseDetail, houseHighlight, housesAtLine, housesPane, shipColors } from './familiesPanel.ts' // families:
 
 export interface GoodsBuilt {
   data: GoodsData
@@ -66,7 +68,7 @@ export interface GoodsView {
   describeCell(cell: number): string
 }
 
-const TABS = ['Crafts', 'Secrets', 'Marts', 'Deposits', 'Lanes'] as const
+const TABS = ['Crafts', 'Secrets', 'Marts', 'Deposits', 'Lanes', 'Houses'] as const // (families: Houses)
 const CRAFT_COLORS = ['#ff7fc4', '#9a6bff', '#7fb6ff', '#d8e2ee', '#d0793e', '#7fe3e0', '#f2f2f2', '#efe6c8', '#e05a4a', '#ffb070', '#f6f4ee', '#b0385a']
 const DEPOSIT_COLORS = ['#f2c14e', '#d6dde6', '#e0457b', '#f39a2a', '#f4f6fa', '#9a4fa8', '#d7834b', '#b9bcb5', '#7a808c', '#efeadc']
 const CHANNEL_COLORS = ['#f2d27a', '#8fd0ff', '#ff8a6a', '#ffb3e0', '#d0a4ff', '#ff5f5f', '#9fe39a', '#ffe9a8']
@@ -163,11 +165,13 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     if (k >= 0) return k
     return PRICE_WORDS.findIndex((w) => w.startsWith(v.toLowerCase()))
   }
-  type Sel = { kind: 'none' } | { kind: 'tradition' | 'secret' | 'deposit' | 'lane'; id: number }
+  type Sel = { kind: 'none' } | { kind: 'tradition' | 'secret' | 'deposit' | 'lane' | 'family'; id: number }
   let sel: Sel = { kind: 'none' }
-  let pending: { tradition: number; secret: number; deposit: number; lane: number; price: number } | null = {
-    tradition: intParam('tradition'), secret: intParam('secret'), deposit: intParam('deposit'), lane: intParam('lane'), price: priceParam(),
+  let pending: { tradition: number; secret: number; deposit: number; lane: number; family: number; price: number } | null = {
+    tradition: intParam('tradition'), secret: intParam('secret'), deposit: intParam('deposit'), lane: intParam('lane'), family: intParam('family'), price: priceParam(),
   }
+  let fam: FamilyData | null = null // families: (null without them)
+  let shownShipKey = ''
   let price = -1
   let world: World | null = null
   let data: GoodsData | null = null
@@ -250,7 +254,7 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     }
     const it = t.closest('[data-sel]') as HTMLElement | null
     if (it) {
-      const kind = it.dataset.sel as 'tradition' | 'secret' | 'deposit' | 'lane'
+      const kind = it.dataset.sel as 'tradition' | 'secret' | 'deposit' | 'lane' | 'family'
       const id = Number(it.dataset.id)
       if (sel.kind === kind && sel.id === id) select({ kind: 'none' }, false)
       else select({ kind, id }, true)
@@ -271,6 +275,7 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     if (!data || s.kind === 'none') return -1
     const H = data.history
     if (s.kind === 'deposit') return H.deposits[s.id]?.cell ?? -1
+    if (s.kind === 'family') return fam ? H.settlements[familyHomeAt(fam, s.id, Math.max(year, H.families.founded[s.id]))]?.cell ?? -1 : -1
     if (s.kind === 'lane') {
       const L = data.legs
       if (!L) return -1
@@ -289,10 +294,10 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
   }
 
   function select(s: Sel, fly: boolean) {
-    const valid = (n: number, k: string) => !!data && n >= 0 && n < (k === 'tradition' ? data.T : k === 'secret' ? data.secrets.length : k === 'deposit' ? data.D : k === 'lane' ? data.L : 0)
+    const valid = (n: number, k: string) => !!data && n >= 0 && n < (k === 'tradition' ? data.T : k === 'secret' ? data.secrets.length : k === 'deposit' ? data.D : k === 'lane' ? data.L : k === 'family' ? (fam ? data.history.families.count : 0) : 0)
     if (s.kind !== 'none' && !valid(s.id, s.kind)) s = { kind: 'none' }
     sel = s
-    for (const k of ['tradition', 'secret', 'deposit', 'lane']) deps.setUrlParam(k, s.kind === k ? String((s as { id: number }).id) : null)
+    for (const k of ['tradition', 'secret', 'deposit', 'lane', 'family']) deps.setUrlParam(k, s.kind === k ? String((s as { id: number }).id) : null)
     if (fly) {
       const c = cellOf(s)
       if (c >= 0) deps.flyToCell(c)
@@ -303,6 +308,9 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
   // ---------- highlight on the map ----------
   function updateHighlight() {
     if (!layer || !data) return
+    // families: the ships on the lanes a house runs carry its colour while the Houses tab is open or a house is selected
+    const shipKey = fam && !collapsed && (tab === 5 || sel.kind === 'family') ? `on:${Math.floor(year)}` : ''
+    if (shipKey !== shownShipKey) { shownShipKey = shipKey; layer.setShipColors(shipKey && fam ? shipColors(fam, year) : null) }
     const key = sel.kind === 'none' ? '' : `${sel.kind}:${sel.id}:${s0}:${tradeSnapAt(data, year)}:${Math.floor(year)}`
     if (key === shownHlKey) return
     shownHlKey = key
@@ -347,6 +355,11 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
         sett.push(st.settlement)
         rgb.push([1, 0.85, 0.45])
       }
+    } else if (sel.kind === 'family' && fam) {
+      const x = houseHighlight(fam, sel.id, year)
+      legs.push(...x.legs)
+      sett.push(...x.sett)
+      rgb.push(...x.rgb)
     } else if (sel.kind === 'lane') {
       const L = data.legs!
       // (the spell of its pair open at the year: a relay leg that changed its way is a new entry)
@@ -412,7 +425,7 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     const yi = Math.floor(year)
     const t = tradeSnapAt(gd, year)
     const selKey = sel.kind === 'none' ? '' : `${sel.kind}${sel.id}`
-    const key = `${tab}:${t}:${selKey}:${price}:${tab === 0 || tab === 1 || tab === 4 ? yi : ''}`
+    const key = `${tab}:${t}:${selKey}:${price}:${tab === 0 || tab === 1 || tab === 4 || tab === 5 ? yi : ''}`
     if (key === shownPaneKey) return
     shownPaneKey = key
     pane.replaceChildren()
@@ -509,6 +522,9 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
         r.title = `${gd.depositNames[d]} (${DEPOSIT_WORDS[x.kind]}${x.richness >= 3 ? ', a bonanza' : ''}): found ${x.foundYear}${x.foundBy >= 0 ? ` by ${sname(x.foundBy)}` : ''}` + (st === 2 ? `, spent ${x.exhaustedYear}` : '')
         pane.append(r)
       }
+    } else if (tab === 5) {
+      if (!fam) { pane.append(note('No merchant houses in this history (they need the families option).')); return }
+      pane.append(...housesPane(fam, year, sel.kind === 'family' ? sel.id : -1, { el, dot, span, row, settLink, note }))
     } else {
       const L = gd.legs
       // one row per pair of marts (a pair served by several lanes over time: its spell at the year, with its whole span)
@@ -635,6 +651,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       if (out > 0.01) line(`Output ${out.toFixed(1)} a year (peak ${gd.depositPeak[sel.id].toFixed(1)})`)
       if (rushAt(gd, sel.id, year)) line('A rush is on').classList.add('gp-hot')
       if (x.exhaustedYear >= 0 && year >= x.exhaustedYear) line(`Gave out in ${x.exhaustedYear}`).classList.add('gp-faint')
+    } else if (sel.kind === 'family') {
+      if (fam) houseDetail(fam, sel.id, year, { el, dot, span, row, settLink, note }, detail, close)
     } else {
       const L = gd.legs!
       const k = sel.id
@@ -704,7 +722,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
     {
       // the merchant houses' capital (kept apart from the town's wealth): at a mart, or while it leaves a bypassed one
       const mw = merchantWealthAt(gd, id, popSnapAt(gd, year))
-      if (mw >= 1 && (isMart || (gd.bypassedOf.get(id) ?? []).some((i) => H.events[i].year <= year))) out.push([`Its merchants hold ${formatPopulation(mw)}`])
+      const houses = housesAtLine(H, id, year, mw) // families: who holds it
+      if (mw >= 1 && (isMart || houses || (gd.bypassedOf.get(id) ?? []).some((i) => H.events[i].year <= year))) out.push([`Its merchants hold ${formatPopulation(mw)}${houses}`])
     }
     const L = gd.legs
     if (L) {
@@ -829,6 +848,13 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       if (mine.length) out.push([`Lanes: ${mine.slice(0, 4).map((k) => `${sname(L.a[k])} to ${sname(L.b[k])}`).join(', ')}${mine.length > 4 ? ` and ${mine.length - 4} more` : ''}`])
     }
     const posts = gd.posts.filter((x) => postLives(gd, x.id, y) && polityAtYear(pd, x.owner, y) === p)
+    // families: the merchant houses married into its ruling house at the year
+    if (fam) {
+      const FF = H.families
+      const wed: string[] = []
+      for (let m = 0; m < FF.marriageCount; m++) if (FF.marriagePolity[m] === p && FF.marriageYear[m] <= y && (FF.marriageEnd[m] < 0 || FF.marriageEnd[m] > y)) wed.push(familyTitle(fam, FF.marriageFamily[m]))
+      if (wed.length) out.push([`Merchant houses at court: ${wed.join(', ')}`])
+    }
     if (posts.length) out.push([`Trading posts: ${posts.slice(0, 4).map((x) => `${POST_WORDS[x.kind]} at ${sname(x.kind === PostKind.Factory ? x.host : x.settlement)}`).join(', ')}${posts.length > 4 ? ` and ${posts.length - 4} more` : ''}`])
     return out
   }
@@ -888,7 +914,8 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
       root.classList.toggle('hidden', !data)
       if (data) {
         // a tab with nothing in the whole history is dimmed, and the panel opens on one that has something
-        const has = [data.T > 0, data.secrets.length > 0, !!data.mart, data.D > 0, data.lanes.length > 0]
+        fam = familiesOf(data.history)
+        const has = [data.T > 0, data.secrets.length > 0, !!data.mart, data.D > 0, data.lanes.length > 0, !!fam]
         tabBtns.forEach((btn, i) => {
           btn.classList.toggle('empty', !has[i])
           btn.title = has[i] ? '' : `No ${TABS[i].toLowerCase()} in this history`
@@ -924,6 +951,7 @@ export function createGoodsView(deps: GoodsViewDeps): GoodsView {
         else if (p.secret >= 0) select({ kind: 'secret', id: p.secret }, false)
         else if (p.deposit >= 0) select({ kind: 'deposit', id: p.deposit }, false)
         else if (p.lane >= 0) select({ kind: 'lane', id: p.lane }, false)
+        else if (p.family >= 0) select({ kind: 'family', id: p.family }, false)
       } else if (sel.kind !== 'none') select(sel, false)
       if (!data) price = -1
       shownLegendKey = ''

@@ -1,7 +1,7 @@
 // Sagas: what a generator returns.
 
 /** A town's, a people's, a state's or a house's saga, the world's chronicle, or the chronicle of a decade or a year (id: its first year). */
-export type SagaKind = 'world' | 'people' | 'state' | 'city' | 'house' | 'decade' | 'year' | 'commander' // (battles: a commander of armies)
+export type SagaKind = 'world' | 'people' | 'state' | 'city' | 'house' | 'decade' | 'year' | 'commander' | 'whatif' | 'family' // (battles: a commander of armies; what-if: a comparison's saga, sagas/whatif.ts, never in the library's contents; families: a merchant house)
 
 /** What a paragraph is: plain narrative (null), a scene (a set piece on one recorded event), or an omen (an order told as a sign). */
 export type SagaMark = 'scene' | 'omen' | null
@@ -33,6 +33,9 @@ export interface Saga {
   /** The year it is told at (nothing later is said). */
   year: number
   legend: boolean
+  /** partisan: whose telling (lens.ts Pov; absent: the neutral record), and the line under the title ("as the Vashtari tell it"). */
+  pov?: { kind: string; id: number }
+  told?: string
 }
 
 /**

@@ -12,6 +12,7 @@ import { diseaseGroupKey, diseaseOtherIsSettlement, isDiseaseEvent } from './dis
 import { isTourismEvent, tourismGroupKey, tourismOtherIsSettlement } from './tourismFormat.ts'
 import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isLandmarkEvent } from './landmarksFormat.ts'
+import { familyOtherIsSettlement, isFamilyEvent } from './familiesFormat.ts' // families:
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
 import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
@@ -423,13 +424,14 @@ function isShownType(type: number): boolean {
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
   if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
+  if (isFamilyEvent(type)) return true // 161-169: merchant families (familiesFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
   if (isCradleEvent(type)) return true // 180: the first hearths the player planted (cradlesFormat.ts; the simulation's own choices are dropped: hiddenCradle)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
 
-/** Whether `other` of an event of this type is a settlement id. */
-function otherIsSettlement(type: number): boolean {
+/** Whether `other` of an event of this type is a settlement id (exported for whatif/eventFields.test.ts). */
+export function otherIsSettlement(type: number): boolean {
   if (rulersOtherIsSettlement(type)) return true // rulers, religion: the senior realm's capital, the marriage partner's, the parent faith's holy city, ...
   if (ideasOtherIsSettlement(type)) return true // ideas: where an idea came from, the first origin of an independent one
   if (battleOtherIsSettlement(type)) return true // battles: the attackers' base, the capital a commander served
@@ -450,6 +452,8 @@ function otherIsSettlement(type: number): boolean {
     (type >= 230 && type <= 238) ||
     // goods: the source, owner, home or far mart of a tradition, secret, lane or post
     goodsOtherIsSettlement(type) ||
+    // families: the far mart, the parent's home, the old home, the ruling capital, the pretender's seat, the defaulter's capital
+    familyOtherIsSettlement(type) ||
     // disease: where a great epidemic or a city's sickness came from, the port's capital, the army's base
     diseaseOtherIsSettlement(type) ||
     // tourism: the place visited, the town a resort drew on, a sight's own settlement

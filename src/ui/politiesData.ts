@@ -431,6 +431,7 @@ function buildPolitiesData(h: History): PolitiesData | null {
     const e = h.events[i]
     const t = e.type as number
     if (!isPolityEventType(t)) {
+      if ((t >= 190 && t <= 194) || (t >= 210 && t <= 217) || (t >= 240 && t <= 246)) { for (const q of eventPolities(pd, e)) addTo(q, i); continue } // oaths, balance, arms: both sides; finance: the crown; society: the realm
       if ((t >= 190 && t <= 194) || (t >= 210 && t <= 217) || (t >= 230 && t <= 238)) { for (const q of eventPolities(pd, e)) addTo(q, i); continue } // oaths, balance, arms: both sides; finance: the crown; beliefs: both sides
       if ((t === EventType.Built || t === EventType.StructureLost) && h.structures?.[e.other]?.type === StructureType.Walls) addTo(polityAt(pd, e.settlement, snapAfter(pd, e.year)), i)
       continue
@@ -541,6 +542,11 @@ export function eventPolities(pd: PolitiesData, e: HistoryEvent): number[] {
     case 210: case 211: case 212: case 213: case 214:
       return [polityAt(pd, e.settlement, b)]
     case 217:
+      return [polityAt(pd, e.other, b)]
+    // society (240-246): the realm ruled from `settlement` (Ennobled: the one ruled from `other`)
+    case 240: case 241: case 242: case 243: case 244: case 246:
+      return [polityAt(pd, e.settlement, b)]
+    case 245:
       return [polityAt(pd, e.other, b)]
     // beliefs (230-238): the polities ruled from `settlement` and `other` (ClaimForged / ClaimExposed: the claimant and `value`)
     case 230: case 231: case 233: case 234: case 235: case 236:

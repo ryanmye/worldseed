@@ -12,7 +12,8 @@ import { Book, type Saga } from './types.ts'
 import { DIVINE_T, divineOrigin, OMEN_T, omenText, omensOfPeople } from './omens.ts'
 import { Refs } from './refs.ts'
 import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
-import { warCalled } from './wars.ts'
+import { warCalled, warCalledBy } from './wars.ts'
+import { PARTISAN_T, tollWords } from './partisan.ts' // partisan:
 
 const T: PhraseTable = {
   title: [['The Saga of the {people}'], ['The Saga of the {people}{ep}']],
@@ -208,7 +209,9 @@ function peopleEpithet(c: Ctx, p: number): string {
 
 export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `people:${p}`, legend, T, SCENE_T, OMEN_T, DIVINE_T)
+  const v = new Voice(c.seed, `people:${p}${c.povSuffix}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, PARTISAN_T)
+  // partisan: this people's own telling (its states are Us)
+  const ownTelling = !!c.lens && c.lens.pov.kind === 'people' && c.lens.pov.id === p
   const pn = c.peopleName(p)
   const Y = c.Y
   const mine = (id: number) => id >= 0 && id < c.N && c.peopleOf(id) === p
@@ -423,6 +426,7 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     let won = 0, lost2 = 0
     for (const x of states) for (const w of c.pd.warsOf[x.id] ?? []) {
       if (W.startYear[w] > Y || ids.has(w)) continue
+      if (ownTelling && c.lens!.omitsWar(w, Y, legend, (q, y) => c.capital(q, y))) continue // partisan: the lost wars it would rather forget
       ids.add(w)
       if (W.endYear[w] < 0 || W.endYear[w] > Y) continue
       const att = states.some((s2) => s2.id === W.attacker[w]), def = states.some((s2) => s2.id === W.defender[w])
@@ -434,7 +438,8 @@ export function peopleSaga(c: Ctx, p: number, legend: boolean): Saga {
     const all = [...ids]
     const bloody = topBy(all, (w) => W.dead[w], 1)[0]
     const bw = bloody !== undefined && W.dead[bloody] >= 1000 ? bloody : -1
-    const bloodiest = bw >= 0 ? v.p('warsBloodiest', { war: warCalled(c, bw, states.find((s2) => s2.id === W.attacker[bw] || s2.id === W.defender[bw])?.id ?? -1), year: W.startYear[bw], dead: people(W.dead[bw]) }) : ''
+    const bwSide = states.find((s2) => s2.id === W.attacker[bw] || s2.id === W.defender[bw])?.id ?? -1
+    const bloodiest = bw >= 0 ? v.p('warsBloodiest', { war: c.lens ? warCalledBy(c, bw, bwSide) : warCalled(c, bw, bwSide), year: W.startYear[bw], dead: ownTelling ? tollWords(W.dead[bw] * (legend ? 3 : 1.5), legend) : people(W.dead[bw]) }) : ''
     if (ids.size >= 10) {
       // (many wars: the record in words, and the bloodiest by name)
       const record = won + lost2 === 0 ? '' : won >= 2 * Math.max(1, lost2) ? 'warsWinners' : lost2 >= 2 * Math.max(1, won) ? 'warsLosers' : 'warsEven'

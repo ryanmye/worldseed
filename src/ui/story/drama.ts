@@ -372,12 +372,31 @@ R(T.Repudiation, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag
 R(T.WarBankrupt, { cat: DramaCat.War, base: 5, polities: realmPolities })
 R(T.HousesRuined, { cat: DramaCat.Trade, base: 3 })
 
+// --- society (240-246, society-secular-cycles: only with HistoryOptions.society) ---
+// (headlines: a crisis of the social order, bondage imposed or ended, a nobility thinned; the rest are notices)
+R(T.SocialPhase, { cat: DramaCat.Society, base: 4, gate: (_c, e) => (e.extra ?? 0) === 2, polities: realmPolities, mag: realmPop })
+R(T.SerfdomImposed, { cat: DramaCat.Society, base: 4, polities: realmPolities, mag: realmPop })
+R(T.SerfdomEnded, { cat: DramaCat.Society, base: 4, polities: realmPolities, mag: realmPop })
+R(T.EliteThinned, { cat: DramaCat.Society, base: 4, polities: realmPolities })
+R(T.EliteFactions, { cat: DramaCat.Society, base: 3, polities: realmPolities })
+R(T.LabourDear, { cat: DramaCat.Society, base: 2, polities: realmPolities })
+I(T.Ennobled)
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })
 R(T.LandmarkRuined, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })
 R(T.TradeForsaken, { cat: DramaCat.Trade, base: 3 })
 I(T.TradeRestored, T.MerchantsMoved)
+
+// --- merchant families (161-169, merchant-families: only with HistoryOptions.families) ---
+// (a house founded on a venture, a bankruptcy, a marriage into a ruling house and a backed civil war make stories; the rest are notices)
+R(T.FamilyFounded, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town, gate: (_c, e) => (e.extra ?? 0) === 1 })
+I(T.FamilyBranch, T.BranchClosed, T.FamilyHead, T.FamilyPatron)
+R(T.FamilyMoved, { cat: DramaCat.Trade, base: 2, scale: DramaScale.Town })
+R(T.FamilyMarriage, { cat: DramaCat.Dynasty, base: 3 })
+R(T.FamilyBacked, { cat: DramaCat.Politics, base: 2 })
+R(T.FamilyFell, { cat: DramaCat.Trade, base: 4, scale: DramaScale.Town, gate: (_c, e) => (((e.extra ?? 0) / 16) | 0) === 1 })
 
 // --- orders (170-173), cradles (180) ---
 I(T.OrderGiven, T.OrderLapsed, T.CradlePlaced)
@@ -551,4 +570,18 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
     out.fF[k] = F
   }
   return out
+}
+
+/**
+ * what-if (experience §1.6 step 3): the static score of one event on its own, B·M·U·R (no aggregation, no firsts): 0 when
+ * the type is ignored or its gate fails. Ranks a comparison's first differences.
+ */
+export function eventScore(c: DramaCtx, e: HistoryEvent): number {
+  const rule = dramaRule(e.type as number)
+  if (!rule || rule.base <= 0 || (rule.gate && !rule.gate(c, e))) return 0
+  const B = rule.base * (rule.boost ? rule.boost(c, e) : 1)
+  const M = rule.mag ? magnitude(rule.mag(c, e)) : 1
+  const U = rule.upset ? Math.max(1, Math.min(3, rule.upset(c, e))) : 1
+  const pols = (rule.polities ? rule.polities(c, e) : c.pd ? eventPolities(c.pd, e) : []).filter((p) => p >= 0)
+  return B * M * U * reachOf(c, pols, e.settlement, e.year)
 }

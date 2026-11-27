@@ -17,6 +17,8 @@
 // cohesion fell below UNREST.acrit fragments it: every member's unrest jumps and all revolts are
 // resolved at once; if the rump left at the capital is small the polity ends (Fragmented).
 // Capitals move when a member has long been much larger and safer (and when the capital is lost).
+// society (s.soc): Ψ multiplies the revolt hazard once (C2 psiMul); immiseration, failed coercion and townsfolk's dear bread are
+// grievance terms (additive); disaffected elites strengthen rebels; elite pressure lengthens crises and erodes asabiya.
 
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
@@ -36,6 +38,8 @@ import { faithGrievance } from '../religion/system.ts' // religion:
 import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
 import { finTaxGrief } from '../finance/hooks.ts' // finance:
 import { dxGrief } from '../disasters/feedback.ts' // disasters: Phase 2 grievance
+import { GRIEF, socContest, socCrisisPlus, socEliteLead, socGrief, socRevoltMul } from '../society/api.ts' // society:
+import type { C2HazardFactors } from '../compose.ts'
 
 /** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
@@ -53,7 +57,7 @@ export function cohesionStep(s: HistoryState, ps: PolityState): void {
 }
 
 /** Grievance terms of member i of polity p, grouped: [peasant, provincial, ethnic, colonial]. */
-const terms = new Float64Array(6) // (religion: [4] religious; finance: [5] taxes)
+const terms = new Float64Array(7) // (religion: [4] religious; finance: [5] taxes; [6] society: urban (city-states' Burghers is RevoltCause 6, not a term here))
 function grievance(s: HistoryState, ps: PolityState, i: number, p: number): number {
   const U = UNREST
   const g = ps.dist[i] < FAR ? grip(ps.dist[i], ps.pReach[p]) : 0
@@ -63,7 +67,11 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
   const fam = s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0, crowd = U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)), bt = ps.badTax[i] ? U.badTax : 0
   const dis = s.dx !== null ? dxGrief(s, s.dx, i) : 0 // disasters feedback: a town struck by an eruption, quake, wave or flood (C2, peasant term)
-  const peasant = dis > 0 ? fam + crowd + bt + dis : fam + crowd + bt
+  let peasant = dis > 0 ? fam + crowd + bt + dis : fam + crowd + bt
+  // society (h2): immiseration (a wage below subsistence) and a failed coercion add to the peasant term; townsfolk's dear bread is terms[6]
+  let urb = 0
+  const sg = s.soc !== null && socGrief(s, i, p)
+  if (sg) { peasant += GRIEF.imm + GRIEF.coerce; urb = GRIEF.urban }
   // (v2: corruption where contraband pays)
   const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
   const provincial = dist + exh + cri + cor
@@ -73,18 +81,21 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
   if (ps.why) { whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial); if (dis > 0) ps.why.sub[UnrestPart.Disaster] = dis } // causes: the terms (disasters: UnrestPart.Disaster)
+  if (sg && ps.why) { ps.why.sub[UnrestPart.Immiseration] = GRIEF.imm; ps.why.sub[UnrestPart.Coercion] = GRIEF.coerce; ps.why.sub[UnrestPart.Urban] = urb } // causes: (society)
+  if (s.soc !== null) terms[6] = urb
   // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
   const tax = s.fin !== null ? finTaxGrief(s, p) : 0
   terms[5] = tax
   if (tax > 0 && ps.why) ps.why.sub[UnrestPart.Taxes] = tax // causes:
-  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(tax > 0 ? peasant + provincial + ethnic + colonial + r + tax : peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
-  return c2Grievance(tax > 0 ? peasant + provincial + ethnic + colonial + tax : peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
+  const add = urb > 0 ? tax + urb : tax // (society: the urban term, additive; C2 D is a sum)
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + r + add : peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
+  return c2Grievance(add > 0 ? peasant + provincial + ethnic + colonial + add : peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
 }
 
 function causeOf(): number {
   let c = 0
-  for (let k = 1; k < 6; k++) if (terms[k] > terms[c]) c = k // (religion: terms[4], finance: terms[5] stay 0 without them)
-  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : c === 3 ? RevoltCause.Colonial : c === 4 ? RevoltCause.Religious : RevoltCause.Taxes
+  for (let k = 1; k < 7; k++) if (terms[k] > terms[c]) c = k // (religion: terms[4], finance: terms[5], society: terms[6] stay 0 without them)
+  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : c === 3 ? RevoltCause.Colonial : c === 4 ? RevoltCause.Religious : c === 5 ? RevoltCause.Taxes : RevoltCause.Urban
 }
 
 /** System part (every step): grievance, unrest and assimilation of members. */
@@ -129,6 +140,7 @@ function revolt(s: HistoryState, ps: PolityState, seat: number, p: number): bool
   ps.diag.revolts++
   let rb = 0
   for (const j of cluster) { rb += ps.asab[j] * ps.str[j] * ps.defense[s.cell[j]]; spike(ps, j, DANGER.revolt) }
+  if (s.soc !== null) rb *= socEliteLead(s, p) // society (h2b): disaffected elites lead the rebels
   const sup = projAt(ps, p, ps.dist[seat] < FAR ? ps.dist[seat] : FAR) * (inCrisis(s, ps, p) ? 1 - U.crisisSupport : 1)
   if (ps.why) whyRevolt(ps.why, s.events.length - 1, seat, ps.unrest[seat], rb, sup) // causes: (the Revolt is the last event)
   const win = rng.next() < (rb * rb) / (rb * rb + sup * sup + 1e-12)
@@ -174,6 +186,9 @@ function revolt(s: HistoryState, ps: PolityState, seat: number, p: number): bool
   return true
 }
 
+/** C2 hazard factors (scratch). */
+const C2H: C2HazardFactors = {}
+
 /** System part (every step): members with high unrest rise (in id order). */
 export function revoltStep(s: HistoryState, ps: PolityState): void {
   const U = UNREST
@@ -183,7 +198,9 @@ export function revoltStep(s: HistoryState, ps: PolityState): void {
     const i = living[t]
     const p = ps.polity[i]
     if (p < 0 || ps.pCapital[p] === i || ps.unrest[i] < U.revolt || ps.rose[i] === s.year || s.abandoned[i] >= 0) continue
-    if (rng.next() >= c2RevoltChance(U.chance)) continue // C2 (compose.ts): the revolt hazard
+    const pm = s.soc !== null ? socRevoltMul(s, p) : undefined // society (h1): m(Ψ), the one multiplicative hazard term
+    if (pm !== undefined) C2H.psiMul = pm
+    if (rng.next() >= c2RevoltChance(U.chance, pm !== undefined ? C2H : undefined)) continue // C2 (compose.ts): the revolt hazard
     revolt(s, ps, i, p)
   }
 }
@@ -223,9 +240,10 @@ export function realmStep(s: HistoryState, ps: PolityState, ts: TradeState): voi
     if (s.rul !== null) { if (!inCrisis(s, ps, p)) lowCohesion(s, ps, ts, p) } // rulers: successions come with the rulers' deaths (rulers/system.ts)
     else if (s.year >= ps.pNextSucc[p]) {
       ps.pNextSucc[p] = s.year + U.next + Math.floor(rng.next() * U.spreadYears)
-      const chance = U.crisisBase + U.crisisAsab * (1 - ps.pAsab[p]) + (ps.pMulti[p] ? U.crisisMulti : 0)
+      let chance = U.crisisBase + U.crisisAsab * (1 - ps.pAsab[p]) + (ps.pMulti[p] ? U.crisisMulti : 0)
+      if (s.soc !== null) chance += socContest(s, p) // society (h4): too many magnates for the offices
       if (!inCrisis(s, ps, p) && rng.next() < chance) {
-        ps.pCrisisUntil[p] = s.year + U.crisisMin + Math.floor(rng.next() * (U.crisisMax - U.crisisMin + 1))
+        ps.pCrisisUntil[p] = s.year + U.crisisMin + Math.floor(rng.next() * (U.crisisMax - U.crisisMin + 1 + (s.soc !== null ? socCrisisPlus(s, p) : 0))) // (society h4: longer)
         logEvent(s, EventType.SuccessionCrisis, ps.pCapital[p], -1, p)
         if (ps.why) whyCrisisAt(ps.why, s.events.length - 1, chance, (ps.pAsab[p] < 0.5 ? CrisisBit.LowCohesion : 0) | (ps.pMulti[p] ? CrisisBit.ManyPeoples : 0)) // causes:
         crisisOpened(s, ps, ts, p) // v2: civil war or partition

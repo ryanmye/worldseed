@@ -349,6 +349,10 @@ function checkInvariants(w: World, h: History): void {
       case EventType.DirectRoute: case EventType.PostFounded: case EventType.PostLost: case EventType.Bypassed: case EventType.FleetLost: case EventType.SecretSmuggled:
       case EventType.MerchantsMoved: // (goods/merchants.ts)
         break
+      // families (checked against their table in families/families.test.ts).
+      case EventType.FamilyFounded: case EventType.FamilyBranch: case EventType.BranchClosed: case EventType.FamilyHead: case EventType.FamilyMoved:
+      case EventType.FamilyMarriage: case EventType.FamilyBacked: case EventType.FamilyPatron: case EventType.FamilyFell:
+        break
       // disease: epidemics, endemic sickness, quarantine, armies (checked against their tables in disease/disease.test.ts).
       case EventType.DiseaseAppeared: case EventType.GreatEpidemic: case EventType.EpidemicEnded: case EventType.CityStricken:
       case EventType.Quarantine: case EventType.Endemic: case EventType.ArmyStricken:
@@ -383,6 +387,8 @@ function checkInvariants(w: World, h: History): void {
       // finance (checked against its tables in finance/finance.test.ts).
       case EventType.LoanTaken: case EventType.CrownDefault: case EventType.Repudiation: case EventType.ArmyUnpaid: case EventType.WarBankrupt: case EventType.HousesRuined:
         break
+      // society (checked against its tables in society/society.test.ts).
+      case EventType.SocialPhase: case EventType.LabourDear: case EventType.SerfdomImposed: case EventType.SerfdomEnded: case EventType.EliteFactions: case EventType.Ennobled: case EventType.EliteThinned:
       // beliefs (checked against their tables in beliefs/beliefs.test.ts).
       case EventType.Coerced: case EventType.Deterred: case EventType.BluffBegun: case EventType.BluffExposed: case EventType.SecretAlliance:
       case EventType.AllianceRevealed: case EventType.SpyCaught: case EventType.ClaimForged: case EventType.ClaimExposed:

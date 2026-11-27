@@ -83,6 +83,8 @@ export interface LongHaulLayer {
   setMasked(on: boolean): void
   /** What is highlighted: legs (bold), settlements (rings, sRGB per ring or one colour), cells (rings, e.g. a deposit). */
   setHighlight(legs: readonly number[], settlements: readonly number[], rgb: readonly (readonly [number, number, number])[], cells: readonly number[]): void
+  /** families: sail colours of the ships on given lanes (History.longHaul record -> sRGB), or null for the plain cream sails. */
+  setShipColors(byLeg: ReadonlyMap<number, readonly [number, number, number]> | null): void
   /** Per frame: the year, the population snapshots and fraction, and an effect opacity (lower at high playback speed). */
   setTime(year: number, s0: number, s1: number, sFrac: number, effectAlpha: number): void
   update(camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
@@ -548,7 +550,7 @@ void main() {
     float hull = max(sdBox(q - vec2(0.0, -0.58 * r), vec2(0.7 * r, 0.17 * r)), -(q.y + 0.58 * r) - 0.12 * r * (1.0 - abs(q.x) / (0.7 * r)));
     float s1 = sdTri(q, vec2(0.06 * r, 0.92 * r), vec2(0.06 * r, -0.36 * r), vec2(0.66 * r, -0.36 * r));
     float s2 = sdTri(q, vec2(-0.18 * r, 0.8 * r), vec2(-0.18 * r, -0.36 * r), vec2(-0.66 * r, -0.36 * r));
-    o = glyph(min(s1, s2), vec3(1.0, 0.96, 0.84), vec3(0.42, 0.28, 0.06), 1.0);
+    o = glyph(min(s1, s2), vCol.r + vCol.g + vCol.b > 0.0 ? vCol : vec3(1.0, 0.96, 0.84), vec3(0.42, 0.28, 0.06), 1.0); // (families: a house's colour)
     o = over(glyph(hull, vec3(0.2, 0.12, 0.06), vec3(1.0, 0.85, 0.45), 0.9), o);
     }
   } else {
@@ -916,6 +918,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
   let shownT0 = -1, shownT1 = -1, shownS0 = -1, shownS1 = -1, shownPrice = -2, shownShipYear = NaN
   let effect = 1
   let nShips = 0, nRings = 0
+  let shipCol: ReadonlyMap<number, readonly [number, number, number]> | null = null // families:
   let hlLegs: number[] = []
   let hlSett: number[] = []
   let hlRgb: (readonly [number, number, number])[] = []
@@ -1088,6 +1091,8 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
           // fades in leaving port and out arriving
           dA[i * 4 + 2] = dA[i * 4 + 3] = Math.min(1, Math.min(u, 1 - u) * 10) * (effect >= 1 ? 1 : 0.75)
           dKnown[i] = knownOf(h.settlements[LH!.a[k]].cell)
+          const sc = shipCol !== null ? shipCol.get(k) : undefined
+          dC[i * 4] = sc ? sc[0] : 0; dC[i * 4 + 1] = sc ? sc[1] : 0; dC[i * 4 + 2] = sc ? sc[2] : 0
           n++
         }
       }
@@ -1098,6 +1103,7 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
     full(dAAttr)
     full(dBAttr)
     full(dKnownAttr)
+    full(dCAttr) // (families: sail colours)
   }
 
   function syncVisibility() {
@@ -1148,6 +1154,11 @@ export function buildLongHaulLayer(world: World, h: History, gd: GoodsData, maxP
       hlDirty = true
       if (shownT0 >= 0) writeLegs(shownT0, shownT1)
       syncVisibility()
+      requestRender()
+    },
+    setShipColors(byLeg) {
+      shipCol = byLeg
+      shownShipYear = NaN
       requestRender()
     },
     setYield(near: number, far: number) {

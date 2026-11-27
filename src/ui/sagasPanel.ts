@@ -4,9 +4,12 @@
 // Download .md. A saga is told at the timeline's year when it is asked for (opening the panel, changing the subject
 // or the register, or "Retell"), and cached per subject per history (sagas/index.ts): nothing happens per frame
 // but a comparison of the year with the one the text was told at, and only while the panel is open.
-// URL: saga=<kind>:<id> (or saga=world), legend=1. The inspector's links ("Read its legend") call open().
+// URL: saga=<kind>:<id> (or saga=world), legend=1, pov=state:<id> or pov=people:<id> (partisan: "Told by", sagas/lens.ts;
+// absent: the neutral record, byte for byte). The inspector's links ("Read its legend") call open().
 
 import type { History, World } from '../contract.ts'
+import { hasBeliefs } from './beliefsData.ts' // partisan: beliefs
+import { createPartisanTag, createPovSelect, fillPovSelect, parsePov, povKey, type Pov } from './sagas/povPicker.ts' // partisan:
 import { generateSaga, parseSubject, sagaMarkdown, sagaSubjectValid, sagaText, subjectKey, type Saga, type SagaKind, type SagaSubject } from './sagas/index.ts'
 import { Ctx, topBy } from './sagas/facts.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
@@ -27,8 +30,8 @@ export interface SagasViewDeps {
   playing(): boolean
   /** Select (and fly to) a settlement. */
   onSelectSettlement(id: number): void
-  /** The URL's saga= and legend= on load. */
-  initial?: { subject: SagaSubject | null; legend: boolean }
+  /** The URL's saga=, legend= and pov= on load. */
+  initial?: { subject: SagaSubject | null; legend: boolean; pov?: Pov | null }
 }
 
 export interface SagasView {
@@ -45,7 +48,7 @@ export interface SagasView {
   readonly legend: boolean
 }
 
-const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year', commander: 'Commander' }
+const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year', commander: 'Commander', whatif: 'What if', family: 'Merchant house' }
 /** Entries per subject list (the selected subject is always added). */
 const LIST_CAP = 80
 
@@ -77,7 +80,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   const kindSel = document.createElement('select')
   kindSel.className = 'view-select sg-kind'
   kindSel.title = 'What the saga is about'
-  for (const k of ['world', 'people', 'state', 'city', 'house', 'commander'] as SagaKind[]) {
+  for (const k of ['world', 'people', 'state', 'city', 'house', 'commander', 'family'] as SagaKind[]) {
     const o = document.createElement('option')
     o.value = k
     o.textContent = KIND_LABEL[k]
@@ -86,7 +89,9 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   const subjSel = document.createElement('select')
   subjSel.className = 'view-select sg-subject'
   subjSel.title = 'Whose saga'
-  controls.append(kindSel, subjSel)
+  // partisan: who tells it (pov=)
+  const povSel = createPovSelect((p) => { pov = p; tell() })
+  controls.append(kindSel, subjSel, povSel)
 
   const bar = document.createElement('div')
   bar.className = 'sg-bar'
@@ -128,6 +133,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   retell.className = 'gp-link sg-retell'
   retell.hidden = true
   told.append(toldText, retell)
+  const tag = createPartisanTag(() => { pov = null; tell() })
 
   const text = document.createElement('article')
   text.className = 'sg-text'
@@ -136,8 +142,8 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   libLink.className = 'gp-link sg-library'
   libLink.textContent = 'Open the library'
   libLink.title = 'Every saga of the world, read as a book (B)'
-  libLink.addEventListener('click', () => library.open(subject, legend))
-  body.append(controls, bar, told, text, libLink)
+  libLink.addEventListener('click', () => library.open(subject, legend, pov))
+  body.append(controls, bar, told, tag.el, text, libLink)
   root.append(head, body)
   deps.right.insertBefore(root, deps.right.querySelector('.chronicle'))
   // the library (full screen) and the chronicle's "Tell this decade"
@@ -177,6 +183,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
   let world: World | null = null
   let subject: SagaSubject = deps.initial?.subject && deps.initial.subject.kind !== 'decade' && deps.initial.subject.kind !== 'year' ? deps.initial.subject : { kind: 'world', id: 0 }
   let legend = deps.initial?.legend ?? false
+  let pov: Pov | null = deps.initial?.pov ?? null
   let saga: Saga | null = null
   let shown = ''
   let lastYear = 0
@@ -251,6 +258,14 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
       for (let k = 0; k < C.count; k++) if (C.firstYear[k] <= year && C.name[k] && C.battles[k] >= 2) ids.push(k)
       return topBy(ids, (k) => 1 + C.fame[k] + 0.1 * C.wins[k], LIST_CAP).map((k) => ({ id: k, label: `${C.name[k]} (${c.pname(C.polity[k])}, from ${C.firstYear[k]})` }))
     }
+    if (kind === 'family') {
+      // families: the houses founded by then, the longest-lived first
+      const F = h.families
+      if (!F || F.count === 0) return []
+      const ids: number[] = []
+      for (let f = 0; f < F.count; f++) if (F.founded[f] <= year) ids.push(f)
+      return topBy(ids, (f) => 1 + (F.ended[f] >= 0 && F.ended[f] <= year ? F.ended[f] : year) - F.founded[f], LIST_CAP).map((f) => ({ id: f, label: `House ${F.name[f]} of ${c.name(F.firstHome[f], year)}` }))
+    }
     const rd = c.rd
     if (!rd) return []
     const ids = h.dynasties.filter((d) => d.founded <= year).map((d) => d.id)
@@ -261,13 +276,13 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     kindSel.value = subject.kind
     for (const o of kindSel.options) {
       const k = o.value as SagaKind
-      o.disabled = !!history && ((k === 'state' && !(history.polities?.length)) || (k === 'house' && !(history.dynasties?.length)) || (k === 'commander' && !(history.commanders?.count)))
+      o.disabled = !!history && ((k === 'state' && !(history.polities?.length)) || (k === 'house' && !(history.dynasties?.length)) || (k === 'commander' && !(history.commanders?.count)) || (k === 'family' && !(history.families?.count)))
     }
     subjSel.textContent = ''
     const items = history ? subjectsOf(subject.kind, year) : []
     if (subject.kind !== 'world' && !items.some((x) => x.id === subject.id) && history && sagaSubjectValid(history, subject, year)) {
       const c = new Ctx(history, world, year)
-      const label = subject.kind === 'city' ? c.name(subject.id, year) : subject.kind === 'state' ? c.pgreatTitle(subject.id) : subject.kind === 'people' ? `the ${history.peoples[subject.id].name}` : subject.kind === 'commander' ? history.commanders.name[subject.id] : `House ${history.dynasties[subject.id].name}`
+      const label = subject.kind === 'city' ? c.name(subject.id, year) : subject.kind === 'state' ? c.pgreatTitle(subject.id) : subject.kind === 'people' ? `the ${history.peoples[subject.id].name}` : subject.kind === 'commander' ? history.commanders.name[subject.id] : subject.kind === 'family' ? `House ${history.families.name[subject.id]}` : `House ${history.dynasties[subject.id].name}`
       items.unshift({ id: subject.id, label })
     }
     for (const x of items) {
@@ -308,10 +323,14 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     }
     notYet = false
     fromUrlPending = false
-    const key = `${subjectKey(subject)}|${legend ? 1 : 0}|${year}`
+    const key = `${subjectKey(subject)}|${legend ? 1 : 0}|${year}|${pov ? povKey(pov) : '-'}`
     fillPicker(year)
+    if (pov && pov.kind === 'state' && !(pov.id < (history.polities?.length ?? 0) && history.polities[pov.id].foundedYear <= year)) pov = null
+    if (pov && pov.kind === 'people' && !(pov.id < history.peoples.length)) pov = null
+    fillPovSelect(povSel, history, world, year, pov)
+    tag.set(pov, hasBeliefs(history))
     if (key === shown && saga) return
-    saga = generateSaga(history, world, subject, legend, year)
+    saga = generateSaga(history, world, subject, legend, year, pov)
     shown = key
     render(text, saga)
     if (readerOpen()) render(readerText, saga)
@@ -320,6 +339,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     count.textContent = saga.title
     deps.setUrlParam('saga', subject.kind === 'world' && !legend ? null : subjectKey(subject))
     deps.setUrlParam('legend', legend ? '1' : null)
+    deps.setUrlParam('pov', pov ? povKey(pov) : null)
   }
 
   kindSel.addEventListener('change', () => {
@@ -450,6 +470,6 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
 }
 
 /** saga= and legend= from the URL. */
-export function sagaParamsFrom(params: URLSearchParams): { subject: SagaSubject | null; legend: boolean } {
-  return { subject: parseSubject(params.get('saga')), legend: params.get('legend') === '1' }
+export function sagaParamsFrom(params: URLSearchParams): { subject: SagaSubject | null; legend: boolean; pov: Pov | null } {
+  return { subject: parseSubject(params.get('saga')), legend: params.get('legend') === '1', pov: parsePov(params.get('pov')) }
 }

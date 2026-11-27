@@ -10,6 +10,7 @@ import { hoursWords, roundMen } from '../battleFormat.ts' // battles:
 
 import { settingOf, type Ctx } from './facts.ts'
 import { warName } from './wars.ts'
+import { tollWords } from './partisan.ts' // partisan:
 import { cap, num, people, shareWords, times, type PhraseTable, type Voice } from './voice.ts'
 
 export interface Scene {
@@ -122,8 +123,16 @@ export function sackScene(c: Ctx, v: Voice, i: number): Scene | null {
   // the war it fell in: a Conquered of this town this year
   const conq = c.at(e.settlement, [EventType.Conquered]).map((k) => c.ev(k)).find((x) => x.year === e.year)
   const wn = conq ? warName(c, conq.value) : ''
-  const parts = [v.p('sackA', { year: e.year, by, from: c.name(e.other, e.year), town, war: wn ? `, in ${wn}` : '', war2: wn ? `, in ${wn},` : '' })]
-  parts.push(cap(v.p('sackB', { pop: people(before).replace(/^some /, 'some '), share: shareWords(e.value) })))
+  const parts: string[] = []
+  // partisan: the victim's telling counts its dead large; the sacker's calls it a punishment and gives no toll
+  const L = c.lens && v.has('sacked.foe') ? c.lens : null
+  const victim = L ? c.polityOf(e.settlement, Math.max(0, e.year - 1)) : -1
+  if (L && victim >= 0 && L.isUs(victim) && !(byP >= 0 && L.isUs(byP))) parts.push(v.p('sacked.foe', { year: e.year, foe: byP >= 0 ? c.ptitle(byP, e.year) : `raiders of ${c.name(e.other, e.year)}`, town, toll: tollWords(e.value * before * (v.legend ? 3 : 1.5), v.legend) }))
+  else if (L && byP >= 0 && L.isUs(byP) && !(victim >= 0 && L.isUs(victim))) parts.push(v.p('sacked.us', { year: e.year, town }))
+  else {
+    parts.push(v.p('sackA', { year: e.year, by, from: c.name(e.other, e.year), town, war: wn ? `, in ${wn}` : '', war2: wn ? `, in ${wn},` : '' }))
+    parts.push(cap(v.p('sackB', { pop: people(before).replace(/^some /, 'some '), share: shareWords(e.value) })))
+  }
   // who died, what fell
   const rd = c.rd
   if (rd) {

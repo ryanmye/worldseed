@@ -671,9 +671,9 @@ export function longHaulSweep(s: HistoryState, ts: TradeState, g: GoodsState): v
         }
         const carrier = q * (mu0 * (pf + tc) + MART.carrier * real)
         const gap = real
-        income[to] += carrier - merchantKeep(g, to, carrier) // (merchants.ts: the merchant houses keep their share as capital)
-        income[from] += q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * V[gd]) - merchantKeep(g, from, q * (1 - MART.carrier) * gap)
-        merchantTurnover(g, from, to, q * pf) // (and their houses' turnover on the cargo)
+        income[to] += carrier - merchantKeep(g, to, carrier, k) // (merchants.ts: the merchant houses keep their share as capital; k for the families' books)
+        income[from] += q * ((1 - MART.carrier) * gap + STOCK.hvMargin * TRADE.margin * V[gd]) - merchantKeep(g, from, q * (1 - MART.carrier) * gap, k)
+        merchantTurnover(g, from, to, q * pf, k) // (and their houses' turnover on the cargo)
         if (gd !== 9 && gd !== 11) merchantResale(g, from, q * pf) // (luxuries, stimulants, finery sent on: the merchants' stock, not the town's purchase)
         g.relayYear[to] += carrier
         if (!g.relayIn[to]) { g.relayIn[to] = 1; g.relayList.push(to) }

@@ -14,10 +14,12 @@ import { seatDecisionFacts } from '../seat/seatFormat.ts'
 import { Refs } from './refs.ts'
 import { battleScenes, conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, siegeScenes, workScene, type Scene } from './scenes.ts'
 import { battlesOf } from '../battlesData.ts' // battles:
-import { warCalled, warName } from './wars.ts'
+import { warCalled, warCalledBy, warName } from './wars.ts'
+import { believedLines, foeTitle, heroOf, PARTISAN_T, partisanEnd, suffixOf, tollWords, villainOf } from './partisan.ts' // partisan:
 import { reignChapters, REIGN_T } from './reigns.ts'
 import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
 import { FIN_T, financeLines } from './finance.ts' // finance:
+import { SOC_T, societyLines } from './society.ts' // society:
 import { INT_T, intrigueLines } from './intrigue.ts' // beliefs:
 
 const T: PhraseTable = {
@@ -166,7 +168,11 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
   const pd = c.pd!
   const x = pd.list[p]
-  const v = new Voice(c.seed, `state:${p}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T, INT_T)
+  const v = new Voice(c.seed, `state:${p}${c.povSuffix}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T, INT_T, PARTISAN_T, SOC_T)
+  // partisan: the teller's stance toward this state ('' neutral, or no lens: the record as it is)
+  const LN = c.lens
+  const sfx = suffixOf(c, p)
+  const usState = sfx === 'us'
   const Y = c.Y
   const state = c.pgreatTitle(p)
   const book = new Book()
@@ -248,20 +254,26 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const regs = reigns.filter((r) => (rd.regency[r] ?? 0) > 0)
     if (regs.length >= 2) p2.push(v.p('regencies', { n: plural(regs.length, 'ruler') }))
     const battle = reigns.filter((r) => c.reignEndedBy(r) && rd.rulers[r].end === ReignEnd.Battle)
-    if (battle.length === 1) p2.push(v.p('battleDeath', { ruler: c.ruler(battle[0]), year: rd.rulers[battle[0]].ended }))
+    if (battle.length === 1) p2.push(v.ps('battleDeath', sfx, { ruler: c.ruler(battle[0]), year: rd.rulers[battle[0]].ended }))
     else if (battle.length > 1) p2.push(v.p('battleDeaths', { n: num(battle.length), ruler: c.ruler(battle[0]), year: rd.rulers[battle[0]].ended }))
     const plague = reigns.filter((r) => c.reignEndedBy(r) && rd.rulers[r].end === ReignEnd.Plague)
     if (plague.length) p2.push(v.p('plagueDeath', { ruler: c.ruler(plague[0]), year: rd.rulers[plague[0]].ended }))
   }
   const crises = c.type(EventType.SuccessionCrisis).filter((i) => c.ev(i).value === p).length
   if (crises >= 2) p2.push(v.p('crises', { times: times(crises) }))
+  // partisan: the hero of our own state's telling
+  if (usState && rd && reigns.length) {
+    const hero = heroOf(c, reigns)
+    if (hero.r >= 0 && hero.won >= 1) p2.push(v.p('hero', { ruler: legend ? withEpithet(c.ruler(hero.r), rulerEpithet(reignFacts(c, hero.r))) : c.ruler(hero.r), n: legend ? times(hero.won) : plural(hero.won, 'war'), people: c.peopleName(x.people) }))
+  }
   section('hRulers', p2.join(' '), [], [OrderKind.Seat])
   if (rd) for (const ch of reignChapters(c, v, p, reigns)) { book.chapter(ch.head); book.add(ch.text) }
 
   // ---- wars ----
   const p3: string[] = []
   const W = pd.wars
-  const wars = W ? (pd.warsOf[p] ?? []).filter((w) => W.startYear[w] <= Y) : []
+  // (partisan: our own state's telling leaves out the lost wars the court would rather forget, lens.ts omitsWar)
+  const wars = W ? (pd.warsOf[p] ?? []).filter((w) => W.startYear[w] <= Y && !(usState && LN!.omitsWar(w, Y, legend, (q, y) => c.capital(q, y)))) : []
   if (W && wars.length) {
     let won = 0, lost = 0
     for (const w of wars) {
@@ -276,10 +288,18 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const bloody = topBy(wars, (w) => W.dead[w], 1)[0]
     if (bloody !== undefined && W.dead[bloody] >= 500) {
       const civil = W.kind[bloody] === WarKind.CivilWar
-      const war = civil && !warName(c, bloody) ? 'the civil war' : warCalled(c, bloody, p)
+      const war = civil && !warName(c, bloody) ? 'the civil war' : LN ? warCalledBy(c, bloody, p) : warCalled(c, bloody, p)
       const e = W.endYear[bloody]
       const sp = e >= 0 && e <= Y ? (e === W.startYear[bloody] ? `fought in ${e}` : `fought from ${W.startYear[bloody]} to ${e}`) : `begun in ${W.startYear[bloody]}`
-      p3.push(v.p('bloodiest', { war, span: sp, dead: people(W.dead[bloody]), how: warEnd(c, bloody, p) }))
+      if (LN && sfx) {
+        // partisan: our dead remembered large, the foe's left unsaid; a foe's bloodiest war against us told as its cruelty
+        const side = LN.sideOfWar(bloody, Y)
+        const other = W.attacker[bloody] === p ? W.defender[bloody] : W.attacker[bloody]
+        const how = partisanEnd(c, bloody, warEnd(c, bloody, p), legend)
+        if (usState) p3.push(side.won && side.side === 'attacker' ? v.p('bloodiest.usWon', { war, span: sp, how }) : v.p('bloodiest.us', { war, span: sp, toll: tollWords(W.dead[bloody] * (legend ? 3 : 1.5), legend), how }))
+        else if (LN.isUs(other)) p3.push(v.p('bloodiest.foe', { war, span: sp, toll: tollWords(W.dead[bloody] * (legend ? 3 : 1.5), legend) }))
+        else p3.push(v.p('bloodiest', { war, span: sp, dead: people(W.dead[bloody]), how: warEnd(c, bloody, p) }))
+      } else p3.push(v.p('bloodiest', { war, span: sp, dead: people(W.dead[bloody]), how: warEnd(c, bloody, p) }))
     }
     const holy = wars.filter((w) => h.holyWars?.includes(w) && W.attacker[w] === p).length
     if (holy) p3.push(v.p('holyWars', { n: holy === 1 ? 'one holy war' : `${num(holy)} holy wars` }))
@@ -295,9 +315,19 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const lostT = conq.filter((e) => c.polityOf(e.settlement, Math.max(0, e.year - 1)) === p && c.polityOf(e.settlement, e.year + h.snapshotInterval) !== p)
   if (took.length) {
     const big = topBy(took, (e) => c.pop(e.settlement, e.year), 1)[0]
-    p3.push(v.p('conquered', { n: plural(took.length, 'town'), where: big && c.pop(big.settlement, big.year) >= 3000 ? `, the greatest of them ${c.place(big.settlement, big.year)}, in ${big.year}` : '' }))
+    p3.push(v.ps('conquered', sfx, { n: plural(took.length, 'town'), where: big && c.pop(big.settlement, big.year) >= 3000 ? `, the greatest of them ${c.place(big.settlement, big.year)}, in ${big.year}` : '' }))
   }
-  if (lostT.length >= 2) p3.push(v.p('lostTowns', { n: plural(lostT.length, 'town') }))
+  if (lostT.length >= 2) p3.push(v.ps('lostTowns', sfx, { n: plural(lostT.length, 'town') }))
+  // partisan: a lost war in which our capital fell is always told (after a long resistance; betrayed, in the legend)
+  if (usState && W) {
+    const fall = conq.filter((e) => c.capital(p, Math.max(0, e.year - 1)) === e.settlement && LN!.sideOfWar(e.value, Y).lost).pop()
+    if (fall) {
+      const foe = W.attacker[fall.value] === p ? W.defender[fall.value] : W.attacker[fall.value]
+      p3.push(v.p('lostWarCapital', { cap: c.name(fall.settlement, fall.year), foe: foeTitle(c, foe, fall.year), year: fall.year }))
+    }
+    const vil = villainOf(c, p)
+    if (vil) p3.push(vil.ruler >= 0 ? v.p('villain', { ruler: c.ruler(vil.ruler), foe: c.ptitle(vil.foe, vil.year), cap: c.name(c.capital(p, Y), Y) }) : v.p('villainRealm', { foe: c.ptitle(vil.foe, vil.year), cap: c.name(c.capital(p, Y), Y) }))
+  }
   const revolts = c.type(EventType.Revolt).map((i) => c.ev(i)).filter((e) => c.polityOf(e.other, e.year) === p && c.capital(p, e.year) === e.other)
   if (revolts.length >= 2) {
     const crushed = c.type(EventType.RevoltCrushed).map((i) => c.ev(i)).filter((e) => c.capital(p, e.year) === e.other).length
@@ -312,12 +342,13 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     if (best >= 0) { const ep = commanderEpithet(c, best); p3.push(refs.cite(v.p('greatCommander', { name: bdc.C.name[best], feat: ep.startsWith('the Victor of ') ? `victor of ${ep.slice(14)}` : ep ? `called ${ep}` : `who led its armies from ${bdc.C.firstYear[best]}` }), { kind: 'commander', id: best })) }
   }
   const kids = (pd.children[p] ?? []).filter((q) => pd.list[q].foundedYear <= Y && (pd.list[q].origin === PolityOrigin.Revolt || pd.list[q].origin === PolityOrigin.Colonial || pd.list[q].origin === PolityOrigin.CivilWar))
-  if (kids.length) p3.push(v.p('seceded', { list: kids.length <= 3 ? list(kids.map((q) => c.pname(q))) : `${kids.slice(0, 2).map((q) => c.pname(q)).join(', ')} and ${num(kids.length - 2)} others` }))
+  if (kids.length) p3.push(v.ps('seceded', sfx, { list: kids.length <= 3 ? list(kids.map((q) => c.pname(q))) : `${kids.slice(0, 2).map((q) => c.pname(q)).join(', ')} and ${num(kids.length - 2)} others` }))
   const part = c.type(EventType.Partitioned).map((i) => c.ev(i)).find((e) => e.value === p)
   if (part) p3.push(v.p('partitioned', { year: part.year }))
   p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
   p3.push(...financeLines(c, v, p)) // finance: loans, defaults, bankrupt wars (finance.ts)
-  p3.push(...intrigueLines(c, v, p)) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts)
+  p3.push(...societyLines(c, v, p)) // society: crises of the social order, bondage, the nobility (society.ts)
+  p3.push(...((LN && believedLines(c, v, p, wars, legend)) || intrigueLines(c, v, p))) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts); partisan: as the teller's court believed them (partisan.ts believedLines)
   section('hWar', p3.join(' '), ['sack', 'plague', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----

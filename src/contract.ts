@@ -232,6 +232,16 @@ export const EventType = {
   TradeForsaken: 150, // a major trade route (History.trade `value`, ends `settlement` and `other`) closed because its way had grown too dangerous; follows its TradeClosed; `extra` the cause: 0 danger on land (war, raids, bandits), 1 pirates at sea (a strait or coast closed by them), 2 a war front across the way
   // goods: merchant capital (160-169).
   MerchantsMoved: 160, // the merchant houses of the bypassed mart `settlement` began to leave for the ends of the lane that took its trade (`other` one of them, -1 if both are gone); `value` their capital then
+  // goods: merchant families (161-169; none when HistoryOptions.families or goods is false). In each, `value` is the family id (History.families).
+  FamilyFounded: 161, // family `value` was founded at its home `settlement`; `other` the far mart of the lane whose venture made it (FamilyCause.Venture), the parent family's home (Split), or -1; `extra` the FamilyCause
+  FamilyBranch: 162, // family `value` opened a factor (branch) at `settlement`; `other` its home; `extra` the seat id (History.families.seat*)
+  BranchClosed: 163, // the factor of family `value` at `settlement` closed; `other` its home; `extra` the FamilySeatClose cause
+  FamilyHead: 164, // a new head took over family `value` at its home `settlement`; `other` -1; `extra` the head id (History.families.head*: who and how)
+  FamilyMoved: 165, // family `value` moved its home to `settlement` from `other`; `extra` the FamilyMoveCause (bypassed, the town lost, the entrepot)
+  FamilyMarriage: 166, // family `value` (home `settlement`) married into the ruling house of the polity ruled from `other`; `extra` the marriage row (History.families.marriage*)
+  FamilyBacked: 167, // family `value` (home `settlement`) backed a side in the civil war `extra` (History.wars) whose pretender's seat is `other`; its row says which side and how it ended
+  FamilyPatron: 168, // family `value` paid for the great landmark `extra` (History.landmarks row) at `settlement`; `other` -1
+  FamilyFell: 169, // family `value` ended at its home `settlement`; `other` the capital of the defaulting polity, the sackers' base, or -1; `extra` FamilyEnd * 16 + FamilyRuin
   TradeRestored: 151, // a route forsaken for danger (TradeForsaken) opened again: `value` the route id, `settlement` and `other` its ends; follows its TradeOpened; `extra` the years it lay forsaken
   // orders: the player's nudges (HistoryOptions.orders; 170-179; none without orders). In each, `value` is the order's index in
   // History.orders and `extra` as noted; `settlement` is where the story is told (the people's largest town, the polity's capital,
@@ -299,6 +309,14 @@ export const EventType = {
   DroughtBegan: 266, // a persistent drought settled on the region of `settlement` (its largest town); `other` -1; `extra` the weather region
   DroughtEnded: 267, // the drought broke; `settlement` the region's largest town (or the one where it began, if still alive); `other` -1; `extra` its years
   ClimateTurned: 268, // the world's slow climate entered an epoch: `settlement` the world's largest town; `other` -1; `extra` +1 warm, -1 cold
+  // society: classes, wages and rents, elites and the secular cycle (240-249; none when HistoryOptions.society is false).
+  SocialPhase: 240, // the polity `value` ruled from `settlement` entered a secular phase: `extra` the phase (SecularPhase: 2 a crisis of the social order, 0 a new expansion); `other` -1
+  LabourDear: 241, // labour grew dear in the polity `value` ruled from `settlement` (its people fewer than its land wants): `other` the settlement of the epidemic that thinned it, or -1; `extra` the rise of the real wage (2 = doubled)
+  SerfdomImposed: 242, // the lords of the polity `value` ruled from `settlement` bound its peasants to the land (labour scarce, the lords strong); `other` -1; `extra` the coercion now (0..1)
+  SerfdomEnded: 243, // the peasants of the polity `value` ruled from `settlement` threw off their bondage (labour scarce, the lords weak); `other` -1; `extra` the coercion before (0..1)
+  EliteFactions: 244, // the great families of the polity `value` ruled from `settlement` divided into factions (too many for the offices and lands; History.socElite); `other` -1; `extra` the elite pressure (EMP, 1 = reference)
+  Ennobled: 245, // merchants of `settlement` bought land and titles among the nobility of the polity ruled from `other`: `value` the merchant family (History.families), -1 for the town's merchants; `extra` the elite share bought in (a share of the people)
+  EliteThinned: 246, // the nobility of the polity `value` ruled from `settlement` was thinned by its wars and risings: `other` -1; `extra` the share of it lost since its peak (0..1)
   // language: the languages of the world (250-259; none when HistoryOptions.language is off).
   LanguageSplit: 250, // a language parted from its parent: `settlement` the daughter's seat (its first town), `other` the parent's seat; `value` the language id (History.languages); `extra` the LanguageSplitCause
   LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
@@ -512,6 +530,25 @@ export interface History {
   /** Principal outstanding per trade snapshot per loan account: loanBalance[q * loans.count + k] (0 before it opened and after it closed). */
   loanBalance: Float32Array
 
+  // society: classes and the secular cycle (all empty when HistoryOptions.society is false). Row-major x[q * polities.length + id]
+  // per snapshot like `tariff`, 0 outside the polity's life.
+  /** Real wage of each polity's peasants and townsfolk per snapshot, 0..255 for 0..4 (64 = subsistence). */
+  socWage: Uint8Array
+  socUrbanWage: Uint8Array
+  /** Rent index (1 = reference), 0..255 for 0..4. */
+  socRent: Uint8Array
+  /** Political stress Ψ and its factors MMP, EMP, SFD, 0..255 for 0..8 (32 = 1). */
+  socPsi: Uint8Array
+  socMMP: Uint8Array
+  socEMP: Uint8Array
+  socSFD: Uint8Array
+  /** Shares of the people: elites 0..255 for 0..0.128, townsfolk 0..255 for 0..1, clergy 0..255 for 0..0.032; coercion 0..255 for 0..1. Peasants are the rest. */
+  socElite: Uint8Array
+  socUrban: Uint8Array
+  socClergy: Uint8Array
+  socCoercion: Uint8Array
+  /** Secular phase (SecularPhase; 255 outside the polity's life). */
+  socPhase: Uint8Array
   // beliefs: what states believed of each other (all empty when HistoryOptions.beliefs is false).
   /** Each polity's true strength (mass) per snapshot, laid out like `tariff`: strength[s * polities.length + id]; 0 outside its life. */
   strength: Float32Array
@@ -571,6 +608,9 @@ export interface History {
    * bypassed mart for the ends of the lane that took its trade (MerchantsMoved). Empty when goods are off.
    */
   merchantWealth: Float32Array
+  // families: merchant families (empty when HistoryOptions.families or goods is false; then every other field is as without them, events aside).
+  /** Named merchant families: their seats (home and factors), heads, lanes, marriages into ruling houses, backings and patronage. */
+  families: MerchantFamilies
 
   // disease: epidemics, endemic sickness and fever (all empty when HistoryOptions.disease is false).
   /** The diseases of this world (DiseaseInfo.id is the index); one that never appeared by the end of the run has firstYear -1 and no name. */
@@ -1537,7 +1577,10 @@ export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, 
 export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
 
 /** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
-export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want)
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5, Urban: 7 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want; 6 Burghers is city-states'; society: Urban, townsfolk rising over dear bread and low wages)
+/** society: phase of a polity's secular cycle (Turchin & Nefedov's four phases; History.socPhase). */
+export const SecularPhase = { Expansion: 0, Stagflation: 1, Crisis: 2, Depression: 3 } as const
+export type SecularPhase = (typeof SecularPhase)[keyof typeof SecularPhase]
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
@@ -1782,6 +1825,126 @@ export const BondEnd = {
   Betrayed: 5, // oaths: one ally broke faith: made a separate peace with the common enemy, turned on its ally, or attacked it (EventType.Betrayal / OathBroken extra 1); bA or bB, the one whose capital is the event's `settlement`, is the betrayer
 } as const
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
+
+/** families: how a merchant family began (History.families.cause, the `extra` of FamilyFounded). */
+export const FamilyCause = {
+  Capital: 0, // a trader's fortune at a town with merchant capital (a mart, or a town its legs or flight made rich)
+  Venture: 1, // a trade expedition that opened a lane
+  Split: 2, // a cadet line took a branch as its home at a succession (it keeps the parent's surname: "the Veckin of Osk")
+} as const
+export type FamilyCause = (typeof FamilyCause)[keyof typeof FamilyCause]
+/** families: how a family ended (History.families.end). */
+export const FamilyEnd = { Alive: 0, Bankrupt: 1, Faded: 2, NoHeir: 3, TownLost: 4 } as const
+export type FamilyEnd = (typeof FamilyEnd)[keyof typeof FamilyEnd]
+/** families: what ruined a bankrupt family (History.families.ruin; 0 unless Bankrupt). */
+export const FamilyRuin = { None: 0, Fleet: 1, Venture: 2, Default: 3, War: 4, Plague: 5 } as const
+export type FamilyRuin = (typeof FamilyRuin)[keyof typeof FamilyRuin]
+/** families: a seat is the family's home or a factor's house (branch) (MASTER-PLAN R4: not seat-mode's SeatKind). */
+export const FamilySeatKind = { Home: 0, Branch: 1 } as const
+export type FamilySeatKind = (typeof FamilySeatKind)[keyof typeof FamilySeatKind]
+/** families: how a seat opened (founded with the family, at the far end of a lane it runs, a factory post, a relay partner, a home move, a cadet split). */
+export const FamilySeatOpen = { Founded: 0, Lane: 1, Factory: 2, Relay: 3, Moved: 4, Split: 5 } as const
+export type FamilySeatOpen = (typeof FamilySeatOpen)[keyof typeof FamilySeatOpen]
+/** families: how a seat closed (riots and migration read Expelled = 4). */
+export const FamilySeatClose = { Open: 0, Withdrawn: 1, Bankrupt: 2, Seized: 3, Expelled: 4, Sacked: 5, TownLost: 6, Ended: 7 } as const
+export type FamilySeatClose = (typeof FamilySeatClose)[keyof typeof FamilySeatClose]
+/** families: how a head came to lead the family. */
+export const HeadHow = { Founder: 0, Son: 1, Brother: 2, Nephew: 3, Widow: 4, SonInLaw: 5 } as const
+export type HeadHow = (typeof HeadHow)[keyof typeof HeadHow]
+/** families: why a family moved its home. */
+export const FamilyMoveCause = { Bypassed: 0, TownLost: 1, Entrepot: 2 } as const
+export type FamilyMoveCause = (typeof FamilyMoveCause)[keyof typeof FamilyMoveCause]
+
+/**
+ * families: named merchant families, struct-of-arrays in order of founding (row = family id; prefix-stable: a longer run repeats a
+ * shorter one's rows, except the ended / end / ruin / peak fields set later and the open rows' To columns). A family owns shares of
+ * its towns' merchant capital (History.merchantWealth): its capital at a town at a snapshot is in seatSnap*, and never exceeds that
+ * town's merchant capital.
+ */
+export interface MerchantFamilies {
+  count: number
+  /** Surname in the language of its first home (the UI says "House Veckin", a cadet line "the Veckin of Osk"); unique among families and ruling houses (a cadet keeps its parent's). */
+  name: string[]
+  founded: Int16Array
+  /** Year it ended, -1 while it trades at the end of the run. */
+  ended: Int16Array
+  end: Uint8Array // FamilyEnd
+  ruin: Uint8Array // FamilyRuin
+  cause: Uint8Array // FamilyCause
+  firstHome: Int32Array
+  /** Parent family (a cadet line split off at a succession), -1. */
+  parent: Int32Array
+  people: Int16Array
+  /** Largest capital it held at a snapshot, and the snapshot's year (-1 none). */
+  peakCapital: Float32Array
+  peakYear: Int16Array
+  // Seats: a home or a factor at a town, in order of opening. A family's home at year y is its Home seat open at y (moves close one and open another).
+  seatCount: number
+  seatFamily: Int32Array
+  seatTown: Int32Array
+  seatKind: Uint8Array // FamilySeatKind
+  seatFrom: Int16Array
+  /** -1 while open at the end. */
+  seatTo: Int16Array
+  seatOpen: Uint8Array // FamilySeatOpen
+  seatClose: Uint8Array // FamilySeatClose
+  /** Lane it serves (History.longHaul record), -1; factory post (History.posts), -1. */
+  seatLeg: Int32Array
+  seatPost: Int32Array
+  // Heads, in order of accession (head id = index); a family's heads are consecutive in time, not in id.
+  headCount: number
+  headFamily: Int32Array
+  /** Personal name in the family's language (the UI adds the surname: "Taro Veckin"). */
+  headName: string[]
+  headFemale: Uint8Array
+  headBorn: Int16Array
+  headFrom: Int16Array
+  /** -1 while head at the end. */
+  headTo: Int16Array
+  /** Year of death (-1 alive at the end, or still living after the family ended). */
+  headDied: Int16Array
+  how: Uint8Array // HeadHow
+  /** Ability 0.5..1.6, x100 (100 average). */
+  headAbility: Uint8Array
+  // Lanes operated: family laneFamily ran the lane (History.longHaul record) laneLeg from laneFrom to laneTo (-1 still).
+  laneCount: number
+  laneFamily: Int32Array
+  laneLeg: Int32Array
+  laneFrom: Int16Array
+  laneTo: Int16Array
+  // Marriages into ruling houses (History.dynasties), in order of making.
+  marriageCount: number
+  marriageFamily: Int32Array
+  marriageDynasty: Int32Array
+  marriagePolity: Int16Array
+  /** The reign (History.rulers) at the marriage; 1 when a daughter of the family married into the house, 0 a son wed one of its women. */
+  marriageRuler: Int32Array
+  marriageDaughter: Uint8Array
+  marriageYear: Int16Array
+  /** Year the tie lapsed, -1 in force at the end. */
+  marriageEnd: Int16Array
+  // Backing of sides in civil wars.
+  backCount: number
+  backFamily: Int32Array
+  backWar: Int32Array
+  /** 0 the crown, 1 the pretender; outcome 0 ongoing, 1 won, 2 lost; stake: capital put in. */
+  backSide: Uint8Array
+  backOutcome: Uint8Array
+  backStake: Float32Array
+  // Patronage of landmarks (History.landmarks rows).
+  patronCount: number
+  patronFamily: Int32Array
+  patronLandmark: Int32Array
+  patronYear: Int16Array
+  // Capital per population snapshot, sparse: snapshot q holds families famSnapFamily[famSnapOffsets[q] .. famSnapOffsets[q+1]) (alive, ascending) with famSnapCapital.
+  famSnapOffsets: Uint32Array
+  famSnapFamily: Int32Array
+  famSnapCapital: Float32Array
+  // The same per open seat (the city-states' "wealth of each family in this city").
+  seatSnapOffsets: Uint32Array
+  seatSnapSeat: Int32Array
+  seatSnapCapital: Float32Array
+}
 
 /** finance: who lent (History.loans.lenderKind): a town's merchant pool (lender = settlement); a merchant family (lender = family id); a town's own wealth when goods are off (lender = settlement). */
 export const LenderKind = { Pool: 0, Family: 1, Town: 2 } as const
@@ -2089,8 +2252,16 @@ export interface HistoryOptions {
   oaths?: boolean
   /** balance (grudges-and-oaths; needs polities): alliances weighed by threat (power, proximity and intent), coalitions against the hegemon, and weak states that bandwagon. Default false. */
   balance?: boolean
+  /**
+   * families (merchant-families; needs goods): named houses of trade owning shares of the merchant capital of their towns
+   * (History.families), with heads, factors, lanes, marriages into ruling houses, backings of civil wars and patronage. Default false.
+   * A pure consequence layer while FAMILY.feedback is false: on or off, every other field is the same (events aside, which gain 161-169).
+   */
+  families?: boolean
   /** finance (state-finances; needs polities): crown treasuries, borrowing from merchant capital, default and bankruptcy wars. Default false; false leaves the finance fields empty and the history exactly the one without them. */
   finance?: boolean
+  /** society (society-secular-cycles; needs polities): classes, wages and rents, elite overproduction and political stress (Ψ) feeding revolts, civil wars and successions. Default false; false leaves the society fields empty and the history exactly the one without them. */
+  society?: boolean
   /**
    * beliefs (beliefs-and-deception; needs polities): states judge each other's strength from what they see, trade, marry, spy
    * and fight, and may bluff, ally in secret and misjudge; crises are bargained (towns ceded or tribute agreed without war,

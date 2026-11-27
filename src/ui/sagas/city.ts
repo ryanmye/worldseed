@@ -5,10 +5,11 @@
 // landmark, renaming, faith and goods tables); a town where little happened gets a short notice instead.
 
 import { archaicName } from '../languageFormat.ts' // language: the old form of a drifted name
-import { CITY_POPULATION, EventType, LandmarkRank, LandmarkState, landmarksAt, OrderKind, PostKind, RenameCause, StructureType, TOWN_POPULATION } from '../../contract.ts'
+import { CITY_POPULATION, EventType, FamilySeatKind, LandmarkRank, LandmarkState, landmarksAt, OrderKind, PostKind, RenameCause, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { goodsOf } from '../goodsData.ts'
 import { speciesGloss } from '../format.ts'
+import { PARTISAN_T } from './partisan.ts' // partisan: (the sack scenes through the lens)
 import { Ctx, farmingAt, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, cap, list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
@@ -178,6 +179,7 @@ const T: PhraseTable = {
     ['In {year} its merchants opened a direct lane to {far}{sought}.', 'A trade expedition from it opened a lane to {far} in {year}{sought}.'],
     ['In {year} its ships first found the open-sea road to {far}{sought}.'],
   ],
+  houseHome: [['It was the home of House {name} from {year}.', 'House {name} kept its counting-house here from {year}.'], ['From {year} the {name} kept their counting-house here, and their ships came home to it.']],
   tradition: [
     ['{craft} was first made here, from {year}.', 'The craft of {craft} was born here in {year}.'],
     ['Here, in {year}, the makers of {craft} first plied their art.'],
@@ -263,7 +265,7 @@ const TIER_WORD = (pop: number) => (pop >= CITY_POPULATION ? 'city' : pop >= TOW
 export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const h = c.h
   const s = h.settlements[id]
-  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, DISASTER_T)
+  const v = new Voice(c.seed, `city:${id}${c.povSuffix}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, DISASTER_T, PARTISAN_T)
   const Y = c.Y
   const nowName = c.name(id, Y)
   const pn = c.peopleName(s.people)
@@ -536,6 +538,17 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     const e = lanes[0]
     const sought = gd && e.extra !== undefined && e.extra > 0 && gd.varietyNames[e.extra] ? `, seeking ${gd.varietyNames[e.extra]}` : ''
     p6.push(v.p('lane', { year: e.year, far: c.place(e.other, e.year), sought }))
+  }
+  {
+    // families: the longest-lived merchant house at home here
+    const F = h.families
+    let best = -1, bl = 0
+    if (F) for (let k = 0; k < F.seatCount; k++) {
+      if (F.seatTown[k] !== id || F.seatKind[k] !== FamilySeatKind.Home || F.seatFrom[k] > Y) continue
+      const len = (F.seatTo[k] >= 0 && F.seatTo[k] <= Y ? F.seatTo[k] : Y) - F.seatFrom[k]
+      if (len > bl) { bl = len; best = k }
+    }
+    if (best >= 0 && bl >= 30) p6.push(v.p('houseHome', { name: F.name[F.seatFamily[best]], year: F.seatFrom[best] }))
   }
   for (const i of c.at(id, [EventType.TraditionBorn]).slice(0, 2)) {
     const e = c.ev(i)

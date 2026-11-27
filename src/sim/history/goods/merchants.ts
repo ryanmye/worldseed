@@ -33,6 +33,7 @@ import { logEvent } from '../state.ts'
 import { BYPASS } from './params.ts'
 import { WEALTH } from '../params.ts'
 import type { GoodsState } from './state.ts'
+import { famIn, famMovIn, famPay } from '../families/hooks.ts' // families: bookkeeping only
 
 /** Merchant capital (see the header). */
 export const MERCHANT = {
@@ -99,17 +100,18 @@ function grow(m: MerchantState, count: number): void {
 }
 
 /** Long-haul merchant profit x made at settlement id: its merchants keep their share as capital; returns it (the town's income loses it). */
-export function merchantKeep(g: GoodsState, id: number, x: number): number {
+export function merchantKeep(g: GoodsState, id: number, x: number, leg = -1): number {
   if (!(x > 0) || !MERCHANT.on) return 0
   const m = g.ext.merch
   if (id >= m.cap) grow(m, id + 1)
   const k = MERCHANT.keep * x
   m.mw[id] += k
+  if (g.ext.fam !== null) famIn(g, id, leg, k) // families: (leg k's end)
   return k
 }
 
 /** Cargo worth `value` moved on a leg from mart a to mart b: the turnover of both ends' merchant houses. */
-export function merchantTurnover(g: GoodsState, a: number, b: number, value: number): void {
+export function merchantTurnover(g: GoodsState, a: number, b: number, value: number, leg = -1): void {
   if (!(value > 0) || !MERCHANT.on) return
   const m = g.ext.merch
   const hi = a > b ? a : b
@@ -117,6 +119,7 @@ export function merchantTurnover(g: GoodsState, a: number, b: number, value: num
   const x = MERCHANT.turnover * value
   m.mw[a] += x
   m.mw[b] += x
+  if (g.ext.fam !== null) { famIn(g, a, leg, x); famIn(g, b, leg, x) } // families:
 }
 
 /** Goods a town pays for (luxuries, stimulants, finery) worth `value` at mart a's price sent on along a leg by its merchants. */
@@ -150,8 +153,8 @@ export function merchantFunds(g: GoodsState, id: number): number {
 export function merchantPay(s: HistoryState, g: GoodsState, id: number, cost: number): void {
   const m = g.ext.merch
   const have = id < m.cap ? m.mw[id] : 0
-  if (have >= cost) { m.mw[id] = have - cost; return }
-  if (have > 0) m.mw[id] = 0
+  if (have >= cost) { m.mw[id] = have - cost; if (g.ext.fam !== null) famPay(g, id, cost); return }
+  if (have > 0) { m.mw[id] = 0; if (g.ext.fam !== null) famPay(g, id, have) }
   s.wealth[id] -= cost - have
 }
 
@@ -185,6 +188,7 @@ export function merchantYear(s: HistoryState, g: GoodsState): void {
       const okA = a >= 0 && s.abandoned[a] < 0, okB = b >= 0 && s.abandoned[b] < 0
       if (okA) mw[a] += okB ? 0.5 * out : out
       if (okB) mw[b] += okA ? 0.5 * out : out
+      if (g.ext.fam !== null) { if (okA) famMovIn(g, a, okB ? 0.5 * out : out); if (okB) famMovIn(g, b, okA ? 0.5 * out : out) } // families:
       // With them go part of the town's wealth (their houses and warehouses stand empty: lost) and its people (their
       // households and hands, to the lane's ends), with how much the town lived on the relay trade: the square root of its peak relay income against its income.
       const inc = WEALTH.decay * s.wealth[id]
@@ -222,6 +226,7 @@ export function merchantYear(s: HistoryState, g: GoodsState): void {
       const out = X.gather * mw[id]
       mw[id] -= out
       mw[y] += out
+      if (g.ext.fam !== null) famMovIn(g, y, out) // families:
     }
   }
   // (bounded: beyond maxHead a head the houses spend it, palaces and loans never repaid; the abandoned lose it)

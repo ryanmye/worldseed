@@ -46,11 +46,24 @@
 // `seatStop` leaves seat mode: the seat run becomes the kept run (with its seat and orders as its options) and is extended
 // to `years` without pausing, posted as a replace history. Pause histories are not cached (the stopped run is).
 // (Take-back, `seatBack`, needs the checkpoints of perf-efficiency P6: seat steps 10-11.)
+//
+// What-if (experience-whatif-director-sagas §1.4): every history posted (simulated or read from the cache) is fingerprinted
+// first (whatif/fingerprint.ts, kept as `kept.fp`, 10-40 ms). A `compare` request simulates the kept world with another
+// order list beside the history shown, in its own run (the kept run is untouched, so extensions of the shown history still
+// resume; with `lite` the kept run is dropped first to lower the peak, and the next extension re-simulates), stepped in
+// chunks that re-enqueue themselves so an extension can run between them, cancelled between chunks by a newer compare,
+// `compareCancel` or any new world or orders. The other history is read from and written to the cache under its own
+// options (so "Adopt the other world", an `orders` request with them, is a cache hit) and posted with the digest of how
+// the two differ (whatif/diff.ts) and both fingerprints: whole, or as a skeleton (whatif/skeleton.ts) with `lite`.
 
 import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, Order, SeatOptions, World, WorldOptions } from './contract.ts'
-import { canonicalCradles, decodeOrders, encodeOrders } from './contract.ts'
+import { decodeOrders, encodeOrders } from './contract.ts'
 import * as sim from './sim/index.ts'
 import { buffersOf, cacheKeys, hashValue, openHistoryCache, snapshot, type CacheKeys } from './historyCache.ts'
+import { fingerprintBuffers, fingerprintOf, type HistoryFingerprint } from './whatif/fingerprint.ts' // what-if:
+import { diffFingerprints, digestBuffers, type WhatIfDigest } from './whatif/diff.ts'
+import { skeletonOf } from './whatif/skeleton.ts'
+import { canonicalOptions, compareOptions, compareSteps } from './whatif/compareRun.ts'
 
 const { generateWorld, simulateHistory } = sim
 /** The resumable run's constructor, when the simulation exports one (else every run starts from scratch). */
@@ -108,11 +121,28 @@ export type WorkerRequest =
   | { type: 'seatStop'; requestId: number; years: number }
   /** The page was hidden or shown: background extensions run at a reduced duty cycle while hidden. */
   | { type: 'throttle'; hidden: boolean }
+  | {
+      /** what-if: simulate the kept world with `orders` (and `cradles`) beside the history shown, `years` long, and post how the two differ (a `compare` response). The kept run is not replaced. */
+      type: 'compare'
+      requestId: number
+      /** Echoed; a newer compare (or compareCancel, or any generate/orders) cancels this one between chunks. */
+      compareId: number
+      orders: Order[]
+      cradles?: number[]
+      years: number
+      /** Post a skeleton of the other history (phones, weak devices) instead of the whole, and drop the kept run first. */
+      lite: boolean
+    }
+  /** what-if: stop the compare in flight (between chunks); nothing is posted for it. */
+  | { type: 'compareCancel'; compareId: number }
 
 export type WorkerResponse =
   | { type: 'world'; requestId: number; world: World }
   | { type: 'history'; requestId: number; history: History; ms: number; extend: boolean; cached?: boolean; /** A run with different orders of the world shown (an `orders` request). */ replace?: boolean }
-  | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend'; message: string }
+  | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend' | 'compare'; message: string; compareId?: number }
+  /** what-if: the other world (whole, or its skeleton), how it differs from the history shown, and both fingerprints. */
+  | { type: 'compare'; requestId: number; compareId: number; digest: WhatIfDigest; fpA: HistoryFingerprint; fpB: HistoryFingerprint; alt: History; skeleton: boolean; ms: number; cached: boolean }
+  | { type: 'compareProgress'; requestId: number; compareId: number; years: number; target: number }
   /** Progress of a run in chunks (resumable runs only, see `simulate`): `years` simulated so far of `target`. */
   | { type: 'progress'; requestId: number; years: number; target: number }
   /** seat: the History up to a pause (its last year), the decision rows of that year (History.seat.decisions), whether the seat is lost. */
@@ -122,7 +152,7 @@ const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as un
 const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
 
 /** The world of the latest generate request, kept to simulate longer runs on, with its resumable run (null before the first run, without createHistoryRun, or after a failure). */
-interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null; keys: CacheKeys | null }
+interface Kept { requestId: number; world: World; historyOptions?: HistoryOptions; run: HistoryRun | null; keys: CacheKeys | null; /** what-if: the fingerprint of the history last posted (null before one, or after a seat pause). */ fp?: HistoryFingerprint | null }
 let kept: Kept | null = null
 
 /** Progress is posted at least this often (simulated years) while a resumable run advances toward its target. */
@@ -197,11 +227,12 @@ function transferList(history: History): Transferable[] {
   for (const k of ['fever', 'feverTolerance', 'endemic']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
   // tourism: scenery and its kinds per cell, visitor flows (pairs, paths and rows); renaming: the renamings table (its typed columns, fresh per run); landmarks: the landmarks and their changes (likewise)
   for (const k of ['scenery', 'sceneryKind']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  // oaths, arms: faithless and armament per snapshot; finance: the crowns' purses per snapshot and loan balances (their tables go with the groups below)
+  // oaths, arms: faithless and armament per snapshot; families: their table (typed columns, fresh per run); finance: the crowns' purses per snapshot and loan balances (their tables go with the groups below)
   for (const k of ['faithless', 'arms', 'treasury', 'crownDebt', 'crownRevenue', 'crownSpending', 'creditRate', 'coinage', 'fiscalDistress', 'loanBalance']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
   // beliefs: true strength, the belief snapshots and the per-polity bluff, spy and credibility rows (fresh at assembly)
   for (const k of ['strength', 'beliefEst', 'beliefSd', 'beliefSource', 'bluffShown', 'spyService', 'credibility']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView)
-  for (const group of [partial.grievances, partial.armsRaces, partial.loans, partial.beliefs] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
+  for (const group of [partial.grievances, partial.armsRaces, partial.loans, partial.beliefs, partial.families] as unknown as (Record<string, unknown> | undefined)[]) if (group) for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
+  for (const k of ['socWage', 'socUrbanWage', 'socRent', 'socPsi', 'socMMP', 'socEMP', 'socSFD', 'socElite', 'socUrban', 'socClergy', 'socCoercion', 'socPhase']) if (ArrayBuffer.isView(p[k]) && (p[k] as ArrayBufferView).byteLength > 0) extra.push(p[k] as ArrayBufferView) // society
   for (const group of [partial.wars, partial.raids, partial.bonds, partial.embargoes, partial.longHaul, partial.secretHolds, partial.outbreaks, partial.quarantines, partial.visitorFlows, partial.renamings, partial.landmarks] as unknown as (Record<string, unknown> | undefined)[]) {
     if (!group) continue
     for (const v of Object.values(group)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
@@ -219,6 +250,7 @@ async function simulateAndPost(requestId: number, k: Kept, years: number | undef
   const history = await simulate(k, years, requestId, background)
   const ms = performance.now() - t0
   const stored = k.keys ? snapshot(history) : null // (before its arrays are transferred away)
+  k.fp = fingerprintOf(history) // what-if: (likewise)
   const transfer = transferList(history)
   post({ type: 'history', requestId, history, ms, extend, replace: replace || undefined }, transfer)
   if (stored && k.keys) void cacheWrite(k.keys.history(stored.years), k.keys.group, stored.years, stored)
@@ -244,19 +276,7 @@ function cacheWrite(key: string, group: string, years: number, value: unknown) {
   })
 }
 
-/** History options with the orders and the cradles canonical (see the header) and each dropped when there are none. */
-function canonicalOptions(o: HistoryOptions | undefined): HistoryOptions | undefined {
-  if (!o || (o.orders === undefined && o.cradles === undefined)) return o
-  const { orders, cradles, ...rest } = o
-  const out: HistoryOptions = { ...rest }
-  if (orders !== undefined) {
-    const canon = decodeOrders(encodeOrders(orders))
-    if (canon.length > 0) out.orders = canon
-  }
-  const cc = cradles ? canonicalCradles(cradles) : []
-  if (cc.length > 0) out.cradles = cc
-  return Object.keys(out).length > 0 ? out : undefined
-}
+// (canonicalOptions: whatif/compareRun.ts, shared with the compare request)
 
 /** The seed and world options of the kept world (for the cache keys of an orders request). */
 let keptSeed: { seed: number; options?: WorldOptions } | null = null
@@ -312,6 +332,7 @@ async function historyOf(k: Kept, req: { requestId: number; nocache?: boolean; c
         const a = hashValue(fresh), b = hashValue(hit.value)
         console[a === b ? 'info' : 'error'](`cache check (${hit.years} years): fresh ${a}, cached ${b}: ${a === b ? 'identical' : 'DIFFERENT'}`)
       }
+      k.fp = fingerprintOf(hit.value) // what-if:
       post({ type: 'history', requestId, history: hit.value, ms, extend: false, cached: true }, buffersOf(hit.value))
       return
     }
@@ -351,6 +372,7 @@ async function reorder(req: Extract<WorkerRequest, { type: 'orders' }>) {
     const hit = keys ? await cache!.getHistory<History>(keys, req.years) : null
     if (hit && hit.years === req.years) {
       console.info(`cache: ${hit.years}-year history with ${historyOptions?.orders?.length ?? 0} orders and ${historyOptions?.cradles?.length ?? 0} cradles read in ${(performance.now() - t0).toFixed(0)} ms`)
+      kept.fp = fingerprintOf(hit.value) // what-if:
       post({ type: 'history', requestId: req.requestId, history: hit.value, ms: performance.now() - t0, extend: false, cached: true, replace: true }, buffersOf(hit.value))
       return
     }
@@ -459,13 +481,68 @@ async function seatStop(req: Extract<WorkerRequest, { type: 'seatStop' }>) {
   }
 }
 
+// ---------- what-if: the compare request (see the header) ----------
+
+/** The latest compare asked for (a queued or running compare with another id stops). */
+let latestCompareId = 0
+
+async function compare(req: Extract<WorkerRequest, { type: 'compare' }>) {
+  const live = () => req.compareId === latestCompareId && req.requestId === latestRequestId && !!kept && kept.requestId === req.requestId
+  if (!live()) return
+  const fail = (message: string) => post({ type: 'error', requestId: req.requestId, stage: 'compare', message, compareId: req.compareId })
+  const k = kept!
+  if (!keptSeed || !k.fp) return fail('no history to compare with')
+  if (!createHistoryRun) return fail('no resumable run')
+  const fpA = k.fp
+  const optionsB = compareOptions(k.historyOptions, req.orders, req.cradles)
+  const cache = await cacheReady
+  const keys = cache ? cacheKeys(cache.version, keptSeed.seed, keptSeed.options, optionsB) : null
+  const t0 = performance.now()
+  const finish = (B: History, cached: boolean) => {
+    if (!live()) return
+    const fpB = fingerprintOf(B)
+    const digest = diffFingerprints(fpA, fpB, k.world.grid.positions)
+    const stored = !cached && keys ? snapshot(B) : null
+    const alt = req.lite ? skeletonOf(B) : B
+    const fpCopy = snapshot(fpA) // (the kept fingerprint stays for the next compare)
+    const transfer = new Set<Transferable>([...transferList(alt), ...digestBuffers(digest), ...fingerprintBuffers(fpB), ...fingerprintBuffers(fpCopy)])
+    post({ type: 'compare', requestId: req.requestId, compareId: req.compareId, digest, fpA: fpCopy, fpB, alt, skeleton: req.lite, ms: performance.now() - t0, cached }, [...transfer])
+    if (stored && keys) void cacheWrite(keys.history(stored.years), keys.group, stored.years, stored)
+  }
+  try {
+    const hit = keys ? await cache!.getHistory<History>(keys, req.years) : null
+    if (hit && hit.years === req.years) return finish(hit.value, true)
+  } catch (err) {
+    console.warn('compare: cache read failed', err)
+  }
+  if (req.lite) k.run = null // (lite: the kept run's memory goes first; the next extension re-simulates)
+  const steps = compareSteps(createHistoryRun, k.world, optionsB, req.years, PROGRESS_CHUNK_YEARS)
+  const step = (): Promise<void> | void => {
+    if (!live()) return
+    try {
+      const c0 = performance.now()
+      const r = steps.next()
+      lastChunkMs = performance.now() - c0
+      if (r.done) return finish(r.value, false)
+      post({ type: 'compareProgress', requestId: req.requestId, compareId: req.compareId, years: r.value, target: req.years })
+      // (re-enqueued: an extension of the history shown, or a new request, runs between chunks)
+      queue = queue.then(() => breathe()).then(step)
+    } catch (err) {
+      fail(errorMessage(err))
+    }
+  }
+  step()
+}
+
 let queue: Promise<void> = Promise.resolve()
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const req = ev.data
   if (req.type === 'throttle') hidden = req.hidden
+  else if (req.type === 'compareCancel') latestCompareId = Math.max(latestCompareId, req.compareId + 1)
   else {
-    if (req.type !== 'extend' && req.type !== 'history') latestRequestId = req.requestId
+    if (req.type !== 'extend' && req.type !== 'history' && req.type !== 'compare') latestRequestId = req.requestId
+    if (req.type === 'compare') latestCompareId = req.compareId
     if (req.type === 'generate' || req.type === 'history' || req.type === 'orders') seatRun = null // (a new world or run leaves seat mode)
-    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : req.type === 'history' ? historyFor(req) : req.type === 'seat' ? seatStart(req) : req.type === 'seatChoose' ? seatChoose(req) : req.type === 'seatStop' ? seatStop(req) : generate(req)))
+    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : req.type === 'history' ? historyFor(req) : req.type === 'seat' ? seatStart(req) : req.type === 'seatChoose' ? seatChoose(req) : req.type === 'seatStop' ? seatStop(req) : req.type === 'compare' ? compare(req) : generate(req)))
   }
 }
