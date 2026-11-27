@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, World, WorldOptions } from './contract.ts'
 import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import { createSeatController, type SeatController } from './ui/seat/seatController.ts'
+import { createDecisionCard } from './ui/seat/decisionCard.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -775,7 +776,7 @@ const historyView = createHistoryView(
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 seatCtl = createSeatController({
-  parent: app,
+  card: createDecisionCard(app),
   post: (req) => {
     extending = 0
     worker.postMessage({ ...req, requestId: ++requestId } as WorkerRequest)

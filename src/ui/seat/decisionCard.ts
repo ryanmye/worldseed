@@ -8,12 +8,9 @@
 // panel without the backdrop, so the timeline can be watched.
 import type { History } from '../../contract.ts'
 import { isCompact } from '../compact.ts'
-import { decisionSituation, decisionTitle, optionExpects, optionLabel, optionMeta } from './seatFormat.ts'
+import { decisionCardModel, type CardModel } from './cardModel.ts'
 import { glyphInner, optionGlyph } from './art/glyphs.ts'
 import { decisionScene, optionArt } from './art/scenes.ts'
-import { deciderButton, deciderName } from './decider.ts'
-import { DEFER_OPTIONS } from '../../contract.ts'
-import { SEAT } from '../../sim/history/seat/params.ts'
 import './seat.css'
 
 export interface DecisionCard {
@@ -41,17 +38,11 @@ function svgHost(cls: string, svg: string): HTMLElement {
 
 /**
  * The Authority meter: how far the seat's realm still waits on the ruler (1 - deference / SEAT.deferFull), and what leaving this
- * matter would cost (less for a divisive one). Hover or tap for the explanation.
+ * matter would cost (less for a divisive one). Hover or tap for the explanation. (Values: cardModel.ts authorityOf.)
  */
-function authorityMeter(h: History, d: number): HTMLElement {
-  const D = h.seat!.decisions
-  const p = D.polity[d]
-  const dv = h.deference && p >= 0 && p < h.deference.count ? h.deference.value[p] : 0
-  const auth = Math.max(0, 1 - dv / SEAT.deferFull)
-  const cost = (1 - SEAT.deferDivisive * D.divisive[d]) / SEAT.deferFull
+function authorityMeter(a: CardModel['authority']): HTMLElement {
+  const auth = a.value, cost = a.cost, why = a.why
   const box = el('div', 'seat-authority')
-  const body = deciderName(h, h.seat!.seat, D.year[d])
-  const why = `Authority: how far the realm still waits on you. Each matter you leave to ${body} lowers it (less for a divisive one, whose blame they bear); each decision you take restores it. Low, ${body} rule in all but name, and the throne is less safe. Your court grows used to ruling without you.`
   box.title = why
   box.tabIndex = 0
   box.setAttribute('role', 'meter')
@@ -98,38 +89,39 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
       const compact = isCompact()
       screen.classList.toggle('seat-compact', compact)
       const D = h.seat!.decisions
-      const title = decisionTitle(h, d)
+      const model = decisionCardModel(h, d, n, total) // (the screen's content: cardModel.ts, the bots read the same)
+      const title = model.title
       screen.setAttribute('aria-label', title)
       // banner and situation
       const banner = el('div', 'seat-banner')
-      banner.append(el('h2', 'seat-banner-title', title), el('div', 'seat-banner-sub', `${D.year[d]}${total > 1 ? ` · decision ${n} of ${total}` : ''}`))
+      banner.append(el('h2', 'seat-banner-title', title), el('div', 'seat-banner-sub', model.sub))
       const sit = el('div', 'seat-situation')
-      sit.append(svgHost('seat-scene-frame', decisionScene(D.kind[d], d)), el('p', 'seat-situation-text', decisionSituation(h, d)))
+      sit.append(svgHost('seat-scene-frame', decisionScene(D.kind[d], d)), el('p', 'seat-situation-text', model.situation))
       // cards
-      const count = D.optStart[d + 1] - D.optStart[d]
       let court = -1
       let done = false
       const choose = (i: number) => { if (done) return; done = true; clearKeys(); pick(i) }
       const row = el('div', 'seat-cards')
       const order: number[] = []
-      const DEFER = DEFER_OPTIONS.defer
-      court = DEFER
-      for (let i = 0; i < count; i++) {
-        const m = optionMeta(h, d, i)
+      court = model.defer.option
+      for (const m of model.options) {
+        const i = m.option
         order.push(i)
-        const label = optionLabel(h, d, i), note = optionExpects(h, d, i)
         const b = el('button', `seat-opt seat-tint-${m.tint}`)
         b.type = 'button'
-        b.setAttribute('aria-label', `${order.length}. ${label}. ${m.tag}. ${note}${m.badge ? ` (${m.badge})` : ''}`)
+        b.setAttribute('aria-label', m.aria)
+        b.dataset.key = String(m.key) // (the glyph's key and the option sent: read by the UI bots, scripts/bots-ui.mjs)
+        b.dataset.option = String(i)
+        if (m.court) b.dataset.court = '1'
         const badge = el('span', 'seat-opt-badge')
         badge.append(svgHost('seat-opt-badge-glyph', optionGlyph(m.key, 14)), el('span', '', m.badge))
         const head = el('span', 'seat-opt-head')
-        head.append(el('span', 'seat-opt-num', String(order.length)), el('span', 'seat-opt-label', label))
-        b.append(badge, head, svgHost('seat-opt-frame', optionArt(glyphInner(m.key), d * 8 + i)), el('span', 'seat-opt-tag', m.tag), el('span', 'seat-opt-note', note))
+        head.append(el('span', 'seat-opt-num', String(order.length)), el('span', 'seat-opt-label', m.label))
+        b.append(badge, head, svgHost('seat-opt-frame', optionArt(glyphInner(m.key), d * 8 + i)), el('span', 'seat-opt-tag', m.tag), el('span', 'seat-opt-note', m.note))
         b.addEventListener('click', () => choose(i))
         row.append(b)
       }
-      screen.append(banner, sit, authorityMeter(h, d), row)
+      screen.append(banner, sit, authorityMeter(model.authority), row)
       // phone: Prev / Next under the carousel
       if (compact && order.length > 1) {
         const nav = el('div', 'seat-nav')
@@ -148,16 +140,13 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
       const actions = el('div', 'seat-actions')
       {
         // the matter left to the body that decides without the player: a cautious court's pick, at a cost in authority
-        const words = deciderButton(h, h.seat!.seat, D.year[d])
-        const pickWords = optionLabel(h, d, D.courtPick[d])
-        const div = D.divisive[d]
-        const hint = div >= 0.5 ? 'A divisive matter: the blame will fall on them.' : 'Routine business: the court grows used to ruling without you.'
+        const { words, pickLabel: pickWords, hint } = model.defer
         const skip = el('button', 'seat-skip')
         skip.type = 'button'
-        skip.append(el('span', 'seat-skip-label', words), el('span', 'seat-skip-note', `They would choose: ${pickWords}. ${hint}`))
+        skip.append(el('span', 'seat-skip-label', words), el('span', 'seat-skip-note', model.defer.note))
         skip.title = `${words}: ${pickWords}. ${hint} (Esc)`
         skip.setAttribute('aria-label', `${words}. They would choose ${pickWords}. ${hint} (Escape)`)
-        skip.addEventListener('click', () => choose(DEFER))
+        skip.addEventListener('click', () => choose(court))
         actions.append(skip)
       }
       if (showMe) {
