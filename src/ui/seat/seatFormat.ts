@@ -4,7 +4,7 @@ import { DEFER_OPTIONS, DecisionKind, OrderKind, SeatEnd, SeatKind, SeatOptionKe
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
-import { deciderChronicle } from './decider.ts'
+import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -152,8 +152,9 @@ function polityAt(h: History, id: number, year: number): string {
 }
 /** The deciding body of polity p at `year` in the third person ("the elders", "its court"). */
 function DECIDER_BODY_AT(h: History, p: number, year: number): string {
-  const b = deciderChronicle(h, h.seat?.seat ?? { kind: SeatKind.Polity, id: p, from: 0 }, year)
-  return b === 'its court' ? 'the court' : b
+  // (a House seat's body is the family; any realm's otherwise, the seat's or an AI's: absentee rulers' blame is told here too)
+  const b = h.seat?.seat.kind === SeatKind.House ? deciderChronicle(h, h.seat.seat, year) : deciderNameOf(h, p, year)
+  return b === 'its court' || b === DECIDER.court ? 'the court' : b
 }
 
 const capFirst = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
@@ -323,7 +324,7 @@ export function describeSeatEvent(h: History, e: { year: number; type: number; s
     case 279: return `The crown of ${polityWord(h, e.value)} raises an extraordinary levy on its towns`
     case 182: return `It was said that in ${polityWord(h, e.value)} ${DECIDER_BODY_AT(h, e.value, e.year)} ruled in all but name`
     case 183: return (e.extra ?? 0) === 1 ? `The ruler of ${polityWord(h, e.value)} took the power back from ${DECIDER_BODY_AT(h, e.value, e.year)}, at some risk to the throne` : `The ruler of ${polityWord(h, e.value)} seems to have ruled again in person`
-    case 184: return `${capFirst(DECIDER_BODY_AT(h, e.value, e.year))} of ${polityWord(h, e.value)} bore the blame for ${(DK[e.extra ?? -1]?.label ?? 'a hard matter').toLowerCase()}`
+    case 184: return `${capFirst(DECIDER_BODY_AT(h, e.value, e.year))} of ${polityWord(h, e.value)} bore the blame for ${(e.extra ?? 0) === 100 ? 'a lost war' : (e.extra ?? 0) === 101 ? 'the crown’s default' : (DK[e.extra ?? -1]?.label ?? 'a hard matter').toLowerCase()}` // (100, 101: absentee, an AI court's blame)
   }
   return `At ${at}, a matter of the seat`
 }
