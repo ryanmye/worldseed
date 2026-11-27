@@ -1,8 +1,8 @@
-// Onboarding policies (ui/onboard.ts): Follow by default for a first visit only, never over a link that opens somewhere
+// Onboarding policies (ui/onboardPolicy.ts): Follow by default for a first visit only, never over a link that opens somewhere
 // particular; the throne path's link keeps the page's preset.
 
 import { describe, expect, it } from 'vitest'
-import { followByDefault, PLAY_PATHS, PlayPath, throneUrl } from './onboard.ts'
+import { followByDefault, PLAY_PATHS, PlayPath, throneUrl } from './onboardPolicy.ts'
 
 const q = (s: string) => new URLSearchParams(s)
 

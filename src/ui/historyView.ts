@@ -78,7 +78,7 @@ import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
 import { buildPeopleWash, type PeopleWash } from '../render/peopleWash.ts'
 import { flat } from '../render/mapProjection.ts'
-import { followByDefault, groupRightRail, markVisited } from './onboard.ts'
+import { followByDefault, groupRightRail, isFirstVisit, markVisited } from './onboard.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { createWhatIfView, type CompareAsk, type CompareResult } from './whatifPanel.ts' // what-if:
 import { createSwipe } from './whatif/swipe.ts'
@@ -572,7 +572,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setUrlParam: deps.setUrlParam,
     requestRender,
     wake: () => deps.wake(),
-    initialOn: followByDefault(new URLSearchParams(window.location.search)), // onboarding: a first visit follows
+    initialOn: followByDefault(new URLSearchParams(window.location.search), isFirstVisit()), // onboarding: a first visit follows
     openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
     battleOpen: () => battleMap.isOpen(),
     play: () => timeline.play(),
