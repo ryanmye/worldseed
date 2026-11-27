@@ -13,7 +13,10 @@
 //   per kind (SEAT.cool), Plague once per epidemic, nothing in the seat's first year.
 //
 // v1 (seat step 6) offers the kinds whose orders exist: WarOnUs (Peace), Opening (War), Plague (Quarantine, Seat), Faith,
-// Revolt (Fortify), Frontier (Settle, Explore), Crop, Idea. The court kinds come with seat steps 8-9 (their order kinds).
+// Revolt (Fortify), Frontier (Settle, Explore), Crop, Idea. Seat steps 8-9 add the court kinds: Heir (Designate), Crisis and
+// General (Placate, Purge), Match and Opening's match (Marry), AllianceMade (Repudiate), AllianceSought and WarOnUs's ally (Ally),
+// Overlord (Defy), WarOnUs's tribute (Submit); step 13 the dependent ones: Credit (finance: Borrow, Levy, Repudiate of the
+// debts) and Betrayal (oaths: Betray). Charter waits for city-states.
 import { DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
@@ -24,6 +27,14 @@ import { bound } from '../polity/policy.ts'
 import { WAR } from '../polity/params.ts'
 import { ORDERS } from '../orders/params.ts'
 import { orderCheck } from '../orders/system.ts'
+import { allyWar } from '../orders/seatOrders.ts'
+import { allied, overlordOf } from '../polity/bonds.ts'
+import { relationOf } from '../polity/relations.ts'
+import { ALLIANCE } from '../polity/params.ts'
+import { MARRIAGE, RULERS } from '../rulers/params.ts'
+import { tied, unionBond } from '../rulers/marriage.ts'
+import { contestChance, eligibleHeirs, overthrowHazard, pickHeir } from '../rulers/hazards.ts'
+import { finNeed } from '../finance/hooks.ts'
 import { polityFaith } from '../religion/system.ts'
 import { chordCells } from '../orders/hooks.ts'
 import type { SeatState } from './state.ts'
@@ -92,15 +103,27 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         if (ps === null || p < 0 || ps.wDef[x.value] !== p) break
         const q = ps.wAtt[x.value]
         if (!contacted(s, ps, k, q)) break
-        cards.push({ kind: DecisionKind.WarOnUs, subject: q, place: cap, options: [
+        const opts: Option[] = [
           { key: SeatOptionKey.FightOn, orders: [] },
           { key: SeatOptionKey.SuePeace, orders: [[OrderKind.Peace, p, q]] },
-        ] })
+          { key: SeatOptionKey.OfferTribute, orders: [[OrderKind.Submit, p, q]] },
+        ]
+        const r = allyAgainst(s, ps, k, p, q)
+        if (r >= 0) opts.push({ key: SeatOptionKey.SeekAlly, orders: [[OrderKind.Ally, p, r]] })
+        cards.push({ kind: DecisionKind.WarOnUs, subject: q, place: cap, options: opts })
         break
       }
       case EventType.SuccessionCrisis: case EventType.CivilWar: case EventType.Regency: {
         if (ps === null || p < 0) break
         const q = x.type === EventType.SuccessionCrisis ? x.value : x.type === EventType.CivilWar ? (x.other >= 0 && x.other < ps.polity.length ? ps.polity[x.other] : -1) : (x.settlement >= 0 && x.settlement < ps.polity.length ? ps.polity[x.settlement] : -1)
+        if (q === p && x.type !== EventType.CivilWar) {
+          // Crisis: a succession crisis or a regency at home
+          cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, options: [
+            { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
+            { key: SeatOptionKey.Endure, orders: [] },
+          ] })
+          break
+        }
         if (q < 0 || q === p || ps.pEnded[q] >= 0 || !contacted(s, ps, k, q)) break
         const r = relIdx(ps, p, q)
         if (r < 0 || ps.relEdges[r].length === 0 || s.year < ps.relTruce[r] || bound(ps, p, q) || atWar(ps, p, q) || ps.pWars[p] >= WAR.maxWars) break
@@ -108,6 +131,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         cards.push({ kind: DecisionKind.Opening, subject: q, place: ps.pCapital[q], options: [
           { key: SeatOptionKey.Strike, orders: [[OrderKind.War, p, q]] },
           { key: SeatOptionKey.StayOut, orders: [] },
+          ...(s.rul !== null ? [{ key: SeatOptionKey.OfferMatch, orders: [[OrderKind.Marry, p, q] as O] }] : []),
         ] })
         break
       }
@@ -129,9 +153,29 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
       case EventType.Revolt: {
         if (ps === null || p < 0 || !memberOf(ps, x.settlement, p) || !knownTown(s, k, x.settlement) || cap < 0) break
         cards.push({ kind: DecisionKind.Revolt, subject: x.settlement, place: x.settlement, options: [
+          { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
           { key: SeatOptionKey.Fortify, orders: [[OrderKind.Fortify, cap, -1]] },
           { key: SeatOptionKey.Crush, orders: [] },
         ] })
+        break
+      }
+      case EventType.Alliance: {
+        // AllianceMade: an alliance with the realm as a party (not one the player sought this year)
+        if (ps === null || p < 0) break
+        const a = x.settlement >= 0 && x.settlement < ps.polity.length ? ps.polity[x.settlement] : -1
+        const q = a === p ? x.value : x.value === p ? a : -1
+        if (q < 0 || !contacted(s, ps, k, q) || soughtNow(s, OrderKind.Ally, p, q)) break
+        cards.push({ kind: DecisionKind.AllianceMade, subject: q, place: ps.pCapital[q], options: [
+          { key: SeatOptionKey.Honour, orders: [] },
+          { key: SeatOptionKey.Renounce, orders: [[OrderKind.Repudiate, p, q]] },
+        ] })
+        break
+      }
+      case EventType.BecameVassal: {
+        // Overlord: the realm became a vassal or tributary (extra 0)
+        if (ps === null || p < 0 || x.extra !== 0 || x.settlement !== cap) break
+        const o = overlordOf(ps, p)
+        if (o >= 0) cards.push(overlordCard(s, ps, p, o))
         break
       }
       case EventType.ExpeditionReturned: {
@@ -165,6 +209,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
       }
     }
   }
+  if (ps !== null && p >= 0) courtCards(s, st, ps, p, k, cap, cards)
   // Faith (a state condition, checked when its cooldown has passed): a universal faith holding a large share of the realm, not the ruler's.
   const rel = s.rel
   if (rel !== null && s.rul !== null && ps !== null && p >= 0 && s.year - st.lastKind[DecisionKind.Faith] >= SEAT.cool[DecisionKind.Faith]) {
@@ -189,6 +234,150 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         { key: SeatOptionKey.Embrace, orders: [[OrderKind.Faith, p, best]] },
         { key: SeatOptionKey.KeepWays, orders: [] },
       ] })
+    }
+  }
+}
+
+/** WarOnUs: an ally to seek against q: the largest contacted realm (not p, not at war with p, not allied) with rivalry >= ALLIANCE.threat with q, -1. */
+function allyAgainst(s: HistoryState, ps: PolityState, k: number, p: number, q: number): number {
+  let best = -1
+  for (let r = 0; r < ps.relA.length; r++) {
+    const a = ps.relA[r], b = ps.relB[r]
+    if ((a !== q && b !== q) || ps.relR[r] < ALLIANCE.threat) continue
+    const x = a === q ? b : a
+    if (x === p || ps.pEnded[x] >= 0 || atWar(ps, p, x) || allied(ps, p, x) || !contacted(s, ps, k, x)) continue
+    if (best < 0 || ps.pPop[x] > ps.pPop[best]) best = x
+  }
+  return best
+}
+
+/** True when the orders given this year (a card's) asked for this: kind, actor a, target t. */
+function soughtNow(s: HistoryState, kind: number, a: number, t: number): boolean {
+  const ox = s.orders
+  if (ox === null) return false
+  for (let i = 0; i < ox.n; i++) if (ox.kind[i] === kind && ox.actor[i] === a && ox.target[i] === t && ox.year[i] <= s.year && ox.year[i] >= s.year - 30) return true
+  return false
+}
+
+function overlordCard(s: HistoryState, ps: PolityState, p: number, o: number): Card {
+  void s
+  return { kind: DecisionKind.Overlord, subject: o, place: ps.pCapital[o], options: [
+    { key: SeatOptionKey.Pay, orders: [] },
+    { key: SeatOptionKey.Defy, orders: [[OrderKind.Defy, p, o]] },
+  ] }
+}
+
+const HEIRS: number[] = []
+const off = (st: SeatState, s: HistoryState, kind: number): boolean => s.year - st.lastKind[kind] < SEAT.cool[kind]
+
+/**
+ * The court's state conditions (seat steps 8, 9, 13), each checked only when its cooldown has passed: Heir, General, Match,
+ * AllianceSought, Overlord (again, while a vassal), Credit (finance), Betrayal (oaths). Reads only what a court could know: ages
+ * from birth years, the heirs alive now, the hazards as the rulers system weighs them now, rivalries, sizes, the treasury.
+ */
+function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, k: number, cap: number, cards: Card[]): void {
+  const R = s.rul
+  const year = s.year
+  if (R !== null && p < R.pcap && R.cur[p] >= 0 && R.rDyn[R.cur[p]] >= 0 && R.union[p] < 0) {
+    const r = R.cur[p]
+    // Heir: an old ruler, or a succession that may well be contested, with at least two heirs to choose from
+    if (!off(st, s, DecisionKind.Heir) && (year - R.rBorn[r] >= SEAT.oldAge || contestChance(s, ps, R, p) >= SEAT.heirContest)) {
+      const people = ps.pPeople[p]
+      const cog = R.cognatic[people] === 1
+      const n = eligibleHeirs(R, p, year, HEIRS, cog)
+      if (n >= 2) {
+        const law = pickHeir(R, p, R.law[people], cog, year)
+        const o = p * RULERS.heirs
+        let other = -1
+        for (let j = 0; j < n; j++) {
+          const i = HEIRS[j]
+          if (i === law || R.hBorn[o + i] === R.hBorn[o + law]) continue
+          if (other < 0 || R.hLegit[o + i] > R.hLegit[o + other] || (R.hLegit[o + i] === R.hLegit[o + other] && R.hBorn[o + i] < R.hBorn[o + other])) other = i
+        }
+        if (law >= 0 && other >= 0) cards.push({ kind: DecisionKind.Heir, subject: r, place: cap, options: [
+          { key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, R.hBorn[o + law]]] },
+          { key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, R.hBorn[o + other]]] },
+          { key: SeatOptionKey.LawDecides, orders: [] },
+        ] })
+      }
+    }
+    // General: a throne in danger of a coup, at war or after a lost war
+    if (!off(st, s, DecisionKind.General) && (ps.pWars[p] > 0 || year - R.lost[p] <= SEAT.generalLost) && overthrowHazard(s, ps, R, p) >= SEAT.riseX) {
+      cards.push({ kind: DecisionKind.General, subject: r, place: cap, options: [
+        { key: SeatOptionKey.Honour, orders: [[OrderKind.Placate, p, -1]] },
+        { key: SeatOptionKey.Purge, orders: [[OrderKind.Purge, p, -1]] },
+        { key: SeatOptionKey.Ignore, orders: [] },
+      ] })
+    }
+    // Match: an heir of marrying age and a contacted neighbour's house to marry into (every 5 years)
+    if (!off(st, s, DecisionKind.Match) && year % 5 === 0) {
+      let young = false
+      for (let j = 0; j < R.hN[p]; j++) { const i = p * RULERS.heirs + j, age = year - R.hBorn[i]; if (R.hDeath[i] > year && age >= SEAT.matchAge[0] && age <= SEAT.matchAge[1]) young = true }
+      if (young) {
+        let best = -1
+        const dp = R.rDyn[r]
+        for (let x = 0; x < ps.relA.length; x++) {
+          const a = ps.relA[x], b = ps.relB[x]
+          if (a !== p && b !== p) continue
+          const q = a === p ? b : a
+          if (ps.pEnded[q] >= 0 || ps.relEdges[x].length === 0 || ps.relWar[x] >= 0 || ps.relR[x] >= MARRIAGE.maxR || q >= R.pcap || R.cur[q] < 0 || R.union[q] >= 0) continue
+          const dq = R.rDyn[R.cur[q]]
+          if (dq < 0 || dq === dp || tied(R, p, q) || !contacted(s, ps, k, q)) continue
+          if (best < 0 || ps.pPop[q] > ps.pPop[best]) best = q
+        }
+        if (best >= 0) cards.push({ kind: DecisionKind.Match, subject: best, place: ps.pCapital[best], options: [
+          { key: SeatOptionKey.Arrange, orders: [[OrderKind.Marry, p, best]] },
+          { key: SeatOptionKey.Decline, orders: [] },
+        ] })
+      }
+    }
+  }
+  // AllianceSought: a rival at least our size threatens us and a contacted neighbour too, who is calm with us (every 5 years)
+  if (!off(st, s, DecisionKind.AllianceSought) && year % 5 === 0) {
+    let best = -1, foe = -1
+    for (let x = 0; x < ps.relA.length; x++) {
+      const a = ps.relA[x], b = ps.relB[x]
+      if ((a !== p && b !== p) || ps.relR[x] < ALLIANCE.threat) continue
+      const c = a === p ? b : a
+      if (ps.pEnded[c] >= 0 || ps.pPop[c] < ps.pPop[p]) continue
+      for (let y = 0; y < ps.relA.length; y++) {
+        const u = ps.relA[y], v = ps.relB[y]
+        if ((u !== c && v !== c) || ps.relR[y] < ALLIANCE.threat) continue
+        const q = u === c ? v : u
+        if (q === p || ps.pEnded[q] >= 0 || allied(ps, p, q) || atWar(ps, p, q) || relationOf(ps, p, q) >= ALLIANCE.calm || !contacted(s, ps, k, q)) continue
+        if (best < 0 || ps.pPop[q] > ps.pPop[best]) { best = q; foe = c }
+      }
+    }
+    if (best >= 0 && foe >= 0) cards.push({ kind: DecisionKind.AllianceSought, subject: best, place: ps.pCapital[best], options: [
+      { key: SeatOptionKey.SeekAlly, orders: [[OrderKind.Ally, p, best]] },
+      { key: SeatOptionKey.Decline, orders: [] },
+    ] })
+  }
+  // Overlord: again every SEAT.overlordEvery years while a vassal or tributary (not of a personal union)
+  const sub = ps.pSub[p]
+  if (sub >= 0 && year - st.lastKind[DecisionKind.Overlord] >= SEAT.overlordEvery && !(R !== null && unionBond(R, sub))) {
+    const o = overlordOf(ps, p)
+    if (o >= 0 && year - ps.bStart[sub] >= 1) cards.push(overlordCard(s, ps, p, o))
+  }
+  // Credit (finance): the crown's need is pressing
+  if (s.fin !== null && !off(st, s, DecisionKind.Credit) && finNeed(s, ps, p) >= SEAT.creditNeed) {
+    cards.push({ kind: DecisionKind.Credit, subject: p, place: cap, options: [
+      { key: SeatOptionKey.Borrow, orders: [[OrderKind.Borrow, p, -1]] },
+      { key: SeatOptionKey.Levy, orders: [[OrderKind.Levy, p, -1]] },
+      { key: SeatOptionKey.RepudiateDebts, orders: [[OrderKind.Repudiate, p, p]] },
+      { key: SeatOptionKey.Retrench, orders: [] },
+    ] })
+  }
+  // Betrayal (oaths): worn down in an ally's war, the realm could make its own peace
+  if (ps.og !== null && ps.og.oaths && !off(st, s, DecisionKind.Betrayal) && ps.pExh[p] >= SEAT.betrayCase) {
+    for (const w of ps.activeWars) {
+      const q = ps.wDef[w]
+      if (q === p || allyWar(ps, p, q) < 0 || !contacted(s, ps, k, q)) continue
+      cards.push({ kind: DecisionKind.Betrayal, subject: q, place: ps.pCapital[q], options: [
+        { key: SeatOptionKey.SeparatePeace, orders: [[OrderKind.Betray, p, q]] },
+        { key: SeatOptionKey.StandBy, orders: [] },
+      ] })
+      break
     }
   }
 }

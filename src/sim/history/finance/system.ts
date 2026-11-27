@@ -20,7 +20,7 @@
 // Economic Studies 48(2): 289-309, https://doi.org/10.2307/2296886), serial defaulters (Reinhart & Rogoff 2009, This Time Is
 // Different), the fiscal-military state (Brewer 1989, The Sinews of Power); every number is a design default.
 
-import { BondKind, EventType, GrievanceKind, LenderKind, LoanEnd, PolityEnd, WarKind } from '../../../contract.ts'
+import { BondKind, EventType, GrievanceKind, LenderKind, LoanEnd, OrderKind, PolityEnd, WarKind } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { CLASS } from '../goods/params.ts'
 import { Good } from '../../../contract.ts'
@@ -35,6 +35,8 @@ import type { LenderOffer } from './lenders.ts'
 import { lenderCandidates, lenderGive, lenderLose, lenderRoom, lenderTake, poolsOfYear } from './lenders.ts'
 import { headroomOf, rateOf } from './hooks.ts'
 import { recordGrievance } from '../polity/grievances.ts' // oaths:
+import { crownOrdered } from '../orders/hooks.ts' // seat:
+import { SEAT } from '../seat/params.ts' // seat:
 import { at } from '../polity/grudgeState.ts'
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
@@ -130,6 +132,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
   if (divert) poolsOfYear(s, pools)
   else pools.length = 0
   const alive = ps.alive
+  const ox = s.orders !== null && s.orders.nPolity > 0 ? s.orders : null // seat: Borrow, Levy, Repudiate (the crown's debts)
   for (let t = 0; t < alive.length; t++) {
     const p = alive[t]
     const cap = ps.pCapital[p]
@@ -207,7 +210,7 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     const r = rateOf(s, fin, p)
     fin.rate[p] = r
     if (divert && money) {
-      const target = ps.pWars[p] > 0 ? FIN.chest * war : 0
+      const target = ps.pWars[p] > 0 ? FIN.chest * war : ox !== null && crownOrdered(ox, OrderKind.Borrow, p) ? FIN.chest * FIN.warAtt * R0 : 0 // (seat: Borrow: a war chest at peace)
       let need = target - fin.treas[p] + (fin.treas[p] < 0 ? FIN.cushion * E : 0)
       let room = headroomOf(s, fin, p)
       if (need > FIN.minLoan * R0 && r < FIN.refuse && room > 0) {
@@ -268,12 +271,13 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
       fin.debt[p] = debtOf(fin, p)
     }
     // repudiation by a new ruler
-    if (fin.acc[p] !== 0) {
+    const refuse = ox !== null && crownOrdered(ox, OrderKind.Repudiate, p) // seat: the crown refuses its debts by order (no draw)
+    if (fin.acc[p] !== 0 || refuse) {
       fin.acc[p] = 0
-      if (divert && money && fin.debt[p] > FIN.repudiateMin * R0) {
+      if (divert && money && (refuse ? fin.debt[p] > 0 : fin.debt[p] > FIN.repudiateMin * R0)) {
         const Rr = s.rul
         const wl = Rr !== null && p < Rr.pcap && Rr.cur[p] >= 0 ? Rr.rWar[Rr.cur[p]] : 0.5
-        if (fin.rng.next() < FIN.repudiate * (0.5 + wl)) {
+        if (refuse || fin.rng.next() < FIN.repudiate * (0.5 + wl)) {
           const d0 = fin.debt[p]
           const [, worst] = writeOff(s, ps, fin, p, 1, LoanEnd.Repudiated)
           fin.stain[p] += FIN.stainRepudiate
@@ -287,8 +291,9 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     // tax pressure (C8 factor 1)
     if (divert && money) {
       const def = (E - coin) / R0
-      const want = 1 + FIN.taxUp * (def > 0 ? (def < 1 ? def : 1) : 0)
-      let m = fin.taxMul[p] + FIN.taxRate * (want - fin.taxMul[p])
+      const levy = ox !== null && crownOrdered(ox, OrderKind.Levy, p) // seat: Levy: toward the highest pressure, faster
+      const want = levy ? FIN.taxMax : 1 + FIN.taxUp * (def > 0 ? (def < 1 ? def : 1) : 0)
+      let m = fin.taxMul[p] + (levy ? (SEAT.levyRate * FIN.taxRate < 1 ? SEAT.levyRate * FIN.taxRate : 1) : FIN.taxRate) * (want - fin.taxMul[p])
       if (m < 1) m = 1
       else if (m > FIN.taxMax) m = FIN.taxMax
       fin.taxMul[p] = m

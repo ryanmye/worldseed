@@ -49,7 +49,8 @@ import { atWar } from './formation.ts'
 import type { PolityState } from './state.ts'
 import { rulerCapitalFell, rulerWar } from '../rulers/system.ts' // rulers:
 import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
-import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
+import { peaceUrged, submitAccepted, warOrders, warRivalry } from '../orders/hooks.ts' // orders: (seat: Submit)
+import type { OrdersState } from '../orders/state.ts' // seat:
 import { c1WarDeclare, c6Peace } from '../compose.ts' // C1, C6 stacks
 import type { C1Factors } from '../compose.ts'
 import { ORDERS } from '../orders/params.ts' // orders:
@@ -474,6 +475,7 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[q] >= 0) { closeWar(s, ps, w, WarOutcome.Conquest); continue }
     if (ps.pEnded[p] >= 0) { closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace); continue }
     if (ps.wTaken[w] > takenBefore) ps.wLastGain[w] = s.year
+    if (s.orders !== null && s.orders.nPolity > 0 && submitWar(s, ps, s.orders, w, p, q)) continue // seat: tribute offered and accepted
     const spent = ps.pExh[p] >= 1 || ps.pExh[q] >= 1
     const fd = s.fin !== null ? finPeaceDebt(s, p, q) : undefined // finance: the more indebted side seeks terms (C6 factor 2)
     if (fd !== undefined) C6F.debt = fd
@@ -493,6 +495,17 @@ export function campaigns(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[q] >= 0) closeWar(s, ps, w, ps.pEndBy[q] === ps.pCapital[p] ? WarOutcome.Conquest : ps.wTaken[w] > ps.wRetaken[w] ? WarOutcome.AttackerGains : WarOutcome.WhitePeace)
     else if (ps.pEnded[p] >= 0) closeWar(s, ps, w, ps.wRetaken[w] > 0 ? WarOutcome.DefenderGains : WarOutcome.WhitePeace)
   }
+}
+
+/** seat (Submit): a side ordered to offer tribute whose offer is accepted this year (one orders' draw): the war ends, the enemy gaining, and it pays tribute. */
+function submitWar(s: HistoryState, ps: PolityState, ox: OrdersState, w: number, p: number, q: number): boolean {
+  const by = submitAccepted(s, ox, p, q, ps.wStart[w]) ? p : submitAccepted(s, ox, q, p, ps.wStart[w]) ? q : -1
+  if (by < 0) return false
+  const to = by === p ? q : p
+  closeWar(s, ps, w, by === p ? WarOutcome.DefenderGains : WarOutcome.AttackerGains, false)
+  if (ps.pEnded[by] < 0 && ps.pEnded[to] < 0) subject(s, ps, by, to, true)
+  s.events.push({ year: s.year, type: EventType.TributeOffered, settlement: ps.pCapital[by], other: ps.pCapital[to], value: w, extra: VASSAL.tributeYears })
+  return true
 }
 
 /** Yearly: exhaustion fades at peace, ravaged fields recover. */

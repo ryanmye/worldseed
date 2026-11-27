@@ -38,6 +38,8 @@ import { PolityEnd, PolityOrigin } from '../../../contract.ts'
 import { tied, unionBond } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { c7Alliance } from '../compose.ts' // C7 stack
+import { allyOrdered, allyParty } from '../orders/hooks.ts' // seat: Ally
+import { SEAT } from '../seat/params.ts' // seat:
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -246,11 +248,15 @@ export function allianceStep(s: HistoryState, ps: PolityState): void {
 function allianceStepLegacy(s: HistoryState, ps: PolityState): void {
   const X = ALLIANCE
   const R = ps.relA.length
-  const hostA: number[] = [], hostB: number[] = []
+  const hostA: number[] = [], hostB: number[] = [], hostLow: boolean[] = []
+  const ox = s.orders !== null && s.orders.nPolity > 0 ? s.orders : null // seat: Ally orders in force
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
-    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relR[r] < X.threat) continue
-    hostA.push(a); hostB.push(b)
+    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
+    // (seat: a party to an Ally order counts its rivals at the lower threat SEAT.allyThreat * threat, for the ordered pair only)
+    const low = ps.relR[r] < X.threat
+    if (low && !(ox !== null && ps.relR[r] >= X.threat * SEAT.allyThreat && (allyParty(ox, a) || allyParty(ox, b)))) continue
+    hostA.push(a); hostB.push(b); hostLow.push(low)
   }
   const H = hostA.length
   for (let i = 0; i < H; i++) {
@@ -262,12 +268,14 @@ function allianceStepLegacy(s: HistoryState, ps: PolityState): void {
       else if (hostB[i] === hostA[j]) { c = hostB[i]; x = hostA[i]; y = hostB[j] }
       else if (hostB[i] === hostB[j]) { c = hostB[i]; x = hostA[i]; y = hostA[j] }
       if (c < 0 || x === y) continue
+      const ordered = ox !== null && allyOrdered(ox, x, y) // seat:
+      if ((hostLow[i] || hostLow[j]) && !ordered) continue
       if (ps.pEnded[x] >= 0 || ps.pEnded[y] >= 0 || relationOf(ps, x, y) >= X.calm || atWar(ps, x, y) || allied(ps, x, y)) continue
       if (overlordOf(ps, x) === y || overlordOf(ps, y) === x || !inContact(s, ps.pPeople[x], ps.pPeople[y])) continue
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
       if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
-      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, repC7(ps.og, x, y))) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
+      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(repC7(ps.og, x, y)) : repC7(ps.og, x, y))) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }
   }
@@ -286,6 +294,14 @@ function repC7(og: GrudgeState | null, x: number, y: number): C7Factors | undefi
   if (f === undefined) return undefined
   C7F.reputation = f
   return C7F
+}
+
+/** seat: the C7 factors with the Ally order factor (after the clamp) added to `f` (oaths' reputation or none). */
+const C7S: C7Factors = {}
+export function seatC7(f: C7Factors | undefined): C7Factors {
+  C7S.balance = f?.balance; C7S.reputation = f?.reputation; C7S.affinity = f?.affinity; C7S.court = f?.court
+  C7S.seat = SEAT.allyMul
+  return C7S
 }
 
 /** p and q ally against c. */

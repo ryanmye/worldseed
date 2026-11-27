@@ -24,6 +24,7 @@
 // On defection the alliance ends Betrayed, e cedes the towns (Joined) and the war ends; if x's rivalry with q is >= turnR and
 // it can strike q (adv >= 1), it turns on its former ally.
 
+import { betrayOrdered } from '../orders/hooks.ts' // seat: Betray
 import { BondEnd, BondKind, EventType, GrievanceKind, RivalryPart, TOWN_POPULATION, WarOutcome } from '../../../contract.ts'
 import { whyOath, whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
@@ -209,7 +210,7 @@ export function betrayalStep(s: HistoryState, ps: PolityState, og: GrudgeState, 
     const tr = value + OATH.threatW * threatAt(s, ps, r, e, x) + wc * (1 + tired) - a
     const rp = a + OATH.bondW * bond + OATH.hostile * wc
     const E = noteExcess(og, oathExcess(delta, tr, rp, OATH.faithAlly, rulerPiety(s, x)))
-    if (rng.next() >= POLITY.step * OATH.defect * smoothstep(0, OATH.breakSpan, E)) continue
+    if (rng.next() >= POLITY.step * OATH.defect * smoothstep(0, OATH.breakSpan, E) && !(s.orders !== null && betrayOrdered(s.orders, x, q))) continue // (seat: Betray: the ordered ally defects; the draw is kept)
     // Defection: the Betrayal first, then the ceded towns (Joined), the peace and any new war.
     const turn = relationOf(ps, x, q) >= OATH.turnR && relIdx(ps, x, q) >= 0 && ps.relEdges[relIdx(ps, x, q)].length > 0 && advantageAt(s, ps, x, q) >= 1
     endBond(s, ps, k, BondEnd.Betrayed)

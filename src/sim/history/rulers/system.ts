@@ -32,7 +32,9 @@ import { Ctx, deathYear, drawLaw, ensureRulerPolities } from './state.ts'
 import type { RulerState } from './state.ts'
 import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim } from './marriage.ts'
 import { capitalFaith } from '../religion/system.ts' // religion:
-import { contestChanceOf, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
+import { contestChanceOf, heirEligible, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
+import { designated } from '../orders/hooks.ts' // seat: Designate
+import { SEAT } from '../seat/params.ts' // seat:
 import { finAccession } from '../finance/hooks.ts' // finance:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
 
@@ -445,6 +447,10 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
     clean = false
   } else {
     let heir = pickHeir(R, p, law, R.cognatic[people] === 1, year)
+    // seat (Designate): a named heir alive and lawful (a man unless the law is cognatic) succeeds; 1 the law's own pick, 2 not
+    let named = 0
+    const dz = s.orders !== null && s.orders.nPolity > 0 ? designated(s.orders, p) : -1
+    if (dz >= 0) for (let k = 0; k < R.hN[p]; k++) if (R.hBorn[p * H + k] === dz && heirEligible(R, p * H + k, R.cognatic[people] === 1, year)) { named = k === heir ? 1 : 2; heir = k; break }
     let how: number = AccessionHow.Inherited
     if (tier === Tier.Chiefdom && rng.next() < RULERS.chiefHouse) heir = -2 // (a chief from another family)
     else if (law === 2) { if (rng.next() < RULERS.electOther) heir = -2; else how = AccessionHow.Elected }
@@ -464,7 +470,8 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
     } else {
       const i = p * H + heir
       const S = SUCCESSION
-      const chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
+      let chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
+      if (named !== 0) chance *= named === 1 ? SEAT.designateLaw : SEAT.designateOver // seat: a designation against custom is contested more
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
         if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year)) // causes: (before the heir accedes)

@@ -15,6 +15,7 @@
 // Proxies without balance: theta(c -> x) = 0.5 * smoothstep(1, 2, advantageAt(c, x)); an alliance against c is worth
 // smoothstep(0.7, 1.2, R(x, c)).
 
+import { allyOrdered } from '../orders/hooks.ts' // seat:
 import { BondKind, EventType, RivalryPart } from '../../../contract.ts'
 import { whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
@@ -25,7 +26,7 @@ import type { PolityState } from './state.ts'
 import { Tier, inContact, tierOf } from './state.ts'
 import type { GrudgeState } from './grudgeState.ts'
 import { at, put } from './grudgeState.ts'
-import { advantageAt, alliances, allied, ally, overlordOf, subject } from './bonds.ts'
+import { advantageAt, alliances, allied, ally, overlordOf, seatC7, subject } from './bonds.ts'
 import { relIdx, relationOf } from './relations.ts'
 import { faithOf, grudge } from './grievances.ts'
 import { atWar } from './formation.ts'
@@ -136,7 +137,8 @@ export function allianceStepBalance(s: HistoryState, ps: PolityState, og: Grudge
       const base = ALLIANCE.chance * smoothstep(X.thetaMin, X.thetaFull, tt[i] < tt[j] ? tt[i] : tt[j]) * (c === h ? 1 + X.coalition : 1)
       const f = repFactor(og, x, y)
       if (f !== undefined) C7F.reputation = f
-      if (rng.next() >= c7Alliance(base, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, f !== undefined ? C7F : undefined)) continue
+      const ordered = s.orders !== null && s.orders.nPolity > 0 && allyOrdered(s.orders, x, y) // seat: Ally (the order factor; the threats are balance's own)
+      if (rng.next() >= c7Alliance(base, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(f !== undefined ? C7F : undefined) : f !== undefined ? C7F : undefined)) continue
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
       og.diag.balancing++
       if (c === h) og.diag.coalitionAlliances++
