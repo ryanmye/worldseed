@@ -1,5 +1,6 @@
 // Throne slice (lane N3): the reign's end in words (EVALUATION §4 Lane 3: "a reign-end summary card: what you decided, what
 // came of it, your epithet and a share link"). DOM-free: the controller shows it as a message, the bots log it.
+import { decodeOrders, encodeOrders } from '../../../contract.ts'
 import type { History, Ruler } from '../../../contract.ts'
 import { Ctx } from '../../sagas/facts.ts'
 import { reignFacts, rulerEpithet } from '../../sagas/epithets.ts'
@@ -44,11 +45,21 @@ export function reignSummary(h: History, r: Ruler, year: number): ReignSummary {
   return { ruler: r.id, title: `${rulerTitle(r)}${epithet ? ` ${epithet}` : ''}`, epithet, lines, callbacks: came.map((c) => c.d), year: end }
 }
 
-/** The share link: the page's address with the reign's year (a reload replays the same reign to that year). */
+/**
+ * The share link: the page's address with the reign's year (a reload replays the same reign to that year). lane N3b: the
+ * choices made after the reign (o= orders past year + 1, the year after its last pause) are dropped, so the replay stops at
+ * the first pause after it instead of the last pause of the whole seat, and the page starts its view there (year=).
+ */
 export function shareLink(href: string, year: number): string {
   try {
     const u = new URL(href)
     u.searchParams.set('year', String(year))
+    const o = u.searchParams.get('o')
+    if (o) {
+      const kept = decodeOrders(o).filter((x) => x.year <= year + 1)
+      if (kept.length > 0) u.searchParams.set('o', encodeOrders(kept))
+      else u.searchParams.delete('o')
+    }
     return u.href
   } catch { return href }
 }

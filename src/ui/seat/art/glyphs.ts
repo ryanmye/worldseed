@@ -31,11 +31,11 @@ const tower: Glyph = '<path d="M6 21V9h12v12M6 9V5h2v2h2V5h4v2h2V5h2v4"/><path d
 const GLYPH: Record<number, Glyph> = {
   [K.FightOn]: crossed, [K.Strike]: sword, [K.Crush]: sword, [K.CrushPretender]: sword,
   [K.SuePeace]: branch, [K.SeparatePeace]: branch,
-  [K.OfferTribute]: coins, [K.Pay]: coins, [K.Borrow]: coins, [K.Placate]: coins, [K.Levy]: scroll,
+  [K.OfferTribute]: coins, [K.Pay]: coins, [K.KeepPaying]: coins, [K.Borrow]: coins, [K.Placate]: coins, [K.Levy]: scroll,
   [K.SeekAlly]: linked, [K.StandBy]: linked, [K.Honour]: seal,
   [K.OfferMatch]: rings, [K.Arrange]: rings,
   [K.NameHeir]: crown, [K.LawDecides]: scales,
-  [K.Renounce]: broken, [K.Defy]: broken, [K.RepudiateDebts]: torn,
+  [K.Renounce]: broken, [K.Defy]: broken, [K.DefyWithAlly]: broken, [K.RepudiateDebts]: torn,
   [K.Purge]: dagger, [K.Fortify]: shield, [K.Quarantine]: anchor, [K.MoveCourt]: tower,
   [K.Settle]: road, [K.ExploreOn]: sail, [K.Embrace]: flame, [K.KeepWays]: stone,
   [K.TakeUp]: sprout, [K.Seek]: star, [K.Grant]: seal,

@@ -59,6 +59,11 @@ export interface SeatState {
   /** Per ambition asked (opts.ambitions order): year fulfilled (-1), and the years running of its condition. */
   ambitionYear: number[]
   ambitionRun: number[]
+  /** lane N3b (Unify): towns taken in the realm's wars since the seat was taken, the events counted so far, and the realm's
+   * share of its landmass at the first year judged (-1 not yet). */
+  townsTaken: number
+  ambSeen: number
+  share0: number
 }
 
 export function createSeatState(opts: SeatOptions): SeatState {
@@ -68,7 +73,7 @@ export function createSeatState(opts: SeatOptions): SeatState {
     taken: false, lostYear: -1, polity: -1, people: -1, house: -1, polityAt: [], peopleAt: [],
     dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [], dDiv: [], dCourt: [], dInfo: [], hud: [], heirStart: [0], heirBorn: [], heirFlags: [], heirReign: -1, heirLaw: -1, chSeen: 0,
     newRows: 0, lastCard: -1000000, lastKind: new Int32Array(DECISION_KIND_COUNT).fill(-1000000), epidemics: new Set(), evSeen: 0,
-    ambitionYear: amb.map(() => -1), ambitionRun: amb.map(() => 0),
+    ambitionYear: amb.map(() => -1), ambitionRun: amb.map(() => 0), townsTaken: 0, ambSeen: 0, share0: -1,
   }
 }
 

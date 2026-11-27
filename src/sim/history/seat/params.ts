@@ -130,6 +130,11 @@ export const SEAT = {
   unifyShare: 0.6, // (lane N3: was 0.8; the bots found it unreachable: seed 61343's realm peaks near 0.5 of its landmass unaided)
   unifyTowns: 5,
   unifyYears: 10,
+  // lane N3b: Unify is won by war: unifyTaken towns taken in the realm's wars since the seat was taken, and the share kept at
+  // least min(unifyShare, the share at the seat's year) - unifyKeep (the bots: shares moved <= 0.08 with any play; 10 towns
+  // and a 10-point margin are met by a warlike persona on 5 of the 6 curated setups and by no passive one)
+  unifyTaken: 10,
+  unifyKeep: 0.1,
   richesYears: 25,
   // ---- lane N3 (the throne slice; design defaults, tuned with the bots harness) ----
   // Heir: an heir younger than heirMinAge is never offered by name (the law may still pick the infant: "Let the law decide")
@@ -141,6 +146,13 @@ export const SEAT = {
   // with Unify as the first ambition, Opening's cooldown is openCoolUnify instead of cool[Opening]
   openAdvState: 1.25,
   openCoolUnify: 10,
+  // ---- lane N3b (throne balance r2) ----
+  // Overlord, looming: a vassal bond within absorbWarn years of VASSAL.absorbYears whose overlord already projects absorbNear x
+  // VASSAL.absorb x the realm's mass at its capital (the absorption test, a little early); the card comes every absorbEvery years
+  // (the plain Overlord card's 30 years let seed 7's old power be swallowed 3 years after its last "Pay / Defy")
+  absorbWarn: 25,
+  absorbNear: 0.8,
+  absorbEvery: 10,
 } as const
 
 /** Urgent kinds come whatever the gap since the last card. */
@@ -189,4 +201,6 @@ export const OPTION_RISK: Record<number, number> = {
   [SeatOptionKey.TakeUp]: 0.1, [SeatOptionKey.Seek]: 0.15, [SeatOptionKey.RepudiateDebts]: 0.9, [SeatOptionKey.Reclaim]: 1,
   [SeatOptionKey.SendRelief]: 0.2, [SeatOptionKey.RecallGeneral]: 0.7, [SeatOptionKey.JoinWar]: 0.75, [SeatOptionKey.Avenge]: 0.8,
   [SeatOptionKey.CallBluff]: 0.75, [SeatOptionKey.OfferTerms]: 0.2, [SeatOptionKey.RewardArmy]: 0.25,
+  // lane N3b: keep paying an overlord about to take the realm whole is the realm's end; defying it with an ally beside us less reckless than alone
+  [SeatOptionKey.KeepPaying]: 0.95, [SeatOptionKey.DefyWithAlly]: 0.5,
 }

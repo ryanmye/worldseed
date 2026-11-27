@@ -2,7 +2,7 @@
 // choice did"; "rulers change silently"; "the game never told me whether the match was accepted"). DOM-free: the card model,
 // the dashboard's feed and the bots read the same lines. Every line states a recorded outcome (an order's resolution, a
 // ruler's accession, a war's end) and dates it; it never claims a cause beyond what the order's own record says.
-import { DEFER_OPTIONS, DecisionKind, EventType, OrderKind, OrderStatus, ReignEnd, WarOutcome } from '../../../contract.ts'
+import { DEFER_OPTIONS, DecisionKind, EventType, OrderKind, OrderStatus, ReignEnd, SeatOptionKey, WarOutcome } from '../../../contract.ts'
 import type { History, Ruler } from '../../../contract.ts'
 import { reasonWords, statusAt } from '../../nudgeFormat.ts'
 import { AMBITION_WORDS, optionLabel, polityWord, subjectWord, townWord } from '../seatFormat.ts'
@@ -68,10 +68,17 @@ function outcomeLine(h: History, d: number, k: number, year: number): { year: nu
       if (R) return { year: R.acceded, text: `${crownedAs(h, R)}${crownedAs(h, R).includes(', crowned as') ? ',' : ''} took the throne in ${R.acceded}${R.how === 3 ? ', though the lords contested it' : ''}` }
       return ok ? { year: y, text: `the heir named succeeded (${y})` } : { year: y, text: `the heir named did not succeed (${y}${why ? `: ${why}` : ''})` }
     }
-    case OrderKind.Placate: return { year: y, text: `the magnates were paid; the throne was safer while it held (to ${y})` }
+    case OrderKind.Placate: {
+      // (lane N3b: the surfacing lane's cards give Placate as relief or the army's reward: say what was paid for)
+      const key = D.chosen[d] >= 0 ? D.optKey[D.optStart[d] + D.chosen[d]] : -1
+      if (key === SeatOptionKey.SendRelief) return { year: y, text: `relief reached the stricken, and the towns were calmer while it lasted (to ${y})` }
+      if (key === SeatOptionKey.RewardArmy) return { year: y, text: `the army was rewarded; no general rose against the throne while it held (to ${y})` }
+      return { year: y, text: `the magnates were paid; the throne was safer while it held (to ${y})` }
+    }
     case OrderKind.Purge: {
       const struck = h.events.some((e) => e.type === EventType.GeneralPurged && e.value === D.polity[d] && e.year >= D.year[d] && e.year <= y && (e.extra ?? 0) === 1)
-      return { year: y, text: struck ? `the general struck first (${y})` : `the general was broken; no general rose while it held (to ${y})` }
+      const recall = D.chosen[d] >= 0 && D.optKey[D.optStart[d] + D.chosen[d]] === SeatOptionKey.RecallGeneral
+      return { year: y, text: struck ? `the general struck first (${y})` : recall ? `the beaten general was recalled; no general rose while it held (to ${y})` : `the general was broken; no general rose while it held (to ${y})` }
     }
     case OrderKind.Fortify: return { year: y, text: ok ? `walls rose at ${townWord(h, o.actor, y)} (${y})` : `no walls were raised at ${townWord(h, o.actor, y)} (${why || 'nothing came of it'})` }
     case OrderKind.Quarantine: return { year: y, text: ok ? `the ports were closed to ships (${y})` : `the ports stayed open (${why || 'nothing came of it'})` }

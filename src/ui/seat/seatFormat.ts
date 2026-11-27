@@ -46,6 +46,8 @@ export const OPTION_LABEL: Record<number, string> = {
   [SeatOptionKey.SendRelief]: 'Send relief', [SeatOptionKey.RecallGeneral]: 'Recall the general', [SeatOptionKey.JoinWar]: 'Join the war',
   [SeatOptionKey.Avenge]: 'Avenge it', [SeatOptionKey.CallBluff]: 'Call the bluff', [SeatOptionKey.OfferTerms]: 'Offer terms',
   [SeatOptionKey.RewardArmy]: 'Reward the army',
+  // lane N3b
+  [SeatOptionKey.DefyWithAlly]: 'Defy, with an ally', [SeatOptionKey.KeepPaying]: 'Keep paying',
 }
 
 /** The court's own course (an option without orders): what the card says will happen. */
@@ -155,7 +157,9 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Match: return `The house ruling ${name} has a child to marry, and so has ours. A match would bind the two courts.`
     case DecisionKind.AllianceMade: return `${capFirst(name)} and ${us} are now allies against a common rival. The treaty binds us both.`
     case DecisionKind.AllianceSought: return `A rival at least our size threatens ${us}, and ${name} too. They might stand with us.`
-    case DecisionKind.Overlord: return `${us} pays ${name} as its overlord. The tribute is heavy; the overlord is far.`
+    case DecisionKind.Overlord: return D.info?.[d] === 1
+      ? `${us} has bowed to ${name} for most of a lifetime, and ${name} is now far the stronger at our very gates. Its envoys speak of one realm: if we go on paying, it will take us whole within a few years.`
+      : `${us} pays ${name} as its overlord. The tribute is heavy; the overlord is far.`
     case DecisionKind.Credit: return `The treasury of ${us} is short: debts are heavy, or pay falls behind, or a war must be paid for.`
     case DecisionKind.Betrayal: return `${us} fights beside ${name} in its war, and our levies are worn out. The enemy would take our own peace.`
     case DecisionKind.WarOnUs: return `In ${y} ${name} declared war on ${us}. Its armies gather at the border.`
@@ -293,6 +297,8 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
   [DecisionKind.Overlord]: {
     [K.Pay]: ['{year}: {us} is recorded paying its tribute to {them}.', '{us} paid what {them} asked, and bided its time.'],
     [K.Defy]: ['{year}: {us} stopped paying {them} its tribute; war, as the chroniclers expected, was not far behind.', '{us} sent {them} an empty chest.'],
+    [K.KeepPaying]: ['{year}: {us} is recorded still paying {them}, though its envoys spoke of one realm.', '{us} paid on, and waited for {them} to come.'],
+    [K.DefyWithAlly]: ['{year}: {us} is said to have sought friends abroad and stopped paying {them} in the same season.', '{us} found a friend and sent {them} an empty chest.'],
   },
   [DecisionKind.Match]: {
     [K.Arrange]: ['{year}: the court of {us} is said to have sought a match with {them}.', '{us} sent envoys to {them} to seek a bride.'], // (lane N3: sought, not made: their court may still say no)

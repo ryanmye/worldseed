@@ -1,7 +1,7 @@
 import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Order, PresetName, World, WorldOptions } from './contract.ts'
+import type { History as SimHistory, Order, PresetName, World, WorldOptions } from './contract.ts'
 import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import type { SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
@@ -417,6 +417,8 @@ let pendingCompare: Order[] | null = params.get('cmp') === '-' ? [] : params.get
 let compareId = 0
 /** seat=: the seat to resume once the world is in (null none). */
 let pendingSeat = decodeSeat(params.get('seat') ?? '')
+/** lane N3b: a seat link's year= (a reign's share link): the view starts there, not at the seat's first year. */
+const pendingSeatYear = params.has('year') ? Number(params.get('year')) : undefined
 /** seat mode (ui/seat/seatController.ts; created with the history view below). */
 let seatCtl: SeatController | null = null
 /** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
@@ -511,7 +513,7 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
       const s = pendingSeat
       pendingSeat = null
       worldOnlyId = -1
-      seatCtl.start(s, currentCradles)
+      seatCtl.start(s, currentCradles, pendingSeatYear)
     }
   } else if (msg.type === 'seatPause') {
     if (currentWorld) setTerrainHistory(currentWorld, msg.history)
@@ -834,9 +836,11 @@ const historyView = lazyHistoryView(
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 // (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
-appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts'), import('./ui/seat/throne/dashboard.ts'), import('./ui/story/dramaStrip.ts')])).then(([{ createSeatController }, { createDecisionCard }, { createSeatDashboard }, { setSeatMarks }]) => {
+appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts'), import('./ui/seat/throne/dashboard.ts'), import('./ui/story/dramaStrip.ts'), import('./ui/seat/throne/summary.ts')])).then(([{ createSeatController }, { createDecisionCard }, { createSeatDashboard }, { setSeatMarks }, { shareLink: reignShareLink }]) => {
 // lane N3: the seat dashboard (the context panel while seated) and the drama strip's seat marks
 const seatSeat = () => decodeSeat(new URL(window.location.href).searchParams.get('seat') ?? '')
+let dashShown = false
+let lastSeatHistory: SimHistory | null = null
 const dash = createSeatDashboard({
   host: overlay.right,
   seed: () => currentSeed,
@@ -846,19 +850,26 @@ const dash = createSeatDashboard({
     if (!s0) return
     // (a new ambition restarts the reign from its first year: the cards, and so the choices, may differ)
     const u = new URL(window.location.href)
+    if (k === s0.ambitions?.[0]) return
+    // (lane N3b: said before it happens, and clean: the choices and a share link's year= go with the old reign)
+    if (typeof window.confirm === 'function' && !window.confirm('Change the reign’s ambition? The reign starts again from its first year, and your choices so far are cleared.')) { dash.update(lastSeatHistory); return }
     u.searchParams.set('seat', encodeSeat({ ...s0, ambitions: [k, ...[0, 1, 2, 3, 4, 5].filter((x) => x !== k)] }))
     u.searchParams.delete('o')
+    u.searchParams.delete('year')
     window.location.assign(u.href)
   },
 })
 const seatCard = createDecisionCard(app) // (n4b: Show me's peek asks whether the card is still open)
 seatCtl = createSeatController({
   onUpdate: (h) => {
+    lastSeatHistory = h
     dash.update(h)
+    // lane N3b: on a phone, the throne's tab opens with the first decision of the reign (play-test: nobody found it)
+    if (h?.seat && h.seat.decisions.count > 0 && !dashShown) { dashShown = true; overlay.showPanelTab('seat-dash') }
     const D = h?.seat?.decisions
     setSeatMarks(h && h.seat && D ? { from: h.seat.seat.from, cards: Array.from(D.year) } : null)
   },
-  shareLink: (y) => { const u = new URL(window.location.href); u.searchParams.set('year', String(y)); return u.href },
+  shareLink: (y) => reignShareLink(window.location.href, y), // (lane N3b: the reign's own choices only, see summary.ts)
   card: seatCard, // (bots: the card is made here, the controller takes it; both in the seat chunk)
   post: (req) => {
     extending = 0
@@ -880,7 +891,7 @@ if (pendingSeat && currentWorld && worldOnlyId === requestId) {
   const s = pendingSeat
   pendingSeat = null
   worldOnlyId = -1
-  seatCtl.start(s, currentCradles)
+  seatCtl.start(s, currentCradles, pendingSeatYear)
 }
 }).catch((err) => console.error('seat mode failed to load', err))
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)

@@ -3328,11 +3328,11 @@ export type SeatEnd = (typeof SeatEnd)[keyof typeof SeatEnd]
 /** Ambitions the player may set (SeatOptions.ambitions), judged yearly while the seat is held; they change nothing in the run. */
 export const AmbitionKind = {
   Endure: 0, // hold the seat for SEAT.endureYears (300) years from its year
-  Unify: 1, // rule >= 60% (lane N3; was 80%) of the settled people of the capital's landmass, with >= 5 member towns, for 10 years running
+  Unify: 1, // lane N3b: >= 10 towns taken in the realm's wars since the seat's year, and its share of the capital's landmass's settled people (vassals count) >= min(60%, its share at the seat's year) - 10 points, with >= 5 member towns, for 10 years running
   Faith: 2, // a universal faith founded in a member town, or the state faith's holy city in the realm
   Riches: 3, // the richest realm (the sum of member wealth) for 25 years running
   Union: 4, // the house holds two thrones at once (a personal union, or two realms ruled by it)
-  Monument: 5, // a great landmark, or a town's great temple, finished by the realm while the seat is held (lane N3: judged; was never judged)
+  Monument: 5, // a great landmark (not a castle or palace) begun and finished by the realm while the seat is held (lane N3b; lane N3 also counted a town's temple)
 } as const
 export type AmbitionKind = (typeof AmbitionKind)[keyof typeof AmbitionKind]
 /** AmbitionKind rows 0-5 (seat); 6-15 character-mode (registry §3.2). */
@@ -3408,6 +3408,11 @@ export const SeatOptionKey = {
   OfferTerms: 165,
   /** Battle (won): Placate as the army's reward (the throne safer from its generals). */
   RewardArmy: 166,
+  // lane N3b (throne balance r2; 167-168, the next free values after surfacing's)
+  /** Overlord, the realm about to be taken whole: Defy with an Ally against the overlord (its rival) in the same breath. */
+  DefyWithAlly: 167,
+  /** Overlord, the realm about to be taken whole: no orders (pay on; the court's course, honest about where it leads). */
+  KeepPaying: 168,
 } as const
 export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
 
