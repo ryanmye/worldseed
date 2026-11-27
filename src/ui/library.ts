@@ -8,6 +8,7 @@
 // (sagas/index.ts).
 
 import type { History, World } from '../contract.ts'
+import { hasBeliefs } from './beliefsData.ts' // partisan: beliefs
 import { createPartisanTag, createPovSelect, fillPovSelect, parsePov, povKey, type Pov } from './sagas/povPicker.ts' // partisan:
 import { decadeOf, generateSaga, parseSubject, sagaMarkdown, sagaSubjectValid, sagaText, subjectKey, type Saga, type SagaSubject } from './sagas/index.ts'
 import { Ctx, topBy } from './sagas/facts.ts'
@@ -355,7 +356,7 @@ export function createLibrary(deps: LibraryDeps): Library {
       saga = null
     } else {
       fillPovSelect(povSel, history, world, told, pov)
-      tag.set(pov)
+      tag.set(pov, hasBeliefs(history))
       saga = generateSaga(history, world, subject, legend, told, pov)
       renderSaga(text, saga, (r) => { subject = r.subject; show() }, 'h2')
       if (pov) text.prepend(tag.el)

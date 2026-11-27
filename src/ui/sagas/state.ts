@@ -15,7 +15,7 @@ import { Refs } from './refs.ts'
 import { battleScenes, conversionScene, pickScenes, plagueScene, sackScene, SCENE_T, siegeScenes, workScene, type Scene } from './scenes.ts'
 import { battlesOf } from '../battlesData.ts' // battles:
 import { warCalled, warCalledBy, warName } from './wars.ts'
-import { heroOf, PARTISAN_T, partisanEnd, suffixOf, tollWords, villainOf } from './partisan.ts' // partisan:
+import { believedLines, foeTitle, heroOf, PARTISAN_T, partisanEnd, suffixOf, tollWords, villainOf } from './partisan.ts' // partisan:
 import { reignChapters, REIGN_T } from './reigns.ts'
 import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
 import { FIN_T, financeLines } from './finance.ts' // finance:
@@ -322,7 +322,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
     const fall = conq.filter((e) => c.capital(p, Math.max(0, e.year - 1)) === e.settlement && LN!.sideOfWar(e.value, Y).lost).pop()
     if (fall) {
       const foe = W.attacker[fall.value] === p ? W.defender[fall.value] : W.attacker[fall.value]
-      p3.push(v.p('lostWarCapital', { cap: c.name(fall.settlement, fall.year), foe: c.ptitle(foe, fall.year), year: fall.year }))
+      p3.push(v.p('lostWarCapital', { cap: c.name(fall.settlement, fall.year), foe: foeTitle(c, foe, fall.year), year: fall.year }))
     }
     const vil = villainOf(c, p)
     if (vil) p3.push(vil.ruler >= 0 ? v.p('villain', { ruler: c.ruler(vil.ruler), foe: c.ptitle(vil.foe, vil.year), cap: c.name(c.capital(p, Y), Y) }) : v.p('villainRealm', { foe: c.ptitle(vil.foe, vil.year), cap: c.name(c.capital(p, Y), Y) }))
@@ -346,7 +346,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   if (part) p3.push(v.p('partitioned', { year: part.year }))
   p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
   p3.push(...financeLines(c, v, p)) // finance: loans, defaults, bankrupt wars (finance.ts)
-  p3.push(...intrigueLines(c, v, p)) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts)
+  p3.push(...((LN && believedLines(c, v, p, wars, legend)) || intrigueLines(c, v, p))) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts); partisan: as the teller's court believed them (partisan.ts believedLines)
   section('hWar', p3.join(' '), ['sack', 'plague', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 
   // ---- faith and great works ----
