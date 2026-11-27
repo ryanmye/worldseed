@@ -5,11 +5,13 @@
 //   of object arrays such as `settlements`).
 // - A typed array whose type a plan widened is copied back to its 8cabf09 type (e.g. `IdeaAdoptions.idea` Uint16 → Uint8,
 //   exact while every id is < 256).
-// - `events` are kept as they are: with every new option off, no new event exists.
+// - `events` are kept as they are: with every new option off (preset 'off', G0_OFF_GOLDENS) no new event exists; under the
+//   realistic default (G0_GOLDENS) the new systems' events are hashed too.
 // - Anything the 8cabf09 shape did not see (an array that was empty in every sampled run, a primitive) is kept as is.
 //
 // On 8cabf09 the projection is the identity, so hashBase equals hashValue there and G0 is the three perf goldens
-// (seed 1 923881e7cd3fe59b, 42 3bac8db3dfd723b5, 1234 2bb9f72e9e99433d at 2000 years, default options).
+// (seed 1 923881e7cd3fe59b, 42 3bac8db3dfd723b5, 1234 2bb9f72e9e99433d at 2000 years, every new option off): G0_OFF_GOLDENS
+// since the realistic default (presets.ts), whose own goldens are G0_GOLDENS.
 // The shape (`BASE_SHAPE`) was recorded once on 8cabf09 by `scripts/g0.ts --schema` and is frozen: never regenerate it on a
 // later tree (that would fold new fields into the base).
 import type { History } from './contract.ts'
@@ -19,8 +21,18 @@ import { BASE_SHAPE } from './hashBaseShape.ts'
 /** A recorded shape: 0 anything (kept as is), a typed array's constructor name, an object's keys, or an array's element shape. */
 export type Shape = 0 | string | { o: Record<string, Shape> } | { a: Shape }
 
-/** The goldens of G0: hashBase of simulateHistory(generateWorld(seed), { years: 2000 }) with every new option false. */
-export const G0_GOLDENS: Readonly<Record<number, string>> = { 1: '923881e7cd3fe59b', 42: '3bac8db3dfd723b5', 1234: '2bb9f72e9e99433d' }
+/**
+ * The goldens of G0: hashBase of simulateHistory(generateWorld(seed), { years: 2000 }) under the default preset, realistic
+ * (owner decision (b), 2026-11-27: grudges, finance, beliefs + barriers, battles, society, disasters + DX.feedback on; see
+ * src/sim/history/presets.ts). Its events include the new systems' events: a lane that changes one of them changes G0, and
+ * re-records it here with the coordinator's sign-off. A lane whose own feature is off keeps it.
+ */
+export const G0_GOLDENS: Readonly<Record<number, string>> = { 1: '086a0ba67ed15ca6', 42: 'b81096d393b32e50', 1234: '8b177fd80d554a37' }
+/**
+ * G0-off: the same with preset 'off' (every post-8cabf09 system off; what a link without v= replays): the 8cabf09 perf goldens,
+ * the stable identity for every lane.
+ */
+export const G0_OFF_GOLDENS: Readonly<Record<number, string>> = { 1: '923881e7cd3fe59b', 42: '3bac8db3dfd723b5', 1234: '2bb9f72e9e99433d' }
 export const G0_YEARS = 2000
 
 type TypedCtor = new (src: ArrayLike<number>) => ArrayBufferView

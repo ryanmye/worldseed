@@ -152,7 +152,7 @@ function within(world: World, c: number, h: number, mark: Int32Array, gen: numbe
   }
 }
 
-export function createDisasters(world: World, terrain: Terrain, region: Uint16Array, R: number): DisasterState {
+export function createDisasters(world: World, terrain: Terrain, region: Uint16Array, R: number, feedback: boolean = DX.feedback): DisasterState {
   const seed = world.seed
   const N = world.grid.cellCount
   const P = world.grid.positions
@@ -272,14 +272,14 @@ export function createDisasters(world: World, terrain: Terrain, region: Uint16Ar
     qCell: Int32Array.from(qc), qCum, qConv: Uint8Array.from(qv), rate7, rupture,
     rT, rRain, rLat, rHemi, rMon, rLand, landTotal, kT, kP, fOff, fCell,
     gPhi, gC, gT, rPhi, rC: DX.rSd * Math.sqrt(1 - rPhi * rPhi), pPhi, pC: DX.pSd * Math.sqrt(1 - pPhi * pPhi),
-    rTa, rPa, bias: volcBias(volcShape(DX.feedback)), shape: volcShape(DX.feedback), rTv: new Float64Array(R), D: new Float64Array(R), forcing: [], forcingS: [],
+    rTa, rPa, bias: volcBias(volcShape(feedback)), shape: volcShape(feedback), rTv: new Float64Array(R), D: new Float64Array(R), forcing: [], forcingS: [],
     eruptVolc: -1, eruptVei: 0, eruptS: 0, eruptRow: -1, quakeCell: [], quakeM10: [], floodU: new Float64Array(R),
     dBelow: new Int16Array(R), dAbove: new Int16Array(R), dRow: new Int32Array(R).fill(-1), dFirst: new Int32Array(R),
     slowRing: new Float64Array(DX.epochWindow), slowSum: 0, epoch: 0, epochRow: -1,
     cap, local: new Float64Array(cap).fill(1), localLeft: new Int16Array(cap), localList: [],
     struckRow: new Int32Array(cap).fill(-1), struckLoss: new Float32Array(cap), struckYear: new Int16Array(cap).fill(-1),
     yearStruck: [], yearShare: [], yearFlood: [],
-    feedback: DX.feedback, badRun: new Int16Array(R), relieved: new Uint8Array(cap),
+    feedback, badRun: new Int16Array(R), relieved: new Uint8Array(cap),
     rows: emptyRows(), tempSeries: [0], volcSeries: [0], harvestSeries: [1],
     diag: { eruptions: [0, 0, 0], quakes: 0, quakeRows: 0, tsunamis: 0, floods: 0, floodRows: 0, destroyed: 0, clampLoss: 0, clampGain: 0, regionYears: 0, clampVolc: 0, winterYears: [], fbBad: 0, fbExhausted: 0, fbRelief: 0, fbUnpaid: 0 },
     mark: new Int32Array(N), markGen: 0, queue: new Int32Array(N),

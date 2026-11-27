@@ -1,12 +1,13 @@
 # worldseed player primer
 
-Version: 1 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 2 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
 
 Changelog:
 - v1 (2026-11-27, lane/bots): first version, from origin/main f20cb5f.
+- v2 (2026-11-27, lane/setup merge): presets (the start page's History toggle, `v=2`, `preset=`, per-switch overrides) and the throne link.
 
 ## 1. Starting a world
 
@@ -16,8 +17,18 @@ Changelog:
 - **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
   timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write
   `lang=1`, so a link without it gets the older names.
-- **Presets:** on f20cb5f there is no `preset=` parameter. Lane/setup is adding `preset=dramatic|realistic` (realistic is
-  the default). The bot harness takes `--preset` and fails loudly until the preset exists.
+- **Presets** (src/sim/history/presets.ts): the start page has a **History** toggle, **Realistic** (the default: battles,
+  disasters, debts and grudges, tuned against real history) or **Dramatic** (everything on: merchant houses, cold wars,
+  absentee rulers and city-states too). The preset is part of the world, like the seed: the same seed under another preset
+  is another history. The bot harness takes `--preset`.
+- **Throne link:** under Start, **Or take a throne** opens a curated world in seat mode (seed 61343,
+  `seat=polity:0:700`, with the chosen preset): you rule a realm from year 700 and decisions come to you as cards.
+- **URL keys for presets:** `v=2` marks a link made with the presets; new worlds write it. A link without `v` is an old
+  link and replays with every newer system off (preset `off`), so old share and seat links keep their history. With `v=2`,
+  no `preset=` means realistic; `preset=dramatic` or `preset=off` pick the others. Each switch can be overridden over the
+  preset with `<key>=1` or `<key>=0`: `oaths`, `balance`, `arms`, `families`, `finance`, `society`, `beliefs`, `barriers`,
+  `disasters`, `battles`, `coldWars`, `warRestraint`, `absentee`, `causes`, `governments` (for example
+  `preset=dramatic&battles=0` is the dramatic world without battles).
 - **Loading:** the bar reads "Simulating…" and then "Drawing the map…". The first ~20 years play at the intro rate of 20
   years a second (timeline.ts INTRO_YEARS_PER_SECOND); after that, 1× is 20/3 ≈ 6.7 years a second.
 

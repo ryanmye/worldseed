@@ -27,7 +27,9 @@
 //   - a new or changed measure: rerun on a tree where G0 holds, with every post-8cabf09 option off (default until R29 flips):
 //       node --experimental-strip-types --no-warnings src/sim/history/realismStats.ts 1 7 42 1234 --json --opts '<all new
 //       options false>' > docs/realism-baseline.jsonl     (or bash scripts/realism-sweep.sh docs/realism-baseline.jsonl 2 0 1 7 42 1234)
-//     then update REALISM_BASELINE. The harness reads only 8cabf09 History fields, so those rows equal 8cabf09's.
+//     then update REALISM_BASELINE. The harness reads only 8cabf09 History fields, so with preset 'off' the rows equal 8cabf09's.
+//     Since the realistic default (2026-11-27) the baseline is the default history: rerun with --opts '{}' after any change to
+//     a realistic system (coordinator sign-off), and re-record the null ensemble with it.
 //   - moving the anchor itself (e.g. tightening it at a phase exit): coordinator decision, recorded in MASTER-PLAN §6.
 //   The 22-seed rows of the same history are in docs/realism-sweep22.jsonl (re-record with the sweep script, all 22 seeds).
 //   The null ensemble docs/realism-noise.jsonl (--noise) is re-recorded with the baseline: the same runs with --opts
@@ -433,16 +435,18 @@ export function formatVs(a: Row[], b: Row[]): string {
 
 // ---------------------------------------------------------------------------
 // Ratchet (MASTER-PLAN §2.7, §4.2). The committed baseline docs/realism-baseline.jsonl holds the 4-seed rows (--boot 0) of the
-// 8cabf09 history (any tree where G0 holds gives the same rows with default options: the harness reads only 8cabf09 fields).
+// default history: since 2026-11-27 the realistic preset (any tree where G0 holds gives the same rows with default options; the
+// null ensemble docs/realism-noise.jsonl, 13 members x 4 seeds, and the 22-seed sweep were re-recorded with it: score null mean
+// 0.3483 sd 0.0300, in range 46.5 sd 3.8). The 8cabf09 rows are those of preset 'off' (--opts '{"preset":"off"}').
 // REALISM_BASELINE is its score under the current TARGETS; realismStats.test.ts fails if the two drift apart, so a band edit
 // must re-record the number in the same commit.
 
-/** The committed baseline's score under the current TARGETS, recomputed with the MASTER-PLAN §2.7 bands: 0.399916 (it was
- *  0.401521 under the old epi bands; the plan's quoted 0.404 does not reproduce from its own main4.jsonl rows). This is the
- *  phase-exit cap (§4.2). */
-export const REALISM_BASELINE = { file: 'docs/realism-baseline.jsonl', seeds: REALISM_SEEDS, score: 0.399916, inRange: 45, total: 104 }
-/** The same history's 22-seed sweep (recorded, not a gate): 0.418184 (old bands 0.419233; the plan quoted 0.421). */
-export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seeds: REALISM_SWEEP_SEEDS, score: 0.418184, inRange: 212, total: 572 }
+/** The committed baseline's score under the current TARGETS. Re-recorded 2026-11-27 under the realistic default (owner decision
+ *  (b), presets.ts; lane/setup): 0.371197, 48/104 in range (REJUDGE.md's all-on + DX.feedback row, 0.3712, reproduced). The
+ *  8cabf09 (preset 'off') baseline was 0.399916, 45/104. This is the phase-exit cap (§4.2). */
+export const REALISM_BASELINE = { file: 'docs/realism-baseline.jsonl', seeds: REALISM_SEEDS, score: 0.371197, inRange: 48, total: 104 }
+/** The same history's 22-seed sweep (recorded, not a gate): 0.371930, 246/572 (preset 'off': 0.418184, 212/572). */
+export const REALISM_SWEEP_BASELINE = { file: 'docs/realism-sweep22.jsonl', seeds: REALISM_SWEEP_SEEDS, score: 0.37193, inRange: 246, total: 572 }
 
 /** Per-PR guard: the score may rise by at most this much over the reference (realism-metrics.md section 6). Phase exit uses 0. */
 export const REALISM_TOL = 0.03

@@ -2333,7 +2333,22 @@ export interface Structure {
   lostYear: number
 }
 
+/**
+ * A named bundle of switches (src/sim/history/presets.ts; URL `preset=`, link version `v=`): realistic is the default (the
+ * merged systems that pass the noise-aware realism ratchet), dramatic every merged system on, off the history before the
+ * presets (every post-8cabf09 system off: what a link without `v=` replays).
+ */
+export type PresetName = 'off' | 'realistic' | 'dramatic'
+
 export interface HistoryOptions {
+  /**
+   * preset (EVALUATION.md §3 P1; owner decision (b), 2026-11-27): fills the switches this object leaves undefined (explicit
+   * values win; expandPreset) and sets the preset's params for the run (DX.feedback; BATTLE_MODE.neutral). Default 'realistic'
+   * (PRESET_DEFAULT): grudges (oaths, balance, arms), finance, beliefs and barriers, battles with their modifiers, society and
+   * disasters with DX.feedback. 'off' is every post-8cabf09 system off (the G0-off identity; old links, without `v=`, replay
+   * with it). 'dramatic' adds families, cold wars with war restraint, and causes.
+   */
+  preset?: PresetName
   /** realism null ensemble only (realismStats --noise): discard `draws` draws of the migration (or structures) stream at `year`: the same model, another realisation of the trajectory. Default none: no draws. */
   jitter?: { year: number; draws: number; stream?: 'migration' | 'structures' }
   /** Length of the run in years. Default 2000. */
@@ -2445,9 +2460,11 @@ export interface HistoryOptions {
   disasters?: boolean
   /**
    * battles: every contest of a war is a recorded battle (History.battles) with its site, armies, commanders, weather and
-   * Lanchester resolution, and the commanders of the armies (History.commanders) (needs polities). Default false for now;
-   * with BATTLE.neutral (the default while the modifiers are untuned) the battles are recorded but change nothing: every other
-   * field is the same as with battles off (events aside, which gain 220-227).
+   * Lanchester resolution, and the commanders of the armies (History.commanders) (needs polities). On in the realistic and
+   * dramatic presets (BATTLES_ON, the module default, is false: preset 'off' and old links). BATTLE_MODE.neutral is false on
+   * main, so `battles: true` has the modifiers (terrain, weather, supply, surprise, sickness, rout), the escalating toll, war
+   * tempo, naval blockades and pretenders; only with BATTLE_MODE.neutral (a test/harness param) are the battles recorded
+   * without changing anything else (events aside, which gain 220-227).
    */
   battles?: boolean
   /**

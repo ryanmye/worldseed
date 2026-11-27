@@ -3,6 +3,8 @@
 // shows up as one entry silently replacing the other; this test reads the source too, so neither can slip through.
 import { describe, expect, it } from 'vitest'
 import contractSource from './contract.ts?raw'
+import * as contract from './contract.ts'
+import { DeferenceCause } from './sim/history/rulers/deference.ts'
 import {
   DECISION_KIND_COUNT, EventType, ORDER_KIND_COUNT, OrderKind, decodeOrders, describeDecisionKinds, describeOrderKinds, encodeOrders, orderKindReserved,
   type Order,
@@ -32,6 +34,28 @@ describe('EventType registry', () => {
       byId.set(v, [...(byId.get(v) ?? []), k])
     }
     expect([...byId.values()].filter((names) => names.length > 1)).toEqual([])
+  })
+})
+
+describe('shared enums (docs/REGISTRY.md)', () => {
+  // Every exported enum object of contract.ts (a PascalCase const of numbers), plus DeferenceCause (rulers/deference.ts): no two
+  // names share a value. Plans written in parallel reserve values in prose; this catches two lanes landing the same value.
+  const enums = Object.entries({ ...contract, DeferenceCause } as Record<string, unknown>).filter(
+    ([k, v]) => /^[A-Z][a-z]/.test(k) && v !== null && typeof v === 'object' && !Array.isArray(v) && !ArrayBuffer.isView(v)
+      && Object.values(v as object).length > 1 && Object.values(v as object).every((x) => typeof x === 'number'),
+  ) as [string, Record<string, number>][]
+  it('the scan sees the registry enums', () => {
+    const names = enums.map(([k]) => k)
+    for (const k of ['EventType', 'OrderKind', 'DecisionKind', 'GrievanceKind', 'UnrestPart', 'RivalryPart', 'ReignEnd', 'AccessionHow', 'SeatOptionKey', 'SeatEnd', 'AmbitionKind', 'CommanderFate', 'DeferenceCause']) expect(names, k).toContain(k)
+  })
+  it('no enum value is used by two names', () => {
+    const dups: string[] = []
+    for (const [name, o] of enums) {
+      const by = new Map<number, string[]>()
+      for (const [k, v] of Object.entries(o)) by.set(v, [...(by.get(v) ?? []), k])
+      for (const [v, ks] of by) if (ks.length > 1) dups.push(`${name} ${v}: ${ks.join(', ')}`)
+    }
+    expect(dups).toEqual([])
   })
 })
 

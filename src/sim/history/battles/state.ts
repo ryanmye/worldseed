@@ -121,14 +121,15 @@ export interface BattleState {
   diag: BattleDiag
 }
 
-export function createBattles(s: HistoryState): BattleState {
+export function createBattles(s: HistoryState, neutralIn?: boolean): BattleState {
+  const neutral = neutralIn ?? BATTLE_MODE.neutral // (a preset's battleNeutral, else the shared param)
   return {
     rng: createRng(s.world.seed, 'history-battles'),
-    neutral: BATTLE_MODE.neutral,
-    toll: BATTLE_MODE.neutral ? 'baseline' : BATTLE_MODE.toll,
-    tempo: !BATTLE_MODE.neutral && BATTLE_MODE.tempo,
-    navalDecides: !BATTLE_MODE.neutral && BATTLE_MODE.navalDecides,
-    pretenders: !BATTLE_MODE.neutral && BATTLE_MODE.pretenders,
+    neutral,
+    toll: neutral ? 'baseline' : BATTLE_MODE.toll,
+    tempo: !neutral && BATTLE_MODE.tempo,
+    navalDecides: !neutral && BATTLE_MODE.navalDecides,
+    pretenders: !neutral && BATTLE_MODE.pretenders,
     tollU: 0, tollV: 0, realmP: 0, realmQ: 0, evSeen: 0, holySeen: 0, holy: new Set(),
     bWar: [], bYear: [], bKind: [], bCounter: [], bSite: [], bTarget: [], bFrom: [], bAtt: [], bDef: [], bCmdA: [], bCmdD: [],
     bMenA: [], bMenD: [], bLossA: [], bLossD: [], bDead: [], bWinner: [], bHours: [], bWeather: [], bFlags: [], bRatio: [],

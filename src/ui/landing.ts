@@ -30,6 +30,7 @@
 // fields and text fade out; the app's bars fade in. With prefers-reduced-motion it is a short fade instead. Then the page is removed and the document is the
 // app's again (no scrolling).
 
+import type { PresetName } from '../contract.ts'
 import { LANDING_COPY as C } from './landingCopy.ts'
 import './landing.css'
 
@@ -46,6 +47,13 @@ const UI = {
   plantDone: 'Done planting',
   planted: (n: number) => `${n} ${n === 1 ? 'hearth' : 'hearths'} planted · change`,
   plantTitle: 'Plant the first hearths: click places on the globe where the first peoples begin',
+  presetLabel: 'History',
+  presets: [
+    { value: 'realistic', label: 'Realistic', hint: 'Battles, disasters, debts and grudges, tuned against real history' },
+    { value: 'dramatic', label: 'Dramatic', hint: 'Everything on: merchant houses, cold wars and city-states too' },
+  ] as const,
+  throne: 'Or take a throne',
+  throneTitle: 'Rule a realm from year 700: decisions come to you as cards',
 }
 
 /** The years field's range (the timeline extends further later, to the app's MAX_YEARS). */
@@ -77,6 +85,12 @@ export interface LandingDeps {
   wake(): void
   /** Planting the first hearths begins (true; the page has scrolled the planet into view) or ends (false: Start, or the button again). */
   onPlant?(on: boolean): void
+  /** The preset the toggle starts on (preset= in the address; realistic without one). */
+  preset?: PresetName
+  /** The Realistic / Dramatic toggle changed (main.ts keeps it for Start; the address gets it at Start). */
+  onPreset?(p: PresetName): void
+  /** The address of the throne link for this preset (a seat= link: seat mode from the first card), or null for no link. */
+  throneHref?(p: PresetName): string | null
 }
 
 export interface Landing {
@@ -178,7 +192,39 @@ export function createLanding(deps: LandingDeps): Landing {
   plantBtn.type = 'button'
   plantBtn.title = UI.plantTitle
   plantBtn.setAttribute('aria-pressed', 'false')
-  form.append(fields, start, plantBtn)
+  // the preset toggle (presets.ts): two radio pills, full-width on a phone
+  const presetField = el('fieldset', 'landing-preset')
+  presetField.appendChild(el('legend', 'landing-label', UI.presetLabel))
+  const pills = el('div', 'landing-preset-pills')
+  const presetHint = el('p', 'landing-preset-hint')
+  let preset: PresetName = deps.preset ?? 'realistic'
+  const throne = el('a', 'landing-throne', UI.throne)
+  throne.title = UI.throneTitle
+  const setPresetUi = () => {
+    presetHint.textContent = UI.presets.find((x) => x.value === preset)?.hint ?? ''
+    const href = deps.throneHref?.(preset) ?? null
+    throne.hidden = href === null
+    if (href !== null) throne.href = href
+  }
+  for (const pr of UI.presets) {
+    const lab = el('label', 'landing-preset-pill')
+    const input = el('input', 'landing-preset-input')
+    input.type = 'radio'
+    input.name = 'landing-preset'
+    input.value = pr.value
+    input.checked = pr.value === preset
+    input.addEventListener('change', () => {
+      if (!input.checked) return
+      preset = pr.value
+      setPresetUi()
+      deps.onPreset?.(preset)
+    })
+    lab.append(input, el('span', 'landing-preset-text', pr.label))
+    pills.appendChild(lab)
+  }
+  presetField.append(pills, presetHint)
+  setPresetUi()
+  form.append(fields, presetField, start, plantBtn, throne)
   hero.append(title, subtitle, form)
 
   // ---------- the planet's slot ----------
