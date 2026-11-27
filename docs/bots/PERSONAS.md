@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 1 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 2 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -13,6 +13,9 @@ Rules for changing this file:
 Changelog:
 - v1 (2026-11-27): the five personas. Every persona declares every ambition (`amb=0.1.2.3.4.5`; judged only), so each run
   reports which ambitions were met. Greedy lists its target first.
+- v2 (2026-11-27, lane/n1): stances on the merged systems' option keys (Send relief, Recall the general, Join the war,
+  Avenge it, Call the bluff, Offer terms, Reward the army) and the eleven new card kinds. Aggressive takes Call the bluff,
+  Avenge it and Join the war; cautious takes them by the risk table as before (Send relief, Offer terms lowest).
 
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything:
@@ -35,7 +38,7 @@ Act like a sensible player before judging anything:
 ## aggressive
 - **Goal:** war and expansion through the cards actually offered.
 - **Risk appetite:** high. It prefers Strike, Fight on, Defy, Crush, Crush the pretender, Purge, Send settlers, Explore
-  further and Refuse the debts. Where nothing is warlike, it takes the boldest option that is not a Wait.
+  further, Refuse the debts, Call the bluff, Avenge it and Join the war. Where nothing is warlike, it takes the boldest option that is not a Wait.
 - **Defers:** never.
 - **Watches:** wars started and won, towns taken, realms ended.
 - **Prompt:** "You are a conqueror. Grow the realm by war and settlement. Whenever a card offers a war or a strike, take it.
