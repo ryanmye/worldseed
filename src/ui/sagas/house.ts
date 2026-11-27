@@ -9,6 +9,7 @@ import { list, num, plural, Voice, type PhraseTable } from './voice.ts'
 import { Book, type Saga } from './types.ts'
 import { OMEN_T, omenText, omensOfHouse } from './omens.ts'
 import { Refs } from './refs.ts'
+import { battlesOf } from '../battlesData.ts' // battles:
 
 const T: PhraseTable = {
   title: [['The Chronicle of the House of {name}'], ['The Saga of the House of {name}']],
@@ -24,6 +25,7 @@ const T: PhraseTable = {
   longest: [['The longest reign of the house was that of {ruler}, {years} years.'], ['Longest of its line reigned {ruler}, {years} winters.']],
   usurper: [['{ruler} seized a throne by force in {year}.'], ['In {year} {ruler} took a crown by the sword.']],
   battle: [['{ruler} fell in battle in {year}.'], ['{ruler} fell in the spear-storm in {year}.']],
+  commander: [['{name} of the house led armies in {n}.'], ['{name}, of its blood, led the host in {n}.']],
   marriages: [['It made {n} with other ruling houses.'], ['{n} it wove with other royal houses.']],
   unions: [['Through a marriage claim it once held two thrones at once, from {year}.'], ['From {year}, by a marriage claim, it wore two crowns at once.']],
   ended: [
@@ -78,6 +80,17 @@ export function houseSaga(c: Ctx, d: number, legend: boolean): Saga {
   if (us !== undefined) p2.push(v.p('usurper', { ruler: nm(us), year: rd.rulers[us].acceded }))
   const bt = reigns.find((r) => c.reignEndedBy(r) && rd.rulers[r].end === ReignEnd.Battle)
   if (bt !== undefined) p2.push(v.p('battle', { ruler: c.ruler(bt), year: rd.rulers[bt].ended }))
+  // battles: its most famous commander, a ruler in the field or a kinsman general (a reference to his saga)
+  const bdc = battlesOf(h)
+  if (bdc) {
+    let best = -1, bestN = 0
+    for (let k = 0; k < bdc.C.count; k++) {
+      if (bdc.C.dynasty[k] !== d || bdc.C.firstYear[k] > Y || !bdc.C.name[k]) continue
+      const n = bdc.byCommander[k].filter((b) => bdc.B.year[b] <= Y).length
+      if (n >= 3 && n > bestN) { best = k; bestN = n }
+    }
+    if (best >= 0) p2.push(refs.cite(v.p('commander', { name: bdc.C.name[best], n: plural(bestN, 'battle') }), { kind: 'commander', id: best }))
+  }
   const M = h.marriages
   if (M) {
     let n = 0

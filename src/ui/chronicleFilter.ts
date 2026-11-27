@@ -15,10 +15,13 @@ const RULERS = CHRONICLE_FILTERS.indexOf('Rulers'), FAITHS = CHRONICLE_FILTERS.i
 // ideas: one more (on its own line, found by name; offered only when the history has ideas)
 ;(CHRONICLE_FILTERS as string[]).push('Ideas')
 const IDEAS = CHRONICLE_FILTERS.indexOf('Ideas')
+// battles: one more (on its own line, found by name; offered only when the history has battles)
+;(CHRONICLE_FILTERS as string[]).push('Battles')
+const BATTLES = CHRONICLE_FILTERS.indexOf('Battles')
 /** The order the filter lists them in (indices into CHRONICLE_FILTERS, which stay the stored values): rulers and faiths beside politics. */
-export const CHRONICLE_FILTER_ORDER: readonly number[] = [0, POLITICS, RULERS, FAITHS, SETTLEMENT, TRADE, NATURE, SICKNESS, TRAVEL, IDEAS]
+export const CHRONICLE_FILTER_ORDER: readonly number[] = [0, POLITICS, BATTLES, RULERS, FAITHS, SETTLEMENT, TRADE, NATURE, SICKNESS, TRAVEL, IDEAS]
 /** Whether filter i is offered only when the history has entries of its kind (Rulers, Faiths: a history without them shows the filter as before). */
-export const isOptionalFilter = (i: number) => i === RULERS || i === FAITHS || i === IDEAS
+export const isOptionalFilter = (i: number) => i === RULERS || i === FAITHS || i === IDEAS || i === BATTLES
 
 /** Category (1 .. CHRONICLE_FILTERS.length - 1) of a chronicle entry of kind `kind` whose first member is `first` (null for non-event members). */
 export function entryCategory(h: History, kind: number, first: HistoryEvent | null): number {
@@ -27,6 +30,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (kind === EntryKind.Faiths || (kind === EntryKind.Single && first && isFaithEvent(first.type as number))) return FAITHS
   // ideas (120-123 and their groups)
   if (kind === EntryKind.Ideas || (kind === EntryKind.Single && first && (first.type as number) >= 120 && (first.type as number) <= 123)) return IDEAS
+  // battles (220-229)
+  if (kind === EntryKind.Single && first && (first.type as number) >= 220 && (first.type as number) <= 229) return BATTLES
   switch (kind) {
     case EntryKind.PolityGains:
     case EntryKind.Raids:

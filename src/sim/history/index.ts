@@ -136,6 +136,12 @@ import { RULERS } from './rulers/params.ts'
 import { createRulers } from './rulers/state.ts'
 import type { RulerDiag } from './rulers/state.ts'
 import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
+// battles: the battles of the wars, their commanders (battles/).
+import { assembleBattles, emptyBattleHistory } from './battles/assemble.ts'
+import { nameBattles, nameCommanders } from './battles/names.ts'
+import { BATTLES_ON } from './battles/params.ts'
+import { createBattles } from './battles/state.ts'
+import type { BattleDiag } from './battles/state.ts'
 // religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
 import { RELIGION } from './religion/params.ts'
 import { createReligionSystem, religionSnapshot, religionYear } from './religion/system.ts'
@@ -253,6 +259,8 @@ export interface HistoryDiagnostics {
   diseaseState?: DiseaseState
   /** rulers: counters of the rulers system (absent when it is off). */
   rulers?: RulerDiag
+  /** battles: counters of the battles system (absent when it is off). */
+  battles?: BattleDiag
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -458,6 +466,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // rulers: rulers and houses (they need the polities), unless switched off.
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
+  // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
+  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
+  s.bat = bat
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -721,6 +732,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
+        ...(bat && pol ? assembleBattles(bat, years, pol.pEnded, rulHist.rulers, nameBattles(world, bat, { settlements, renamings: renHist.renamings }, features, featureMap), nameCommanders(world, bat, naming, rulHist.rulers)) : emptyBattleHistory()), // battles: (named after the renamings)
         ...relHist, // religion:
         ...tourismHist, // tourism:
         renamings: renHist.renamings, // renaming:
@@ -749,6 +761,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:

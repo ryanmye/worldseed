@@ -314,6 +314,13 @@
   background: #f2f2e6;
   box-shadow: inset 0 0 0 1px #9ab;
 }
+/* battles: a crossed-blade red square */
+.ev-battle .ev-text::before {
+  border-radius: 1px;
+  background: #c8402c;
+  box-shadow: 0 0 0 1.5px #2a0c08;
+  transform: rotate(45deg) scale(0.85);
+}
 .ev-conquest .ev-text::before {
   border-radius: 1px;
   background: #e0735a;

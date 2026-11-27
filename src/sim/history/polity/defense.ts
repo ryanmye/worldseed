@@ -24,13 +24,17 @@ import { smoothstep } from '../../util.ts'
 import type { Terrain } from '../terrain.ts'
 import { DEFENSE } from './params.ts'
 
-export function buildDefense(world: World, T: Terrain): { defense: Float64Array; defenseD: Float64Array } {
+/** battles: the features of a land cell (PolityState.defenseFeat bits), read only by battles' choice of ground (no effect on `defense`). */
+export const DefFeat = { Hill: 1, River: 2, Bend: 4, Confluence: 8, Pass: 16, Marsh: 32, Mountain: 64, Wood: 128 } as const
+
+export function buildDefense(world: World, T: Terrain): { defense: Float64Array; defenseD: Float64Array; defenseFeat: Uint8Array } {
   const X = DEFENSE
   const N = T.cellCount
   const { neighborOffsets: off, neighbors: nb } = world.grid
   const elev = world.elevation, flow = world.flow
   const defense = new Float64Array(N).fill(1)
   const defenseD = new Float64Array(N)
+  const defenseFeat = new Uint8Array(N) // battles: (the bits below, as computed for the score)
   const island = 40 * (T.n / 48) * (T.n / 48)
   const river = (c: number): boolean => !T.sea[c] && !world.lake[c] && flow[c] >= RIVER_FLOW_THRESHOLD
   // Relief relative to surroundings, and the sea share, within two hops.
@@ -72,7 +76,8 @@ export function buildDefense(world: World, T: Terrain): { defense: Float64Array;
   for (let c = 0; c < N; c++) {
     if (T.sea[c]) continue
     let r = 0
-    if (prom[c] > 0) r += X.hill * (pHigh > pLow ? smoothstep(pLow, pHigh, prom[c]) : prom[c] >= pHigh ? 1 : 0)
+    let feat = 0 // battles:
+    if (prom[c] > 0) { const hl = pHigh > pLow ? smoothstep(pLow, pHigh, prom[c]) : prom[c] >= pHigh ? 1 : 0; r += X.hill * hl; if (hl >= 0.5) feat |= DefFeat.Hill }
     if (T.landmassSize[T.landmass[c]] < island) r += X.island
     r += X.peninsula * smoothstep(X.penLow, X.penHigh, seaShare[c])
     let rivers = 0, inflow = 0, lakes = 0
@@ -81,12 +86,14 @@ export function buildDefense(world: World, T: Terrain): { defense: Float64Array;
       if (river(j)) { rivers++; if (world.riverTo[j] === c) inflow++ }
       if (world.lake[j]) lakes++
     }
-    if (rivers >= 3) r += X.bend
+    if (rivers >= 3) { r += X.bend; feat |= DefFeat.Bend }
     const isRiver = river(c)
-    if (isRiver && inflow >= 2) r += X.confluence
-    if (isRiver) r += X.river
-    if (lakes >= 2) r += X.marsh
-    if (world.biome[c] === Biome.Mountain) r += X.mountain
+    if (isRiver && inflow >= 2) { r += X.confluence; feat |= DefFeat.Confluence }
+    if (isRiver) { r += X.river; feat |= DefFeat.River }
+    if (lakes >= 2) { r += X.marsh; feat |= DefFeat.Marsh }
+    if (world.biome[c] === Biome.Mountain) { r += X.mountain; feat |= DefFeat.Mountain }
+    const bm = world.biome[c]
+    if (bm === Biome.TemperateForest || bm === Biome.Taiga || bm === Biome.Rainforest) feat |= DefFeat.Wood
     // Pass: two neighbours rising passRise above c that are not neighbours of each other.
     const rise = elev[c] + X.passRise
     let pass = false
@@ -101,8 +108,9 @@ export function buildDefense(world: World, T: Terrain): { defense: Float64Array;
         if (!adj) pass = true
       }
     }
-    if (pass) r += X.pass
+    if (pass) { r += X.pass; feat |= DefFeat.Pass }
     raw[c] = r
+    defenseFeat[c] = feat
   }
   // Rank-based D among the habitable cells.
   const sortedRaw = new Float64Array(H)
@@ -116,5 +124,5 @@ export function buildDefense(world: World, T: Terrain): { defense: Float64Array;
     defenseD[c] = d
     defense[c] = 1 + 1.2 * d
   }
-  return { defense, defenseD }
+  return { defense, defenseD, defenseFeat }
 }

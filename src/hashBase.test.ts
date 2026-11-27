@@ -5,6 +5,7 @@ import { generateWorld, simulateHistory } from './sim/index.ts'
 import { hashValue } from './historyCache.ts'
 import { G0_GOLDENS, G0_YEARS, hashBase, project, projectBase } from './hashBase.ts'
 import type { History } from './contract.ts'
+import { BASE_SHAPE } from './hashBaseShape.ts'
 
 describe('hashBase', () => {
   it('projection: added keys dropped (top level and nested), widened typed arrays narrowed, events kept', () => {
@@ -18,8 +19,9 @@ describe('hashBase', () => {
   it('a field added to a History leaves hashBase unchanged', () => {
     const h = simulateHistory(generateWorld(5), { years: 200 })
     const base = hashBase(h)
-    const { why: _why, ...rest } = h // (causes: History.why is a later field)
-    expect(base).toBe(hashValue(rest)) // identity on the 8cabf09 shape
+    // identity on the 8cabf09 shape: hashValue of the History with only its 8cabf09 top-level keys (plans add top-level tables, e.g. battles)
+    const top = (BASE_SHAPE as unknown as { o: Record<string, unknown> }).o
+    expect(base).toBe(hashValue(Object.fromEntries(Object.entries(h).filter(([k]) => k in top))))
     const widened = { ...h, plannedField: new Float32Array(4), wars: { ...h.wars, plannedColumn: new Int32Array(h.wars.count) } } as unknown as History
     expect(hashBase(widened)).toBe(base)
     expect(hashValue(widened)).not.toBe(base)

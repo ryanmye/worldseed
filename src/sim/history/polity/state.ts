@@ -36,6 +36,8 @@ export interface PolityState {
   /** Static defensibility T in [1, 2.2] per cell, and D = (T - 1) / 1.2 in [0, 1]. */
   defense: Float64Array
   defenseD: Float64Array
+  /** battles: DefFeat bits per cell (defense.ts; read only by battles). */
+  defenseFeat: Uint8Array
   /** Land cells (elevation >= 0), ascending, and each cell's index among them (-1 for sea). */
   landCells: Int32Array
   landIndex: Int32Array
@@ -404,12 +406,12 @@ export function createPolityState(s: HistoryState): PolityState {
   const land: number[] = []
   const landIndex = new Int32Array(N).fill(-1)
   for (let c = 0; c < N; c++) if (!T.sea[c]) { landIndex[c] = land.length; land.push(c) }
-  const { defense, defenseD } = buildDefense(s.world, T)
+  const { defense, defenseD, defenseFeat } = buildDefense(s.world, T)
   // (two literals: V8 keeps an object literal of 128 or more properties in slow dictionary mode; one assigned on keeps it fast)
   const base = {
     rng: createRng(s.world.seed, 'history-polities'),
     rngWar: createRng(s.world.seed, 'history-war'),
-    defense, defenseD,
+    defense, defenseD, defenseFeat,
     landCells: Int32Array.from(land),
     landIndex,
     cap, seen: 0,

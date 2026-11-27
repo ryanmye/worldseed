@@ -10,7 +10,7 @@ import { list, num, people, plural, shareWords, Voice, type PhraseTable } from '
 import { Book, type Saga } from './types.ts'
 import { DIVINE_T, divineSummary, OMEN_T, omenText, ordersWhere } from './omens.ts'
 import { Refs } from './refs.ts'
-import { conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { battleScenes, conversionScene, landfallScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
 import { warName } from './wars.ts'
 
 const T: PhraseTable = {
@@ -159,6 +159,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
     ...topEv(EventType.CityStricken, (i) => (c.ev(i).extra ?? 0) * c.pop(c.ev(i).settlement, c.ev(i).year), 2).map((i) => plagueScene(c, v, i, legend)),
     ...topEv(EventType.LandmarkCompleted, (i) => { const L = h.landmarks; const k = c.ev(i).value; return L ? L.completedYear[k] - L.begunYear[k] : 0 }, 1).map((i) => workScene(c, v, i)),
     ...topEv(EventType.RulerConverted, (i) => { const p = c.polityOf(c.ev(i).settlement, c.ev(i).year); return p >= 0 ? c.pstat(p, c.snap(c.ev(i).year))?.pop ?? 0 : 0 }, 1).map((i) => conversionScene(c, v, i)),
+    ...battleScenes(c, v, 1, () => true), // battles: the world's greatest battle
   ], 4)
   // the omens: four at most, those that came true (in part or whole) first
   const omens = ordersWhere(c, () => true).sort((a, b) => Number(b.status === OrderStatus.Fulfilled || b.status === OrderStatus.Partly) - Number(a.status === OrderStatus.Fulfilled || a.status === OrderStatus.Partly)).slice(0, 4)
@@ -261,7 +262,7 @@ export function worldSaga(c: Ctx, legend: boolean): Saga {
           const byP = c.polityOf(worst.other, worst.year)
           if (byP >= 0) t4 += ' ' + v.p('worstSack', { place: c.place(worst.settlement, worst.year), year: worst.year, by: c.ptitle(byP, worst.year), share: shareWords(worst.value) })
         }
-        add(v.p('hWar'), t4, ['sack'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify])
+        add(v.p('hWar'), t4, ['sack', 'battle'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify])
       }
     }
   }

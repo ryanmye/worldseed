@@ -17,6 +17,7 @@ import { isOrderEvent } from './nudgeFormat.ts'
 import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
 
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
+import { battleOtherIsSettlement, isBattleEvent } from './battleFormat.ts' // battles:
 import { isFaithGroupKey, isRulersOrFaithEvent, rulersDropped, rulersGroupKey, rulersHiddenInList, rulersOtherIsSettlement } from './rulersFormat.ts'
 import { allianceGroupPolity, blockadeGroupPolity, bondGroupPolity, disputeGroupKeys, gainKey, isDisputeEvent, isCapitalFirstWalls, isMinorGain, isWallBuilt, revoltPolity, vassalSaidByPeace, wallGroupPolity } from './polityFormat.ts'
 
@@ -419,6 +420,7 @@ function isShownType(type: number): boolean {
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
   if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
+  if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
   if (isCradleEvent(type)) return true // 180: the first hearths the player planted (cradlesFormat.ts; the simulation's own choices are dropped: hiddenCradle)
   return (type >= EventType.Founded && type <= LAST_SHOWN_EVENT) || (type >= 20 && type <= 43) || (type >= EventType.TechniqueFound && type <= EventType.Panzootic) || isGoodsEvent(type) || isDiseaseEvent(type) || isTourismEvent(type) || isRenamingEvent(type) || isDisputeEvent(type) // 130 claims: border disputes; 110 renaming; 20-43: polities (35-43 the second version); 44-49: species, second version; 50-65 goods; 66-72 disease; 100-105 tourism
 }
@@ -427,6 +429,7 @@ function isShownType(type: number): boolean {
 function otherIsSettlement(type: number): boolean {
   if (rulersOtherIsSettlement(type)) return true // rulers, religion: the senior realm's capital, the marriage partner's, the parent faith's holy city, ...
   if (ideasOtherIsSettlement(type)) return true // ideas: where an idea came from, the first origin of an independent one
+  if (battleOtherIsSettlement(type)) return true // battles: the attackers' base, the capital a commander served
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
     type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
     type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic ||

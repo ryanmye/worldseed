@@ -265,6 +265,16 @@ R(T.SiegeLifted, {
   polities: (c, e) => warSides(c, e.value),
   upset: (c, e) => upsetOf(c, c.polityBefore(e.settlement, e.year), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1, e.year),
 })
+// battles (220-227): a battle by the men engaged (History.battles), on the war's sides; a commander's fall, renown, a general's coup
+const battleWar = (c: DramaCtx, e: HistoryEvent) => (c.h.battles && e.value >= 0 && e.value < c.h.battles.count ? c.h.battles.war[e.value] : -1)
+R(T.BattleFought, { cat: DramaCat.War, base: 5, scale: DramaScale.Town, polities: (c, e) => warSides(c, battleWar(c, e)), mag: (c, e) => (c.h.battles && e.value >= 0 && e.value < c.h.battles.count ? 4 * (c.h.battles.menA[e.value] + c.h.battles.menD[e.value]) : 0) })
+R(T.SiegeLaid, { cat: DramaCat.War, base: 3, scale: DramaScale.Town, polities: (c, e) => warSides(c, e.value) })
+R(T.CommanderFell, { cat: DramaCat.War, base: 5, scale: DramaScale.Town })
+R(T.CommanderRenowned, { cat: DramaCat.War, base: 4 })
+R(T.GeneralSeized, { cat: DramaCat.Dynasty, base: 7 })
+R(T.GeneralRose, { cat: DramaCat.War, base: 6 })
+R(T.GeneralTurned, { cat: DramaCat.War, base: 5, scale: DramaScale.Town })
+R(T.CommanderDismissed, { cat: DramaCat.War, base: 2 })
 R(T.Revolt, { cat: DramaCat.Politics, base: 3, scale: DramaScale.Town })
 R(T.Seceded, { cat: DramaCat.Politics, base: 4, mag: (c, e) => c.polityPeak(e.value, e.year, e.year + PEAK_HORIZON) })
 R(T.SuccessionCrisis, { cat: DramaCat.Dynasty, base: 3, polities: (_c, e) => [e.value], mag: (c, e) => c.polityPop(e.value, e.year) })

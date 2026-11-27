@@ -15,7 +15,8 @@ import { an, cap, list, num, people, plural, shareWords, times, Voice, type Phra
 import { Book, type Saga } from './types.ts'
 import { DIVINE_T, divineOrigin, OMEN_T, omenText, omensOfCity } from './omens.ts'
 import { Refs } from './refs.ts'
-import { foundingScene, pickScenes, plagueScene, sackScene, SCENE_T, workScene, type Scene } from './scenes.ts'
+import { battleScenes, foundingScene, pickScenes, plagueScene, sackScene, SCENE_T, siegeScenes, workScene, type Scene } from './scenes.ts'
+import { battlesOf } from '../battlesData.ts' // battles:
 
 const T: PhraseTable = {
   title: [['The Legend of {name}'], ['The Legend of {name}']],
@@ -275,6 +276,9 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     ...topBy(c.at(id, [EventType.Sacked]), (i) => c.ev(i).value * c.pop(id, Math.max(0, c.ev(i).year - 1)), 1).map((i) => sackScene(c, v, i)),
     ...topBy(c.at(id, [EventType.CityStricken]), (i) => (c.ev(i).extra ?? 0) + 0.001, 1).map((i) => plagueScene(c, v, i, legend)),
     ...topBy(c.at(id, [EventType.LandmarkCompleted]), (i) => { const L = h.landmarks; return L ? L.completedYear[c.ev(i).value] - L.begunYear[c.ev(i).value] : 0 }, 1).map((i) => workScene(c, v, i)),
+    // battles: the greatest battle fought for it, its longest siege
+    ...battleScenes(c, v, 1, (b) => h.battles.target[b] === id),
+    ...siegeScenes(c, v, 1, (g) => battlesOf(h)!.sieges[g].target === id),
   ], 2)
   const omens = omensOfCity(c, id)
   const placed = new Set<number>()
@@ -437,7 +441,7 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   else if (sieges.length > 3) push3(v.p('siege', { times: times(sieges.length), n: `${num(sieges.length)} sieges`, years: `the years between ${sieges[0]} and ${sieges[sieges.length - 1]}` }), sieges[0])
   const revolts = c.at(id, [EventType.Revolt])
   if (revolts.length > 0) push3(v.p('revolts', { times: times(revolts.length), first: revolts.length > 1 ? `, first in ${c.ev(revolts[0]).year}` : `, in ${c.ev(revolts[0]).year}` }), c.ev(revolts[0]).year)
-  section('hMasters', p3.map((t, i) => [t, p3y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '), ['sack'], [OrderKind.War, OrderKind.Peace, OrderKind.Seat, OrderKind.Fortify])
+  section('hMasters', p3.map((t, i) => [t, p3y[i], i] as const).sort((a, b) => a[1] - b[1] || a[2] - b[2]).map((x) => x[0]).join(' '), ['sack', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Seat, OrderKind.Fortify])
 
   // ---- great buildings ----
   if (L && greats.length > 0) {
