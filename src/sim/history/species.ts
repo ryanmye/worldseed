@@ -55,6 +55,7 @@
 // them (fitCtx). The rest of v2 is in speciesV2.ts and the files it runs.
 
 import { Biome, EventType, GOOD_COUNT, RIVER_FLOW_THRESHOLD, SpeciesCategory, TECH_FIELD_COUNT, TechField, TOWN_POPULATION } from '../../contract.ts'
+import { powD } from '../detMath.ts'
 import type { People, SpeciesInfo, TechniqueInfo, World } from '../../contract.ts'
 import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
@@ -332,8 +333,8 @@ let STAPLE0 = 0, HERD0 = 0
 for (const x of STAPLES) { if (x >= 32) throw new Error('species: staple id >= 32'); STAPLE0 |= 1 << x }
 for (const x of HERDS) { if (x >= 32) throw new Error('species: herd id >= 32'); HERD0 |= 1 << x }
 /** Second-word bits of the species ids >= 32, and of every item (those species, then the techniques from TECH_BIT). */
-const SPEC1 = S_COUNT > 32 ? (2 ** (S_COUNT - 32) - 1) | 0 : 0
-const ITEM1 = SPEC1 | ((2 ** K_COUNT - 1) << (TECH_BIT - 32))
+const SPEC1 = S_COUNT > 32 ? (powD(2, S_COUNT - 32) - 1) | 0 : 0
+const ITEM1 = SPEC1 | ((powD(2, K_COUNT) - 1) << (TECH_BIT - 32))
 /** Lowest set bit of a mask word (0..31). */
 function lowBit(m: number): number {
   return 31 - Math.clz32(m & -m)
