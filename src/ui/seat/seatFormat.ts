@@ -2,6 +2,16 @@
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
 import { DecisionKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds, settlementNameAt } from '../../contract.ts'
 import type { History } from '../../contract.ts'
+import { DramaCat, registerDrama } from '../story/drama.ts'
+
+// The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
+// events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
+registerDrama(270, { cat: DramaCat.Nudge, base: 7 }) // SeatTaken
+registerDrama(271, { cat: DramaCat.Nudge, base: 5 }) // SeatPassed
+registerDrama(272, { cat: DramaCat.Nudge, base: 7 }) // SeatLost
+registerDrama(273, { cat: DramaCat.Nudge, base: 7 }) // AmbitionFulfilled
+for (let t = 274; t <= 279; t++) registerDrama(t, { cat: DramaCat.Nudge, base: 3 })
+
 
 const DK = describeDecisionKinds()
 const OK = describeOrderKinds()
