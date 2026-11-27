@@ -121,7 +121,7 @@ export const SEAT = {
   crisisRepeat: 12,
   // Opening as a state lever: a neighbour at peace that we overmatch at the border by openAdvState (checked every 5 years);
   // with Unify as the first ambition, Opening's cooldown is openCoolUnify instead of cool[Opening]
-  openAdvState: 1.6,
+  openAdvState: 1.25,
   openCoolUnify: 10,
 } as const
 

@@ -6,6 +6,7 @@ import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
 import { houseOf } from './system.ts'
+import { overlordOf } from '../polity/bonds.ts'
 
 /** Ambitions of the year (after the seat is resolved; the seat is held). */
 export function seatAmbitions(s: HistoryState, st: SeatState): void {
@@ -26,7 +27,9 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         for (const id of s.living) {
           if (s.outpost[id] || s.terrain.landmass[s.cell[id]] !== L) continue
           all += s.pop[id]
-          if (id < ps.polity.length && ps.polity[id] === p) { ours += s.pop[id]; towns++ }
+          const q = id < ps.polity.length ? ps.polity[id] : -1
+          if (q === p) { ours += s.pop[id]; towns++ }
+          else if (q >= 0 && overlordOf(ps, q) === p) ours += s.pop[id] // (lane N3: a vassal's or tributary's land is unified under us too)
         }
         const now = towns >= SEAT.unifyTowns && ours >= SEAT.unifyShare * all
         st.ambitionRun[i] = now ? st.ambitionRun[i] + 1 : 0
