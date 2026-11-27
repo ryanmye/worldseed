@@ -20,6 +20,7 @@ import { COHESION, FORT, POLITY, UNREST } from './params.ts'
 import { armsQuality } from '../goods/hooks.ts' // goods:
 import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
+import { socNewPolity } from '../society/system.ts' // society:
 import { c4Reach } from '../compose.ts' // C4 stack
 import type { GrudgeState } from './grudgeState.ts' // oaths, balance, arms:
 import { grudgeEnded, grudgeNewPolity } from './grievances.ts' // oaths:
@@ -735,6 +736,7 @@ export function newPolity(s: HistoryState, ps: PolityState, capital: number, ori
   ps.alive.push(p) // (ids ascend)
   setPolity(s, ps, capital, p, 0)
   logEvent(s, EventType.PolityFounded, capital, parent >= 0 ? ps.pCapital[parent] : -1, p)
+  if (s.soc !== null) socNewPolity(s.soc, p, origin, parent) // society: its elites from the parent
   if (s.rul !== null) rulerNewPolity(s, ps, s.rul, p) // rulers: its first ruler
   if (ps.og !== null && parent >= 0) grudgeNewPolity(s, ps, ps.og, p, parent) // oaths: a successor takes up its parent's grievances
   return p

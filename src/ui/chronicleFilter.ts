@@ -67,6 +67,7 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t >= 20 && t <= 43) return POLITICS
   if (t >= 190 && t <= 194) return POLITICS // oaths, balance, arms
   if (t >= 210 && t <= 219) return POLITICS // finance (the money of states)
+  if (t >= 240 && t <= 249) return POLITICS // society (classes and the secular cycle)
   if (t >= 230 && t <= 239) return POLITICS // beliefs (intrigue between states)
   if (t === 166 || t === 167) return POLITICS // families: marriages into ruling houses, backed civil wars
   if (t >= 161 && t <= 169) return TRADE // families: the merchant houses

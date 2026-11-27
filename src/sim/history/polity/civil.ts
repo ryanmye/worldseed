@@ -31,6 +31,7 @@ import { FAR, clampAsab, endPolity, grainShare, grip, localOf, newPolity, projAt
 import type { PolityState } from './state.ts'
 import { declare } from './war.ts'
 import { distAcross, overlordOf } from './bonds.ts'
+import { socCivilMul } from '../society/api.ts' // society:
 
 const KEY = 1 << 20
 
@@ -160,7 +161,8 @@ export function crisisOpened(s: HistoryState, ps: PolityState, ts: TradeState, p
   const rng = ps.rng
   const members = membersOf(s, ps, p)
   const r = rivalCentre(s, ps, p, members)
-  if (r >= 0 && rng.next() < CIVIL.crisis * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)) { civilWar(s, ps, ts, p, r, members); return }
+  const x = CIVIL.crisis * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)
+  if (r >= 0 && rng.next() < (s.soc !== null ? x * socCivilMul(s, p) : x)) { civilWar(s, ps, ts, p, r, members); return } // (society h3: Ψ)
   if (tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop) >= Tier.Kingdom && rng.next() < CIVIL.partition) partition(s, ps, p, members)
 }
 
@@ -168,7 +170,8 @@ export function crisisOpened(s: HistoryState, ps: PolityState, ts: TradeState, p
 export function lowCohesion(s: HistoryState, ps: PolityState, ts: TradeState, p: number): void {
   const A = ps.pAsab[p]
   if (A >= CIVIL.lowA || ps.pMembers[p] < CIVIL.minMembers || ps.pSub[p] >= 0) return
-  if (ps.rng.next() >= POLITY.step * CIVIL.lowChance * (1 - A / CIVIL.lowA)) return
+  const x = POLITY.step * CIVIL.lowChance * (1 - A / CIVIL.lowA)
+  if (ps.rng.next() >= (s.soc !== null ? x * socCivilMul(s, p) : x)) return // (society h3: Ψ)
   const members = membersOf(s, ps, p)
   const r = rivalCentre(s, ps, p, members)
   if (r >= 0) civilWar(s, ps, ts, p, r, members)

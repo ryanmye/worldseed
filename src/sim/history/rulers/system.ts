@@ -34,6 +34,7 @@ import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim }
 import { capitalFaith } from '../religion/system.ts' // religion:
 import { contestChanceOf, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
 import { finAccession } from '../finance/hooks.ts' // finance:
+import { socCivilMul, socContest, socCrisisPlus } from '../society/api.ts' // society:
 import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
 
 const H = RULERS.heirs
@@ -464,7 +465,8 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
     } else {
       const i = p * H + heir
       const S = SUCCESSION
-      const chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
+      const c0 = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
+      const chance = s.soc !== null ? c0 + socContest(s, p) : c0 // (society h4: too many magnates)
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
         if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year)) // causes: (before the heir accedes)
@@ -517,14 +519,15 @@ function contested(s: HistoryState, ps: PolityState, R: RulerState, ts: TradeSta
   const S = SUCCESSION
   const rng = R.rng
   R.diag.contested++
-  ps.pCrisisUntil[p] = s.year + S.crisisMin + Math.floor(rng.next() * (S.crisisMax - S.crisisMin + 1))
+  ps.pCrisisUntil[p] = s.year + S.crisisMin + Math.floor(rng.next() * (S.crisisMax - S.crisisMin + 1 + (s.soc !== null ? socCrisisPlus(s, p) : 0))) // (society h4: longer)
   logX(s, EventType.SuccessionCrisis, ps.pCapital[p], -1, p, R.cur[p])
   if (ps.why) whyCrisis(ps.why, s.events.length - 1) // causes:
   if (ps.pMembers[p] < CIVIL.minMembers || ps.pSub[p] >= 0) return
   const members = membersOf(s, ps, p)
   const rc = rivalCentre(s, ps, p, members)
   if (ps.why && rc >= 0) whyCrisisRival(ps.why) // causes:
-  if (rc >= 0 && rng.next() < S.civil * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)) {
+  const cx = S.civil * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)
+  if (rc >= 0 && rng.next() < (s.soc !== null ? cx * socCivilMul(s, p) : cx)) { // (society h3: Ψ)
     R.ctx = Ctx.Civil; R.ctxDyn = rivalDyn; R.ctxBorn = rivalDyn >= 0 ? born : 0; R.ctxFemale = female; R.ctxDead = dead
     if (rivalDyn >= 0 && s.year - born < RULERS.majority) R.ctxBorn = s.year - RULERS.majority - R.rng.int(0, 20)
     if (civilWar(s, ps, ts, p, rc, members)) {

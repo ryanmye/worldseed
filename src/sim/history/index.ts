@@ -82,6 +82,11 @@
 // (their own stream); disasterYearEnd, before the snapshots, opens and closes droughts and epochs and records the climate
 // series. Volcano catalogue from 'history-volcanoes', names from 'names-volcano-<id>'. Switched off, the history is exactly
 // the one without it.
+// society (society/; HistoryOptions.society, off by default, needs polities): classes, wages and rents, elite overproduction and
+// Goldstone's political stress Ψ = MMP · EMP · SFD per polity every POLITY.step (after cohesionStep), and a yearly scan of the
+// log after rulerYear that counts internal violence and thins elites. RNG-free: its effects ride the existing single draws
+// (revolt hazard C2, civil war, contested successions, overthrow C3, supply C5, asabiya); 'history-society' is reserved.
+// Switched off, the history is exactly the one without it.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
@@ -136,6 +141,10 @@ import { ALIGN, ARMS, OATH } from './polity/params.ts' // oaths, balance, arms:
 import { FIN } from './finance/params.ts' // finance:
 import { createFinance } from './finance/state.ts' // finance:
 import { assembleFinance, emptyFinanceHistory, finSnapshot, finTradeSnapshot } from './finance/assemble.ts' // finance:
+import { SOC } from './society/params.ts' // society:
+import { createSociety } from './society/state.ts' // society:
+import type { SocietyDiag } from './society/state.ts' // society:
+import { assembleSociety, emptySocietyHistory, socSnapshot } from './society/assemble.ts' // society:
 import { BELIEF } from './beliefs/params.ts' // beliefs:
 import { createBeliefs } from './beliefs/state.ts' // beliefs:
 import { createBarriers } from './beliefs/barriers.ts' // barriers:
@@ -307,6 +316,8 @@ export interface HistoryDiagnostics {
   battles?: BattleDiag
   /** finance: its counters (absent when it is off). */
   finance?: FinanceDiag
+  /** society: its counters and per polity-step (year, polity, Ψ, ε, w, phase) rows (absent when it is off). */
+  society?: SocietyDiag
   /** beliefs: its counters (absent when it is off). */
   beliefs?: BeliefDiag
   /** barriers: the live state (read only; absent when it is off). */
@@ -535,6 +546,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // finance: crown treasuries and loans (they need the polities), unless switched off.
   if (pol && (options?.finance ?? FIN.enabled)) s.fin = createFinance(seed, s.count)
   const fin = s.fin
+  // society: classes, elites and the secular cycle (needs the polities; reads finance when it is on), unless switched off.
+  if (pol && (options?.society ?? SOC.enabled)) s.soc = createSociety()
+  const soc = s.soc
   // beliefs: what states believe of each other (they need the polities), unless switched off.
   if (pol && (options?.beliefs ?? BELIEF.enabled)) s.bel = createBeliefs(seed)
   const bel = s.bel
@@ -639,6 +653,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
     if (pol && pol.og) grudgeSnapshot(pol, pol.og) // oaths, arms: faithless, armament
     if (pol && fin) finSnapshot(s, pol, fin) // finance:
+    if (pol && soc) socSnapshot(pol, soc) // society:
     if (pol && bel) beliefSnapshot(pol, bel) // beliefs: true strength
     if (gx) merchantSnapshot(s, gx) // goods: merchant capital
     if (fx) familiesSnapshot(s, fx) // families: capital per family and per seat
@@ -826,6 +841,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...polHist, // polities:
         ...assembleGrudges(pol, snapshotCount), // oaths, balance, arms: (empty when off)
         ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
+        ...(pol && soc ? assembleSociety(soc, pol.P, snapshotCount) : emptySocietyHistory()), // society: (empty when off)
         ...(pol && bel ? assembleBeliefs(bel, pol.P, years, snapshotCount) : emptyBeliefHistory()), // beliefs: (empty when off)
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
@@ -866,6 +882,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
+        society: soc ? { ...soc.diag, steps: soc.diag.steps.slice() } : undefined, // society:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:
         barrierState: s.ib ?? undefined, // barriers:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:

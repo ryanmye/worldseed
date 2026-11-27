@@ -372,6 +372,16 @@ R(T.Repudiation, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag
 R(T.WarBankrupt, { cat: DramaCat.War, base: 5, polities: realmPolities })
 R(T.HousesRuined, { cat: DramaCat.Trade, base: 3 })
 
+// --- society (240-246, society-secular-cycles: only with HistoryOptions.society) ---
+// (headlines: a crisis of the social order, bondage imposed or ended, a nobility thinned; the rest are notices)
+R(T.SocialPhase, { cat: DramaCat.Society, base: 4, gate: (_c, e) => (e.extra ?? 0) === 2, polities: realmPolities, mag: realmPop })
+R(T.SerfdomImposed, { cat: DramaCat.Society, base: 4, polities: realmPolities, mag: realmPop })
+R(T.SerfdomEnded, { cat: DramaCat.Society, base: 4, polities: realmPolities, mag: realmPop })
+R(T.EliteThinned, { cat: DramaCat.Society, base: 4, polities: realmPolities })
+R(T.EliteFactions, { cat: DramaCat.Society, base: 3, polities: realmPolities })
+R(T.LabourDear, { cat: DramaCat.Society, base: 2, polities: realmPolities })
+I(T.Ennobled)
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })

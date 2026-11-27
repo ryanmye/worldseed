@@ -19,6 +19,7 @@ import { believedLines, foeTitle, heroOf, PARTISAN_T, partisanEnd, suffixOf, tol
 import { reignChapters, REIGN_T } from './reigns.ts'
 import { GRUDGE_T, grudgeLines } from './grudges.ts' // oaths, balance, arms:
 import { FIN_T, financeLines } from './finance.ts' // finance:
+import { SOC_T, societyLines } from './society.ts' // society:
 import { INT_T, intrigueLines } from './intrigue.ts' // beliefs:
 
 const T: PhraseTable = {
@@ -167,7 +168,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   const h = c.h
   const pd = c.pd!
   const x = pd.list[p]
-  const v = new Voice(c.seed, `state:${p}${c.povSuffix}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T, INT_T, PARTISAN_T)
+  const v = new Voice(c.seed, `state:${p}${c.povSuffix}`, legend, T, REIGN_T, SCENE_T, OMEN_T, GRUDGE_T, FIN_T, INT_T, PARTISAN_T, SOC_T)
   // partisan: the teller's stance toward this state ('' neutral, or no lens: the record as it is)
   const LN = c.lens
   const sfx = suffixOf(c, p)
@@ -346,6 +347,7 @@ export function stateSaga(c: Ctx, p: number, legend: boolean): Saga {
   if (part) p3.push(v.p('partitioned', { year: part.year }))
   p3.push(...grudgeLines(c, v, p)) // oaths, balance, arms: betrayals, broken truces, revenge, arms races (grudges.ts)
   p3.push(...financeLines(c, v, p)) // finance: loans, defaults, bankrupt wars (finance.ts)
+  p3.push(...societyLines(c, v, p)) // society: crises of the social order, bondage, the nobility (society.ts)
   p3.push(...((LN && believedLines(c, v, p, wars, legend)) || intrigueLines(c, v, p))) // beliefs: misjudged and preventive wars, cessions, bluffs, secret pacts, spies (intrigue.ts); partisan: as the teller's court believed them (partisan.ts believedLines)
   section('hWar', p3.join(' '), ['sack', 'plague', 'battle', 'siege'], [OrderKind.War, OrderKind.Peace, OrderKind.Fortify, OrderKind.Quarantine])
 

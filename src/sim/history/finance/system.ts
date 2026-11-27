@@ -20,6 +20,7 @@
 // Economic Studies 48(2): 289-309, https://doi.org/10.2307/2296886), serial defaulters (Reinhart & Rogoff 2009, This Time Is
 // Different), the fiscal-military state (Brewer 1989, The Sinews of Power); every number is a design default.
 
+import { socPatronO } from '../society/api.ts' // society:
 import { BondKind, EventType, GrievanceKind, LenderKind, LoanEnd, PolityEnd, WarKind } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { CLASS } from '../goods/params.ts'
@@ -156,7 +157,9 @@ export function fiscalYear(s: HistoryState, ps: PolityState, fin: FinanceState):
     let ms = Math.sqrt(ps.pMembers[p] / FIN.courtRef)
     if (ms < FIN.courtMin) ms = FIN.courtMin
     else if (ms > FIN.courtMax) ms = FIN.courtMax
-    const court = FIN.court * R0 * ms
+    let court = FIN.court * R0 * ms
+    const po = s.soc !== null ? socPatronO(s, p) : undefined // society (state-finances 2.4.2 amendment): an overproduced elite costs more in patronage
+    if (po !== undefined) { const f = FIN.patronBase + FIN.patronK * po; court *= f < FIN.patronBase ? FIN.patronBase : f > FIN.patronMax ? FIN.patronMax : f }
     let garrison: number
     if (ps.og !== null && ps.og.arms) garrison = FIN.garrison * R0 * (1 + ARMS.costMul * at(ps.og.pArms, p, 0)) // arms: the cost of arms replaces rivalArmy
     else garrison = FIN.garrison * R0 * (1 + FIN.rivalArmy * maxRivalry(ps, p))

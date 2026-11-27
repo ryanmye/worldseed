@@ -3,6 +3,7 @@
 // this state, run in a fixed order each year (see index.ts).
 
 import type { FinanceState } from './finance/state.ts'
+import type { SocietyState } from './society/state.ts'
 import type { BeliefState } from './beliefs/state.ts' // beliefs:
 import type { BarrierState } from './beliefs/barriers.ts' // barriers:
 import type { OrdersState } from './orders/state.ts' // orders:
@@ -163,6 +164,8 @@ export interface HistoryState {
   goods: GoodsState | null
   // finance: crown treasuries and loans (finance/state.ts), or null when HistoryOptions.finance is off (every hook is then a no-op).
   fin: FinanceState | null
+  // society: classes, elites and the secular cycle (society/state.ts), or null when HistoryOptions.society is off (every hook is then a no-op).
+  soc: SocietyState | null
   // beliefs: what states believe of each other (beliefs/state.ts), or null when HistoryOptions.beliefs is off (every hook is then a no-op).
   bel: BeliefState | null
   // barriers: communication barriers between states (beliefs/barriers.ts), or null unless HistoryOptions.barriers and beliefs are on.
@@ -279,6 +282,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     pol: null, // polities: (set by index.ts when the system is on)
     goods: null, // goods: (set by index.ts when the system is on)
     fin: null, // finance: (set by index.ts when the system is on)
+    soc: null, // society: (set by index.ts when the system is on)
     bel: null, // beliefs: (set by index.ts when the system is on)
     ib: null, // barriers: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
