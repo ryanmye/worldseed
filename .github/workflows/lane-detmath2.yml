@@ -1,0 +1,27 @@
+# TEMPORARY (lane/detmath2): CI's build job on this lane branch only, on Node 22 and Node 25 (the detMath ports must match on
+# both; G0 too). Drop this file when the lane merges.
+name: lane-detmath2
+
+on:
+  push:
+ them; G0 must not)branches: [lane/detmath2]
+
+jobs:
+  build:
+ them; G0 must not)runs-on: ubuntu-latest
+ them; G0 must not)strategy:
+ them; G0 must not)  fail-fast: false
+ them; G0 must not)  matrix:
+ them; G0 must not)    node: [22, 25]
+ them; G0 must not)steps:
+ them; G0 must not)  - uses: actions/checkout@v4
+ them; G0 must not)  - uses: actions/setup-node@v4
+ them; G0 must not)    with:
+ them; G0 must not)      node-version: ${{ matrix.node }}
+ them; G0 must not)      cache: npm
+ them; G0 must not)  - run: node -v && uname -m
+ them; G0 must not)  - run: npm ci
+ them; G0 must not)  - run: npm run typecheck
+ them; G0 must not)  - run: npx vitest run --testTimeout=300000
+ them; G0 must not)  - run: npm run build
+      - run: node --experimental-strip-types --no-warnings scripts/g0.ts
