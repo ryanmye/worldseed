@@ -174,7 +174,7 @@ export const BATTLE = {
   mudHours: 1.3,
   mudRout: 0.7,
   /** frozen: the site's temperature below this in snow or winter. */
-  frozenT: 0.3,
+  frozenT: 0.4,
   /** Deciding factors (History.battles course): a factor is named when it moved the odds by at least factorMin (x or 1 / x); terrain and weather take the second slot from factorTerrain. */
   factorMin: 1.05,
   factorTerrain: 1.15,
