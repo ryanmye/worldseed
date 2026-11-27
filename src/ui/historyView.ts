@@ -576,6 +576,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
     battleOpen: () => battleMap.isOpen(),
     play: () => timeline.play(),
+    contextHost: deps.right, // ui-additions 2: the story's battle as the context panel
   })
   groupRightRail(deps.right) // onboarding: the core panels in sight, the rest under "More panels"
   /** A fly-to the user asked for (a panel, a chronicle row, a selection): the director lets go. */

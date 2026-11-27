@@ -3,10 +3,11 @@
 //    link); follow=0 turns it off, follow=1 on. A visit counts once a history has been shown (markVisited).
 //  - The start page's play paths (ui/landing.ts): watch the story (Follow on), explore freely (Follow off), or rule a
 //    kingdom (a seat link; THRONE_START below until the throne lane's curated seeds replace it).
-//  - The right column shows CORE_PANELS by default; the rest wait under "More panels" (groupRightRail).
+//  - The right column shows CORE_PANELS and the current context panel (ui/contextPanel.ts); the rest wait under "More".
 
 import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import './onboard.css'
+import { currentContext, isContextRoot, onContextChange, registerContext } from './contextPanel.ts'
 
 const VISITED_KEY = 'worldseed.visited'
 
@@ -66,16 +67,20 @@ export function throneUrl(from: URL, keep: readonly string[] = ['preset', 'lang'
   return url
 }
 
-// ---------- the right column: the core panels, the rest under "More" ----------
+// ---------- the right column: the context panel, the rest under "More" ----------
 
-/** The right column's panels shown by default (by their root's class): the map's View panel, Factions, Why, Chronicle (and a selection's inspector; the seat's card is not in the column). */
-export const CORE_PANELS: readonly string[] = ['map-panel', 'factions', 'why', 'chronicle', 'inspector']
+/** The right column's panels always in sight (by their root's class): the map's View panel, the Chronicle, a selection's inspector. */
+export const CORE_PANELS: readonly string[] = ['map-panel', 'chronicle', 'inspector']
 const MORE_KEY = 'worldseed.panels.more'
+/** A panel whose header says it has nothing yet is left out of the "More" drawer too. */
+const EMPTY_RE = /\b(none yet|none now|no orders|none known yet|no towns yet)\b/i
 
 /**
- * The right column keeps CORE_PANELS (and the view's legends) in sight and folds every other panel under a "More
- * panels" row before the Chronicle; opening it shows them all (remembered). Panels added later (a history with more
- * systems) are sorted in as they come.
+ * The right column (ui-additions 2): CORE_PANELS (and the view's legends) stay in sight, and of the context panels
+ * (ui/contextPanel.ts: Factions by default, the Why panel while open, the story's battle, the throne lane's seat) the
+ * current one shows; every other panel waits in the "More" drawer, a row before the Chronicle (opening it shows them,
+ * remembered), and panels that have nothing yet are hidden even there. Panels added later are sorted in as they come;
+ * a tucked panel opened by a link or a shortcut opens the drawer.
  */
 export function groupRightRail(right: HTMLElement): { readonly open: boolean; setOpen(on: boolean): void } {
   let open = loadFlag(MORE_KEY, false)
@@ -84,32 +89,44 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
   row.className = 'rail-more'
   row.setAttribute('aria-expanded', String(open))
   const isCore = (el: Element) => el === row || CORE_PANELS.some((c) => el.classList.contains(c)) || /legend|banner|width-handle/.test(el.className)
+  const shown = (el: Element) => !(el as HTMLElement).hidden && !el.classList.contains('hidden')
+  /** The default contexts, registered once their panels exist. */
+  const defaults = () => {
+    const fac = right.querySelector<HTMLElement>(':scope > .factions')
+    if (fac && !isContextRoot(fac)) registerContext({ id: 'realm', priority: 1, root: fac, active: () => true })
+    const why = right.querySelector<HTMLElement>(':scope > .why')
+    if (why && !isContextRoot(why)) registerContext({ id: 'why', priority: 5, root: why, active: () => shown(why) })
+  }
   /** Each tucked panel's collapsed state at the last look: one opened meanwhile (a link, a shortcut) opens "More". */
   const wasCollapsed = new WeakMap<Element, boolean>()
   const sync = () => {
+    defaults()
+    const ctx = currentContext()
     let n = 0
+    const tuckable = Array.from(right.children).filter((el) => !isCore(el) && el !== ctx?.root)
     if (!open) {
-      for (const el of Array.from(right.children)) {
-        if (isCore(el)) continue
-        const c = el.classList.contains('collapsed')
-        if (wasCollapsed.get(el) === true && !c) open = true
+      for (const el of tuckable) {
+        if (wasCollapsed.get(el) === true && !el.classList.contains('collapsed') && !isContextRoot(el)) open = true
       }
     }
-    for (const el of Array.from(right.children)) {
-      if (isCore(el)) continue
+    if (ctx) ctx.root.classList.remove('rail-tucked', 'rail-empty')
+    for (const el of tuckable) {
       wasCollapsed.set(el, el.classList.contains('collapsed'))
-      const tucked = !open
-      el.classList.toggle('rail-tucked', tucked)
-      if (!(el as HTMLElement).hidden && !el.classList.contains('hidden')) n++
+      const empty = !isContextRoot(el) && EMPTY_RE.test((el.textContent ?? '').slice(0, 160))
+      el.classList.toggle('rail-tucked', !open || empty)
+      el.classList.toggle('rail-empty', empty)
+      if (shown(el) && !empty && !(isContextRoot(el) && !ctxShownInDrawer(el))) n++
     }
     row.textContent = open ? 'Fewer panels' : `More panels (${n})`
     row.setAttribute('aria-expanded', String(open))
-    row.hidden = n === 0
+    row.hidden = n === 0 && !open
     // before the Chronicle (or last)
     const chron = right.querySelector(':scope > .chronicle')
     if (chron && row.nextSibling !== chron) right.insertBefore(row, chron)
     else if (!chron && row.parentElement !== right) right.appendChild(row)
   }
+  /** An inactive context in the drawer: only the always-available ones (Factions) are worth listing there. */
+  const ctxShownInDrawer = (el: Element) => el.classList.contains('factions')
   row.addEventListener('click', () => {
     open = !open
     saveFlag(MORE_KEY, open)
@@ -119,8 +136,8 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
   // (a panel added, or shown or hidden: the count and its place; the column's own children only)
   const OBS: MutationObserverInit = { childList: true, attributes: true, subtree: true, attributeFilter: ['class', 'hidden'] }
   let queued = false
-  const mo = new MutationObserver((recs) => {
-    if (queued || !recs.some((r) => r.type === 'childList' ? r.target === right : (r.target as Element).parentElement === right)) return
+  const resync = () => {
+    if (queued) return
     queued = true
     queueMicrotask(() => {
       queued = false
@@ -128,7 +145,13 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
       sync()
       mo.observe(right, OBS)
     })
+  }
+  const mo = new MutationObserver((recs) => {
+    if (recs.some((r) => (r.type === 'childList' ? r.target === right : (r.target as Element).parentElement === right))) resync()
   })
+  onContextChange(resync)
+  // (a panel's header text changes as history plays: "none yet" panels come out of hiding)
+  window.setInterval(() => { if (right.isConnected) resync() }, 2000)
   sync()
   mo.observe(right, OBS)
   return {

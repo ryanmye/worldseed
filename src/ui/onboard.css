@@ -75,3 +75,28 @@ html.compact .side-column.right > .rail-more {
     display: block;
   }
 }
+html:not(.compact) .side-column.right.rail-grouped > .rail-empty {
+  display: none !important;
+}
+
+/* the story's battle as the context panel (ui/story/storyView.ts) */
+.context-battle .cb-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffb08a;
+}
+.context-battle .cb-title {
+  margin: 2px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.context-battle .cb-text {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.context-battle.hidden {
+  display: none;
+}

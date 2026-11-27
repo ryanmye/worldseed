@@ -31,6 +31,8 @@ import { SUN_DIRECTION, SunMode, sunState } from '../../render/sun.ts'
 import { flat } from '../../render/mapProjection.ts'
 import { battlesOf, battleWeight } from '../battlesData.ts'
 import type { BattleOpenOptions } from '../battleMap.ts'
+import { battleTitle, describeBattle } from '../battleFormat.ts'
+import { contextChanged, registerContext } from '../contextPanel.ts'
 import { createStoryCard, type StoryCard } from './storyCard.ts'
 
 export interface StoryViewDeps {
@@ -61,6 +63,8 @@ export interface StoryViewDeps {
   battleOpen?(): boolean
   /** The timeline's playback, paused by a replay, goes on after it (Follow still on). */
   play?(): void
+  /** ui-additions 2: the right column, where the story's battle is the context panel while it is told (absent: none). */
+  contextHost?: HTMLElement
 }
 
 export interface StoryView {
@@ -241,6 +245,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       why: rep >= 0 && deps.openWhy ? () => deps.openWhy!(rep) : null, // causes:
       show: reducedMotion() && validCell(cell) ? () => flyTo(cell, [1.8, 2.3, 2.8][scale] ?? 2.3, 0) : null,
       battle: battle >= 0 ? () => replay(battle, false) : null,
+      battleId: battle,
       share: () => shareMoment(year),
     }
   }
@@ -308,16 +313,55 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     if (auto) director.suspend()
     flyTo(h.battles.site[b], DIRECTOR.dist[0], reducedMotion() ? 0 : 1.2)
     replaying = true
+    setContextBattle(b)
     deps.openBattle(b, {
       inline: auto,
       onDone: () => {
         replaying = false
+        if (!captionBattle) setContextBattle(-1)
         if (auto && director.on) {
           director.resume()
           deps.play?.()
         }
       },
     })
+  }
+  // the battle being told (a replay, or a caption about a battle) as the right column's context panel
+  let ctxBattle = -1
+  const ctxRoot = document.createElement('section')
+  ctxRoot.className = 'panel context-battle hidden'
+  ctxRoot.setAttribute('aria-label', 'The battle')
+  if (deps.contextHost) {
+    deps.contextHost.insertBefore(ctxRoot, deps.contextHost.querySelector(':scope > .chronicle'))
+    registerContext({ id: 'battle', priority: 6, root: ctxRoot, active: () => ctxBattle >= 0 })
+  }
+  function setContextBattle(b: number) {
+    if (b === ctxBattle || !deps.contextHost) return
+    ctxBattle = b
+    const h = history
+    ctxRoot.replaceChildren()
+    if (b >= 0 && h && b < (h.battles?.count ?? 0)) {
+      const eb = document.createElement('div')
+      eb.className = 'cb-eyebrow'
+      eb.textContent = `Battle · ${h.battles.year[b]}`
+      const t = document.createElement('h3')
+      t.className = 'cb-title'
+      t.textContent = battleTitle(h, b)
+      const p = document.createElement('p')
+      p.className = 'cb-text'
+      p.textContent = describeBattle(h, b)
+      ctxRoot.append(eb, t, p)
+      if (deps.openBattle) {
+        const w = document.createElement('button')
+        w.type = 'button'
+        w.className = 'btn'
+        w.textContent = 'Watch the battle'
+        w.addEventListener('click', () => replay(b, false))
+        ctxRoot.appendChild(w)
+      }
+    }
+    ctxRoot.classList.toggle('hidden', ctxBattle < 0)
+    contextChanged()
   }
   function battlesDue(prev: number, year: number) {
     if (!history || topBattles.length === 0 || replaying || deps.battleOpen?.()) return
@@ -376,9 +420,16 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     cityEngaged: deps.cityEngaged,
     showCaption(b) {
       if (!plan) return
-      card.showCaption(captionOf(plan.beatEntry[b], plan.beatYear[b], plan.beatCell[b], plan.beatScale[b]))
+      const c = captionOf(plan.beatEntry[b], plan.beatYear[b], plan.beatCell[b], plan.beatScale[b])
+      card.showCaption(c)
+      captionBattle = c.battleId >= 0
+      if (captionBattle) setContextBattle(c.battleId)
     },
-    hideCaption: () => card.hideCaption(),
+    hideCaption: () => {
+      card.hideCaption()
+      if (captionBattle && !replaying) setContextBattle(-1)
+      captionBattle = false
+    },
     onState(s) {
       card.setPaused(s === DirectorState.Suspended)
       syncButton()
@@ -512,6 +563,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   }
 
   let tickYear = 0
+  let captionBattle = false
   const api: StoryView = {
     director,
     commit(h, w, ix, extend) {
