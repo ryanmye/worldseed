@@ -60,7 +60,7 @@ import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
 import { smoothstep } from '../util.ts'
 import type { SettlementNaming } from '../names/index.ts'
-import { buildMorph, buildRoot, fuseWords, letterCount } from '../names/words.ts'
+import { buildMorph, buildRoot, fuseWords, letterCount, nameOf } from '../names/words.ts'
 import { CAPACITY, CATCHMENT, CRADLE, DISEASE, SPECIES, SPECIES2, TECHNIQUE, TECHNIQUE2, WEALTH } from './params.ts'
 import { diseaseOnContact } from './disease/system.ts' // disease:
 import type { HistoryState } from './state.ts'
@@ -2118,7 +2118,7 @@ export function assembleSpecies(world: World, sp: SpeciesState, naming: Settleme
         const f = fuseWords(lang, w, buildMorph(lang, rng, 2, true))
         if (f !== null && letterCount(f) <= 9) w = f
       }
-      if (letterCount(w) >= 3 && !used.has(w.toLowerCase())) name = w.toLowerCase()
+      if (letterCount(w) >= 3 && !used.has(nameOf(lang, w).toLowerCase())) name = nameOf(lang, w).toLowerCase() // (typology: spelt)
     }
     if (!name) name = SPECIES_TABLE[x].archetype.toLowerCase() + x // practically unreachable
     used.add(name)
@@ -2159,7 +2159,7 @@ export function assembleTechniques(world: World, sp: SpeciesState, naming: Settl
         const f = fuseWords(lang, w, buildMorph(lang, rng, 2, true))
         if (f !== null && letterCount(f) <= 10) w = f
       }
-      if (letterCount(w) >= 3 && !used.has(w.toLowerCase())) name = w.toLowerCase()
+      if (letterCount(w) >= 3 && !used.has(nameOf(lang, w).toLowerCase())) name = nameOf(lang, w).toLowerCase() // (typology: spelt)
     }
     if (!name) name = TECHNIQUES[k].toLowerCase() + k // practically unreachable
     used.add(name)

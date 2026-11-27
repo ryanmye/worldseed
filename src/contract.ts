@@ -278,6 +278,12 @@ export const EventType = {
   LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
   LoanWave: 252, // the language spoken at `settlement` (its largest town then) took many words from another (at least LANG.waveLoans of its visible words in LANG.waveYears): `other` the donor's seat (its largest town then); `value` the recipient language id; `extra` the donor language id
   LanguageDied: 253, // the last town that spoke language `value` (`settlement`) gave it up or was abandoned; `other` -1; `extra` the language that replaced it there, or -1
+  // typology: writing (400-409; none when HistoryOptions.typology is false; 405-409 spare). History.scripts / scriptUse.
+  ScriptInvented: 400, // a people made writing of its own: `settlement` where (the IdeaAdoptions via), `other` the settlement it heard of writing from (Stimulus) or -1; `value` the script id (History.scripts); `extra` the ScriptOrigin (Invented or Stimulus)
+  ScriptAdopted: 401, // a people learned to write another's script, fitted to its tongue: `settlement` where, `other` the source settlement; `value` the new (adapted) script id; `extra` the script it was adapted from
+  ScriptReformed: 402, // a people made a new script out of its own (the alphabet idea, invented): `settlement` its largest town; `other` -1; `value` the new script; `extra` the old
+  ScriptReplaced: 403, // a people gave up its script for another's: `settlement` its largest town, `other` the donor's capital or holy city; `value` the script now used; `extra` the ScriptCause (Rule, Faith, Idea)
+  ScriptLost: 404, // the last people writing a script of the line of script `value` (its family) lost writing or left it for another line: `settlement` its largest town then; `other` -1; `extra` the people
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -581,6 +587,11 @@ export interface History {
   speech?: Speech
   /** Names as underlying forms, and exonyms (NameForms); the name said at a year is spokenNameAt (names/spoken.ts). */
   nameForms?: NameForms
+  // typology: writing systems (absent when HistoryOptions.typology is off, or without ideas).
+  /** The writing systems of the world (Scripts). */
+  scripts?: Scripts
+  /** Which script each people writes over time (ScriptUse). */
+  scriptUse?: ScriptUse
   // orders: (absent when HistoryOptions.orders is undefined or empty).
   /** The orders as given (HistoryOptions.orders, a copy, in the given order). */
   orders?: Order[]
@@ -677,8 +688,79 @@ export const SoundChangeKind = {
   Depalatalise: 11, // a palatal turns back (sh > s, ch > t, y > l)
   Fortition: 12, // a word-initial w, y or v hardens (w > v, y > g before back vowels, v > b)
   Prothesis: 13, // a vowel is put before an initial s-cluster (sp > esp)
+  // typology: phoneme model only (names/soundChangeF.ts FEATURE_CHANGES; kinds 0-13 have feature versions there too). Next free 26.
+  Tonogenesis: 14, // a final stop falls and leaves a contour tone on the vowel (falling after a voiceless one, rising after a voiced or glottal)
+  Nasalise: 15, // a vowel before a nasal that closes its syllable takes on nasality and the nasal falls (aN > ã)
+  Deaspirate: 16, // aspirated stops merge with plain ones
+  Deglottalise: 17, // ejectives (or implosives) become plain stops
+  UvularMerge: 18, // uvulars move to velar (q > k, χ > x)
+  RetroflexMerge: 19, // retroflexes merge with alveolars
+  Debuccalise: 20, // s > h, or a final k/t > ʔ
+  LengthChange: 21, // long vowels shorten, or a lost coda lengthens the vowel (compensatory lengthening)
+  ToneMerge: 22, // two tone levels merge (M and L, rising and high, falling and low)
+  HarmonyLoss: 23, // vowel harmony stops applying to new suffixes (inherited words keep their vowels)
+  Prenasal: 24, // prenasalised stops become plain voiced stops, or nasals
+  ClusterBreak: 25, // an echo vowel breaks a cluster the template does not allow (CC > CVC)
 } as const
 export type SoundChangeKind = (typeof SoundChangeKind)[keyof typeof SoundChangeKind]
+
+/** typology: kinds of writing system (Daniels & Bright 1996; 'featural' after Sampson). */
+export const ScriptType = { Logosyllabic: 0, Syllabary: 1, Abugida: 2, Abjad: 3, Alphabet: 4, Featural: 5 } as const
+export type ScriptType = (typeof ScriptType)[keyof typeof ScriptType]
+export const ScriptDirection = { LTR: 0, RTL: 1, Vertical: 2, Boustrophedon: 3 } as const
+export type ScriptDirection = (typeof ScriptDirection)[keyof typeof ScriptDirection]
+/** Where a script came from (Scripts.origin). */
+export const ScriptOrigin = { Invented: 0, Stimulus: 1, Adapted: 2, Reformed: 3 } as const
+export type ScriptOrigin = (typeof ScriptOrigin)[keyof typeof ScriptOrigin]
+/** Why a people writes the script it writes (ScriptUse.cause; the `extra` of ScriptReplaced). */
+export const ScriptCause = { Own: 0, Learned: 1, Rule: 2, Faith: 3, Idea: 4, Lost: 5 } as const
+export type ScriptCause = (typeof ScriptCause)[keyof typeof ScriptCause]
+
+/**
+ * typology: the writing systems of the world (only with HistoryOptions.typology; absent otherwise). Row i is script i in order
+ * of appearance (a parent before its daughters). Glyph shapes are not stored: they are a pure function of (world seed, family,
+ * script id) (language-typology-scripts.md §6).
+ */
+export interface Scripts {
+  count: number
+  /** ScriptType, ScriptDirection and ScriptOrigin of each. */
+  type: Uint8Array
+  direction: Uint8Array
+  origin: Uint8Array
+  /** Script it came from (-1 for an invention), and the root of its line (stroke primitives are the family's). */
+  parent: Int16Array
+  family: Int16Array
+  /** People that made it, the language (History.languages) its signs were fitted to, the year and the town. */
+  people: Int16Array
+  language: Int16Array
+  year: Int16Array
+  settlement: Int32Array
+  /** "Ashkari": its makers' name (plain), shown as "the Ashkari script"; a reform "New Ashkari". */
+  name: string[]
+}
+
+/** typology: which script each people writes over time. Rows by people, years ascending: start[p] .. start[p + 1] - 1. */
+export interface ScriptUse {
+  start: Int32Array
+  year: Int16Array
+  /** Script written from that year, -1: writing lost. */
+  script: Int16Array
+  /** ScriptCause. */
+  cause: Uint8Array
+}
+
+/** typology: the script people `p` writes at `year` (History.scripts id), or -1 (unwritten, or no scripts in this history). */
+export function scriptAt(h: Pick<History, 'scriptUse'>, p: number, year: number): number {
+  const u = h.scriptUse
+  if (!u || p < 0 || p + 1 >= u.start.length) return -1
+  let s = -1
+  for (let k = u.start[p]; k < u.start[p + 1] && u.year[k] <= year; k++) s = u.script[k]
+  return s
+}
+
+/** typology: how a language builds names (Languages.typo bits 8-10; names/typology/profile.ts Style mirrors it; WALS 26A/20A priors). */
+export const MorphStyle = { Isolating: 0, Suffixing: 1, Prefixing: 2, Compounding: 3, RootPattern: 4 } as const
+export type MorphStyle = (typeof MorphStyle)[keyof typeof MorphStyle]
 
 /**
  * language: the language tree (absent when HistoryOptions.language is off). Row i is language i, in order of appearance (a
@@ -716,6 +798,20 @@ export interface Languages {
   lexYear: Int16Array
   lexDonor: Int16Array
   lexForm: string[]
+  /**
+   * typology: 1 when the forms (here, NameForms and the rule catalogue) are phoneme strings (names/typology/phoneme.ts: one
+   * Private Use Area code unit per phoneme) and names are spelt by `ortho` (HistoryOptions.typology). Absent, not empty, without
+   * it, so letter histories hash as before; then model, typo and ortho are all absent.
+   */
+  model?: number
+  /**
+   * typology: the packed profile per language (inherited at a split, unchanged; names/typology/inventory.ts packTypo): bits 0-1
+   * onsetMax, 2-3 codaMax, 4-6 tones, 7 harmony, 8-10 MorphStyle, 11 head-initial compounds, 12 class prefixes, 13-14 syllable
+   * class, 15 CV only, 16-17 finalMax, 18 nasal vowels, 19 length. The sound-change gate reads it (no Rng in the UI).
+   */
+  typo?: Uint32Array
+  /** typology: the spelling tradition per language (names/typology/orthography.ts; 16 slots of 2 bits). */
+  ortho?: Uint32Array
 }
 
 /**
@@ -1782,6 +1878,14 @@ export interface HistoryOptions {
    * which gain 250-253); off, the history is exactly the one without it.
    */
   language?: boolean
+  /**
+   * typology: languages drawn from typological profiles (phoneme inventories, syllable templates, tone, morphology styles) with
+   * romanization traditions (Languages.model, typo and ortho; names spelt plain in Settlement.name and the like). Needs
+   * `language` (ignored without it). Default false; new worlds write lang=2 (drift + typology) once the owner signs off (D-TS1).
+   * A pure consequence layer at assembly like `language`: every non-name field is the same with it on or off; off, the history
+   * is exactly the one without it.
+   */
+  typology?: boolean
   /**
    * causes: record why things happened (the drive behind each war declared and the parts of the rivalry behind it, the parts
    * of each revolt's unrest, the harvest of each weather region and year and the factors of each famine, why each town was

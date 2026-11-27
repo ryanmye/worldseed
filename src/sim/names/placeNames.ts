@@ -18,6 +18,7 @@ import type { Rng } from '../rng.ts'
 import type { SettlementNaming } from './index.ts'
 import type { Language } from './phonology.ts'
 import { buildMorph, buildRoot, capitalizeName, composeName, fluentName, fuseWords, isEuphonic, letterCount, pickWeighted, toUnits } from './words.ts'
+import { typoAdaptName, typoBorrowWord, typoDedicate, typoFreshPlace, typoQualify } from './typology/borrow.ts'
 
 /** Longest renamed name, in letters (dedications run long, but "Constantinople" reads as a mouthful in an invented tongue). */
 export const MAX_PLACE = 11
@@ -143,6 +144,7 @@ function repair(units: string[], to: Language): string | null {
  * consonant taken as the second nearest). The word itself when no attempt gives a euphonic word. adaptName's draws are untouched.
  */
 export function borrowWord(word: string, to: Language, rng: Rng): string {
+  if (to.typo) return typoBorrowWord(word, to, rng) // typology: in phoneme space (typology/borrow.ts)
   const w0 = word.toLowerCase()
   for (let attempt = 0; attempt < 8; attempt++) {
     const u = fitShape(soundsInto(w0, to, rng, attempt < 3 ? 0 : 0.35), to, rng)
@@ -173,6 +175,7 @@ function clip(units: string[]): string[] {
  * `endings` are the new language's city endings.
  */
 export function adaptName(old: string, to: Language, endings: readonly string[], rng: Rng): string | null {
+  if (to.typo) return typoAdaptName(old, to, endings, rng) // typology: a phoneme form (the caller's `say` spells it)
   const base = mainWord(old)
   const oldLc = old.toLowerCase()
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -237,6 +240,7 @@ function clipBase(base: string): string {
 
 /** A name for a person, a house or a faith: `honoree` with a city ending of `lang`. Null when nothing fits. */
 export function dedicate(honoree: string, lang: Language, endings: readonly string[], rng: Rng): string | null {
+  if (lang.typo) return typoDedicate(honoree, lang, endings, rng)
   const full = mainWord(honoree)
   for (let attempt = 0; attempt < 10; attempt++) {
     // (a long name is clipped to its first two syllables: "Constantine" -> "Kostan")
@@ -254,6 +258,7 @@ export function dedicate(honoree: string, lang: Language, endings: readonly stri
 
 /** A fresh name of the language: a new root, often with its city ending or its ending for new places. */
 export function freshPlace(lang: Language, endings: readonly string[], rng: Rng): string {
+  if (lang.typo) return typoFreshPlace(lang, endings, rng)
   for (let attempt = 0; attempt < 40; attempt++) {
     const root = buildRoot(lang, rng)
     const x = rng.next()
@@ -268,6 +273,7 @@ export function freshPlace(lang: Language, endings: readonly string[], rng: Rng)
 
 /** A founding name already borne elsewhere, qualified with the language's ending for new places (or its city ending). */
 export function qualify(name: string, lang: Language, endings: readonly string[], rng: Rng): string | null {
+  if (lang.typo) return typoQualify(name, lang, endings, rng)
   const base = mainWord(name)
   for (let attempt = 0; attempt < 8; attempt++) {
     let cand: string | null

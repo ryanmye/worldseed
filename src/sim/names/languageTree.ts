@@ -19,7 +19,7 @@ import type { World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import { LANG } from './languageParams.ts'
-import { SOUND_CHANGES, applyUnits } from './soundChange.ts'
+import { SOUND_CHANGES, applyUnits, type RuleSpec } from './soundChange.ts'
 import { toUnits } from './words.ts'
 
 /** The fields the tree needs of a settlement. */
@@ -196,6 +196,15 @@ export function drawRates(seed: number, count: number): number[] {
   return out
 }
 
+/**
+ * typology: the catalogue rules are drawn from (absent: the letter catalogue, SOUND_CHANGES with applyUnits, as merged) and how a
+ * rule applies to a word of language n (the phoneme catalogue's gate depends on the language).
+ */
+export interface RuleCatalogue {
+  changes: ReadonlyArray<ReadonlyArray<RuleSpec>>
+  apply(n: number, units: readonly string[], kind: number, variant: number): string[] | null
+}
+
 /** Drawn sound changes, per language, in date order. */
 export interface DrawnRules {
   year: number[][]
@@ -207,7 +216,9 @@ export interface DrawnRules {
  * Each language's sound changes up to `years` (see the file comment). `sample(n)` is the sample vocabulary of language n's
  * people (underlying forms; the proto-language's words), worn along the lineage to each language's start.
  */
-export function drawRules(seed: number, tree: Pick<LanguageTree, 'count' | 'parent' | 'splitYear'>, rates: readonly number[], sample: (n: number) => readonly string[], years: number): DrawnRules {
+export function drawRules(seed: number, tree: Pick<LanguageTree, 'count' | 'parent' | 'splitYear'>, rates: readonly number[], sample: (n: number) => readonly string[], years: number, catalogue?: RuleCatalogue): DrawnRules {
+  const CAT = catalogue?.changes ?? SOUND_CHANGES
+  const applyOf = catalogue ? (n: number) => (w: readonly string[], k: number, v: number) => catalogue.apply(n, w, k, v) : () => applyUnits
   const out: DrawnRules = { year: [], kind: [], variant: [] }
   /** The sample vocabulary of each language as it stood after each of its rules: corpusAt[n][r] after rule r - 1 (r = 0: at its start). */
   const corpusAt: string[][][][] = []
@@ -224,6 +235,7 @@ export function drawRules(seed: number, tree: Pick<LanguageTree, 'count' | 'pare
     const ys: number[] = [], ks: number[] = [], vs: number[] = []
     const snaps: string[][][] = [corpus.slice()]
     const rng = createRng(seed, `lang-rules-${n}`)
+    const apply = applyOf(n)
     const mean = 1000 / (LANG.mu * rates[n])
     let t = tree.splitYear[n]
     for (;;) {
@@ -233,20 +245,20 @@ export function drawRules(seed: number, tree: Pick<LanguageTree, 'count' | 'pare
       if (year > years || year > 32767) break
       // the drawn kind, else the next kind (cyclically) with a variant that changes some word of the sample; the variant likewise
       let kind = -1, variant = -1
-      const K = SOUND_CHANGES.length
+      const K = CAT.length
       const k0 = Math.min(K - 1, Math.floor(uKind * K))
       for (let j = 0; j < K && kind < 0; j++) {
         const k = (k0 + j) % K
-        const nv = SOUND_CHANGES[k].length
+        const nv = CAT[k].length
         const v0 = Math.min(nv - 1, Math.floor(uVar * nv))
         for (let i = 0; i < nv && kind < 0; i++) {
           const v = (v0 + i) % nv
-          for (const w of corpus) if (applyUnits(w, k, v) !== null) { kind = k; variant = v; break }
+          for (const w of corpus) if (apply(w, k, v) !== null) { kind = k; variant = v; break }
         }
       }
       if (kind < 0) continue
       ys.push(year); ks.push(kind); vs.push(variant)
-      for (let i = 0; i < corpus.length; i++) corpus[i] = applyUnits(corpus[i], kind, variant) ?? corpus[i]
+      for (let i = 0; i < corpus.length; i++) corpus[i] = apply(corpus[i], kind, variant) ?? corpus[i]
       snaps.push(corpus.slice())
     }
     out.year.push(ys); out.kind.push(ks); out.variant.push(vs)

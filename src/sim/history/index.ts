@@ -170,6 +170,8 @@ import type { RenamingDiag } from './renaming/state.ts'
 import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming/assemble.ts'
 // language: languages that split and drift (language/; names/drift.ts).
 import { LANGUAGE_ON } from '../names/languageParams.ts'
+import { TYPOLOGY_ON } from '../names/typology/params.ts'
+import { assembleScripts } from './language/scripts.ts'
 import { assembleLanguage, prepareLanguage } from './language/assemble.ts'
 import type { LanguageDiag } from './language/assemble.ts'
 // ideas: inventions and practices, carried by trade (ideas/).
@@ -500,6 +502,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const rn = (options?.renaming ?? RENAMING_ON) ? createRenaming(s) : null
   // language: a pure consequence layer at assembly (names only), unless switched off (the default; R32).
   const langOn = options?.language ?? LANGUAGE_ON
+  // typology: typological sound systems and spelling traditions for the languages (needs language; R32: new worlds only).
+  const typoOn = langOn && (options?.typology ?? TYPOLOGY_ON)
   // ideas: inventions and practices (they set the technology caps), unless switched off.
   const ix = (options?.ideas ?? IDEAS_ON) ? createIdeasSystem(s) : null
   s.ideas = ix
@@ -710,7 +714,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         return c
       },
       renamed: rn ? rn.ySettlement.map((v, k) => ({ settlement: v, year: rn.yYear[k], polity: rn.yPolity[k], form: rn.yForm[k] })) : [],
-    }) : null
+    }, typoOn ? { cradle: cradles.cradle, centres: cradles.centres } : undefined) : null
     const { names, features, naming } = nameWorld(world, settlements, featureMap, langPrep?.drift)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)
@@ -735,6 +739,12 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     const ideasHist = ix ? assembleIdeas(ix) : emptyIdeasHistory() // ideas:
     const renHist = rn ? assembleRenamings(world, rn, settlements, naming, features, rulHist.rulers, rulHist.dynasties, relHist.faiths) : emptyRenamingHistory() // renaming:
     const langHist = langPrep ? assembleLanguage(langPrep, naming, settlements, renHist.renamings, renHist.forms, peoples, s.know.contact, population, interval, snapshotCount) : null // language:
+    // typology: writing systems ride the writing idea (absent without typology); their events go with the language's
+    const scrHist = langHist && langPrep && typoOn && ix ? assembleScripts({
+      drift: langPrep.drift, settlements, peoples, ideas: ideasHist.ideas, adoptions: ideasHist.ideaAdoptions, population, snapshotInterval: interval, snapshotCount,
+      polity: polSnap, polityPeople: pol ? pol.pPeople.subarray(0, pol.P) : new Int32Array(0), stateFaith: relHist.stateFaith, faiths: relHist.faiths,
+    }) : null
+    if (langHist && scrHist) { langHist.events = langHist.events.concat(scrHist.events); langHist.events.sort((a, b) => a.year - b.year) }
     const lmHist = lm ? assembleLandmarks(world, lm, settlements, renHist.renamings, naming, rulHist.rulers, rulHist.dynasties, relHist.faiths, peoples, goodsHist.traditions) : emptyLandmarkHistory() // landmarks: (named after the renamings)
     const events = weaveEvents(weaveEvents(weaveEvents(discoveryEvents(s.events, explore.discEvent, explore.discKind, explore.discCell, features, featureMap), renHist.events), lmHist.events), langHist ? langHist.events : []) // (renaming: PlaceRenamed woven in; landmarks: theirs after it; language: its events last)
     // causes: rows name the run's raw events; woven in, an event moves up by the renaming and landmark events of earlier years.
@@ -767,6 +777,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         landmarks: lmHist.landmarks, // landmarks:
         ...(dx ? assembleDisasters(world, dx, naming, years, peoples.map((p) => p.name)) : emptyDisasterHistory()), // disasters:
         ...(langHist ? { languages: langHist.languages, speech: langHist.speech, nameForms: langHist.nameForms } : {}), // language: (absent when off)
+        ...(scrHist ? { scripts: scrHist.scripts, scriptUse: scrHist.scriptUse } : {}), // typology: writing systems (absent when off)
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         why: whyHist, // causes:
         ...(seat ? { seat: assembleSeat(seat, ox ? ox.given : [], years) } : {}), // seat: (absent without a seat)

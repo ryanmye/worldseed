@@ -15,6 +15,9 @@
 
 import type { Rng } from '../rng.ts'
 import type { AffixOption, Language } from './phonology.ts'
+import { typoCompose, typoFuse, typoMorph, typoRoot } from './typology/words.ts'
+import { romanize } from './typology/orthography.ts'
+import { templateOf, typoEuphonic } from './typology/phonotactics.ts'
 
 /** Consonants that may end a word, best first (sonorants before stops). */
 export const FINAL_OK = ['n', 'r', 'l', 's', 'm', 'th', 'sh', 't', 'k', 'd', 'ng']
@@ -30,7 +33,8 @@ const DIGRAPHS = ['ng', 'sh', 'th', 'ch']
 const SOFT_DIGRAPHS = ['gh', 'kh', 'ph', 'dh', 'zh']
 
 function isVowelChar(ch: string): boolean {
-  return VOWEL_CHARS.indexOf(ch) >= 0
+  // (typology: a phoneme code from 0xF000 is a vowel; letter words never hold one)
+  return VOWEL_CHARS.indexOf(ch) >= 0 || (ch.length === 1 && ch >= '\uf000' && ch < '\uf180')
 }
 
 export interface Unit {
@@ -107,12 +111,12 @@ export function hasTripleRepeatLetter(s: string): boolean {
   return false
 }
 
-/** Count of ASCII letters only (ignores spaces, hyphens, apostrophes). */
+/** Count of ASCII letters only (ignores spaces, hyphens, apostrophes); typology: a phoneme code counts as one letter. */
 export function letterCount(s: string): number {
   let n = 0
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i)
-    if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122)) n++
+    if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 0xe000 && c < 0xe870) || (c >= 0xf000 && c < 0xf180)) n++
   }
   return n
 }
@@ -147,14 +151,30 @@ const MAX_SYLLABLES = 4
 const MAX_SAME_VOWEL = 3
 
 /**
+ * typology: the phonotactics a word is judged by. LEGACY is the letter gate below, exactly as before; a typology language's
+ * comes from its template (typology/phonotactics.ts). The word builders pick by `lang.typo`, so letter callers never change.
+ */
+export interface Phonotactics {
+  euphonic(word: string): boolean
+  euphonicDrift(word: string): boolean
+}
+export const LEGACY: Phonotactics = { euphonic: (w) => euphonic(w, false), euphonicDrift: (w) => euphonic(w, true) }
+/** The phonotactics of a language: LEGACY for letters, its template for a typology language. */
+export function phonotacticsOf(lang: Language): Phonotactics {
+  const t = lang.typo
+  if (!t) return LEGACY
+  return { euphonic: (w) => typoEuphonic(w, templateOf(t)), euphonicDrift: (w) => typoEuphonic(w, templateOf(t), true) }
+}
+
+/**
  * Phonotactic gate for one lowercase word (letters and apostrophes): vowel runs of
  * at most a known diphthong, at most two consonants together (a known onset
  * cluster at the start, a sonorant or s + consonant or stop + liquid inside, and a
  * single allowed final consonant at the end), no doubled letters, no repeated
  * syllables and no consonant used three times.
  */
-export function isEuphonic(word: string): boolean {
-  return euphonic(word, false)
+export function isEuphonic(word: string, pt: Phonotactics = LEGACY): boolean {
+  return pt === LEGACY ? euphonic(word, false) : pt.euphonic(word)
 }
 
 /**
@@ -162,8 +182,8 @@ export function isEuphonic(word: string): boolean {
  * the word is allowed when it is a sonorant or s before a known onset cluster ("vastra", "kantro", "elstra"). Founding forms
  * still pass isEuphonic itself.
  */
-export function isEuphonicDrift(word: string): boolean {
-  return euphonic(word, true)
+export function isEuphonicDrift(word: string, pt: Phonotactics = LEGACY): boolean {
+  return pt === LEGACY ? euphonic(word, true) : pt.euphonicDrift(word)
 }
 
 function euphonic(word: string, relaxTriple: boolean): boolean {
@@ -275,6 +295,18 @@ export function capitalizeName(s: string): string {
     .join(' ')
 }
 
+/**
+ * typology: a form as a name to show: capitalizeName(form) for a letter language; for a typology language its plain spelling in
+ * the language's tradition (typology/orthography.ts), capitalised. (Uniqueness and fluency are judged on this.)
+ */
+export function nameOf(lang: Language, form: string): string {
+  return lang.typo ? capitalizeName(romanize(form, lang.typo.ortho, 'plain')) : capitalizeName(form)
+}
+/** typology: a name a builder returned (placeNames.ts dedicate, freshPlace ...), as shown: spelt for a typology language, as is for letters. */
+export function spelt(lang: Language, name: string): string {
+  return lang.typo ? nameOf(lang, name) : name
+}
+
 /** Weighted pick over parallel weights; falls back to the last index if weights sum to 0. */
 export function pickWeighted(rng: Rng, weights: readonly number[]): number {
   let total = 0
@@ -310,6 +342,7 @@ function endsWithVowel(s: string): boolean {
  * its allowed final consonants.
  */
 export function buildRoot(lang: Language, rng: Rng): string {
+  if (lang.typo) return typoRoot(lang, rng)
   let text = ''
   const W = lang.shapeWeights
   for (let attempt = 0; attempt < 60; attempt++) {
@@ -352,6 +385,7 @@ export function buildRoot(lang: Language, rng: Rng): string {
  * so a closing consonant must be one of the language's finals.
  */
 export function buildMorph(lang: Language, rng: Rng, minLetters = 2, final = true): string {
+  if (lang.typo) return typoMorph(lang, rng, minLetters, final)
   let text = ''
   const codas = final ? lang.finals : lang.finals.concat(lang.codaConsonants)
   for (let attempt = 0; attempt < 30; attempt++) {
@@ -366,6 +400,7 @@ export function buildMorph(lang: Language, rng: Rng, minLetters = 2, final = tru
 
 /** Joins two lowercase words, smoothing the seam; null when no smoothing gives a euphonic word. */
 export function fuseWords(lang: Language, a: string, b: string): string | null {
+  if (lang.typo) return typoFuse(lang, a, b)
   const link = lang.vowels.find((v) => v.length === 1) ?? 'a'
   const cands: string[] = []
   if (endsWithVowel(a) && startsWithVowel(b)) cands.push(a + b, a.slice(0, -1) + b, a + b.slice(1))
@@ -384,6 +419,7 @@ const MAX_TWO_WORDS = 11
 
 /** Composes a settlement's display name from its root and an optional site/ancestry affix; null if they do not combine well. */
 export function composeName(lang: Language, rootText: string, affix: AffixOption | undefined): string | null {
+  if (lang.typo) return typoCompose(lang, rootText, affix) // (a phoneme form: `say`/nameOf spell it)
   if (!affix) return capitalizeName(rootText)
   if (affix.attach === 'space' || affix.attach === 'hyphen') {
     if (letterCount(rootText) + letterCount(affix.text) > MAX_TWO_WORDS || letterCount(rootText) > 7) return null

@@ -9,6 +9,8 @@ import { landmarkNameAt, type History } from '../contract.ts'
 import { formatInt, peopleName, peopleOf } from './format.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { battlesOf } from './battlesData.ts' // battles:
+import { nameRunSvg } from './scriptView.ts' // typology: native scripts
+import { labelGlyphProbe } from './glyphProbe.ts'
 import './cityCard.css'
 
 export interface CityCardCallbacks {
@@ -34,6 +36,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
   root.setAttribute('aria-label', 'City view')
   root.innerHTML = `
     <div class="cc-name"></div>
+    <div class="cc-script"></div>
     <div class="cc-sub"></div>
     <div class="cc-pop"></div>
     <div class="cc-focus"></div>
@@ -50,7 +53,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
     </div>`
   container.appendChild(root)
   const q = (s: string) => root.querySelector(s) as HTMLElement
-  const nameEl = q('.cc-name'), subEl = q('.cc-sub'), popEl = q('.cc-pop'), focusEl = q('.cc-focus'), lmEl = q('.cc-lm'), btEl = q('.cc-bt')
+  const nameEl = q('.cc-name'), scriptEl = q('.cc-script'), subEl = q('.cc-sub'), popEl = q('.cc-pop'), focusEl = q('.cc-focus'), lmEl = q('.cc-lm'), btEl = q('.cc-bt')
   const ctl = q('.cc-ctl')
   ctl.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('button')
@@ -86,6 +89,12 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
       root.classList.toggle('flying', flying)
       const y = Math.floor(year)
       set(nameEl, spokenNameAt(h, id, y))
+      // typology: the scholarly spelling on hover (lang=2; language-typology-scripts.md §9.2, the MVP card line)
+      const sch = h.languages?.model === 1 ? spokenNameAt(h, id, y, -1, 'scholarly', labelGlyphProbe() ?? undefined) : ''
+      if (nameEl.title !== sch) nameEl.title = sch
+      // typology: the name in its speakers' script (none when unwritten)
+      const run = h.scripts ? nameRunSvg(h, id, y) ?? '' : ''
+      if (scriptEl.dataset.run !== run) { scriptEl.dataset.run = run; scriptEl.innerHTML = run }
       const p = peopleOf(h, id)
       const people = p >= 0 ? peopleName(h, p) : null
       const pd = politiesOf(h)

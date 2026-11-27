@@ -3,7 +3,7 @@
 import type { DiseaseInfo, EpidemicInfo, Outbreaks, Quarantines, World } from '../../../contract.ts'
 import { createRng } from '../../rng.ts'
 import type { SettlementNaming } from '../../names/index.ts'
-import { buildMorph, buildRoot, fuseWords, letterCount } from '../../names/words.ts'
+import { buildMorph, buildRoot, fuseWords, letterCount, nameOf } from '../../names/words.ts'
 import type { DiseaseState } from './state.ts'
 
 export interface DiseaseHistory {
@@ -48,7 +48,7 @@ function diseaseNames(world: World, dz: DiseaseState, naming: SettlementNaming, 
         const f = fuseWords(lang, w, buildMorph(lang, rng, 2, true))
         if (f !== null && letterCount(f) <= 10) w = f
       }
-      if (letterCount(w) >= 3 && !used.has(w.toLowerCase())) name = w.toLowerCase()
+      if (letterCount(w) >= 3 && !used.has(nameOf(lang, w).toLowerCase())) name = nameOf(lang, w).toLowerCase() // (typology: spelt)
     }
     if (!name) name = dz.defs[d].archetype + d // practically unreachable
     used.add(name)

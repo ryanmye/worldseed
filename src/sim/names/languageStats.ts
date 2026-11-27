@@ -13,6 +13,7 @@ import { EventType, type History } from '../../contract.ts'
 import { LANG } from './languageParams.ts'
 import { evolve, isAncestor, lineage, similarity } from './soundChange.ts'
 import { spokenNameAt } from './spoken.ts'
+import { letterCount } from './words.ts'
 
 const C = LANG.core
 
@@ -108,9 +109,9 @@ interface SeedStats {
 
 function mean(a: readonly number[]): number { return a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN }
 
-export function languageStats(seed: number, years: number): SeedStats {
+export function languageStats(seed: number, years: number, typology = false): SeedStats {
   const w = generateWorld(seed)
-  const run = runHistory(w, { years, language: true })
+  const run = runHistory(w, typology ? { years, language: true, typology: true } : { years, language: true })
   const h = run.history
   const L = h.languages!
   const S = h.settlements.length
@@ -172,9 +173,10 @@ export function languageStats(seed: number, years: number): SeedStats {
     const sp = h.speech!
     const n = sp.language[sp.start[id + 1] - 1]
     const said = evolve(L, nf.form[id], isAncestor(L, nf.language[id], n) ? n : nf.language[id], -1, Y, 3)
-    const then = st.name.toLowerCase()
+    // (typology: the form as said at the founding; phonemes count as letters)
+    const then = L.model === 1 ? evolve(L, nf.form[id], nf.language[id], -1, st.foundedYear, 3) : st.name.toLowerCase()
     if (said !== then) eroded++
-    loss.push(then.replace(/[^a-z]/g, '').length - said.replace(/[^a-z]/g, '').length)
+    loss.push(letterCount(then) - letterCount(said))
   }
   // --- shifts against long foreign rule ---
   const sp = h.speech!
@@ -227,13 +229,14 @@ export function languageStats(seed: number, years: number): SeedStats {
 
 const argv = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []
 if (argv[1] && /languageStats\.ts$/.test(argv[1])) {
-  const nums = argv.slice(2).map(Number)
+  const typo = argv.includes('--typology') // typology: lang=2 runs (language-typology-scripts.md §8.2)
+  const nums = argv.slice(2).filter((x) => x !== '--typology').map(Number)
   const years = nums[0] || 2000
   const seeds = nums.length > 1 ? nums.slice(1) : [1, 7, 42, 1234]
   const all: CognatePoint[] = []
   const r = (x: number, d = 3) => (Number.isFinite(x) ? +x.toFixed(d) : x)
   for (const seed of seeds) {
-    const s = languageStats(seed, years)
+    const s = languageStats(seed, years, typo)
     all.push(...s.points)
     const { points: _p, ...rest } = s
     console.log(JSON.stringify(Object.fromEntries(Object.entries(rest).map(([k, v]) => [k, typeof v === 'number' ? r(v) : v]))))

@@ -358,6 +358,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.Panzootic: return 'plague'
     case EventType.PlaceRenamed: return 'renamed'
     case EventType.LanguageSplit: case EventType.LanguageShift: case EventType.LoanWave: case EventType.LanguageDied: return 'renamed' // language: (the nearest kind: names and tongues)
+    case EventType.ScriptInvented: case EventType.ScriptAdopted: case EventType.ScriptReformed: case EventType.ScriptReplaced: case EventType.ScriptLost: return 'idea' // typology: writing
     case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
     case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted: return 'landmark'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind

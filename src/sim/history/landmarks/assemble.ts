@@ -12,7 +12,7 @@ import { createRng } from '../../rng.ts'
 import type { Rng } from '../../rng.ts'
 import type { SettlementNaming } from '../../names/index.ts'
 import { cityEndings, dedicate, freshPlace } from '../../names/placeNames.ts'
-import { buildRoot, capitalizeName } from '../../names/words.ts'
+import { buildRoot, nameOf, spelt } from '../../names/words.ts'
 import type { LandmarksState } from './state.ts'
 
 export interface LandmarkHistory {
@@ -95,8 +95,8 @@ export function assembleLandmarks(world: World, lm: LandmarksState, settlements:
     const house = lm.lDyn[i] >= 0 && lm.lDyn[i] < dynasties.length ? dynasties[lm.lDyn[i]].name : ''
     const fi = lm.lFaith[i]
     const faith = isFaithKind(lm.lKind[i]) && fi >= 0 && fi < faiths.length ? faiths[fi].name : ''
-    const fresh = (): string => (rng.next() < 0.5 ? capitalizeName(buildRoot(lang, rng)) : freshPlace(lang, ends, rng))
-    const honour = (x: string): string => (x ? dedicate(x, lang, ends, rng) ?? fresh() : fresh())
+    const fresh = (): string => (rng.next() < 0.5 ? nameOf(lang, buildRoot(lang, rng)) : spelt(lang, freshPlace(lang, ends, rng)))
+    const honour = (x: string): string => { const d = x ? dedicate(x, lang, ends, rng) : null; return d !== null ? spelt(lang, d) : fresh() }
     // (the candidates are made with a placeholder for the town, which no draw depends on: the name puts the town's name of the
     // begun year in it, the template keeps {town} for the name the town bears later)
     const real = (c: string): string => c.split(TOWN).join(town)
