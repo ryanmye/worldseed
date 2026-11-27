@@ -318,7 +318,8 @@ const MIGRANT_MIN_SIZE = 20
  * chunk of years, in order, is the same in a longer run of the same world (a shorter run
  * reproduces the start of a longer one), so a history and its extension agree on the past.
  */
-export const HISTORY_CHUNK_YEARS = 500
+export { HISTORY_CHUNK_YEARS } from './historyYears.ts'
+import { HISTORY_CHUNK_YEARS } from './historyYears.ts'
 /**
  * Scales that depend on the whole run (largest population, busiest route, largest
  * travelling group) are taken over the first NORM_YEARS years only, so extending the

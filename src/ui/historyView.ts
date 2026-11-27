@@ -36,7 +36,7 @@ import { buildStructureLayer, type StructureLayer } from '../render/structures.t
 import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
 import { createWhyPanel } from './whyPanel.ts' // causes:
-import { buildHistoryIndex, HISTORY_CHUNK_YEARS, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
+import { buildHistoryIndex, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
 import { createTimeline, More } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
@@ -137,9 +137,8 @@ export interface InitialHistoryState {
 }
 
 /** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
-export const MAX_YEARS = 6000
-/** Length of a history `years` long extended once (the next chunk boundary), capped. */
-export const nextHistoryLength = (years: number) => Math.min(MAX_YEARS, (Math.floor(years / HISTORY_CHUNK_YEARS + 1e-9) + 1) * HISTORY_CHUNK_YEARS)
+export { MAX_YEARS, nextHistoryLength } from './historyYears.ts'
+import { MAX_YEARS, nextHistoryLength } from './historyYears.ts'
 
 /** Timing of the last history swap, for measurement (perf=1). */
 export interface SwapStats {

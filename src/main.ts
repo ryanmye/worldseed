@@ -16,8 +16,8 @@ import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
 import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
-import { createHistoryView, MAX_YEARS, nextHistoryLength } from './ui/historyView.ts'
-import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
+import { HISTORY_CHUNK_YEARS, MAX_YEARS, nextHistoryLength } from './ui/historyYears.ts'
+import { lazyHistoryView } from './ui/lazyHistoryView.ts' // onboarding: the history view loads after the start page
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
@@ -729,7 +729,7 @@ const intParam = (name: string): number | null => {
   return Number.isFinite(v) ? v : null
 }
 
-const historyView = createHistoryView(
+const historyView = lazyHistoryView(
   {
     bottom: overlay.bottom,
     left: overlay.left,
@@ -772,7 +772,7 @@ const historyView = createHistoryView(
     cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
-)
+).view
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 seatCtl = createSeatController({
