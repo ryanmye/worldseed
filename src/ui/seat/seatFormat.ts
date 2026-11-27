@@ -251,7 +251,8 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
   [DecisionKind.Revolt]: {
     [K.Placate]: ['{year}: when {them} rose, the court of {us} is said to have offered terms.', '{them} rose, and {us} answered with gifts.'],
     [K.Fortify]: ['{year}: when {them} rose, {us} is recorded raising walls at its capital.', '{them} rose, and {us} raised its walls high.'],
-    [K.Crush]: ['{year}: {them} rose against the crown of {us}; the annals record the garrison marching.', '{them} rose, and {us} sent the soldiers.'],
+    [K.Crush]: ['{year}: after {them} rose against the crown of {us}, the annals record a garrison sent and walls raised there.', '{them} rose, and {us} walled the town and left soldiers in it.'],
+    [K.Ignore]: ['{year}: {them} rose against the crown of {us}; the court is not recorded doing anything more.', '{them} rose, and {us} shrugged.'],
   },
   [DecisionKind.Credit]: {
     [K.Borrow]: ['{year}: the treasury of {us} is said to have borrowed.', '{us} borrowed against the future.'],

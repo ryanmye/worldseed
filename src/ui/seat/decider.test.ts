@@ -5,7 +5,7 @@ import type { History, SeatOptions } from '../../contract.ts'
 import { DECIDER, deciderButton, deciderName } from './decider.ts'
 
 /** A History of one polity (0) over `towns` towns of `pop` people each, plus one outside town of 100 people. */
-function fake(opt: { towns: number; pop: number; origin?: number; dynasty?: number; regency?: boolean }): History {
+function fake(opt: { towns: number; pop: number; origin?: number; dynasty?: number; regency?: boolean; born?: number }): History {
   const N = opt.towns + 1
   const settlements = Array.from({ length: N }, (_, i) => ({ id: i, outpost: false, people: 0 }))
   const population = new Float32Array(N).map((_, i) => (i < opt.towns ? opt.pop : 100))
@@ -13,7 +13,7 @@ function fake(opt: { towns: number; pop: number; origin?: number; dynasty?: numb
   return {
     settlements, population, polity, snapshotCount: 1, snapshotInterval: 1000,
     polities: [{ id: 0, name: 'Vashtar', qualifier: 0, origin: opt.origin ?? PolityOrigin.Formed }],
-    rulers: [{ id: 0, polity: 0, acceded: 400, ended: -1, dynasty: opt.dynasty ?? 3 }],
+    rulers: [{ id: 0, polity: 0, acceded: 400, ended: -1, dynasty: opt.dynasty ?? 3, born: opt.born ?? (opt.regency ? 490 : 350) }],
     events: opt.regency ? [{ year: 495, type: 84, settlement: 0, other: -1, value: 0, extra: 12 }] : [],
   } as unknown as History
 }
@@ -34,5 +34,7 @@ describe('deciderName', () => {
     expect(deciderName(fake({ towns: 8, pop: 5000, dynasty: -1 }), polity, 500)).toBe(DECIDER.league)
     expect(deciderName(fake({ towns: 8, pop: 5000, regency: true }), polity, 500)).toBe(DECIDER.regency)
     expect(deciderName(fake({ towns: 8, pop: 5000, regency: true }), polity, 520)).toBe(DECIDER.court) // (the regency over)
+    // lane N3: a Regency record never makes an adult ruler's body "the regent's council" (EVALUATION §1c)
+    expect(deciderName(fake({ towns: 8, pop: 5000, regency: true, born: 450 }), polity, 500)).toBe(DECIDER.court)
   })
 })
