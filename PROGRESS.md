@@ -11,3 +11,9 @@ Base: 2dc5ebf (lane/ci-determinism tip). Tools: /home/claude/runs/detmath2/tools
   Chromium on vite preview (tools/detcheck_page.py -> runs/detmath2/detcheck-chromium.jsonl): seed 1 v=2 / +lang=1 / dramatic+lang=1 match Node.
   cross-engine (no WebKit/Firefox in /opt/pw-browsers (chromium only); installing bun (JSC) was denied by permission classifier -> owner check)
 - [ ] step 4: worker/parallel audit
+- touched tests: why.test + src/sim/names 9 files 62/62 (runs/detmath2/vitest-touched.log). origin/main already an ancestor (ci-determinism not yet on main).
+- [x] CI GREEN run 46020779737: build (22) and build (25) success, 82/82 test files, build, G0 6/6 OK on both. Temporary workflow deleted (final commit).
+- [x] G0 6/6 OK on local Node 25.9.0 too (hashValue equal); realism:check OK 0.371 -> 0.371
+- [x] step 4: single worker, no split reductions; chunked createHistoryRun (50y simulateTo, extensions 500->1200->2000) == simulateHistory (runs/detmath2/chunked.jsonl)
+
+LANE COMPLETE. No golden changes.
