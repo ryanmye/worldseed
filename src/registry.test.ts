@@ -49,7 +49,8 @@ describe('reserved order and decision rows (R40)', () => {
       expect(k.reservedFor?.length).toBeGreaterThan(0)
     }
     // registry spot checks (§3.2)
-    expect(K[10].reservedFor).toBe('seat-mode: Choice')
+    expect(K[10].key).toBe('choice') // (seat-mode step 3: live)
+    expect(K[11].reservedFor).toBe('seat-mode: Repudiate')
     expect(K[22].reservedFor).toBe('seat-mode: Betray')
     expect(K[30].reservedFor).toBe('riots: Crackdown')
     expect(K[41].reservedFor).toBe('character-mode: PChoice')
@@ -68,13 +69,13 @@ describe('reserved order and decision rows (R40)', () => {
     expect(decodeOrders('10::1:2')).toEqual([])
   })
 
-  it('DecisionKind table is contiguous 0..54, all reserved', () => {
+  it('DecisionKind table is contiguous 0..54: 0–17 seat-mode (live), the rest reserved', () => {
     const D = describeDecisionKinds()
     expect(D.length).toBe(DECISION_KIND_COUNT)
     expect(DECISION_KIND_COUNT).toBe(55)
-    D.forEach((d, i) => { expect(d.kind).toBe(i); expect(d.reserved).toBe(true); expect(d.reservedFor?.length).toBeGreaterThan(0) })
-    expect(D[0].reservedFor).toBe('seat-mode: WarOnUs')
-    expect(D[17].reservedFor).toBe('seat-mode: Idea')
+    D.forEach((d, i) => { expect(d.kind).toBe(i); if (i < 18) { expect(d.reserved).toBeUndefined(); expect(d.key.length).toBeGreaterThan(0) } else { expect(d.reserved).toBe(true); expect(d.reservedFor?.length).toBeGreaterThan(0) } })
+    expect(D[0].key).toBe('warOnUs')
+    expect(D[17].key).toBe('idea')
     expect(D[18].reservedFor).toBe('court-politics: Estates')
     expect(D[25].reservedFor).toBe('tech-tree: BanIdea')
     expect(D[45].reservedFor).toBe('migration: Borders')

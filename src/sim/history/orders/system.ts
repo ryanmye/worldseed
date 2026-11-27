@@ -53,7 +53,7 @@ function seatOfPeople(s: HistoryState, p: number): number {
   return best
 }
 
-const isPeopleKind = (k: number): boolean => k === OrderKind.Explore || k === OrderKind.Settle || k === OrderKind.Crop || k === OrderKind.Idea
+const isPeopleKind = (k: number): boolean => k === OrderKind.Choice || k === OrderKind.Explore || k === OrderKind.Settle || k === OrderKind.Crop || k === OrderKind.Idea
 const isPolityKind = (k: number): boolean => k === OrderKind.War || k === OrderKind.Peace || k === OrderKind.Seat || k === OrderKind.Faith
 const liveTown = (s: HistoryState, id: number): boolean => id >= 0 && id < s.count && s.abandoned[id] < 0
 const livePolity = (ps: PolityState, p: number): boolean => p >= 0 && p < ps.pCapital.length && ps.pEnded[p] < 0
@@ -68,7 +68,16 @@ function seatOf(s: HistoryState, ox: OrdersState, k: number): number {
 
 /** Why order k cannot act now (OrderReason.None when it may): checked when it is given. */
 function check(s: HistoryState, ox: OrdersState, k: number): number {
-  const kd = ox.kind[k], a = ox.actor[k], t = ox.target[k]
+  return orderCheck(s, ox.kind[k], ox.actor[k], ox.target[k])
+}
+
+/**
+ * Why an order of kind kd (actor a, target t; -1 none) could not act if given now (OrderReason.None when it may): the check
+ * made when an order is given (pure reads). The seat watcher (seat/watch.ts) offers only options whose orders pass it.
+ */
+export function orderCheck(s: HistoryState, kd: number, a: number, t: number): number {
+  if (kd < 0 || kd >= YEARS.length || RESERVED[kd]) return OrderReason.SystemOff
+  if (kd === OrderKind.Choice) return OrderReason.None
   const R = OrderReason
   const N = s.terrain.cellCount
   const ps = s.pol
@@ -181,6 +190,7 @@ export function ordersBegin(s: HistoryState, ox: OrdersState): void {
     const t = ox.target[k]
     push(s, EventType.OrderGiven, seat, kd === OrderKind.Seat ? t : (kd === OrderKind.War || kd === OrderKind.Peace) && s.pol !== null && t >= 0 && t < s.pol.pCapital.length ? s.pol.pCapital[t] : -1, k, kd)
     ox.place[k] = seat
+    if (kd === OrderKind.Choice) { ox.product[k] = t; ox.acted[k] = s.year; resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, seat); continue } // seat: a record of the player's choice, done at once
     const why = kd >= 0 && kd < YEARS.length ? (RESERVED[kd] ? OrderReason.SystemOff : check(s, ox, k)) : OrderReason.NoTarget // (reserved kinds, R40: never act)
     if (why !== OrderReason.None) { resolve(s, ox, k, OrderStatus.Failed, why, seat); continue }
     ox.status[k] = OrderStatus.Active

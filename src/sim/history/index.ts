@@ -94,7 +94,7 @@
 // hubs get more from their land and import food).
 
 import { GOOD_COUNT, TECH_FIELD_COUNT, emptyCauseRecords } from '../../contract.ts'
-import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Settlement, SimulateHistory, World } from '../../contract.ts'
+import type { GeoFeature, History, HistoryEvent, HistoryOptions, HistoryRun as HistoryRunContract, Journeys, Order, Settlement, SimulateHistory, World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import { nameWorld } from '../names/featureNames.ts'
 import { createSearch, migrationSystem } from './migration.ts'
@@ -146,6 +146,12 @@ import { RULERS } from './rulers/params.ts'
 import { createRulers } from './rulers/state.ts'
 import type { RulerDiag } from './rulers/state.ts'
 import { assembleRulers, emptyRulerHistory } from './rulers/assemble.ts'
+// battles: the battles of the wars, their commanders (battles/).
+import { assembleBattles, emptyBattleHistory } from './battles/assemble.ts'
+import { nameBattles, nameCommanders } from './battles/names.ts'
+import { BATTLES_ON } from './battles/params.ts'
+import { createBattles } from './battles/state.ts'
+import type { BattleDiag } from './battles/state.ts'
 // religion: faiths, conversion, state churches, schism, persecution, holy war (religion/).
 import { RELIGION } from './religion/params.ts'
 import { createReligionSystem, religionSnapshot, religionYear } from './religion/system.ts'
@@ -206,6 +212,13 @@ function wovenIndex(raw: readonly HistoryEvent[], ...woven: readonly (readonly H
     return j
   }
 }
+import { appendOrders } from './orders/state.ts'
+// seat: the player's seat and its decisions (seat/).
+import { createSeatState } from './seat/state.ts'
+import type { SeatState } from './seat/state.ts'
+import { seatYear } from './seat/system.ts'
+import { seatWatch } from './seat/watch.ts'
+import { assembleSeat } from './seat/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -264,6 +277,8 @@ export interface HistoryDiagnostics {
   diseaseState?: DiseaseState
   /** rulers: counters of the rulers system (absent when it is off). */
   rulers?: RulerDiag
+  /** battles: counters of the battles system (absent when it is off). */
+  battles?: BattleDiag
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -417,6 +432,18 @@ export interface HistoryRunner {
   advance(years: number): HistoryRun
   /** Simulates up to `years` (no earlier than `year`) without assembling anything (cheap progress steps; advance assembles later). */
   simulate(years: number): void
+  /**
+   * Live append (seat-mode §3.2): adds orders to the run as if they had been in HistoryOptions.orders from the start (after
+   * the ones there). Every order must be for a year after `year` (else a RangeError, and nothing changes): the run then goes on
+   * exactly as a run created with the orders so far followed by these would.
+   */
+  addOrders(orders: readonly Order[]): void
+  /**
+   * seat: steps on from `year` one year at a time until the seat's watcher records a decision (the run then stands at that
+   * year, the decision rows History.seat.decisions with year === it), the seat is lost, or `maxYear`; returns `year`. Without a
+   * seat it is simulate(maxYear).
+   */
+  playSeat(maxYear: number): number
 }
 
 /**
@@ -460,6 +487,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // rulers: rulers and houses (they need the polities), unless switched off.
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
+  // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
+  const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
+  s.bat = bat
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -479,12 +509,16 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // disasters: natural shocks and climate, from the world alone (unless switched off).
   const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount) : null
   s.dx = dx
-  const ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
+  // (live append, seat-mode §3.2: addOrders creates it later if there are none yet; created then, it is the state a run with
+  // those orders would have had all along, because no hook acts and the stream draws nothing before an order's year)
+  let ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
   s.orders = ox
   // causes: the causal explorer's recorders (recording only: nothing reads them, they draw nothing), unless switched off.
   const why = options?.causes ? createWhy(weather.region, weather.regionCount) : null
   s.why = why
   if (pol) pol.why = why
+  // seat: the player's seat, only with HistoryOptions.seat (none: the history is exactly the one without it).
+  const seat: SeatState | null = options?.seat ? createSeatState(options.seat) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -623,6 +657,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
     if (dx) disasterYearEnd(s, dx) // disasters: droughts, epochs, the climate series
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
+    if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -724,6 +759,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
         ...rulHist, // rulers:
+        ...(bat && pol ? assembleBattles(bat, years, pol.pEnded, rulHist.rulers, nameBattles(world, bat, { settlements, renamings: renHist.renamings }, features, featureMap), nameCommanders(world, bat, naming, rulHist.rulers)) : emptyBattleHistory()), // battles: (named after the renamings)
         ...relHist, // religion:
         ...tourismHist, // tourism:
         renamings: renHist.renamings, // renaming:
@@ -733,6 +769,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...(langHist ? { languages: langHist.languages, speech: langHist.speech, nameForms: langHist.nameForms } : {}), // language: (absent when off)
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         why: whyHist, // causes:
+        ...(seat ? { seat: assembleSeat(seat, ox ? ox.given : [], years) } : {}), // seat: (absent without a seat)
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
       terrain,
@@ -752,6 +789,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:
@@ -779,6 +817,24 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       return assemble(year)
     },
     simulate: simulateTo,
+    playSeat(maxYear: number): number {
+      const target = Math.min(32767, Math.max(0, Math.floor(maxYear)))
+      if (!seat || seat.lostYear >= 0) { if (target > year) simulateTo(target); return year }
+      while (year < target) {
+        step(year + 1)
+        year++
+        if (seat.newRows > 0 || seat.lostYear >= 0) break
+      }
+      return year
+    },
+    addOrders(orders: readonly Order[]): void {
+      if (ox) { appendOrders(ox, orders, year); return }
+      for (const o of orders) if (!(Number.isFinite(o.year) && Math.max(1, Math.floor(o.year)) > year)) throw new RangeError(`order for year ${o.year} cannot be added to a run at year ${year}`)
+      if (orders.length === 0) return
+      ox = createOrders(s, orders, createRng(seed, 'history-orders'))
+      ox.evSeen = s.events.length
+      s.orders = ox
+    },
   }
 }
 
@@ -808,6 +864,12 @@ export function createHistoryRun(world: World, options?: HistoryOptions): Requir
       const target = Math.min(32767, Math.max(0, Math.floor(years)))
       if (target > runner.year) runner.simulate(target)
       return runner.year
+    },
+    addOrders(orders: Order[]): void {
+      runner.addOrders(orders)
+    },
+    playSeat(maxYear: number): number {
+      return runner.playSeat(maxYear)
     },
   }
 }

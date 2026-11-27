@@ -17,6 +17,7 @@ export function refTitle(c: Ctx, s: Subject, legend: boolean): string {
     case 'people': return `the Saga of the ${c.peopleName(s.id)}`
     case 'house': return legend ? `the Saga of the House of ${c.h.dynasties[s.id]?.name ?? ''}` : `the Chronicle of the House of ${c.h.dynasties[s.id]?.name ?? ''}`
     case 'world': return 'the Chronicle of the World'
+    case 'commander': return legend ? `the Saga of ${c.h.commanders?.name[s.id] ?? ''}` : `the Deeds of ${c.h.commanders?.name[s.id] ?? ''}` // battles:
   }
   return ''
 }
@@ -42,6 +43,8 @@ export function worthTelling(c: Ctx, s: Subject): boolean {
       return (rd.houseReigns[s.id] ?? []).filter((r) => rd.rulers[r].acceded <= c.Y).length >= 4
     }
     case 'people': return s.id >= 0 && s.id < h.peoples.length
+    // battles: a commander with a name and three battles by then, or one who won renown
+    case 'commander': return !!h.commanders && s.id >= 0 && s.id < h.commanders.count && h.commanders.firstYear[s.id] <= c.Y && !!h.commanders.name[s.id] && (h.commanders.battles[s.id] >= 3 || h.commanders.fame[s.id] >= 15)
   }
   return false
 }

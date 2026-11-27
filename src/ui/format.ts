@@ -16,7 +16,9 @@ import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEve
 
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 import { describeOrderEvent, describeOrderEventFor, isOrderEvent } from './nudgeFormat.ts'
+import { describeSeatEvent, isSeatEvent } from './seat/seatFormat.ts'
 import { describeCradleEvent, describeCradleEventFor, isCradleEvent } from './cradlesFormat.ts'
+import { battleEventKind, describeBattleEvent, describeBattleEventFor, isBattleEvent } from './battleFormat.ts' // battles:
 import { describeLanguageEvent, describeLanguageEventFor, isLanguageEvent } from './languageFormat.ts'
 
 /**
@@ -50,6 +52,8 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
   // polities, second version: civil wars, bonds, the outlaw economy, forts
   | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
+  // battles (battleFormat.ts): battles, sieges, commanders
+  | 'battle'
   // claims: border disputes
   | 'dispute'
   // goods (goodsFormat.ts): deposits and mines, craft traditions, secrets, lanes, trading posts
@@ -357,7 +361,8 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
     case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted: return 'landmark'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
-    default: if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number)) return 'order'
+    default: if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number) || isSeatEvent(e.type as number)) return 'order'
+      if (battleEventKind(e)) return 'battle' // battles:
       return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (tourismEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
 }
@@ -417,7 +422,9 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEvent(h, e) ?? `${name} and ${settlementName(h, e.other)} stop trading`
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       if (isOrderEvent(e.type as number)) return describeOrderEvent(h, e) ?? 'An order'
+      if (isSeatEvent(e.type as number)) return describeSeatEvent(h, e) ?? 'A matter of the seat' // seat (270-279)
       if (isCradleEvent(e.type as number)) return describeCradleEvent(h, e) ?? 'A first hearth'
+      if (isBattleEvent(e.type as number)) return describeBattleEvent(h, e) ?? `A battle for ${name}` // battles:
       if (isLanguageEvent(e.type as number)) return describeLanguageEvent(h, e) ?? `The speech of ${name} changes`
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
@@ -498,7 +505,9 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       if (isTradeDangerEvent(e.type as number)) return describeTradeDangerEventFor(h, e, id) ?? 'Trade on a dangerous way'
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       if (isOrderEvent(e.type as number)) return describeOrderEventFor(h, e, id) ?? 'An order'
+      if (isSeatEvent(e.type as number)) return describeSeatEvent(h, e) ?? 'A matter of the seat' // seat (270-279)
       if (isCradleEvent(e.type as number)) return describeCradleEventFor(h, e, id) ?? 'A first hearth'
+      if (isBattleEvent(e.type as number)) return describeBattleEventFor(h, e, id) ?? 'A battle' // battles:
       if (isLanguageEvent(e.type as number)) return describeLanguageEventFor(h, e, id) ?? 'Its speech changed'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`

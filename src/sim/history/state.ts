@@ -17,6 +17,7 @@ import type { PolityState } from './polity/state.ts' // polities:
 import type { GoodsState } from './goods/state.ts' // goods:
 import type { DiseaseState } from './disease/state.ts' // disease:
 import type { RulerState } from './rulers/state.ts' // rulers:
+import type { BattleState } from './battles/state.ts' // battles:
 import type { ReligionState } from './religion/state.ts' // religion:
 import type { TourismState } from './tourism/state.ts' // tourism:
 import type { IdeasState } from './ideas/state.ts' // ideas:
@@ -161,6 +162,8 @@ export interface HistoryState {
   dz: DiseaseState | null
   // rulers: the rulers system's state (rulers/state.ts), or null when it (or the polity system) is off.
   rul: RulerState | null
+  // battles: the battles system's state (battles/state.ts), or null when it (or the polity system) is off.
+  bat: BattleState | null
   // religion: the religion system's state (religion/state.ts), or null when it is switched off.
   rel: ReligionState | null
   // tourism: the tourism system's state (tourism/state.ts), or null when it is switched off (every hook is then a no-op).
@@ -268,6 +271,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     goods: null, // goods: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
     rul: null, // rulers: (set by index.ts when the system is on)
+    bat: null, // battles: (set by index.ts when the system is on)
     rel: null, // religion: (set by index.ts when the system is on)
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
