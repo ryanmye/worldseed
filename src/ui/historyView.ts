@@ -36,7 +36,7 @@ import { buildStructureLayer, type StructureLayer } from '../render/structures.t
 import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
 import { createWhyPanel } from './whyPanel.ts' // causes:
-import { buildHistoryIndex, HISTORY_CHUNK_YEARS, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
+import { buildHistoryIndex, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
 import { createTimeline, More } from './timeline.ts'
 import { requestRender } from '../render/invalidate.ts'
@@ -76,6 +76,9 @@ import { createNudgeView } from './nudgePanel.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
+import { buildPeopleWash, type PeopleWash } from '../render/peopleWash.ts'
+import { flat } from '../render/mapProjection.ts'
+import { followByDefault, groupRightRail, isFirstVisit, markVisited } from './onboard.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { createWhatIfView, type CompareAsk, type CompareResult } from './whatifPanel.ts' // what-if:
 import { createSwipe } from './whatif/swipe.ts'
@@ -136,9 +139,8 @@ export interface InitialHistoryState {
 }
 
 /** Longest history: memory grows with years times settlements ever founded (about 45 MB of arrays at 6000 years, see the report). */
-export const MAX_YEARS = 6000
-/** Length of a history `years` long extended once (the next chunk boundary), capped. */
-export const nextHistoryLength = (years: number) => Math.min(MAX_YEARS, (Math.floor(years / HISTORY_CHUNK_YEARS + 1e-9) + 1) * HISTORY_CHUNK_YEARS)
+export { MAX_YEARS, nextHistoryLength } from './historyYears.ts'
+import { MAX_YEARS, nextHistoryLength } from './historyYears.ts'
 
 /** Timing of the last history swap, for measurement (perf=1). */
 export interface SwapStats {
@@ -213,6 +215,8 @@ export interface HistoryView {
   /** what-if: the worker's answers to deps.requestCompare. */
   compareResult(r: CompareResult): void
   compareProgress(years: number, target: number): void
+  /** onboarding: Follow the story turns on (or not) when the first history shows (the start page's play path). */
+  setFollowOnShow(on: boolean): void
   compareFailed(message: string): void
   /** what-if: open the comparison with these orders once the history is in (cmp= on load). */
   openCompare(orders: Order[]): void
@@ -568,8 +572,13 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setUrlParam: deps.setUrlParam,
     requestRender,
     wake: () => deps.wake(),
-    initialOn: new URLSearchParams(window.location.search).get('follow') === '1',
+    initialOn: followByDefault(new URLSearchParams(window.location.search), isFirstVisit()), // onboarding: a first visit follows
+    openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
+    battleOpen: () => battleMap.isOpen(),
+    play: () => timeline.play(),
+    contextHost: deps.right, // ui-additions 2: the story's battle as the context panel
   })
+  groupRightRail(deps.right) // onboarding: the core panels in sight, the rest under "More panels"
   /** A fly-to the user asked for (a panel, a chronicle row, a selection): the director lets go. */
   function onUserFly() {
     story.userMoved()
@@ -878,12 +887,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
    * and toggles. `extend`: a longer run of the history on screen (keep the chronicle rows and
    * the diorama layouts; the timeline range only grows).
    */
+  /** onboarding: the peoples' washes and hearths (render/peopleWash.ts), rebuilt with each history. */
+  let peopleWash: PeopleWash | null = null
   function commit(w: World, h: History, b: Built, extend: boolean) {
     const old: Built = { layer: layer ?? undefined, journeys, structures, trade, roads, outposts, discoveries, speciesLayer, epidemics }
     disposeBuilt(old)
     index = b.index!
     layer = b.layer!
     deps.planetGroup.add(layer.mesh)
+    // onboarding: the peoples' washes and the glowing hearths of the first centuries (render/peopleWash.ts)
+    if (peopleWash) { deps.planetGroup.remove(peopleWash.object); peopleWash.dispose(); peopleWash = null }
+    if (index.peoples) { peopleWash = buildPeopleWash(w, h, index.peoples.rgb, index.peoples.people); deps.planetGroup.add(peopleWash.object) }
     journeys = b.journeys ?? null
     if (journeys) {
       journeys.object.visible = journeysVisible
@@ -1128,6 +1142,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       )
       if (keep) applyKept(h, keep)
       else if (first) applyInitial(h, target)
+      if (first) markVisited() // onboarding: the next visit is not a first (Follow then starts off)
       else if (interim) finishInterim(h)
       requestRender()
       deps.wake()
@@ -1341,6 +1356,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   }
 
   const api: HistoryView = {
+    setFollowOnShow: (on) => story.setFollowOnShow(on),
     setWorld(w: World) {
       world = w
       index = null
@@ -1659,6 +1675,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const pulseYears = timeline.yearsPerSecond
       layer.setTime(year, pos.frac, pulseYears)
       layer.update(deps.camera, drawSize, pixelRatio)
+      peopleWash?.update(year, pos.s0, pos.s1, pos.frac, deps.camera, drawSize, pixelRatio, markersVisible && viewMode === ViewMode.Terrain ? flat.t : 1) // onboarding
       updateLand(year)
       deps.getGlobe()?.setYear(year)
       if (structures && structuresVisible) {

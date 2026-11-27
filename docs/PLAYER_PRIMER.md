@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 2 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 3 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -8,12 +8,17 @@ _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyb
 Changelog:
 - v1 (2026-11-27, lane/bots): first version, from origin/main f20cb5f.
 - v2 (2026-11-27, lane/setup merge): presets (the start page's History toggle, `v=2`, `preset=`, per-switch overrides) and the throne link.
+- v3 (2026-11-27, lane/onboard merge): play paths on the start page, Follow on by default for first visits, the context panel and "More panels", the drama strip, caption Share and Watch the battle, inline battle replays, caption swipe on a phone.
 
 ## 1. Starting a world
 
 - **The start page** shows only at the bare URL, or with `intro=1` (main.ts `showLanding`). It has a seed field (with a dice
   for a random seed), a years field (200 to 6000; landing.ts YEARS_MIN/MAX) and **Start**. "Choose where peoples begin" plants
   hearths (written as `c=`). Any other URL parameter opens the app directly.
+- **Play paths** (ui/onboardPolicy.ts PLAY_PATHS): the start page offers three ways in. **Watch history unfold** (the
+  primary button; `Enter` in a field picks it) starts the world with Follow the story on. **Rule a kingdom** opens the
+  throne link below (seed 61343, `seat=polity:0:700`, with the chosen preset). **Explore freely** starts the world with
+  Follow off: you turn the globe yourself while history plays.
 - **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
   timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write
   `lang=1`, so a link without it gets the older names.
@@ -21,8 +26,9 @@ Changelog:
   disasters, debts and grudges, tuned against real history) or **Dramatic** (everything on: merchant houses, cold wars,
   absentee rulers and city-states too). The preset is part of the world, like the seed: the same seed under another preset
   is another history. The bot harness takes `--preset`.
-- **Throne link:** under Start, **Or take a throne** opens a curated world in seat mode (seed 61343,
-  `seat=polity:0:700`, with the chosen preset): you rule a realm from year 700 and decisions come to you as cards.
+- **Throne link:** the curated seat world is seed 61343, `seat=polity:0:700`, with the chosen preset: you rule a realm from
+  year 700 and decisions come to you as cards. With the play paths shown, **Rule a kingdom** is the way to it (the separate
+  "Or take a throne" link is hidden then).
 - **URL keys for presets:** `v=2` marks a link made with the presets; new worlds write it. A link without `v` is an old
   link and replays with every newer system off (preset `off`), so old share and seat links keep their history. With `v=2`,
   no `preset=` means realistic; `preset=dramatic` or `preset=off` pick the others. Each switch can be overridden over the
@@ -55,13 +61,24 @@ Changelog:
 
 - **Follow the story:** press `H`, use the Follow button on the timeline bar, or add `follow=1` (ui/story/storyView.ts).
   The director flies the camera to the great events (beats), slows playback at each one and shows a caption card with
-  Read more, Why? and Next. It is off by default. With Follow on, story notices show too; without it, "Story notices" in
-  the layers toggles them.
+  Read more, Why? and Next. **On a first visit it is on by default** (ui/onboardPolicy.ts followByDefault): unless the
+  address has `follow=0`, or opens somewhere particular (`seat`, `cmp`, `fly`, `select`, `polity`, `year`, `lon` or `lat`).
+  Later visits start with it off. While following, quiet stretches fast-forward (⏩ and "~N min" beside Follow). With
+  Follow on, story notices show too; without it, "Story notices" in the layers toggles them.
+- **Captions** also have **Share** (a link with `year=` and `follow=1`) and, on battle beats, **Watch the battle** (the 2D
+  replay). On a phone, swipe a caption sideways: left is Next, right closes it.
+- **Inline battle replays:** while following, the top three battles replay inline; the timeline pauses and resumes after.
+- **Drama strip:** the strip above the timeline slider shows the story's peaks (ui/story/dramaStrip.ts). Click a peak to
+  jump there: playback pauses and following lets go.
 - The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
 - **Following one realm:** select it in Factions. The director gives the selection's stories a focus bonus (storyView
   `focus`).
 
 ## 4. Panels
+
+The right column shows the Chronicle, View and one **context panel**: Factions, or Why while it is open, or the story's
+battle. The other panels sit under **More panels (n)** (click it to show them; "Fewer panels" hides them again), and empty
+panels are hidden. On a phone the sheet's tabs put the context panel first and hide empty tabs.
 
 Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all keys):
 - `C` **Chronicle**: notable events up to the year shown, newest first. Your choices on the throne appear here in hedged

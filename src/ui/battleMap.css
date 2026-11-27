@@ -26,3 +26,20 @@
 .bm-scrub { flex: 1; }
 .ev-replay { margin-left: 4px; border: 0; background: none; color: inherit; opacity: 0.7; cursor: pointer; }
 .ev-replay[hidden] { display: none; }
+/* onboarding: the story director's inline replay, beside the globe (lower left, above the timeline) rather than over it */
+.battle-map.bm-inline {
+  left: 16px;
+  top: auto;
+  bottom: 120px;
+  transform: none;
+  width: min(340px, 92vw);
+  z-index: 7;
+}
+.battle-map.bm-inline .bm-note { display: none; }
+html.compact .battle-map.bm-inline {
+  left: 50%;
+  bottom: auto;
+  top: 8px;
+  transform: translateX(-50%);
+  width: min(300px, 80vw);
+}

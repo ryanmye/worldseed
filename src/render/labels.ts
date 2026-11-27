@@ -82,6 +82,9 @@ const FEATURE_STYLE: Record<number, Style> = {
 const CITY_STYLE: Style = { italic: false, weight: 700, family: SANS, size: [12.5, 12.5], tracking: 0.01, upper: false, rgb: '255,250,240', alpha: 1, halo: 0.8, priority: 800 }
 const TOWN_STYLE: Style = { italic: false, weight: 500, family: SANS, size: [11.5, 11.5], tracking: 0, upper: false, rgb: '242,236,224', alpha: 0.95, halo: 0.75, priority: 500 }
 const VILLAGE_STYLE: Style = { italic: false, weight: 400, family: SANS, size: [10.5, 10.5], tracking: 0, upper: false, rgb: '226,220,208', alpha: 0.85, halo: 0.7, priority: 300 }
+/** onboarding: the most populous places named at any zoom. */
+const TOP_TOWNS = 5
+
 /** Region labels (polities): wide-spaced capitals across the territory, in a pale tint of the region's colour; sized by area and rank. */
 const REGION_SIZE: [number, number] = [10.5, 18.5]
 const REGION_BASE: Omit<Style, 'rgb'> = { italic: false, weight: 600, family: SERIF, size: REGION_SIZE, tracking: 0.42, upper: true, alpha: 0.9, halo: 0.72, priority: 860 }
@@ -347,6 +350,9 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
 
   // ---- settlements (texts measured lazily: most villages are never labelled)
   const settlementLabels: (SettlementLabel | null)[] = new Array(history.settlements.length).fill(null)
+  /** onboarding: the leading places this frame (ids, most populous first; -1 none) and their populations. */
+  const top = new Int32Array(TOP_TOWNS).fill(-1)
+  const topPop = new Float64Array(TOP_TOWNS)
   const settlementLabel = (id: number): SettlementLabel => {
     let l = settlementLabels[id]
     if (!l) {
@@ -688,6 +694,18 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
 
     // living settlements, by tier and zoom
     const sizeScale = Math.min(1.5, Math.max(0.8, Math.sqrt(3.25 / camDist)))
+    // onboarding: the TOP_TOWNS most populous places are named at any zoom (the early map has no towns, only villages)
+    top.fill(-1)
+    topPop.fill(0)
+    for (let id = 0; id < history.settlements.length; id++) {
+      const pop = source.population(id)
+      if (pop <= topPop[TOP_TOWNS - 1] || (history.settlements[id] as { outpost?: boolean }).outpost === true) continue
+      if (knownMask !== null && year < knownMask[history.settlements[id].cell]) continue
+      let k = TOP_TOWNS - 1
+      while (k > 0 && topPop[k - 1] < pop) { topPop[k] = topPop[k - 1]; top[k] = top[k - 1]; k-- }
+      topPop[k] = pop
+      top[k] = id
+    }
     for (let id = 0; id < history.settlements.length; id++) {
       const existing = settlementLabels[id]
       const pop = source.population(id)
@@ -704,7 +722,8 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
       }
       const tier = pop >= CITY_POPULATION ? 2 : pop >= TOWN_POPULATION ? 1 : 0
       const wasShown = existing !== null && existing.shown
-      const ok = special || tier === 2 || (tier === 1 && camDist < TOWN_DIST[wasShown ? 1 : 0]) || (tier === 0 && camDist < VILLAGE_DIST[wasShown ? 1 : 0])
+      const leading = top.includes(id)
+      const ok = special || leading || tier === 2 || (tier === 1 && camDist < TOWN_DIST[wasShown ? 1 : 0]) || (tier === 0 && camDist < VILLAGE_DIST[wasShown ? 1 : 0])
       if (!ok && (!existing || existing.alpha <= 0)) continue
       const l = settlementLabel(id)
       if (!project(l.pos.x, l.pos.y, l.pos.z) || proj.facing < 0.04) { l.alpha = 0; l.shown = false; continue }
@@ -723,6 +742,7 @@ export function createLabelLayer(container: HTMLElement, before: Node | null, wo
         ? 18 * sizeScale * (0.55 + 0.45 * Math.sqrt(facing)) + 6
         : (tier === 2 ? 8 : tier === 1 ? 5.5 : 3) * sizeScale * (0.55 + 0.45 * Math.sqrt(facing)) + 3
       let pri = style.priority + Math.min(60, pop / (tier === 2 ? 2000 : tier === 1 ? 200 : 20))
+      if (leading) pri += 40
       if (special) pri = 10000
       if (l.shown) pri += 120
       cands.push({ pri, feature: null, settlement: l, pl, ok, facing, r })
