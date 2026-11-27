@@ -8,6 +8,7 @@
 // absent: the neutral record, byte for byte). The inspector's links ("Read its legend") call open().
 
 import type { History, World } from '../contract.ts'
+import { hasBeliefs } from './beliefsData.ts' // partisan: beliefs
 import { createPartisanTag, createPovSelect, fillPovSelect, parsePov, povKey, type Pov } from './sagas/povPicker.ts' // partisan:
 import { generateSaga, parseSubject, sagaMarkdown, sagaSubjectValid, sagaText, subjectKey, type Saga, type SagaKind, type SagaSubject } from './sagas/index.ts'
 import { Ctx, topBy } from './sagas/facts.ts'
@@ -327,7 +328,7 @@ export function createSagasView(deps: SagasViewDeps): SagasView {
     if (pov && pov.kind === 'state' && !(pov.id < (history.polities?.length ?? 0) && history.polities[pov.id].foundedYear <= year)) pov = null
     if (pov && pov.kind === 'people' && !(pov.id < history.peoples.length)) pov = null
     fillPovSelect(povSel, history, world, year, pov)
-    tag.set(pov)
+    tag.set(pov, hasBeliefs(history))
     if (key === shown && saga) return
     saga = generateSaga(history, world, subject, legend, year, pov)
     shown = key

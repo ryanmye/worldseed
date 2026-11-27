@@ -41,12 +41,16 @@ export function fillPovSelect(sel: HTMLSelectElement, h: History, world: World |
   sel.value = want
 }
 
-/** "Partisan: numbers and blame are the teller's · the record" (hidden without a teller). */
-export function createPartisanTag(onRecord: () => void): { el: HTMLElement; set(pov: Pov | null): void } {
+/**
+ * "Partisan: numbers and blame are the teller's · Read the record" (hidden without a teller). With beliefs in the history
+ * (`believed`), it adds that strengths, motives and secret alliances are as the teller's court believed them.
+ */
+export function createPartisanTag(onRecord: () => void): { el: HTMLElement; set(pov: Pov | null, believed?: boolean): void } {
   const el = document.createElement('div')
   el.className = 'gp-note sg-partisan'
   const t = document.createElement('span')
-  t.textContent = 'Partisan: numbers and blame are the teller’s. '
+  const plain = 'Partisan: numbers and blame are the teller’s. '
+  t.textContent = plain
   const b = document.createElement('button')
   b.type = 'button'
   b.className = 'gp-link'
@@ -55,5 +59,11 @@ export function createPartisanTag(onRecord: () => void): { el: HTMLElement; set(
   b.addEventListener('click', onRecord)
   el.append(t, b)
   el.hidden = true
-  return { el, set: (pov) => { el.hidden = !pov } }
+  return {
+    el,
+    set: (pov, believed = false) => {
+      el.hidden = !pov
+      t.textContent = believed ? `${plain}Strengths, motives and secret alliances are as its court believed them. ` : plain
+    },
+  }
 }
