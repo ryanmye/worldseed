@@ -49,8 +49,8 @@ const UI = {
   plantTitle: 'Plant the first hearths: click places on the globe where the first peoples begin',
   presetLabel: 'History',
   presets: [
-    { value: 'realistic', label: 'Realistic', hint: 'Tuned against real history' },
-    { value: 'dramatic', label: 'Dramatic', hint: 'Every system on: battles, disasters, debts, betrayals' },
+    { value: 'realistic', label: 'Realistic', hint: 'Battles, disasters, debts and grudges, tuned against real history' },
+    { value: 'dramatic', label: 'Dramatic', hint: 'Everything on: merchant houses and cold wars too' },
   ] as const,
   throne: 'Or take a throne',
   throneTitle: 'Rule a realm from year 700: decisions come to you as cards',
