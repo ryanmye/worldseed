@@ -247,3 +247,13 @@
   background: transparent;
   box-shadow: inset 0 0 0 2px #8ce8ff, 0 0 0 1px #0b2830;
 }
+/* what-if entry points (whatifPanel.ts) */
+.ng-urge-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ng-whatif {
+  font-size: 11px;
+  margin-left: 4px;
+}

@@ -38,6 +38,9 @@ import { PolityEnd, PolityOrigin } from '../../../contract.ts'
 import { tied, unionBond } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { c7Alliance } from '../compose.ts' // C7 stack
+import { BELIEF } from '../beliefs/params.ts' // beliefs:
+import { projBel } from '../beliefs/system.ts' // beliefs:
+import { beliefSecret } from '../beliefs/deception.ts' // beliefs:
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -182,7 +185,7 @@ export function overawe(s: HistoryState, ps: PolityState): void {
         const foreign = ps.pPeople[q] !== ps.pPeople[p] ? 1 + P.foreign : 1
         const lc = localOf(s, ps, c)
         const def = ps.pMass[p] > lc ? ps.pMass[p] : lc
-        const ratio = (projAt(ps, q, d) * (P.subBase + (1 - P.subBase) * grainShare(s, c))) / (VASSAL.overawe * def * foreign + 1e-9)
+        const ratio = ((s.bel !== null && !BELIEF.shadow ? projBel(s, ps, p, q, d) : projAt(ps, q, d)) * (P.subBase + (1 - P.subBase) * grainShare(s, c))) / (VASSAL.overawe * def * foreign + 1e-9)
         if (ratio >= 1 && ratio > bestR) { best = q; bestR = ratio }
       }
     }
@@ -210,7 +213,8 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
     const d = distAcross(s, ps, b, a)
     const proj = d < FAR ? projAt(ps, b, d) : 0
     const m = ps.pMass[a]
-    if (proj < VASSAL.rebel * m) {
+    const seen = s.bel !== null && !BELIEF.shadow && d < FAR ? projBel(s, ps, a, b, d) : proj // beliefs: the vassal judges the overlord by what it believes
+    if (seen < VASSAL.rebel * m) {
       endBond(s, ps, k, BondEnd.Freed)
       const r = ensureRelation(ps, a, b)
       if (ps.relR[r] < RELATION.secedeR) { if (ps.why) whyRelSet(ps.why, r, RivalryPart.Secession, ps.relR[r], RELATION.secedeR); ps.relR[r] = RELATION.secedeR } // (causes: recorded)
@@ -290,8 +294,9 @@ function repC7(og: GrudgeState | null, x: number, y: number): C7Factors | undefi
 
 /** p and q ally against c. */
 export function ally(s: HistoryState, ps: PolityState, p: number, q: number, c: number): void {
-  newBond(s, ps, BondKind.Alliance, p, q, -1, c)
+  const k = newBond(s, ps, BondKind.Alliance, p, q, -1, c)
   ps.diag.alliances++
+  if (s.bel !== null && beliefSecret(ps, s.bel, k, p, q, c)) { logX(s, EventType.SecretAlliance, ps.pCapital[p], ps.pCapital[q], q, c); return } // beliefs: a secret pact (no Alliance event)
   logX(s, EventType.Alliance, ps.pCapital[p], ps.pCapital[q], q, c)
 }
 

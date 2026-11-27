@@ -145,6 +145,13 @@ import { SOC } from './society/params.ts' // society:
 import { createSociety } from './society/state.ts' // society:
 import type { SocietyDiag } from './society/state.ts' // society:
 import { assembleSociety, emptySocietyHistory, socSnapshot } from './society/assemble.ts' // society:
+import { BELIEF } from './beliefs/params.ts' // beliefs:
+import { createBeliefs } from './beliefs/state.ts' // beliefs:
+import { createBarriers } from './beliefs/barriers.ts' // barriers:
+import type { BarrierState } from './beliefs/barriers.ts' // barriers:
+import type { BeliefDiag } from './beliefs/state.ts' // beliefs:
+import { beliefSnapshot } from './beliefs/system.ts' // beliefs:
+import { assembleBeliefs, emptyBeliefHistory } from './beliefs/assemble.ts' // beliefs:
 import type { PolityDiag } from './polity/state.ts'
 // goods: worked goods, specialities, stocks and merchants, long-haul trade, posts, secrets, smuggling (goods/).
 import { GOODS_ON } from './goods/params.ts'
@@ -304,6 +311,10 @@ export interface HistoryDiagnostics {
   finance?: FinanceDiag
   /** society: its counters and per polity-step (year, polity, Ψ, ε, w, phase) rows (absent when it is off). */
   society?: SocietyDiag
+  /** beliefs: its counters (absent when it is off). */
+  beliefs?: BeliefDiag
+  /** barriers: the live state (read only; absent when it is off). */
+  barrierState?: BarrierState
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -526,6 +537,11 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // society: classes, elites and the secular cycle (needs the polities; reads finance when it is on), unless switched off.
   if (pol && (options?.society ?? SOC.enabled)) s.soc = createSociety()
   const soc = s.soc
+  // beliefs: what states believe of each other (they need the polities), unless switched off.
+  if (pol && (options?.beliefs ?? BELIEF.enabled)) s.bel = createBeliefs(seed)
+  const bel = s.bel
+  // barriers: communication barriers in what states learn of each other (need beliefs; real intelligibility needs language, without typology).
+  if (bel && options?.barriers) s.ib = createBarriers(world, (options?.language ?? LANGUAGE_ON) && !(options?.typology ?? TYPOLOGY_ON))
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -626,6 +642,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (pol && pol.og) grudgeSnapshot(pol, pol.og) // oaths, arms: faithless, armament
     if (pol && fin) finSnapshot(s, pol, fin) // finance:
     if (pol && soc) socSnapshot(pol, soc) // society:
+    if (pol && bel) beliefSnapshot(pol, bel) // beliefs: true strength
     if (gx) merchantSnapshot(s, gx) // goods: merchant capital
     if (dz) diseaseSnapshot(dz) // disease:
     if (rel) religionSnapshot(s, rel) // religion:
@@ -806,6 +823,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...assembleGrudges(pol, snapshotCount), // oaths, balance, arms: (empty when off)
         ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
         ...(pol && soc ? assembleSociety(soc, pol.P, snapshotCount) : emptySocietyHistory()), // society: (empty when off)
+        ...(pol && bel ? assembleBeliefs(bel, pol.P, years, snapshotCount) : emptyBeliefHistory()), // beliefs: (empty when off)
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
@@ -845,6 +863,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         society: soc ? { ...soc.diag, steps: soc.diag.steps.slice() } : undefined, // society:
+        beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:
+        barrierState: s.ib ?? undefined, // barriers:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:

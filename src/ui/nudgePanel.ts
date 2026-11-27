@@ -52,6 +52,8 @@ export interface NudgeViewDeps {
   requestCradles?(cradles: number[], keepYear: number): void
   /** Stop the timeline playing. */
   pause?(): void
+  /** what-if: compare the history shown with a run of `orders` (the What if panel, whatifPanel.ts). */
+  compare?(ask: { orders: Order[]; label: string; focus: { world: 'A' | 'B'; k: number } | null }): void
 }
 
 export interface NudgeView {
@@ -130,7 +132,14 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   const verdict = el('div', 'gp-note ng-verdict')
   const urgeBtn = el('button', 'ng-urge', 'Urge')
   urgeBtn.type = 'button'
-  form.append(costNote, formHead, kindSel, effect, actorLine, targetLine, verdict, urgeBtn)
+  // what-if: compare with the drafted order without urging it
+  const insteadBtn = el('button', 'gp-link ng-instead', 'What if instead…')
+  insteadBtn.type = 'button'
+  insteadBtn.title = 'Compare the world shown with the world where this order is given too, without urging it (W)'
+  insteadBtn.hidden = !deps.compare
+  const urgeRow = el('div', 'ng-urge-row')
+  urgeRow.append(urgeBtn, insteadBtn)
+  form.append(costNote, formHead, kindSel, effect, actorLine, targetLine, verdict, urgeRow)
   // the list
   const listHead = el('div', 'ng-sub')
   const list = el('div', 'ng-list')
@@ -140,7 +149,12 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   const copyBtn = el('button', 'gp-link', 'Copy link')
   copyBtn.type = 'button'
   const copied = el('span', 'gp-note ng-copied')
-  tools.append(copyBtn, clearBtn, copied)
+  // what-if: the world without any of the orders
+  const noneBtn = el('button', 'gp-link', 'Compare with no orders')
+  noneBtn.type = 'button'
+  noneBtn.title = 'Compare the world shown with the world without your orders (W)'
+  noneBtn.hidden = !deps.compare
+  tools.append(copyBtn, clearBtn, noneBtn, copied)
   // (the hearths first, then the orders and what became of them, the form for the next one under them)
   let hearthsSection: HearthsSection | null = null
   if (deps.hearths && deps.getCradles && deps.requestCradles) {
@@ -391,11 +405,12 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
     verdict.textContent = blocked || `${soft}${draft ? `${capFirst(actorWords(h, draft))}, urged to ${urgePhrase(h, draft)}, for up to ${info.years} years. The rules decide.` : ''}`
     verdict.classList.toggle('ng-blocked', !!blocked)
     urgeBtn.disabled = !draft || !deps.requestOrders
+    insteadBtn.disabled = !draft || !inSync() // what-if:
   }
   const capFirst = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
   // ---------- the orders list ----------
-  interface Row { el: HTMLDivElement; chip: HTMLSpanElement; text: HTMLSpanElement; links: HTMLSpanElement; remove: HTMLButtonElement }
+  interface Row { el: HTMLDivElement; chip: HTMLSpanElement; text: HTMLSpanElement; links: HTMLSpanElement; remove: HTMLButtonElement; whatIf: HTMLButtonElement }
   const rows: Row[] = []
   function rowAt(i: number): Row {
     while (rows.length <= i) {
@@ -407,9 +422,15 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       remove.type = 'button'
       remove.title = 'Remove this order (re-runs the history)'
       remove.dataset.k = String(rows.length)
-      r.append(chip, text, remove, links)
+      // what-if: the world without this order
+      const whatIf = el('button', 'gp-link ng-whatif', 'what if not?')
+      whatIf.type = 'button'
+      whatIf.title = 'Compare with the world without this order (W)'
+      whatIf.dataset.k = String(rows.length)
+      whatIf.hidden = !deps.compare
+      r.append(chip, text, remove, links, whatIf)
       list.appendChild(r)
-      rows.push({ el: r, chip, text, links, remove })
+      rows.push({ el: r, chip, text, links, remove, whatIf })
     }
     return rows[i]
   }
@@ -471,6 +492,8 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
     const hw = hearthsSection?.countWords() ?? ''
     tools.hidden = orders.length === 0 && !hw
     clearBtn.style.display = orders.length === 0 ? 'none' : ''
+    noneBtn.style.display = orders.length === 0 || !sync ? 'none' : '' // what-if:
+    for (const r of rows) r.whatIf.style.display = sync ? '' : 'none'
     count.textContent = (hw ? `${hw} · ` : '') + (orders.length === 0 ? 'no orders' : `${orders.length} ${orders.length === 1 ? 'order' : 'orders'}${sync && fulfilled ? ` · ${fulfilled} fulfilled` : ''}${sync ? '' : ' · re-running…'}`)
     hearthsSection?.refresh()
   }
@@ -498,7 +521,17 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
     targets[kind] = -1 // (a fresh form for the next order)
     submit([...deps.getOrders(), d], d.year)
   })
+  /** what-if: "the world without X, urged to Y (year)". */
+  const orderLabel = (h: History, o: Order) => `${capFirst(actorWords(h, o))}, urged to ${urgePhrase(h, o)} (${o.year})`
   list.addEventListener('click', (e) => {
+    const w = (e.target as HTMLElement).closest('.ng-whatif') as HTMLElement | null
+    if (w && deps.compare && history && inSync()) {
+      e.stopPropagation()
+      const k = Number(w.dataset.k)
+      const orders = deps.getOrders()
+      if (orders[k]) deps.compare({ orders: orders.filter((_, i) => i !== k), label: `The world without: ${orderLabel(history, orders[k])}`, focus: { world: 'A', k } })
+      return
+    }
     const b = (e.target as HTMLElement).closest('.ng-remove') as HTMLElement | null
     if (!b) return
     const k = Number(b.dataset.k)
@@ -506,6 +539,12 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
     submit(orders, Math.floor(year))
   })
   clearBtn.addEventListener('click', () => submit([], Math.floor(year)))
+  noneBtn.addEventListener('click', () => { if (history && inSync() && deps.compare) deps.compare({ orders: [], label: 'The world without your orders', focus: deps.getOrders().length === 1 ? { world: 'A', k: 0 } : null }) })
+  insteadBtn.addEventListener('click', () => {
+    if (!draft || !history || !deps.compare) return
+    const orders = [...deps.getOrders(), draft]
+    deps.compare({ orders, label: `The world if also: ${orderLabel(history, draft)}`, focus: { world: 'B', k: orders.length - 1 } })
+  })
   copyBtn.addEventListener('click', () => {
     const url = window.location.href
     const done = (ok: boolean) => {

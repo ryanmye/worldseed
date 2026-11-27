@@ -42,6 +42,7 @@ import { formatInt, formatPopulation, peopleName, settlementName } from './forma
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { crownAt } from './politiesData.ts' // finance:
 import { factorsAt, hasSociety, PHASE_NAME, phaseSpans, psiWord, sharesAt, wagesAt as socWagesAt } from './societyData.ts' // society:
+import { beliefSection, beliefWarTitle } from './beliefsPanel.ts' // beliefs:
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
@@ -305,6 +306,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     if (viewMode === ViewMode.Factions) return PolityView.Political
     if (viewMode === ViewMode.Danger) return PolityView.Danger
     if (viewMode === ViewMode.Credit) return PolityView.Credit // finance:
+    if (viewMode === ViewMode.Beliefs) return PolityView.Beliefs // beliefs:
     if (viewMode === ViewMode.Terrain && layerOn) return PolityView.Tint
     return PolityView.Off
   }
@@ -808,6 +810,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     }
     // oaths, balance, arms: grudges held and borne, faithlessness, arms and races, coalitions (grudgesPanel.ts)
     grudgeSection(h, pd, selected, year, s0, { cap, line, polityLink })
+    // beliefs: as the selected polity saw its neighbours (beliefsPanel.ts)
+    beliefSection(h, pd, selected, year, { cap, line, polityLink })
     // family tree: ancestors, this, successors (founded by now), each successor with its origin
     const anc: number[] = []
     for (let a = x.parent; a >= 0 && anc.length < 8; a = pd.list[a].parent) anc.unshift(a)
@@ -874,6 +878,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
           d.append(t, W.attacker[w] === selected ? ' against ' : ' with the pretender ')
         } else d.append(W.attacker[w] === selected ? 'against ' : 'attacked by ')
         d.append(enemy >= 0 && enemy < pd.count ? polityLink(enemy, pd.names[enemy]) : 'rebels')
+        const bt = beliefWarTitle(pd, w) // beliefs: what the attacker believed at the start
+        if (bt) d.title = bt
         if (!ongoing && W.outcome[w] !== WarOutcome.Ongoing) d.append(` (${warOutcomeWords(pd, w)})`)
         else if (ongoing) d.append(' (in progress)')
         // battles: the war's notable battles fought by the year shown (winner and armies)
@@ -1193,6 +1199,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       deps.setViewModeAvailable?.(ViewMode.Factions, !!data)
       deps.setViewModeAvailable?.(ViewMode.Danger, !!data?.land?.danger)
       deps.setViewModeAvailable?.(ViewMode.Credit, !!data && (data.history.creditRate?.length ?? 0) > 0) // finance:
+      deps.setViewModeAvailable?.(ViewMode.Beliefs, !!data && (data.history.beliefs?.count ?? 0) > 0) // beliefs:
       if (data && !toggle && deps.addLayerToggle) {
         // the layer toggle appears with the first history that has factions
         toggle = deps.addLayerToggle({

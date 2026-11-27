@@ -4,7 +4,7 @@
 // two states' claims meeting over unsettled land.
 
 import { spokenName } from './languageData.ts' // language: names as said in the year
-import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
+import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarMotive, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
 import { namesYear, renamedName } from './renamingData.ts'
 import { isOathEvent, OathEvent } from './grudgesData.ts' // oaths, balance, arms:
@@ -348,6 +348,75 @@ function describeMoneyFor(h: History, pd: PolitiesData, e: HistoryEvent, id: num
   return null
 }
 
+// ---- beliefs (230-238; beliefs-and-deception §5.4): what states believed of each other. The register is hedged: beliefs are
+// inferences about minds ("seems to have thought", "it later appeared").
+
+/** Whether events of type t are belief events (intrigue). */
+export const isBeliefEvent = (t: number) => t >= 230 && t <= 239
+
+/** Chronicle line for a belief event, or null. */
+function describeBelief(h: History, pd: PolitiesData, e: HistoryEvent): string | null {
+  const sn = settlementName(h, e.settlement)
+  const p = polOf(pd, e.settlement, e.year)
+  const pn = polityName(pd, p, sn)
+  const q = e.other >= 0 ? polOf(pd, e.other, e.year) : -1
+  const qn = polityName(pd, q, e.other >= 0 ? settlementName(h, e.other) : 'a neighbour')
+  const n = e.extra ?? 0
+  switch (e.type as number) {
+    case EventType.Coerced: {
+      const cn = polityName(pd, e.value, pn)
+      return n > 0 ? `${qn} yields ${n === 1 ? 'a town' : `${n} towns`} to ${cn} without a fight` : `${qn} agrees to pay tribute to ${cn} rather than fight`
+    }
+    case EventType.Deterred: return `${pn} presses ${qn}, then draws back` + (n === 1 ? ` (${qn}'s strength, it later appeared, was largely show)` : '')
+    case EventType.BluffBegun: return `${pn} makes a great show of its strength`
+    case EventType.BluffExposed: return `${polityName(pd, e.value, qn)} sees through ${pn}'s show of strength`
+    case EventType.SecretAlliance: return `${pn} and ${polityName(pd, e.value, qn)} ally in secret against ${polityName(pd, e.extra ?? -1, 'a common rival')}`
+    case EventType.AllianceRevealed: return e.value >= 0 ? `${pn}'s secret alliance with ${qn} comes to light as it joins the war` : `The secret alliance of ${pn} and ${qn} is found out` + (n > 0 ? ` (kept ${n} years)` : '')
+    case EventType.SpyCaught: return `${pn} catches the spies of ${qn}`
+    case EventType.ClaimForged: return `${pn} lays a claim to ${e.other >= 0 ? settlementName(h, e.other) : 'a town'}`
+    case EventType.ClaimExposed: return `${pn}'s claim to ${e.other >= 0 ? settlementName(h, e.other) : 'a town'} is shown to be forged`
+  }
+  return null
+}
+
+/** Inspector line for a belief event from the point of view of settlement `id`, or null. */
+function describeBeliefFor(h: History, pd: PolitiesData, e: HistoryEvent, id: number): string | null {
+  const self = e.settlement === id
+  const other = polityName(pd, polOf(pd, self ? e.other : e.settlement, e.year), settlementName(h, self ? e.other : e.settlement))
+  const n = e.extra ?? 0
+  switch (e.type as number) {
+    case EventType.Coerced: return self ? (n > 0 ? `Pressed ${other} into yielding ${n === 1 ? 'a town' : `${n} towns`} without war` : `Pressed ${other} into paying tribute`) : (n > 0 ? `Yielded ${n === 1 ? 'a town' : `${n} towns`} to ${other} without a fight` : `Agreed to pay tribute to ${other} rather than fight`)
+    case EventType.Deterred: return self ? `Pressed ${other}, then drew back` : `${other} pressed it, then drew back`
+    case EventType.BluffBegun: return 'Made a great show of its strength'
+    case EventType.BluffExposed: return self ? `${other} saw through its show of strength` : `Saw through the show of strength of ${other}`
+    case EventType.SecretAlliance: return `Allied in secret with ${other}`
+    case EventType.AllianceRevealed: return `Its secret alliance with ${other} came to light`
+    case EventType.SpyCaught: return self ? `Caught the spies of ${other}` : `Its spies were caught by ${other}`
+    case EventType.ClaimForged: return self ? 'Put forward a claim that may have been forged' : `Claimed by ${other}`
+    case EventType.ClaimExposed: return self ? 'Its claim was shown to be forged' : `The claim of ${other} to it was shown to be forged`
+  }
+  return null
+}
+
+/** beliefs: a WarDeclared line for a bargained war whose start was misjudged or special, or null (Wars.believed / motive). */
+function beliefWarLine(pd: PolitiesData, w: number): string | null {
+  const W = pd.wars
+  if (!W || !W.believed || W.believed.length !== W.count || !(W.believed[w] >= 0)) return null
+  const at = polityName(pd, W.attacker[w]), df = polityName(pd, W.defender[w])
+  const m = W.motive[w]
+  if (m === WarMotive.Preventive) return `${at} makes war on the rising ${df}: it seems to strike before ${df} grew stronger`
+  if (m === WarMotive.Indivisible) return `${at} makes war on ${df} over a holy city`
+  if (W.believed[w] >= 1.5 * W.actual[w]) return `${at}, which seems to have thought ${df} weaker than it was, makes war on it`
+  return null
+}
+
+/** beliefs: " (it had misjudged X's strength)" for a war lost by its initiator that it began believing itself 1.5 times stronger than it was. */
+function misjudgedWords(pd: PolitiesData, w: number): string {
+  const W = pd.wars
+  if (!W || !W.believed || W.believed.length !== W.count || !(W.believed[w] >= 0) || W.outcome[w] !== WarOutcome.DefenderGains || !(W.believed[w] >= 1.5 * W.actual[w])) return ''
+  return ` (${polityName(pd, W.attacker[w])} had misjudged ${polityName(pd, W.defender[w])}'s strength)`
+}
+
 // ---- claims: border disputes (EventType.BorderDispute) ----
 
 /** Whether events of type t are border disputes (claims). */
@@ -473,6 +542,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOath(h, pd, e) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoney(h, pd, e) : null } // finance
   if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSociety(h, pd, e) : null } // society
+  if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBelief(h, pd, e) : null } // beliefs
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   const name = settlementName(h, e.settlement)
@@ -515,13 +585,15 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
       const at = polityName(pd, W.attacker[e.value]), df = polityName(pd, W.defender[e.value])
       if (W.kind[e.value] === WarKind.CivilWar) return `Civil war: ${at} rises against ${df}`
       if (W.kind[e.value] === WarKind.Blockade) return `${at} blockades ${df}`
+      const bw = beliefWarLine(pd, e.value) // beliefs: a misjudged or preventive start
+      if (bw) return bw + armingWords(h, e.value)
       return `${at} declares war on ${df}` + armingWords(h, e.value) // (arms: after the race between them)
     }
     case PolityEvent.PeaceMade: {
       if (!W || e.value < 0 || e.value >= W.count) return `Peace between ${name} and ${settlementName(h, e.other)}`
       const o = warOutcomeWords(pd, e.value)
       if (W.kind[e.value] === WarKind.CivilWar) return `The civil war in ${polityName(pd, W.defender[e.value])} ends` + (o ? ` (${o})` : '')
-      return `Peace between ${polityName(pd, W.attacker[e.value])} and ${polityName(pd, W.defender[e.value])}` + (o ? ` (${o})` : '')
+      return `Peace between ${polityName(pd, W.attacker[e.value])} and ${polityName(pd, W.defender[e.value])}` + (o ? ` (${o})` : '') + misjudgedWords(pd, e.value) // (beliefs)
     }
     case PolityEvent.Conquered: {
       const loser = polityAt(pd, e.settlement, b)
@@ -599,6 +671,7 @@ export function describePolityEventFor(h: History, e: HistoryEvent, id: number):
   if (isOathEvent(t)) { const pd = politiesOf(h); return pd ? describeOathFor(h, pd, e, id) : null } // oaths, balance, arms
   if (isMoneyEvent(t)) { const pd = politiesOf(h); return pd ? describeMoneyFor(h, pd, e, id) : null } // finance
   if (isSocietyEvent(t)) { const pd = politiesOf(h); return pd ? describeSocietyFor(h, pd, e, id) : null } // society
+  if (isBeliefEvent(t)) { const pd = politiesOf(h); return pd ? describeBeliefFor(h, pd, e, id) : null } // beliefs
   if (!isPolityEventType(t) && !isWallEvent(h, e)) return null
   const pd = politiesOf(h)
   if (isWallEvent(h, e)) {
@@ -713,6 +786,7 @@ export function polityEventKind(h: History | null, e: HistoryEvent): string | nu
   }
   if (t >= 210 && t <= 219) return 'money' // finance
   if (t >= 240 && t <= 249) return 'polity' // society
+  if (t >= 230 && t <= 239) return 'intrigue' // beliefs
   return null
 }
 
@@ -857,6 +931,9 @@ export function isPolityHeadline(h: History, e: HistoryEvent): boolean {
   if (t === EventType.SocialPhase) return (e.extra ?? 0) === 2
   if (t === EventType.SerfdomImposed || t === EventType.SerfdomEnded || t === EventType.EliteThinned) return true
   if (isSocietyEvent(t)) return false
+  // beliefs: coerced cessions, pacts come to light and bluffs seen through are headlines; the rest are not
+  if (t === EventType.Coerced || t === EventType.AllianceRevealed || t === EventType.BluffExposed) return true
+  if (isBeliefEvent(t)) return false
   // (a realm ended by reunification: its Reunified line is the headline)
   if (t === PolityEvent.Ended && politiesOf(h)?.list[e.value]?.endCause === PolityEnd.Reunified) return false
   if (t === PolityEvent.Founded || t === PolityEvent.Ended || t === PolityEvent.WarDeclared || t === PolityEvent.PeaceMade || t === PolityEvent.Seceded) return true

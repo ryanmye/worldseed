@@ -28,6 +28,9 @@ export interface ReignFacts {
   betrayals: number
   /** society: bondage imposed (1) or ended (2) in the realm during the reign (the last one), 0 none. */
   bondage: number
+  /** beliefs: a war begun in the reign believing itself at least twice as strong as it was, and lost (the Rash); a show of strength that kept a foe off (the Fox). */
+  rash: boolean
+  fox: boolean
 }
 
 export function reignFacts(c: Ctx, r: number): ReignFacts {
@@ -59,8 +62,19 @@ export function reignFacts(c: Ctx, r: number): ReignFacts {
     const e = c.ev(i)
     if (e.value === x.polity && e.year >= x.acceded && e.year <= (ended ? x.ended : c.Y)) bondage = t === EventType.SerfdomImposed ? 1 : 2
   }
+  // beliefs: misjudged wars lost; bluffs that deterred (Deterred extra 1 against the realm's capital)
+  let rash = false, fox = false
+  const Wb = c.h.wars
+  if (W && Wb && Wb.believed && Wb.believed.length === Wb.count) {
+    const end = ended ? x.ended : c.Y
+    for (const w of c.pd!.warsOf[x.polity] ?? []) if (W.attacker[w] === x.polity && W.startYear[w] >= x.acceded && W.startYear[w] <= end && W.outcome[w] === WarOutcome.DefenderGains && W.endYear[w] >= 0 && W.endYear[w] <= c.Y && Wb.believed[w] >= 2 * Wb.actual[w] && Wb.actual[w] >= 0) rash = true
+  }
+  for (const i of c.type(EventType.Deterred)) {
+    const e = c.ev(i)
+    if ((e.extra ?? 0) === 1 && e.year >= x.acceded && e.year <= (ended ? x.ended : c.Y) && c.capital(x.polity, e.year) === e.other) fox = true
+  }
   return {
-    betrayals, bondage,
+    betrayals, rash, fox, bondage,
     r, years: c.reignYears(r), founded: x.how === AccessionHow.Founded, usurped: x.how === AccessionHow.Usurped, claimed: x.how === AccessionHow.Claimed,
     regency: rd.regency[r] ?? 0, works, won, lost, ended, end: ended ? x.end : ReignEnd.Reigning, traits: traitWords(x, c.fd !== null), female: x.female,
   }
@@ -90,6 +104,8 @@ export function rulerEpithet(f: ReignFacts): string {
   if (f.betrayals >= 1) return 'the Faithless'
   if (f.bondage === 2) return 'the Liberator' // society
   if (f.bondage === 1) return 'the Binder' // society
+  if (f.rash) return 'the Rash' // beliefs
+  if (f.fox) return 'the Fox' // beliefs
   if (f.claimed) return 'the Pretender'
   if (f.regency > 0 && f.years >= 30) return f.female ? 'the Child-queen' : 'the Child-king'
   if (f.years >= 40) return 'the Long-reigning'

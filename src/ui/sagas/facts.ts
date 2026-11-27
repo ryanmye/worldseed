@@ -7,6 +7,7 @@ import { landmarkNameAt, RIVER_FLOW_THRESHOLD, type History, type HistoryEvent, 
 import { politiesOf, statIndex, tierWord, type PolitiesData } from '../politiesData.ts'
 import { rulersOf, rulerWord, type RulersData } from '../rulersData.ts'
 import { faithName, faithsOf, type FaithsData } from '../faithsData.ts'
+import { Lens, type Pov } from './lens.ts'
 
 export interface SagaIndex {
   /** Event indices whose `settlement` is the id, chronological. */
@@ -58,10 +59,12 @@ export class Ctx {
   readonly sY: number
   /** Events up to the year told: indices below `cut`. */
   readonly cut: number
+  /** partisan: the teller's lens (lens.ts), null for the neutral record. */
+  readonly lens: Lens | null
   /** Settlements whose present name has been given beside an older one. */
   private noted = new Set<number>()
 
-  constructor(h: History, world: World | null, year: number) {
+  constructor(h: History, world: World | null, year: number, pov: Pov | null = null) {
     this.h = h
     this.world = world
     this.Y = Math.max(0, Math.min(h.years, Math.floor(year)))
@@ -79,6 +82,12 @@ export class Ctx {
       else hi = m
     }
     this.cut = lo
+    this.lens = pov && this.pd && (pov.kind === 'state' || pov.kind === 'people') ? new Lens(h, this.pd, pov) : null
+  }
+
+  /** partisan: the voice stream's suffix ('' for the neutral record, so its streams and its text are unchanged). */
+  get povSuffix(): string {
+    return this.lens ? this.lens.suffix : ''
   }
 
   snap(y: number): number {

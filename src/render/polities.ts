@@ -78,7 +78,7 @@ const LIFT = 0.0045
 const CLAIM_OFF = 32768
 
 /** What the territory overlay shows: off, a tint on the Terrain view, the flat Factions map, the Danger heat map. */
-export const PolityView = { Off: 0, Tint: 1, Political: 2, Danger: 3, Credit: 4 } as const // (Credit: the political style, each polity in the colour of its credit)
+export const PolityView = { Off: 0, Tint: 1, Political: 2, Danger: 3, Credit: 4, Beliefs: 5 } as const // (Credit: the political style, each polity in the colour of its credit; Beliefs: likewise, in the selected polity's misjudgement of it)
 export type PolityView = (typeof PolityView)[keyof typeof PolityView]
 
 export interface PolityLayer {
@@ -101,6 +101,8 @@ export interface PolityLayer {
   update(camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
   /** Polity of each cell at the snapshot shown (WATER, -1 or an id), or null. */
   readonly cells: Int16Array | null
+  /** what-if swipe: draw only on one side of a screen-space divider at `x` device px (`side` +1: right of it, -1: left), or everywhere (`on` false). */
+  setClip(x: number, side: number, on: boolean): void
   dispose(): void
 }
 
@@ -178,6 +180,7 @@ void main() {
 `
 
 const OVERLAY_FRAG = /* glsl */ `
+uniform vec3 uClip;
 uniform sampler2D uPalette;
 uniform sampler2D uRel;
 uniform vec4 uEmb[${MAX_EMB / 2}];
@@ -299,6 +302,8 @@ vec3 pl_heat(float x) {
 }
 
 void main() {
+  // what-if swipe: clipped at a screen-space divider (uClip: divider x in device px, side ±1, on 0/1)
+  if (uClip.z > 0.5 && (gl_FragCoord.x - uClip.x) * uClip.y < 0.0) discard;
   vec3 p = vObj;
   vec3 up = normalize(p);
   float footprint = length(fwidth(p));
@@ -624,6 +629,7 @@ void main() {
 `
 
 const MARK_FRAG = /* glsl */ `
+uniform vec3 uClip;
 uniform float uDanger;
 varying vec2 vPx;
 flat varying float vKind;
@@ -672,6 +678,8 @@ vec4 glyph(float d, vec3 col, float outline) {
   return vec4(c * edge, edge);
 }
 void main() {
+  // what-if swipe: clipped at a screen-space divider (uClip: divider x in device px, side ±1, on 0/1)
+  if (uClip.z > 0.5 && (gl_FragCoord.x - uClip.x) * uClip.y < 0.0) discard;
   vec2 p = vPx;
   float r = vSize;
   vec4 o = vec4(0.0);
@@ -842,6 +850,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uDaylight: sunUniforms.uDaylight,
     /** World units per CSS pixel at the centre of the view (the claims' hatch). */
     uPxW: { value: 0.001 },
+    /** what-if swipe: divider x (device px), side (+1 right, -1 left), on (0/1). */
+    uClip: { value: new THREE.Vector3(0, 1, 0) },
   }
   const overlayMat = new THREE.ShaderMaterial({
     uniforms: ou,
@@ -871,6 +881,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uSizeScale: { value: 1 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uMaskOn: { value: 0 },
+    uClip: { value: new THREE.Vector3(0, 1, 0) },
   }
   const markMat = new THREE.ShaderMaterial({
     uniforms: mu,
@@ -1108,6 +1119,36 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     }
     palTex.needsUpdate = true
   }
+  /** beliefs: the palette as the selected polity X saw the world at year y: ln(est / true) blue (underrated) to red (overrated), paler when unsure; grey unknown; X white. */
+  let shownBeliefKey = ''
+  function writeBeliefs(y: number) {
+    const h = pd.history
+    const B = h.beliefs
+    if (!B || B.count === 0 || h.beliefEst.length === 0) return
+    const P = pd.count
+    const Q = h.beliefEst.length / B.count
+    const q = Math.max(0, Math.min(Q - 1, Math.floor(y / 10)))
+    const key = `${selected}:${q}`
+    if (key === shownBeliefKey) return
+    shownBeliefKey = key
+    const sn = Math.max(0, Math.min(h.snapshotCount - 1, Math.floor(y / h.snapshotInterval)))
+    for (let p = 0; p < P; p++) { palData[p * 4] = 128; palData[p * 4 + 1] = 128; palData[p * 4 + 2] = 126 }
+    if (selected >= 0 && selected < P) {
+      palData[selected * 4] = 245; palData[selected * 4 + 1] = 242; palData[selected * 4 + 2] = 230
+      for (let k = 0; k < B.count; k++) {
+        if (B.observer[k] !== selected) continue
+        const t = B.target[k]
+        const est = h.beliefEst[q * B.count + k], tr = h.strength[sn * P + t]
+        if (!(est > 0) || !(tr > 0)) continue
+        const l = Math.max(-1, Math.min(1, Math.log(est / tr) / Math.log(3)))
+        const sure = 1 - Math.min(1, h.beliefSd[q * B.count + k] / 120)
+        const a = Math.abs(l) * (0.35 + 0.65 * sure)
+        const c = l < 0 ? [60, 110, 200] : [210, 60, 50]
+        palData[t * 4] = Math.round(200 + (c[0] - 200) * a); palData[t * 4 + 1] = Math.round(200 + (c[1] - 200) * a); palData[t * 4 + 2] = Math.round(196 + (c[2] - 196) * a)
+      }
+    }
+    palTex.needsUpdate = true
+  }
   function restorePalette() {
     for (let p = 0; p < pd.count; p++) {
       palData[p * 4] = Math.round(pd.rgb[p * 3] * 255)
@@ -1223,6 +1264,10 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     get cells() {
       return cells
     },
+    setClip(x: number, side: number, on: boolean) {
+      ou.uClip.value.set(x, side, on ? 1 : 0)
+      mu.uClip.value.set(x, side, on ? 1 : 0)
+    },
     setGlobe(globe: GlobeMesh | null) {
       if (overlay) {
         object.remove(overlay)
@@ -1240,8 +1285,9 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     setView(v: PolityView) {
       const was = view
       view = v
-      ou.uMode.value = v === PolityView.Credit ? PolityView.Political : v // finance: drawn as the political map, in credit colours
-      if (v === PolityView.Credit) { shownCreditSnap = -1; writeCredit(shownYearInt >= 0 ? shownYearInt : 0) } else if (was === PolityView.Credit) restorePalette()
+      ou.uMode.value = v === PolityView.Credit || v === PolityView.Beliefs ? PolityView.Political : v // finance, beliefs: drawn as the political map, in credit or belief colours
+      ou.uSel.value = v === PolityView.Beliefs ? -1 : selected // (beliefs: nothing dimmed; the observer is drawn white)
+      if (v === PolityView.Credit) { shownCreditSnap = -1; writeCredit(shownYearInt >= 0 ? shownYearInt : 0) } else if (v === PolityView.Beliefs) { shownBeliefKey = ''; writeBeliefs(shownYearInt >= 0 ? shownYearInt : 0) } else if (was === PolityView.Credit || was === PolityView.Beliefs) restorePalette()
       mu.uDanger.value = v === PolityView.Danger ? 1 : 0
       ou.uTint.value = 0.4
       shownArmyYear = NaN
@@ -1250,7 +1296,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     },
     setSelected(p: number) {
       selected = p
-      ou.uSel.value = p
+      ou.uSel.value = view === PolityView.Beliefs ? -1 : p
       shownYearInt = NaN
       requestRender()
     },
@@ -1312,6 +1358,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
         writeEmbargoes(y)
         writeArmsRaces(y) // arms:
         if (view === PolityView.Credit) writeCredit(y) // finance:
+        if (view === PolityView.Beliefs) writeBeliefs(y) // beliefs:
       }
       if (y !== shownArmyYear) {
         shownArmyYear = y

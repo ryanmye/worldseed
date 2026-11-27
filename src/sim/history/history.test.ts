@@ -385,6 +385,9 @@ function checkInvariants(w: World, h: History): void {
         break
       // society (checked against its tables in society/society.test.ts).
       case EventType.SocialPhase: case EventType.LabourDear: case EventType.SerfdomImposed: case EventType.SerfdomEnded: case EventType.EliteFactions: case EventType.Ennobled: case EventType.EliteThinned:
+      // beliefs (checked against their tables in beliefs/beliefs.test.ts).
+      case EventType.Coerced: case EventType.Deterred: case EventType.BluffBegun: case EventType.BluffExposed: case EventType.SecretAlliance:
+      case EventType.AllianceRevealed: case EventType.SpyCaught: case EventType.ClaimForged: case EventType.ClaimExposed:
         break
       // danger on the way of trade: a route forsaken right after it closed, restored right after it reopened.
       case EventType.TradeForsaken: case EventType.TradeRestored: {

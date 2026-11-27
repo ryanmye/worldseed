@@ -457,6 +457,10 @@
 .ev-money .ev-text::before {
   background: radial-gradient(circle, #f4d57a 45%, #8a6a1a 50%);
 }
+/* beliefs: intrigue (a half-shaded eye) */
+.ev-intrigue .ev-text::before {
+  background: linear-gradient(90deg, #6a5a8a 50%, #c9bde0 50%);
+}
 /* claims: border disputes (two claims meeting over unsettled land) */
 .ev-dispute .ev-text::before {
   border-radius: 1px;

@@ -356,6 +356,15 @@ R(T.Avenged, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e
 R(T.Bandwagon, { cat: DramaCat.Politics, base: 3, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 R(T.ArmsRace, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
 
+// --- beliefs (230-238, beliefs-and-deception: only with HistoryOptions.beliefs) ---
+const pairPolities = (c: DramaCtx, e: HistoryEvent) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1]
+R(T.Coerced, { cat: DramaCat.War, base: 4, polities: pairPolities })
+R(T.Deterred, { cat: DramaCat.Politics, base: 2, polities: pairPolities })
+R(T.BluffExposed, { cat: DramaCat.Politics, base: 3, polities: pairPolities })
+R(T.AllianceRevealed, { cat: DramaCat.Politics, base: 5, polities: pairPolities })
+R(T.ClaimExposed, { cat: DramaCat.Politics, base: 2, polities: realmPolities })
+I(T.BluffBegun, T.SecretAlliance, T.SpyCaught, T.ClaimForged)
+
 // --- crown finance (210-217, state-finances: only with HistoryOptions.finance) ---
 I(T.LoanTaken, T.ArmyUnpaid)
 R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })
@@ -552,4 +561,18 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
     out.fF[k] = F
   }
   return out
+}
+
+/**
+ * what-if (experience §1.6 step 3): the static score of one event on its own, B·M·U·R (no aggregation, no firsts): 0 when
+ * the type is ignored or its gate fails. Ranks a comparison's first differences.
+ */
+export function eventScore(c: DramaCtx, e: HistoryEvent): number {
+  const rule = dramaRule(e.type as number)
+  if (!rule || rule.base <= 0 || (rule.gate && !rule.gate(c, e))) return 0
+  const B = rule.base * (rule.boost ? rule.boost(c, e) : 1)
+  const M = rule.mag ? magnitude(rule.mag(c, e)) : 1
+  const U = rule.upset ? Math.max(1, Math.min(3, rule.upset(c, e))) : 1
+  const pols = (rule.polities ? rule.polities(c, e) : c.pd ? eventPolities(c.pd, e) : []).filter((p) => p >= 0)
+  return B * M * U * reachOf(c, pols, e.settlement, e.year)
 }

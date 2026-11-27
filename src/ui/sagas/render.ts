@@ -12,7 +12,15 @@ export function renderSaga(target: HTMLElement, s: Saga, onRef?: (r: SagaRef) =>
   const ep = document.createElement('p')
   ep.className = 'sg-epigraph'
   ep.textContent = s.epigraph
-  target.append(h1, ep)
+  target.append(h1)
+  if (s.told) {
+    // partisan: the teller under the title
+    const t = document.createElement('p')
+    t.className = 'sg-pov'
+    t.textContent = s.told
+    target.append(t)
+  }
+  target.append(ep)
   s.paragraphs.forEach((p, i) => {
     const hd = s.heads?.[i]
     if (hd) {
