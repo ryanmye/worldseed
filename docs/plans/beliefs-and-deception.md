@@ -812,3 +812,18 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **C1 placement** (MASTER-PLAN §2.3). Beliefs replaces the drive term (â, the preventive max-term, the press semantics). It does not add a factor to the multiplier stack. `pressMul` is a calibration constant outside C1's clamp.
 - **Hard stop (§9.1).** If `pressMul` must exceed 3 to hold wars at baseline, lower `cWar` before merging.
 - Domestic precision from spies goes through riots' perception update only (MASTER-PLAN D-dup 12).
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **Channel modifiers (barriers §2.5), inside your §3.3 update, not a stack:**
+  - cheap bits Contact, Border and Trade `×(0.3 + 0.7·e_elite(o,t))`;
+  - Faith (16) × I to the faith's liturgical language;
+  - Spies (64) `×(0.5 + 0.5·e_elite)`;
+  - hard channels Marriage and Envoys are unchanged (interpreters).
+  - Seclusion: cheap channels to and from a secluded polity ×0.5.
+- **Staleness:** each channel `I ← I/(1 + I·IB.q·ℓ/365)`, where ℓ is the news lag in days (barriers §2.3) and `IB.q`
+  is the measured per-year variance of Δln mass. It is small before the telegraph by design (B-R4).
+- **Cold war:** `spyTarget += CW.spy 0.3·κ_ab`. Add **WarMotive 6 Crisis** for crisis-escalated wars (barriers §3.5).
+  The backdown loser's `cred −= 0.5·credHit`.
+- Your §9.1 war-count gate now includes crisis wars.

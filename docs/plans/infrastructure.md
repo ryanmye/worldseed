@@ -988,3 +988,14 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **Semantic owner of C4 (empire reach)** (MASTER-PLAN §2.3): form × Chancellor × one network factor, clamp [0.5, 3].
 - **R4c.** Event 354 `Concession` is renamed **`ConcessionGranted`**: riots owns `Concession: 282`.
 - **§2.10 CPU gate.** Measure the planning cost (step 4) with `bench-sim.ts` on a 4000-year run before steps 6–13 start. If it exceeds +8% of history time, implement the 9.2 mitigations first.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **New stack C11, pair cost** (trade.ts:982 `c`), owner you. The clamp of the new-factor product is [0.5, 2]. Factor 1 is
+  barriers' `1 + IB.trade 0.3·(1 − e_elite)` (interpreters, Melitz & Toubal 2014). `pc.cost` and `dzMul` stay
+  8cabf09 terms outside the stack. `infraReprice` acts on pairCost0, not as a factor.
+- **You own news lag** `infraLag(s, p, q)` in days (barriers §2.3: the speeds by medium, `infraWire` → 0.5 d, radio,
+  internet). barriers keeps a foot, courier and sail proxy until your step 11.
+  - The lag is read by beliefs staleness, LateBattle and crisis escalation only. It never enters C4 (B-R4).
+- Seclusion blocks foreign pairs except the licensed port (a gate through `pc.block`, not a factor).

@@ -902,3 +902,14 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **Stale numbers.** OrderKind **59–61**, DecisionKind **45–46**, as in the earlier addendum. In §0.1, GrievanceKind 14 is MIR's Subversion and 15 is FP's Drained. **Nativist = MovementKind 6** (R28).
 - **R15.** You own prestige. Add `prestigeOf(s, p) = Π_p`, which religious-evolution reads. culture-soft-power is not written.
 - **R20.** Your welfare regime is the single standing welfare policy. future-tech relief composes into generosity as `g = 1 − (1 − g_mig)(1 − r_FT)`. All costs go through `finSpend(..., 'welfare')` once.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **`langDist`** in §3.13 α becomes `1 − e_mass(town language, slot's people)` (barriers §2.1–2.2), replacing the
+  "factor 1" proxy of §0.2. With `barriers` off it stays 1.
+- **Π** (R15) is read by lingua-franca adoption and cold-war client defection. barriers' `prestigeProxy` (your §3.6
+  wealth and cities terms only) stands in until you land, then is deleted. The **arms term** counts a crisis backdown
+  as half a defeat (barriers §3.5).
+- **Closed borders:** no extra barriers effect (no double counting). With a tech-tree Seafaring ban, Closed policy
+  defines **Seclusion** (392).

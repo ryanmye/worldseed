@@ -940,3 +940,12 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R23.** GeneralTurned = 11, as in the earlier addendum. The suggested `GrievanceKind.Massacre = 9` (§9.1) is withdrawn: 9 is beliefs' SpyCaught. Use the next free value, 17, if grudges takes it.
 - **Semantic owner of C6 (war end hazard):** peaceChance tempo × finances peaceDebt × court tired factor + decisivePeace, per-year cap 0.6 (MASTER-PLAN §2.3). Tempo (step 6c) lands after grudges and finances and is the durCv tie-break.
 - The coup factor is factor 3 of C3.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **New modifier in x (§3.3):** `M_aid = (1 + CW.aidK 0.25·aid_A)/(1 + CW.aidK·aid_D)`, where aid is the cold-war
+  sponsorship level of each side (0 or 1; summed when several sponsors). It is a ratio, so E ln M is 0 when both sides
+  are aided.
+- **LateBattle 391:** at a treaty `closeWar`, fight one more battle at the last site when barriers' hash01 test hits
+  (ℓ_f ≥ 14 d; barriers §2.3). Toll and renown count; terms do not. The C6 tie-break is unchanged.

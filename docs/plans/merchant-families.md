@@ -852,3 +852,9 @@ of this sim, not historical facts. House and town names are fictional.
 Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
 - **R4.** `SeatKind` collides with seat-mode's `SeatKind` in contract.ts. Rename it to **`FamilySeatKind`**, and rename `SeatOpen`/`SeatClose` to **`FamilySeatOpen`/`FamilySeatClose`**. Values are unchanged: riots and migration use `FamilySeatClose.Expelled = 4`.
 - **D-dup 9.** If your pass needs per-polity aggregates, read `polity/aggregates.ts`; do not add a second pass.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **Branch choice (P1):** rank candidates by `relaySm·(0.6 + 0.4·e_elite(home polity, candidate's polity))`. In a
+  secluded polity (392), only the licensed port can hold a branch. No draw is added.

@@ -962,3 +962,11 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R16.** You own the fertility slot `F_p` (`fertMul`, C5) until demography.md exists. religious-evolution's `faithFertility` multiplies into it, with F·faith clamped to [0.15, 1.3].
 - **R27.** Stale body text: StructureType 12–20 are infrastructure's; `IdeaHow.Recovered` is **15** (§2.5.9 says 14); your seat orders take the next free values at build time (MASTER-PLAN §3.2).
 - **C1.** `deterMul` is the dyad factor 5. **C4:** your single reach multiplier is the network factor, with `√L_p` replaced by infrastructure's held share when it is on.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- `deterrence` held by both principals lowers the cold-war parity requirement to 0.25 and multiplies crisis escalation
+  by 0.3 (barriers §3.1, §3.5). `deterMul` stays C1 factor 5. Cold wars add no C1 damping (CW-R1), so the two are not
+  counted twice.
+- radio and internet set the news lag to 0.05 d and 0.01 d.

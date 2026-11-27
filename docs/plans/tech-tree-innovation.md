@@ -975,3 +975,16 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R3.** Step 1 also widens `IdeaAdoptions.idea` to **Uint16** (contract, assemble, UI reader, cache version bump), with the G0 projection rule (MASTER-PLAN §2.1). §0.4's "future-tech must widen it" is stale.
 - **D-dup 8.** Export one `litProxy(s, p)` from `ideas/hooks.ts`: court's form × `(0.3 + 0.7·held(printing))`. Court, MIR, religious-evolution and migration use it when techTree is off.
 - **C5.** `ideaFarm` (yield, including future-tech's rows) is the supply factor, `ideaFamine` a death factor, `ideaFisc` the C8 capacity factor and `ideaCredit` a C9 factor.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **New stack C12, idea exposure** (`learnAndConceive`, E), owner you. The clamp is [0.3, 1.5]. Factors, in order:
+  1. barriers `(0.7 + 0.3·e_elite)/ē`, mean-preserving with ē the exposure-weighted world mean of the last decade (B-R5);
+  2. MIR `climate_p` for incoming Ideology-kind ideas;
+  3. seclusion ×0.3.
+  - Test: mean factor 1 ± 0.02, and era first-years inside your §6.1 bands.
+- **Media ideas set the lag medium** (barriers §2.3): `courier`, `postalService`, `steamship`, `semaphore`/`telegraph`
+  (with infrastructure), `radio`.
+- **Seclusion (392)** = your ban on a held Seafaring idea + migration Closed. IdeaBanLifted extra 1 is the forced
+  opening.

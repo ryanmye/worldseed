@@ -74,3 +74,5 @@ These are collected from the plans' "open questions" sections.
 - The realism harness scripts are included here under `realism-scripts/`, and the perf bench scripts under `perf-scripts/` (its `node_modules` is removed; run `npm i playwright` to use them).
 
 Owner decision (2026-11-26): platform = web + PWA now; native Apple shell dropped for now (no Xcode available); C++/Rust/native rebuild deferred — revisit after perf phase 1 with real-iPhone profiling (port single hotspots to WASM only if profiling shows one).
+
+Owner instruction (2026-11-27): run all phases 1–5 automatically; coordinator merges lanes to main directly (no PRs) once gates pass (G0, typecheck, build, lane tests, realism off@tol0 + on A/B, full suite at merge). Owner-only gates (device measurement, tone reviews, play-tests, regime frequency table) are recorded as pending and do NOT block automation; flag them in reports.

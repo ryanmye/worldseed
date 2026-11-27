@@ -1011,3 +1011,13 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - Your `finWarDrive` is factor 4 of C1, and `peaceDebt` is factor 2 of C6 (battles owns C6).
 - **R20.** Add spending kind `'welfare'`. All relief (riots dole, disasters relief, migration welfare, future-tech UBI) is booked through it exactly once.
 - Feedback F1 (debt → taxes → revolts → debt) test: no polity at taxMax for more than 50 consecutive years in more than 10% of polity-years.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **New kinds:**
+  - `finCredit(..., 'subsidy')`: a cold-war sponsor's aid, 0.7 of the sponsor's spend reaching the recipient;
+  - spend diag kinds `'subsidy'` (finSpend by the sponsor, `CW.aidShare 0.03·revenue`) and `'envoys'` (interpreters,
+    `IB.interpCost 0.01·revenue·min(1, n/4)`).
+  - A subsidy lowers the recipient's war-debt pressure, which C6's debt factor sees. No new C6 factor (CW-R3).
+- **Collapsed** cold-war ending reads `finDefaulted` (barriers §3.5).

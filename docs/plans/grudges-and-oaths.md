@@ -1156,3 +1156,16 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R8.** The rev-2 target "top-realm share p90 −5 to −20%" is replaced by: realms with top share > 0.45 reduced by ≥ 5%, and realism `pol.largestPop1500/2000` not WORSE. Realism says empire shares are already too low.
 - RivalryPart 12 **Reputation** records `repRivalry` (causal). GrievanceKind next free is 17. A slaughter grievance, if wanted, takes 17, not 9.
 - **R31.** Step 9's format-patch and bundle instructions are obsolete. Use MASTER-PLAN §8.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **You own cold wars** (`polity/coldwar.ts`, beside arms.ts and align.ts; `HistoryOptions.coldWars`; stream
+  `history-coldwar`; `ColdWars` table like ArmsRaces). Detection, proxies, spheres, crises and endings follow
+  barriers-coldwar §3. It runs every slowStep after `armsStep` and `beliefStep`, and before `declarations`.
+- **C7** gains factor 5 `talk = 0.6 + 0.4·e_elite` (barriers) and factor 6 `sphere = 1 + CW.sphere·κ` (cold war). The
+  clamp [0.1, 4] is unchanged, and the C7 test must still pass with both on.
+- **C1:** no cold-war factor (CW-R1). Crisis escalation calls `declare()` on its own path (CW-R2) and counts in the C1
+  test.
+- **GrievanceKind 17 ProxyAid** (next free 18): recorded by the side a sponsor aided against. Client defection uses the
+  bond lapse path, not Betrayed. RivalryPart 13 ColdWar (causal).

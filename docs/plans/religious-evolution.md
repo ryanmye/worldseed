@@ -626,3 +626,12 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R15.** `prestigeOf(s, p)` comes from migration-borders (Π_p). culture-soft-power is not written.
 - **R16.** `faithFertility` multiplies future-tech's fertility slot `F_p` (C5). It is therefore **dormant unless future (or a later demography plan) is on**. Pre-modern runs do not change growth.
 - **C9.** `usuryRate` is a factor of the borrowing-rate stack, clamped with the others. `faithLegitimacy` adds to riots' L∞ hook only.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **New stack C13, faith exposure** (`exposeFrom` w), owner you. The clamp is [0.3, 1.5]. Factors, in order:
+  1. your `(1 − sec_i)` (moved from inline);
+  2. barriers `(0.7 + 0.3·max(e_mass, I(L_town, L_f)))/ē`, where L_f is the faith's frozen liturgical language
+     (mean-preserving, B-R5).
+- A faith's liturgical language can be a polity's lingua franca (source Faith, barriers §2.2).

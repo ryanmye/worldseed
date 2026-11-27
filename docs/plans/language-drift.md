@@ -641,3 +641,31 @@ means the record was confirmed but the specific claim was not on the page read. 
 ## Addendum (master plan)
 Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
 - **R32 ("on only for new worlds").** The carrier is `HistoryOptions.language` with URL `lang=1`. New links, saves (world-builder-divine §4.1 recipe options) and scenarios (canonical JSON) write `lang=1` explicitly. A link without the flag keeps today's names. No device-dependent default (R42).
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **Live drift (B-R1).** Add `LiveDrift` (names/drift.ts): the tree is extended incrementally over newly founded ids,
+  and the native lexicon lists are drawn lazily per (n, m), each keeping its rng and time. It advances at each
+  `POLITY.slowStep` when `barriers` and `language` are both on. Assembly reuses it instead of `buildDrift`.
+  - Test: for every prefix year, the rows are identical to `buildDrift`.
+  - With `barriers` off, nothing changes: assembly-only, G0, and the R32 flag as now.
+- **You own intelligibility:**
+  - `names/intelligibility.ts`, RNG-free: `cognateShare(live, a, b, Y)` (native rows only) and
+    `I = smoothstep(0.60, 0.95, c)`, with a pair cache per decade;
+  - the polity tongue `L_p` = the live node of the capital;
+  - the lingua franca state `ε_p`, `L*_p` and the frozen liturgical language of faiths (barriers §2.2).
+  - It reads migration's Π, through barriers' `prestigeProxy` until migration lands.
+- Loans and shifts stay assembly-only. If `shiftRate` is raised later, re-run guard B2 (≤ 5% of capital-decades differ;
+  0% measured on seeds 1 and 42).
+- Event LinguaFranca 390 is yours (block 390–399, barriers-coldwar §4). Option `IB.phon` (sound-change distance) waits
+  until LiveDrift also advances rules (Phase 4).
+
+## Addendum (typology & scripts)
+Extension plan: **`language-typology-scripts.md`** (Phase 2, lane L2; EventType 400–409). It builds on this plan's merged code rather than replacing it:
+- Typology-on worlds (`HistoryOptions.typology`, URL `lang=2`, new worlds only) store underlying forms (`NameForms.form`, `lexForm`, exonyms) as **phoneme strings** (one Private-Use code unit per feature bundle). `Languages` gains optional `model`/`typo`/`ortho` columns, absent with `lang=1`, so lang=1 histories hash and name exactly as merged.
+- The tree, rates, rule **dates**, lexicon renewal, contact, shifts and exonym years are drawn from the same streams in the same order. A lang=2 world has the same tree and split years as the lang=1 world of its seed.
+- Only these change: the rule catalogue (`drawRules` takes it as a parameter; feature implementations of kinds 0–13 plus **`SoundChangeKind` 14–25**, phoneme model only), the euphony gate (`Phonotactics`, with LEGACY as the default) and `borrowWord`/`adaptName` (feature-nearest mapping).
+- Romanization (per-language "school" traditions; plain ASCII vs a scholarly diacritic register) is applied at display in `spokenNameAt`.
+- Writing systems ride the ideas `writing`/`alphabet` rows at assembly, after `assembleLanguage`. They reuse contact.ts's exposure bins, factored out as `exposureBins`.
+- This plan's §11 open question "should a written standard slow change?" is carried there as the `printing` spelling-freeze question.

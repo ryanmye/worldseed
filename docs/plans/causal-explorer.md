@@ -1001,3 +1001,12 @@ be checked against the publisher pages before merge.
 Overrides the body and earlier addenda where they differ. Rulings and ids: MASTER-PLAN.md §2 and §3.
 - **R36.** UnrestPart adds **22 Displaced** (future-tech), **23 Generations** (FP), **24 Disaster** (disasters), **25 Immiseration** and **26 Coercion** (society h2); `UNREST_PARTS` = 32. RivalryPart adds **10 TradeRival** (city-states), **11 Bloc** (MIR) and **12 Reputation** (grudges).
 - The counterfactual check (step 13) is off by default on D-phone (MASTER-PLAN §5.4).
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- Recorders:
+  - C7 factors 5 `talk` and 6 `sphere`;
+  - C11–C13;
+  - RivalryPart **13 ColdWar** (κ at the declaration of a crisis-escalated war).
+  - "Why this war": WarMotive 6 Crisis → "a crisis between two powers long at daggers drawn ran out of control".

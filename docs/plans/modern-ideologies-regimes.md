@@ -851,3 +851,13 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R14 and stale numbers.** OrderKind **62–64**, DecisionKind **47–49** (not 41–43 / 27–29). FP uses OrderKind 65–66, DecisionKind 50–51, Government 12–29, GovernmentCause 23–41 (not 16+ / 30+).
 - **D-dup 1.** With city-states on, `History.modernRegimes` is an extension table keyed to `History.governments` rows (franchise, contestation, stage), not a second form log.
 - `pairPeace` and `intervene` are C1 factors 5 and 6.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **Phase 4, ideological cold wars** (barriers §3.6):
+  - `AFF(fam_a, fam_b) ≤ −0.5` flags a cold war as ideological, and κ `+= 0.3`;
+  - the §4.6 export pulse `×(1 + CW.subvert 1.0·κ)` into the rival principal and its clients (Subversion 14 as is);
+  - client defection reads AFF.
+  - BlocFormed 318 stays yours. Do not add a bloc factor to C7: cold-war `sphere` is C7 factor 6.
+- `climate_p` is also C12's censorship factor, for incoming Ideology-kind ideas only. It is not a second C10 factor.

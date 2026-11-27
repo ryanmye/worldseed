@@ -1181,3 +1181,60 @@ Baseline recomputed: 4-seed score 0.399916 (§2.7 bands), 22-seed 0.418184; the 
 
 ## Addendum (phase0/director implementation)
 Key R is already bound by existing code — battle replay must pick another free key (check main.ts key map; not B, H, W, R). Director tuning changed from plan defaults: τ_cat 150, θ_n 9.5, beat kept at speed k when prominence ≥ 18·k, DynastyEnded base 5 (results: 28–30 beats at 1×, 11–14 at 4×, 3–5 at 16×, 82–132 notices). Turning Follow on ends the intro. `follow=1` URL param; H toggles.
+
+## Addendum (barriers & cold war)
+Source: `barriers-coldwar.md`. It is a coordinating doc. Each owner's `## Addendum (barriers & cold war)` holds the
+binding text (language-drift, beliefs, grudges, migration, infrastructure, tech-tree, religious, families, finances,
+battles, MIR, future-tech, riots, causal, experience).
+- **§1.4 owners:**
+  - mutual intelligibility `I`, lingua franca `ε_p`/`L*_p` and `LiveDrift`: language-drift;
+  - news lag `infraLag` (days): infrastructure, with a barriers proxy until then;
+  - cold-war state (`ColdWars`, κ): grudges.
+- **§2.1 ruling B-R1:** with `barriers` on, language drift is advanced inside the loop (prefix-stable tree and native
+  lexicon). It reads native cognates only, and assembly reuses that state. With `barriers` off, language stays
+  assembly-only.
+- **§2.3 stacks:**
+  - new **C11** pair cost (trade.ts `c`; owner infrastructure; clamp [0.5, 2]);
+  - new **C12** idea exposure (owner tech-tree; [0.3, 1.5]; mean-preserving barriers factor, then MIR climate for
+    Ideology ideas, then seclusion);
+  - new **C13** faith exposure (owner religious; [0.3, 1.5]; `(1 − sec_i)`, then barriers);
+  - **C7** factor 5 `talk = 0.6 + 0.4·e_elite`, factor 6 `sphere = 1 + 0.5·κ`;
+  - C1: no cold-war factor; crisis escalation declares on its own path and counts in the C1 test;
+  - C6 and C2: no new factor (proxy aid acts through battles `M_aid` and finances subsidies).
+- **§2.4 loop F13** (proxy war → grievance 17 → R → κ → more proxies). Damping:
+  - aid costs revenue (`finSpend`);
+  - κ ≤ 1;
+  - endings by Thaw, Eclipsed and Collapsed.
+  - Test: CW4 median ≤ 5, and no cold war above 12 proxies.
+- **§3.1:** block **390–399** barriers & cold war: 390 LinguaFranca, 391 LateBattle, 392 Seclusion, 393 ColdWarBegan,
+  394 ProxyWar, 395 ClientDefected, 396 Crisis, 397 Detente, 398 ColdWarEnded; 399 spare. Unassigned is now **400–409**
+  (and 182–189).
+- **§3.2:**
+  - GrievanceKind **17 ProxyAid** (next 18);
+  - RivalryPart **13 ColdWar** (next 14; `RIVALRY_PARTS` 16 holds);
+  - beliefs WarMotive **6 Crisis**;
+  - new plan-local enums `ColdWarEnd` (0–4), `CrisisOutcome` (0–3), `LinguaFrancaSource` (0–2);
+  - finances kinds 'subsidy' and 'envoys';
+  - optional, Phase 3: DecisionKind 55 Brink, OrderKind 84 Brink (`ORDER_KIND_COUNT` → 85 only if built).
+- **§3.3:** `barriers` (language-drift and barriers; true after harness B1–B6; real intelligibility needs `language`),
+  `coldWars` (grudges; true after CW1–CW8). One flip per PR (R29).
+- **§3.4:** `history-coldwar` (grudges). Barriers is RNG-free (LateBattle uses `hash01`).
+- **§4.1:**
+  - Phase 2 lane D gains barriers steps 1–5 after beliefs#12;
+  - lane D′ gains cold war steps 1–5 after grudges, finances and beliefs merge;
+  - Phase 4 lanes C (migration Π, langDist), D (infraLag), A (media ideas, seclusion) and E (ideological blocs).
+  - Phase 2 exit adds the B and CW harness rows and the C7/C11–C13 clamp shares ≤ 1%.
+
+## Addendum (language typology & scripts plan, 2026-11-27)
+Plan: `language-typology-scripts.md` (extends language-drift; owner request: diverse sound systems and writing scripts).
+- **§4.1 Phase 2 — new lane L2 (language typology & scripts):** typology#1–13. Serial inside the lane. It starts after Phase 1 lane L (merged) and touches only `src/sim/names/**`, `src/sim/history/language/**`, `src/ui/language*`/`script*` and the city card, inspector, polity panel and peoples panel lines. It is independent of lanes A–E and S.
+  - MVP: #1–7, plus the card line of #12.
+  - Exit: the §8 harness (WALS distribution bands, the balance and legacy-likeness gates, pronounceability, glyph budget), lang=1 golden names unchanged, G0, owner listening and tone review, and lane M's tier-2 glyph probe on iPhone, iPad and Mac.
+- **§3.1 EventType:** **400–409 → language-typology-scripts** (400 ScriptInvented, 401 ScriptAdopted, 402 ScriptReformed, 403 ScriptReplaced, 404 ScriptLost; 405–409 spare). This deliberately takes the later half of the unassigned 390–409 range and leaves 390–399 (or 182–189) for barriers-coldwar, which is planned in parallel. Unassigned after this: 182–189 and 390–399.
+- **§3.2 enums:** SoundChangeKind 14–25 (phoneme model only; next free 26). Plan-local: MorphStyle 0–4, ScriptType 0–5, ScriptDirection 0–3, ScriptOrigin 0–3, ScriptCause 0–5.
+- **§3.3 HistoryOptions:** `typology` (requires `language`; default false; new worlds write `lang=2` after owner decision D-TS1; R32/R42 apply).
+- **§3.4 streams (only when on):** `names-typo-world`, `names-typo-<tribe>`, `names-ortho-<node>`, `script-<people>-<k>`, `script-shift-<people>`; UI-only, pure: `script-family-<family>`, `script-glyph-<script>`. Drift streams are reused unchanged.
+- **§6.2 open owner decisions:** D-TS1 (lang=2 for new worlds), D-TS2 (bundle a subset font only if the probe finds gaps), D-TS3 (blocklist review).
+
+## Addendum (coordinator, registry)
+RivalryPart 13 and 14 are taken on main by causal-explorer (Secession, Alarm). The cold war rivalry part is **RivalryPart.ColdWar = 15** (the last reserved slot). EventType blocks: barriers-coldwar 390–399, language-typology-scripts 400–409.

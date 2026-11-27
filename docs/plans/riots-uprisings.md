@@ -796,3 +796,10 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 - **R10.** City-states' burghers draw becomes a Commune trigger (`UP.communeSpark` 0.5) when you are on. Resolution only through `govRisingResolve`. A shared `rose[i]` gate covers you, city-states and court's estates.
 - §0.1 and §0.9 `KinAttacked = 11` are stale: it is **12**. ConcessionKind is unchanged, but infrastructure's EventType 354 is renamed `ConcessionGranted` so that your `Concession: 282` stays unique (R4c).
 - **§2.6.** Store `unrestHeat` every 10 years (`UP.heatInterval = 10`) for everyone.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- **Cross-polity kernel edges** (§4.4) get weight `× e_mass` between the two polities, inside the normalisation, like
+  `wireW`. The branching bound is unchanged. There is no cold-war term in C2 (CW-R3). Aid to rebels exists only as
+  aid to a CivilWar side.

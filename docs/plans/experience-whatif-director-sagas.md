@@ -1026,3 +1026,11 @@ Overrides the body and earlier addenda where they differ. Rulings and ids: MASTE
 
 ## Addendum (phase0/director implementation)
 Key R is already bound by existing code — battle replay must pick another free key (check main.ts key map; not B, H, W, R). Director tuning changed from plan defaults: τ_cat 150, θ_n 9.5, beat kept at speed k when prominence ≥ 18·k, DynastyEnded base 5 (results: 28–30 beats at 1×, 11–14 at 4×, 3–5 at 16×, 82–132 notices). Turning Follow on ends the intro. `follow=1` URL param; H toggles.
+
+
+## Addendum (barriers & cold war)
+Overrides the body and earlier addenda where they differ. Source of truth: barriers-coldwar.md (formulas, params, ids).
+- Register events 390–398 (barriers-coldwar §4) in the director coverage table. Drama weights:
+  - high: ColdWarBegan, Crisis(Escalated), ColdWarEnded(Collapsed);
+  - medium: ProxyWar, LateBattle;
+  - low: LinguaFranca, Detente, ClientDefected, Seclusion.
