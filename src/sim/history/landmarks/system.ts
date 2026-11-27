@@ -40,7 +40,8 @@
 // A standing landmark is neglected when its town stays under neglectShare of its peak since completion for neglectYears, or (a
 // seat: a capital's castle, a palace, a council house) its town has not been a capital for seatYears (a castle only if its town
 // is also under castleKeep of the peak: else it stands on as a governor's seat); it falls into ruin ruinMin..ruinMax years into its
-// neglect, at once when its town is abandoned, and with a chance when it is sacked (sackGreat, sackCastle, sackLesser). A neglected
+// neglect, at once when its town is abandoned, and with a chance when it is sacked (sackGreat, sackCastle, sackLesser) or
+// struck by an eruption, quake, wave or flood (disasters: DX.quakeLandmark at a loss of 0.25, scaled; half for floods). A neglected
 // or ruined one in a living town is restored (restore; a ruin at ruinRestore of it) when the town is back over restoreShare of the
 // peak and rich, a seat a capital again with restoreSeat of the peak, a house of worship under a pious ruler (restorePiety, the
 // town at restorePious), a shrine when its town (restoreShare) holds a traditional faith again; the ruins of an abandoned town
@@ -68,6 +69,7 @@
 // Every other draw comes from 'history-landmarks', in the order of the events, then of the works in progress, then of the
 // settlements by id, then the polities and the landmarks by id: deterministic, and nothing depends on the run's length.
 
+import { DX } from '../disasters/params.ts' // disasters:
 import { Biome, EventType, FaithKind, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, PolityOrigin, ReignEnd, SceneryBit, SuccessionLaw, TECH_FIELD_COUNT, TechField, WarOutcome } from '../../../contract.ts'
 import { createRng } from '../../rng.ts'
 import type { HistoryState } from '../state.ts'
@@ -317,8 +319,29 @@ function newSettlements(s: HistoryState, lm: LandmarksState): void {
   lm.seen = n
 }
 
+/**
+ * disasters: the towns struck this year by an eruption, quake, wave or flood (s.dx.yearStruck): each standing landmark falls
+ * into ruin with chance DX.quakeLandmark * min(1, share / 0.25), half that for a flood; marked as a sack (lSack), so the
+ * rebuilt-after-the-sack revival restores it later. Draws from the landmarks' own stream.
+ */
+function disasterRuins(s: HistoryState, lm: LandmarksState): void {
+  const dx = s.dx
+  if (dx === null) return
+  for (let i = 0; i < dx.yearStruck.length; i++) {
+    const v = dx.yearStruck[i]
+    if (v >= lm.seen) continue
+    const chance = DX.quakeLandmark * Math.min(1, dx.yearShare[i] / 0.25) * (dx.yearFlood[i] === 1 ? 0.5 : 1)
+    for (let id = lm.head[v]; id >= 0; id = lm.lNext[id]) {
+      const st = lm.lState[id]
+      if (st === ST.Ruined || st === ST.Unfinished || st === ST.Building) continue
+      if (lm.rng.next() < chance) { change(s, lm, id, ST.Ruined, -1, -1, -1); lm.lSack[id] = s.year }
+    }
+  }
+}
+
 /** The events of the year: abandonments, sacks, conquests and sieges, renown, peace, deaths of rulers, state religions. */
 function scanEvents(s: HistoryState, lm: LandmarksState): void {
+  disasterRuins(s, lm) // disasters: (no-op when off)
   const ev = s.events
   const ps = s.pol
   const R = s.rul

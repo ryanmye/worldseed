@@ -86,6 +86,8 @@ export function entryCategory(h: History, kind: number, first: HistoryEvent | nu
   if (t === 146) return FAITHS
   if (t >= 140 && t <= 145) return SETTLEMENT
 
+  // disasters (260-268): eruptions, quakes, waves, floods, droughts, climate epochs
+  if (t >= 260 && t <= 268) return NATURE
   if (t === 2 || (t >= 17 && t <= 19) || (t >= 44 && t <= 49)) return NATURE
   if (t === 8 || t === 9 || (t >= 10 && t <= 15)) return TRADE
   // goods (50-65): deposits, crafts, secrets, lanes and posts are trade and exploration

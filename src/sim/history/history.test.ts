@@ -411,6 +411,11 @@ function checkInvariants(w: World, h: History): void {
         expect(townYear[e.settlement]).toBeGreaterThanOrEqual(0)
         expect(townYear[e.settlement]).toBeLessThanOrEqual(e.year)
         break
+      // disasters: (none with HistoryOptions.disasters false; disasters/disasters.test.ts checks them against History.disasters)
+      case EventType.Eruption: case EventType.VolcanicWinter: case EventType.Earthquake: case EventType.Tsunami:
+      case EventType.CityDestroyed: case EventType.Flood: case EventType.DroughtBegan: case EventType.DroughtEnded: case EventType.ClimateTurned:
+        expect(Number.isInteger(e.value) && e.value >= 0 && e.value < h.disasters.count).toBe(true)
+        break
       default:
         throw new Error(`unknown event type ${e.type}`)
     }

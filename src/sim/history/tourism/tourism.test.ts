@@ -31,7 +31,7 @@ export function hashPreTourism(hi: History): string {
   hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => !TOURISM_KEYS.has(x) && x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions' && x !== 'landmarks' && x !== 'why').sort()) { // (renaming, ideas, landmarks: later than tourism)
+  for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && !TOURISM_KEYS.has(x) && x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions' && x !== 'landmarks' && x !== 'why').sort()) { // (renaming, ideas, landmarks: later than tourism)
     h = fnvBytes(h, enc.encode(k))
     if (k === 'settlements') h = hv(h, hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }))
     else if (k === 'events') h = hv(h, hi.events.filter((e) => e.type < 100 || (e.type > 109 && (e.type < 120 || e.type > 129) && (e.type < 140 || e.type > 149)))) // (ideas: 120-129, landmarks: 140-149 later; claims' 130 kept)

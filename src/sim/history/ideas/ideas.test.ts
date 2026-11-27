@@ -33,7 +33,7 @@ export function hashPreIdeas(hi: History): string {
   hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => !IDEAS_KEYS.has(x) && x !== 'why').sort()) {
+  for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && !IDEAS_KEYS.has(x) && x !== 'why').sort()) {
     h = fnvBytes(h, enc.encode(k))
     h = hv(h, k === 'events' ? hi.events.filter((e) => !isOurs(e.type) && (e.type < 140 || e.type > 149)) : r[k]) // (landmarks: 140-149 later)
   }

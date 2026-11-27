@@ -4,6 +4,7 @@
 // famine, faiths, landfalls and discoveries, new cities, ideas and great works finished, and the omens of those years.
 // The most telling few are kept, in that order; quiet years get a short, plain entry.
 
+import { DISASTER_T, yearDisasterLines } from './disasters.ts' // disasters:
 import { CITY_POPULATION, EventType, FeatureKind, WarKind } from '../../contract.ts'
 import { GRUDGE_T, grudgeYearLines } from './grudges.ts' // oaths, arms:
 import { FIN_T, financeYearLines } from './finance.ts' // finance:
@@ -59,7 +60,7 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worldName: string): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T, DIVINE_T, GRUDGE_T, FIN_T)
+  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T, DIVINE_T, DISASTER_T, GRUDGE_T, FIN_T)
   const a = Math.max(0, a0)
   const b = Math.min(a + span - 1, c.Y)
   const kind = span === 1 ? 'year' : 'decade'
@@ -141,6 +142,8 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
   }
   const fam = topBy(of(EventType.Famine).filter((e) => e.value >= 0.1), (e) => e.value * c.pop(e.settlement, Math.max(0, e.year - 1)), 1)[0]
   if (fam && c.pop(fam.settlement, Math.max(0, fam.year - 1)) >= 500) sents.push(v.p('famine', { year: fam.year, place: c.name(fam.settlement, fam.year), share: shareWords(fam.value) }))
+  // disasters: a turn of the climate, the greatest eruption, a town destroyed
+  sents.push(...yearDisasterLines(c, v, evs.map((i) => h.events[i])))
   // faith
   for (const e of of(EventType.FaithFounded).slice(0, 1)) sents.push(cap(v.p('faith', { year: e.year, faith: c.faith(e.value), place: c.name(e.settlement, e.year) })))
   if (pd) {

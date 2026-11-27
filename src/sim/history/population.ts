@@ -31,6 +31,7 @@ import { harvestLeft } from './polity/system.ts' // polities:
 import { toolFarm } from './goods/hooks.ts' // goods:
 import { ideaFarm } from './ideas/hooks.ts' // ideas:
 import { c5Growth, c5Harvest, c5Shortfall, c5Supply } from './compose.ts' // C5 stack
+import { dxLocal } from './disasters/state.ts' // disasters:
 import { whyFamine, whyFood } from './why.ts' // causes:
 
 /**
@@ -174,14 +175,15 @@ export function foodSystem(s: HistoryState): void {
       s.liveFrac[id] = perLive / perStrength
     }
     const expected = perStrength * stm
-    let h = c5Harvest(s.harvest[s.weatherRegion[c]]) // C5 (compose.ts): the harvest
+    const hw = s.harvest[s.weatherRegion[c]]
+    let h = c5Harvest(hw, s.dx !== null ? { climate: hw * dxLocal(s.dx, id) } : undefined) // C5 (compose.ts): the harvest (disasters: the climate's, times the ash or flood on its own fields)
     if (h < 1) h = stored(h, sp.damp[id]) // species-v2: drought sensitivity and stores of its staples (storage.ts)
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
     const supply = c5Supply(s.pol !== null ? expected * h * harvestLeft(s.pol, id) : expected * h) // polities: fields ravaged by war; C5 (compose.ts): the supply
     s.expected[id] = expected
     s.supply[id] = supply
     s.food[id] = supply >= p ? 1 : supply / p
-    if (s.why !== null) whyFood(s.why, id, s.harvest[s.weatherRegion[c]], h, s.pol !== null ? harvestLeft(s.pol, id) : 1, expected, supply, p) // causes: the famine factors
+    if (s.why !== null) whyFood(s.why, id, s.dx !== null ? hw * dxLocal(s.dx, id) : hw, h, /* (disasters: the harvest of its own fields, ash or flood included) */ s.pol !== null ? harvestLeft(s.pol, id) : 1, expected, supply, p) // causes: the famine factors
   }
   s.activeCount = activeCount
 }

@@ -31,7 +31,7 @@ function hashPre(hi: History): string {
   hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
-  for (const k of Object.keys(r).filter((x) => !DISEASE_KEYS.has(x) && !TOURISM_KEYS.has(x) && x !== 'why').sort()) h = hv(h, k === 'settlements' ? hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : r[k])
+  for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && !DISEASE_KEYS.has(x) && !TOURISM_KEYS.has(x) && x !== 'why').sort()) h = hv(h, k === 'settlements' ? hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : r[k])
   return (h >>> 0).toString(16)
 }
 /** Hash of the disease fields. */
