@@ -16,7 +16,7 @@ import { BattleFlag, BattleKind, FeatureKind, settlementNameAt } from '../../../
 import type { GeoFeature, History, Ruler, World } from '../../../contract.ts'
 import type { FeatureMap } from '../../names/features.ts'
 import type { SettlementNaming } from '../../names/index.ts'
-import { buildRoot, capitalizeName, fluentName, letterCount } from '../../names/words.ts'
+import { buildRoot, fluentName, letterCount, nameOf } from '../../names/words.ts'
 import { createRng } from '../../rng.ts'
 import type { BattleState } from './state.ts'
 
@@ -114,11 +114,11 @@ function personalName(world: World, naming: SettlementNaming, home: number, c: n
   const lang = naming.language(naming.tribe[home], naming.level[home])
   const rng = createRng(world.seed, `names-commander-${c}`)
   for (let k = 0; k < 40; k++) {
-    const w = capitalizeName(buildRoot(lang, rng))
+    const w = nameOf(lang, buildRoot(lang, rng))
     const n = letterCount(w)
     if (n >= 4 && n <= 9 && (k >= 30 || fluentName(w))) return w
   }
-  return capitalizeName(buildRoot(lang, rng))
+  return nameOf(lang, buildRoot(lang, rng))
 }
 
 /** Names of the commanders in id order: a ruler's as ruler ("Narun II"), a general's of his first base's language. */

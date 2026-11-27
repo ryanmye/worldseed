@@ -13,6 +13,16 @@ import type { Language } from './phonology.ts'
 import { buildLanguage, MEANING_CLASSES } from './phonology.ts'
 import { evolve, type LanguageRules } from './soundChange.ts'
 import { capitalizeName } from './words.ts'
+import { drawProfiles, type ProfileInput } from './typology/profile.ts'
+import { typoLanguage, withOrtho } from './typology/words.ts'
+import { deriveOrtho, drawOrtho, repairOrtho, romanize, writable } from './typology/orthography.ts'
+import { TYPO } from './typology/params.ts'
+
+/** typology: what the profiles need (HistoryOptions.typology): each people's cradle (People.cradle) and each cradle's centre cell. */
+export interface TypoInput {
+  cradle: readonly number[]
+  centres: readonly number[]
+}
 
 export interface Drift {
   world: World
@@ -27,6 +37,9 @@ export interface Drift {
   tribe: number[]
   /** The sound pattern of language n's people (its proto-language's Language, without drift). */
   base(n: number): Language
+  /** typology: the spelling tradition and packed profile of each language (absent without HistoryOptions.typology). */
+  ortho?: Uint32Array
+  typo?: Uint32Array
   /** Language n's sound pattern with the site affixes in force at `year`. */
   langAt(n: number, year: number): Language
   /** Language n's geographic vocabulary in force at `year`, with its people's naming habits. */
@@ -62,7 +75,7 @@ export function packRules(count: number, parent: readonly number[], splitYear: r
 }
 
 /** The drift context for a settlement table assembled at `years` (see the file comment). */
-export function buildDrift(world: World, settlements: readonly TreeSettlement[], years: number): Drift {
+export function buildDrift(world: World, settlements: readonly TreeSettlement[], years: number, typoIn?: TypoInput): Drift {
   const seed = world.seed
   const t0 = performance.now()
   const tree = buildTree(world, settlements)
@@ -71,6 +84,40 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
   const tribe: number[] = []
   for (let n = 0; n < N; n++) tribe.push(tree.parent[n] < 0 ? tree.seat[n] : tribe[tree.parent[n]])
   const baseCache = new Map<number, Language>()
+  // typology: every people's sound system at once (the profiles' balance guard looks at all of them), from 'names-typo-world',
+  // 'names-typo-<tribe>' and 'names-ortho-<node>'; each language's tradition is its parent's with 1-2 slots redrawn now and then.
+  let ortho: Uint32Array | undefined, typoBits: Uint32Array | undefined
+  if (typoIn) {
+    const roots: number[] = []
+    for (let n = 0; n < N; n++) if (tree.parent[n] < 0) roots.push(n)
+    const P = world.grid.positions
+    const unit = (cell: number): [number, number, number] => {
+      const x = P[cell * 3], y = P[cell * 3 + 1], z = P[cell * 3 + 2], r = Math.hypot(x, y, z) || 1
+      return [x / r, y / r, z / r]
+    }
+    const C = typoIn.centres.length
+    const inputs: ProfileInput[] = roots.map((n) => {
+      const t = tree.seat[n]
+      const c = Math.max(0, Math.min(C - 1, typoIn.cradle[settlements[t].people] ?? 0))
+      const a = unit(settlements[t].cell), b = C ? unit(typoIn.centres[c]) : a
+      return { tribe: t, cradle: c, fromCentre: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 }
+    })
+    const prof = drawProfiles(seed, inputs, C, (c) => unit(typoIn.centres[c]))
+    ortho = new Uint32Array(N)
+    typoBits = new Uint32Array(N)
+    roots.forEach((n, i) => {
+      const o0 = drawOrtho(createRng(seed, `names-ortho-${n}`))
+      const lang = typoLanguage(prof.draw[i], prof.rng[i], o0)
+      const t = lang.typo!
+      t.ortho = repairOrtho(writable(t.cons, t.vowels, t.tones), o0)
+      baseCache.set(tree.seat[n], lang)
+    })
+    for (let n = 0; n < N; n++) {
+      const t = baseCache.get(tribe[n])!.typo!
+      ortho[n] = tree.parent[n] < 0 ? t.ortho : repairOrtho(writable(t.cons, t.vowels, t.tones), deriveOrtho(ortho[tree.parent[n]], createRng(seed, `names-ortho-${n}`), TYPO.orthoRedraw))
+      typoBits[n] = t.bits
+    }
+  }
   const base = (n: number): Language => {
     const t = tribe[n]
     let l = baseCache.get(t)
@@ -93,6 +140,7 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
     return out
   }
   const rules = packRules(N, tree.parent, tree.splitYear, drawRules(seed, tree, rates, sample, years))
+  if (typoBits) rules.typo = typoBits
   const t2 = performance.now()
   const lex = drawLexicon(seed, tree, rates, proto, base, years)
   const t3 = performance.now()
@@ -117,7 +165,7 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
   const lexCache = new Map<string, Lexicon>()
   const surface = (form: string, n: number, year: number, from = -1): string => evolve(rules, form, n, from, year, 2)
   const drift: Drift = {
-    world, years, tree, rates, rules, lex, tribe, base, ms: { tree: t1 - t0, rules: t2 - t1, lex: t3 - t2 },
+    world, years, tree, rates, rules, lex, tribe, base, ortho, typo: typoBits, ms: { tree: t1 - t0, rules: t2 - t1, lex: t3 - t2 },
     langAt(n, year) {
       const key = keyOf(n, MEANING.affix, MEANING.geo, year)
       let l = langCache.get(key)
@@ -129,6 +177,7 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
         affixes[cls] = b.affixes[cls].map((o, i) => ({ ...o, text: texts[Math.min(i, texts.length - 1)] || o.text }))
       })
       l = { ...b, affixes }
+      if (ortho) l = withOrtho(l, ortho[n]) // (typology: spelt in this language's tradition)
       langCache.set(key, l)
       return l
     },
@@ -149,7 +198,8 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
     node: (id, year) => nodeAt(tree, id, year),
     surface,
     surfaceName(form, n, year, from = -1) {
-      return capitalizeName(evolve(rules, form.toLowerCase(), n, from, year, LANG.minNameLetters))
+      const said = evolve(rules, form.toLowerCase(), n, from, year, LANG.minNameLetters)
+      return capitalizeName(ortho ? romanize(said, ortho[n], 'plain') : said)
     },
     wordSaid(n, m, year) {
       const [k, i] = wordAt(lex, tree, n, m, year)

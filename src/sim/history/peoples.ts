@@ -23,7 +23,8 @@ import { applyCradleWishes, hasCradleWish } from './cradleWish.ts'
 import type { Rng } from '../rng.ts'
 import { createRng } from '../rng.ts'
 import type { SettlementNaming } from '../names/index.ts'
-import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, letterCount } from '../names/words.ts'
+import { buildMorph, buildRoot, fluentName, fuseWords, letterCount, nameOf } from '../names/words.ts'
+import { withClass } from '../names/typology/words.ts'
 import { CRADLE, POPULATION } from './params.ts'
 import type { HistoryState } from './state.ts'
 import { found, setPeoples } from './state.ts'
@@ -239,10 +240,10 @@ export function namePeoples(world: World, founders: readonly number[], cradle: r
         const f = fuseWords(lang, w, buildMorph(lang, rng, 2, true))
         if (f !== null && letterCount(f) <= 9) w = f
       }
-      const cand = capitalizeName(w)
+      const cand = nameOf(lang, withClass(lang, w, 1)) // (typology: a people's class prefix; its plain spelling)
       if (letterCount(cand) >= 3 && !used.has(cand.toLowerCase()) && (attempt >= 300 || fluentName(cand))) name = cand
     }
-    if (!name) name = capitalizeName(naming.roots[founder] ?? 'ana') + 'i' + p // practically unreachable
+    if (!name) name = nameOf(lang, naming.roots[founder] ?? 'ana') + 'i' + p // practically unreachable
     used.add(name.toLowerCase())
     out.push({ id: p, cradle: cradle[p], founder, name })
   }

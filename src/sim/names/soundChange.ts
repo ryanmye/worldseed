@@ -339,6 +339,8 @@ export interface LanguageRules {
   ruleYear: Int16Array
   ruleKind: Uint8Array
   ruleVariant: Uint8Array
+  /** typology: the packed profile per language (Languages.typo), for the phoneme-mode gate; absent for letter languages. */
+  typo?: Uint32Array
 }
 
 /** Languages from the root down to `node` (at most the tree's depth). */

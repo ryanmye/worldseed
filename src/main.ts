@@ -75,7 +75,8 @@ import { startPlatform } from './platform/index.ts'
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
 // lang=1 (language drift, HistoryOptions.language: names that split and wear with their speakers; MASTER-PLAN R32): part of
 // the history like o=. A new world (Start on the start page, a seed typed or drawn) writes lang=1; a link without it (every
-// link made before drift) keeps the names it always had.
+// link made before drift) keeps the names it always had. lang=2 is drift + typology (HistoryOptions.typology: typological
+// sound systems and spelling traditions, language-typology-scripts.md); a page opened with lang=2 starts its new worlds with it.
 // c=<cradles> (the first hearths the player planted, contract.ts encodeCradles: a cell per people in people order,
 // -1 the simulation's choice): part of the history like o=; written at Start (the start page's "Choose where peoples
 // begin") and by the Nudge panel's "Replant the hearths", cleared with a new seed
@@ -408,18 +409,22 @@ let seatCtl: SeatController | null = null
 /** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
 let currentCradles: number[] = canonicalCradles(decodeCradles(params.get('c') ?? ''))
 /** The history options of the history asked for: its length, the orders and the cradles (undefined: all default). */
-/** language: drift is on for this history (lang=1; new worlds write it, R32). */
-let languageOn = params.get('lang') === '1'
+/** language: drift is on for this history (lang=1; new worlds write it, R32); lang=2 adds typology (HistoryOptions.typology). */
+let languageOn = params.get('lang') === '1' || params.get('lang') === '2'
+/** typology: typological sound systems and spellings (lang=2; new worlds keep writing lang=1 until the owner's D-TS1). */
+const typologyOn = params.get('lang') === '2'
 /** A new world: drift on, written to the address (lang=1). */
 function newWorldLanguage(url?: URL) {
   languageOn = true
-  if (url) url.searchParams.set('lang', '1')
-  else setUrlParam('lang', '1')
+  const v = typologyOn ? '2' : '1' // (typology: a lang=2 page keeps lang=2 for the worlds it starts)
+  if (url) url.searchParams.set('lang', v)
+  else setUrlParam('lang', v)
 }
 function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
   const o: HistoryOptions = {}
   if (years !== 2000) o.years = years
   if (languageOn) o.language = true
+  if (languageOn && typologyOn) o.typology = true
   if (currentOrders.length > 0) o.orders = currentOrders
   if (currentCradles.length > 0) o.cradles = currentCradles
   if (params.get('causes') === '1') o.causes = true // causes: record why things happened (the Why panel's records; causes=1)

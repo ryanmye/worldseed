@@ -12,13 +12,13 @@ import { EventType, TOWN_POPULATION } from '../../../contract.ts'
 import type { HistoryEvent, Languages, NameForms, People, Renamings, Settlement, Speech, World } from '../../../contract.ts'
 import { createRng } from '../../rng.ts'
 import { applyContact, type ContactInput, type ContactResult } from '../../names/contact.ts'
-import { buildDrift, type Drift } from '../../names/drift.ts'
+import { buildDrift, type Drift, type TypoInput } from '../../names/drift.ts'
 import { LANG } from '../../names/languageParams.ts'
 import { MEANING } from '../../names/lexicon.ts'
 import { borrowWord } from '../../names/placeNames.ts'
-import { spokenFormAt } from '../../names/spoken.ts'
+import { spokenFormAt, spokenNameAt } from '../../names/spoken.ts'
 import type { SettlementNaming } from '../../names/index.ts'
-import { capitalizeName, fuseWords } from '../../names/words.ts'
+import { fuseWords, nameOf } from '../../names/words.ts'
 
 export interface LanguageDiag {
   nodes: number
@@ -39,9 +39,9 @@ export interface PreparedLanguage {
   t1: number
 }
 
-export function prepareLanguage(world: World, settlements: readonly Settlement[], years: number, contact: Omit<ContactInput, 'people' | 'parent' | 'foundedYear'>): PreparedLanguage {
+export function prepareLanguage(world: World, settlements: readonly Settlement[], years: number, contact: Omit<ContactInput, 'people' | 'parent' | 'foundedYear'>, typo?: TypoInput): PreparedLanguage {
   const t0 = performance.now()
-  const drift = buildDrift(world, settlements, years)
+  const drift = buildDrift(world, settlements, years, typo)
   const tc = performance.now()
   const res = applyContact(drift, {
     ...contact, people: settlements.map((s) => s.people), parent: settlements.map((s) => s.parent), foundedYear: settlements.map((s) => s.foundedYear),
@@ -89,6 +89,8 @@ export function assembleLanguage(prep: PreparedLanguage, naming: SettlementNamin
     ruleStart: rules.ruleStart, ruleYear: rules.ruleYear, ruleKind: rules.ruleKind, ruleVariant: rules.ruleVariant,
     lexStart, lexYear: new Int16Array(LR), lexDonor: new Int16Array(LR), lexForm: new Array<string>(LR),
   }
+  // typology: phoneme forms and their spelling (absent, not empty, without it)
+  if (drift.ortho && drift.typo) { languages.model = 1; languages.typo = drift.typo.slice(); languages.ortho = drift.ortho.slice() }
   for (let k = 0; k < N * C; k++) {
     const list = lex.rows[k]
     for (let i = 0; i < list.length; i++) {
@@ -115,10 +117,11 @@ export function assembleLanguage(prep: PreparedLanguage, naming: SettlementNamin
     if (!name) {
       const seatWord = spokenFormAt(partial, tree.seat[n], Math.max(tree.splitYear[n], years)).split(/[ '-]/).sort((a, b) => b.length - a.length)[0] ?? ''
       const derive = drift.wordSaid(n, MEANING.derive, years).split('|')[0]
-      name = capitalizeName(fuseWords(drift.base(n), seatWord, derive) ?? seatWord)
+      const lang = drift.langAt(n, years)
+      name = nameOf(lang, fuseWords(lang, seatWord, derive) ?? seatWord)
     }
     const lc = name.toLowerCase()
-    if (seen.has(lc)) name = `${name} of ${capitalizeName(spokenFormAt(partial, tree.seat[n], years))}`
+    if (seen.has(lc)) name = `${name} of ${spokenNameAt(partial, tree.seat[n], years)}`
     seen.set(lc, n)
     languages.name[n] = name
   }

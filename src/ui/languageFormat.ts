@@ -6,8 +6,8 @@ import { EventType, LanguageSplitCause, renamingAt, type History, type HistoryEv
 import { LANG } from '../sim/names/languageParams.ts'
 import { MEANING } from '../sim/names/lexicon.ts'
 import { ruleSpec, evolve } from '../sim/names/soundChange.ts'
-import { exonymRow, hasDrift, languageAt, speechRowAt, spokenNameAt, stagedName } from '../sim/names/spoken.ts'
-import { capitalizeName } from '../sim/names/words.ts'
+import { exonymRow, hasDrift, languageAt, sayForm, speechRowAt, spokenNameAt, stagedName } from '../sim/names/spoken.ts'
+import { romanize } from '../sim/names/typology/orthography.ts'
 import { spokenName } from './languageData.ts'
 import { namesYear } from './renamingData.ts'
 
@@ -84,7 +84,7 @@ export function etymologyLine(h: History, id: number, year: number): string {
     if (mine >= 0 && p === L.people[mine]) continue
     const e = exonymRow(h, id, p, year)
     if (e < 0) continue
-    const x = capitalizeName(evolve(L, nf.exoForm[e], nf.exoLanguage[e], nf.exoYear[e], year, LANG.minNameLetters))
+    const x = sayForm(L, evolve(L, nf.exoForm[e], nf.exoLanguage[e], nf.exoYear[e], year, LANG.minNameLetters), nf.exoLanguage[e])
     if (x.toLowerCase() === now.toLowerCase()) continue
     parts.push(`the ${h.peoples[p].name} call it ${x}`)
     if (parts.length >= 3) break
@@ -123,7 +123,8 @@ export function wordSaid(h: History, n: number, m: number, year: number): string
   const r = wordRow(h, n, m, year)
   if (r < 0) return ''
   const w = L.lexForm[r].split('|')[0]
-  return evolve(L, w, n, L.lexDonor[r] < 0 ? -1 : L.lexYear[r], year, 2)
+  const said = evolve(L, w, n, L.lexDonor[r] < 0 ? -1 : L.lexYear[r], year, 2)
+  return L.model === 1 && L.ortho ? romanize(said, L.ortho[n], 'scholarly') : said // (typology: spelt for the panel)
 }
 
 /**

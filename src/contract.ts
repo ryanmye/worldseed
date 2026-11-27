@@ -656,6 +656,10 @@ export const SoundChangeKind = {
 } as const
 export type SoundChangeKind = (typeof SoundChangeKind)[keyof typeof SoundChangeKind]
 
+/** typology: how a language builds names (Languages.typo bits 8-10; names/typology/profile.ts Style mirrors it; WALS 26A/20A priors). */
+export const MorphStyle = { Isolating: 0, Suffixing: 1, Prefixing: 2, Compounding: 3, RootPattern: 4 } as const
+export type MorphStyle = (typeof MorphStyle)[keyof typeof MorphStyle]
+
 /**
  * language: the language tree (absent when HistoryOptions.language is off). Row i is language i, in order of appearance (a
  * parent before its daughters; a people's proto-language when its first town is founded). A language is not a people: a people
@@ -692,6 +696,20 @@ export interface Languages {
   lexYear: Int16Array
   lexDonor: Int16Array
   lexForm: string[]
+  /**
+   * typology: 1 when the forms (here, NameForms and the rule catalogue) are phoneme strings (names/typology/phoneme.ts: one
+   * Private Use Area code unit per phoneme) and names are spelt by `ortho` (HistoryOptions.typology). Absent, not empty, without
+   * it, so letter histories hash as before; then model, typo and ortho are all absent.
+   */
+  model?: number
+  /**
+   * typology: the packed profile per language (inherited at a split, unchanged; names/typology/inventory.ts packTypo): bits 0-1
+   * onsetMax, 2-3 codaMax, 4-6 tones, 7 harmony, 8-10 MorphStyle, 11 head-initial compounds, 12 class prefixes, 13-14 syllable
+   * class, 15 CV only, 16-17 finalMax, 18 nasal vowels, 19 length. The sound-change gate reads it (no Rng in the UI).
+   */
+  typo?: Uint32Array
+  /** typology: the spelling tradition per language (names/typology/orthography.ts; 16 slots of 2 bits). */
+  ortho?: Uint32Array
 }
 
 /**
@@ -1751,6 +1769,14 @@ export interface HistoryOptions {
    * which gain 250-253); off, the history is exactly the one without it.
    */
   language?: boolean
+  /**
+   * typology: languages drawn from typological profiles (phoneme inventories, syllable templates, tone, morphology styles) with
+   * romanization traditions (Languages.model, typo and ortho; names spelt plain in Settlement.name and the like). Needs
+   * `language` (ignored without it). Default false; new worlds write lang=2 (drift + typology) once the owner signs off (D-TS1).
+   * A pure consequence layer at assembly like `language`: every non-name field is the same with it on or off; off, the history
+   * is exactly the one without it.
+   */
+  typology?: boolean
   /**
    * causes: record why things happened (the drive behind each war declared and the parts of the rivalry behind it, the parts
    * of each revolt's unrest, the harvest of each weather region and year and the factors of each famine, why each town was

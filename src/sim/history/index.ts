@@ -160,6 +160,7 @@ import type { RenamingDiag } from './renaming/state.ts'
 import { assembleRenamings, emptyRenamingHistory, weaveEvents } from './renaming/assemble.ts'
 // language: languages that split and drift (language/; names/drift.ts).
 import { LANGUAGE_ON } from '../names/languageParams.ts'
+import { TYPOLOGY_ON } from '../names/typology/params.ts'
 import { assembleLanguage, prepareLanguage } from './language/assemble.ts'
 import type { LanguageDiag } from './language/assemble.ts'
 // ideas: inventions and practices, carried by trade (ideas/).
@@ -479,6 +480,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const rn = (options?.renaming ?? RENAMING_ON) ? createRenaming(s) : null
   // language: a pure consequence layer at assembly (names only), unless switched off (the default; R32).
   const langOn = options?.language ?? LANGUAGE_ON
+  // typology: typological sound systems and spelling traditions for the languages (needs language; R32: new worlds only).
+  const typoOn = langOn && (options?.typology ?? TYPOLOGY_ON)
   // ideas: inventions and practices (they set the technology caps), unless switched off.
   const ix = (options?.ideas ?? IDEAS_ON) ? createIdeasSystem(s) : null
   s.ideas = ix
@@ -683,7 +686,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         return c
       },
       renamed: rn ? rn.ySettlement.map((v, k) => ({ settlement: v, year: rn.yYear[k], polity: rn.yPolity[k], form: rn.yForm[k] })) : [],
-    }) : null
+    }, typoOn ? { cradle: cradles.cradle, centres: cradles.centres } : undefined) : null
     const { names, features, naming } = nameWorld(world, settlements, featureMap, langPrep?.drift)
     for (let id = 0; id < S; id++) settlements[id].name = names[id]
     const peoples = namePeoples(world, s.founders, cradles.cradle, naming, names)

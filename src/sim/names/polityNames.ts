@@ -18,7 +18,7 @@ import { PolityQualifier } from '../../contract.ts'
 import type { World } from '../../contract.ts'
 import { createRng } from '../rng.ts'
 import type { SettlementNaming } from './index.ts'
-import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, letterCount, nearAny } from './words.ts'
+import { buildMorph, buildRoot, fluentName, fuseWords, letterCount, nameOf, nearAny } from './words.ts'
 
 /** Longest polity name, in letters (a capital's root with an ending, or the people's name with one). */
 const MAX_POLITY = 10
@@ -101,12 +101,12 @@ export function namePolities(world: World, polities: readonly PolityLike[], nami
       else if (x < 0.8) w = fuseWords(lang, (peopleNames[pol.people] ?? '').toLowerCase(), ending)
       else { w = buildRoot(lang, rng); if (rng.next() < 0.5) w = fuseWords(lang, w, ending) ?? w }
       if (w === null || attempt > 100) w = buildRoot(lang, rng)
-      const cand = capitalizeName(w)
+      const cand = nameOf(lang, w)
       const n = letterCount(cand)
       if (n >= 3 && n <= (attempt < 150 ? MAX_POLITY : 12) && !used.has((PolityQualifier.None + ':' + cand).toLowerCase()) && (attempt >= 150 || (fluentName(cand) && !nearAny(own, cand)))) name = cand
     }
     if (qualifier === PolityQualifier.None || name !== names[pol.parent]) own.push(name.toLowerCase())
-    if (!name) name = capitalizeName(buildRoot(lang, rng)) + 'a' + id // practically unreachable
+    if (!name) name = nameOf(lang, buildRoot(lang, rng)) + 'a' + id // practically unreachable
     used.add((qualifier + ':' + name).toLowerCase())
     names.push(name)
     qualifiers.push(qualifier)
