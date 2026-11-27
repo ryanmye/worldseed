@@ -13,5 +13,9 @@
 - Baseline: /home/claude/runs/bots/baseline.log, rows in /home/claude/runs/bots/realistic-p1-from700-span300.jsonl; writes docs/fun-baseline.jsonl and docs/bots/metrics-v1.json at the end.
   - Rerun the same command to resume.
 
+## Results
+- Baseline v1: /home/claude/runs/bots/baseline.log (404 s; 36 runs; all 36 replays EQUAL).
+- UI smoke, seed 42 cautious: all checks ok. Fresh replay = bot run = headless (b5e0ba4c @775). The log is /home/claude/runs/bots/ui-42-cautious.log.
+
 ## Next
 - G0, build, merge origin/main, push, report.

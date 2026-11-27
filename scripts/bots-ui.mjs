@@ -171,6 +171,7 @@ for (let i = 0; i <= N; i++) {
   else await page.locator(`.seat-screen:not(.hidden) .seat-opt[data-option="${dec.option}"]`).click()
   await page.waitForTimeout(300)
 }
+log(`seat taken: ${new URL(page.url()).searchParams.get('seat')} (Follow the story plays the timeline on, so the year can pass the one opened)`)
 log(`first decision screen ${firstCardS.toFixed(0)} s after Take this throne; ${seen.length - 1} cards answered`)
 await ctx.close()
 
