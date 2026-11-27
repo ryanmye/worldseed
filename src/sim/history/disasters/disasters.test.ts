@@ -181,6 +181,16 @@ describe('disasters', () => {
     expect(b.events.filter((e) => e.year <= 400)).toEqual(a.events)
   }, 900_000)
 
+  it('with causes on: the weather row records no crisis (the climate replaces it), and the rest of the history is unchanged', () => {
+    const w = world(3)
+    const a = simulateHistory(w, { years: 300, disasters: true })
+    const b = simulateHistory(w, { years: 300, disasters: true, causes: true })
+    expect(b.why!.weather.crisis.every((x) => x === 0)).toBe(true)
+    const { why: _w, ...rest } = b
+    const { why: _w2, ...restA } = a
+    expect(hashValue(rest)).toBe(hashValue(restA))
+  }, 900_000)
+
   it('uses only + - * / sqrt floor at run time (no Math.log, exp or pow under disasters/)', () => {
     const sources = import.meta.glob('./*.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
     let n = 0
