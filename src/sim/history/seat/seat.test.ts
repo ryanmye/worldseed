@@ -1,7 +1,7 @@
 // seat-mode step 5: the seat follows history (seat/system.ts) and changes nothing else.
 import { describe, expect, it } from 'vitest'
 import { EventType, SeatEnd, SeatKind } from '../../../contract.ts'
-import type { History, World } from '../../../contract.ts'
+import type { History, SeatOptions, World } from '../../../contract.ts'
 import { generateWorld, simulateHistory } from '../../index.ts'
 import { hashWithout } from './hashing.ts'
 
@@ -13,8 +13,9 @@ const seatEvents = (h: History) => h.events.filter((e) => isSeat(e.type))
 describe('seat resolution (seat-mode §3.4)', () => {
   it('seat on, no orders: every field but History.seat and events 270-279 is the run without a seat', () => {
     const off = simulateHistory(world(1), { years: 1200 })
-    for (const seat of [{ kind: SeatKind.Polity, id: 11, from: 1100 }, { kind: SeatKind.House, id: 19, from: 1050, ambitions: [0, 1, 3, 4] }, { kind: SeatKind.People, id: 0, from: 900 }] as const) {
-      const on = simulateHistory(world(1), { years: 1200, seat: { ...seat, ambitions: 'ambitions' in seat ? [...seat.ambitions] : undefined } })
+    const seats: SeatOptions[] = [{ kind: SeatKind.Polity, id: 11, from: 1100 }, { kind: SeatKind.House, id: 19, from: 1050, ambitions: [0, 1, 3, 4] }, { kind: SeatKind.People, id: 0, from: 900 }]
+    for (const seat of seats) {
+      const on = simulateHistory(world(1), { years: 1200, seat })
       expect(hashWithout(on, ['seat'], isSeat)).toBe(hashWithout(off, [], isSeat))
       expect(off.events.some((e) => isSeat(e.type))).toBe(false)
       expect('seat' in off).toBe(false)

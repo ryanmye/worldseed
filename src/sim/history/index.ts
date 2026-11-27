@@ -169,6 +169,7 @@ import { appendOrders } from './orders/state.ts'
 import { createSeatState } from './seat/state.ts'
 import type { SeatState } from './seat/state.ts'
 import { seatYear } from './seat/system.ts'
+import { seatWatch } from './seat/watch.ts'
 import { assembleSeat } from './seat/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
@@ -382,6 +383,12 @@ export interface HistoryRunner {
    * exactly as a run created with the orders so far followed by these would.
    */
   addOrders(orders: readonly Order[]): void
+  /**
+   * seat: steps on from `year` one year at a time until the seat's watcher records a decision (the run then stands at that
+   * year, the decision rows History.seat.decisions with year === it), the seat is lost, or `maxYear`; returns `year`. Without a
+   * seat it is simulate(maxYear).
+   */
+  playSeat(maxYear: number): number
 }
 
 /**
@@ -580,7 +587,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
-    if (seat) seatYear(s, seat) // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions)
+    if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -710,6 +717,16 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
       return assemble(year)
     },
     simulate: simulateTo,
+    playSeat(maxYear: number): number {
+      const target = Math.min(32767, Math.max(0, Math.floor(maxYear)))
+      if (!seat || seat.lostYear >= 0) { if (target > year) simulateTo(target); return year }
+      while (year < target) {
+        step(year + 1)
+        year++
+        if (seat.newRows > 0 || seat.lostYear >= 0) break
+      }
+      return year
+    },
     addOrders(orders: readonly Order[]): void {
       if (ox) { appendOrders(ox, orders, year); return }
       for (const o of orders) if (!(Number.isFinite(o.year) && Math.max(1, Math.floor(o.year)) > year)) throw new RangeError(`order for year ${o.year} cannot be added to a run at year ${year}`)
@@ -750,6 +767,9 @@ export function createHistoryRun(world: World, options?: HistoryOptions): Requir
     },
     addOrders(orders: Order[]): void {
       runner.addOrders(orders)
+    },
+    playSeat(maxYear: number): number {
+      return runner.playSeat(maxYear)
     },
   }
 }

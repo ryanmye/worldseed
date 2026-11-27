@@ -1519,6 +1519,12 @@ export interface HistoryRun {
    * Y or later; an order for a year at or before `year` throws a RangeError (and nothing is added). Absent from older simulations.
    */
   addOrders?(orders: Order[]): void
+  /**
+   * seat (HistoryOptions.seat): steps the run on one year at a time until the seat's watcher records a decision (the run then
+   * stands at that year: its rows are those of History.seat.decisions with year === it), the seat is lost, or `maxYear`; returns
+   * `year`. Nothing is assembled (advanceTo(year) does). The same run without pauses gives the same History.
+   */
+  playSeat?(maxYear: number): number
 }
 export type CreateHistoryRun = (world: World, options?: HistoryOptions) => HistoryRun
 

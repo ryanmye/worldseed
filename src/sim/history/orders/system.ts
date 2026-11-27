@@ -68,7 +68,16 @@ function seatOf(s: HistoryState, ox: OrdersState, k: number): number {
 
 /** Why order k cannot act now (OrderReason.None when it may): checked when it is given. */
 function check(s: HistoryState, ox: OrdersState, k: number): number {
-  const kd = ox.kind[k], a = ox.actor[k], t = ox.target[k]
+  return orderCheck(s, ox.kind[k], ox.actor[k], ox.target[k])
+}
+
+/**
+ * Why an order of kind kd (actor a, target t; -1 none) could not act if given now (OrderReason.None when it may): the check
+ * made when an order is given (pure reads). The seat watcher (seat/watch.ts) offers only options whose orders pass it.
+ */
+export function orderCheck(s: HistoryState, kd: number, a: number, t: number): number {
+  if (kd < 0 || kd >= YEARS.length || RESERVED[kd]) return OrderReason.SystemOff
+  if (kd === OrderKind.Choice) return OrderReason.None
   const R = OrderReason
   const N = s.terrain.cellCount
   const ps = s.pol
