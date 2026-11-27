@@ -7,5 +7,7 @@ Base: 2dc5ebf (lane/ci-determinism tip). Tools: /home/claude/runs/detmath2/tools
 - [x] step 1b: call sites replaced (tools/replace.mjs): why.ts log2D; names/* logD expD cosD sinD acosD hypotD. G0 6/6 OK node22 (runs/detmath2/g0-node22.log)
   lang/dramatic identities seed 1 (realistic+lang1, +lang2, dramatic, dramatic+lang1, +lang2): hashBase AND hashValue identical base vs new (hashes-{base,new}.jsonl)
 - [x] step 2: FROZEN -> {} + hash tests (tools/gen.mjs: Math.* hashes identical on 22 and 25); detMath.test 7/7 node22
-- [ ] step 3: cross-engine (no WebKit/Firefox in /opt/pw-browsers (chromium only); installing bun (JSC) was denied by permission classifier -> owner check)
+- [x] step 3: owner check: perf=1 shows NO hash -> added detcheck=1 (src/detcheck.ts worker + corner box in main.ts end). Verified in headless
+  Chromium on vite preview (tools/detcheck_page.py -> runs/detmath2/detcheck-chromium.jsonl): seed 1 v=2 / +lang=1 / dramatic+lang=1 match Node.
+  cross-engine (no WebKit/Firefox in /opt/pw-browsers (chromium only); installing bun (JSC) was denied by permission classifier -> owner check)
 - [ ] step 4: worker/parallel audit
