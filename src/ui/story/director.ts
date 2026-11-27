@@ -7,6 +7,9 @@
 //   Lead      → Dwell     its year is reached: slow to DWELL_SLOW, show the caption
 //   Dwell     → Release   DWELL_SECONDS passed (or Next): ease back to normal speed
 //   Release   → Idle
+// Pacing (onboarding lane, EVALUATION §4 Lane 4; on when the view asks, setPacing): while Idle with no beat within
+// FF_YEARS ahead, playback eases up to FF_FACTOR (a quiet stretch goes by fast; capped at FF_MAX_YPS years per second)
+// and eases back to normal soon enough that the next beat's lead and caption run at the chosen speed.
 //   any       → Suspended user drag, zoom, pick or a panel's fly-to, or the city view; back to Idle after SUSPEND_SECONDS
 //                         of no input, or on Resume
 // A jump backward, or forward more than JUMP_YEARS, resets to Idle at the new year (the plan is fixed: this is exact).
@@ -31,6 +34,15 @@ export const DIRECTOR = {
   jumpYears: 50,
   /** Camera distance per scale: a town, a region (historyView's FLY_DIST), a continent. */
   dist: [1.8, 2.3, 2.8] as readonly number[],
+  /** Pacing: a gap to the next beat longer than this many years (times the speed, at least 1) is a quiet stretch. */
+  ffYears: 60,
+  /** Pacing: the playback factor through a quiet stretch, and the most years per second it may reach. */
+  ffFactor: 4,
+  ffMaxYps: 60,
+  /** Pacing: seconds to ease into and out of the fast-forward. */
+  ffEase: 1,
+  /** Years per second at 1× (timeline.ts YEARS_PER_SECOND; kept here so the director stays DOM-free). */
+  yps1x: 20 / 3,
 }
 
 export const DirectorState = { Off: 0, Idle: 1, Lead: 2, Dwell: 3, Release: 4, Suspended: 5 } as const
@@ -79,6 +91,10 @@ export interface Director {
   next(): void
   /** Advance by `dt` real seconds (once per frame). */
   tick(dt: number): void
+  /** Pacing on or off (off by default): fast-forward through quiet stretches while following. */
+  setPacing(on: boolean): void
+  /** Fast-forwarding through a quiet stretch now. */
+  readonly fastForward: boolean
 }
 
 export function createDirector(deps: DirectorDeps): Director {
@@ -89,7 +105,36 @@ export function createDirector(deps: DirectorDeps): Director {
   let done = 0
   let timer = 0
   let lastYear = NaN
+  let pacing = false
+  let ff = false
+  let ffK = 1
   const T = deps.timeline
+  /** Ease out of a fast-forward (a beat is near, input, a jump, Follow off). */
+  const ffOff = (ease: number) => {
+    if (!ff) return
+    ff = false
+    T.setSlow(1, ease)
+  }
+  /** Idle pacing: fast-forward while the next beat (b, -1 none) is far; back to normal in time for its lead. */
+  const pace = (b: number, year: number) => {
+    if (!pacing || !plan) return
+    const base = Math.max(1e-6, T.speed * DIRECTOR.yps1x)
+    const gap = b < 0 ? Infinity : plan.beatYear[b] - year
+    if (!ff) {
+      const k = Math.min(DIRECTOR.ffFactor, Math.max(1, DIRECTOR.ffMaxYps / base))
+      if (k < 1.05) return
+      // (a quiet stretch: long in years, and long enough at this speed to be worth an ease up and down)
+      const minGap = Math.max(DIRECTOR.ffYears * Math.max(1, T.speed), (DIRECTOR.leadSeconds + 3 * DIRECTOR.ffEase) * base * k)
+      if (gap <= minGap) return
+      ff = true
+      ffK = k
+      T.setSlow(k, DIRECTOR.ffEase)
+    } else {
+      // the years the ease down covers, plus the lead at normal speed and a little margin
+      const down = ((ffK + 1) / 2) * base * DIRECTOR.ffEase + (DIRECTOR.leadSeconds + 0.3) * base
+      if (gap < down) ffOff(DIRECTOR.ffEase)
+    }
+  }
 
   const set = (s: DirectorState) => {
     if (s === state) return
@@ -97,6 +142,7 @@ export function createDirector(deps: DirectorDeps): Director {
     deps.onState?.(s)
   }
   const toIdle = () => {
+    ffOff(0.3)
     if (state === DirectorState.Dwell) deps.hideCaption()
     if (state === DirectorState.Dwell || state === DirectorState.Release) T.setSlow(1, DIRECTOR.slowOut)
     beat = -1
@@ -125,6 +171,13 @@ export function createDirector(deps: DirectorDeps): Director {
     get on() {
       return state !== DirectorState.Off
     },
+    get fastForward() {
+      return ff
+    },
+    setPacing(on) {
+      pacing = on
+      if (!on) ffOff(0.3)
+    },
     setPlan(p) {
       const old = plan
       plan = p
@@ -144,6 +197,7 @@ export function createDirector(deps: DirectorDeps): Director {
         }
       }
       if (state === DirectorState.Dwell) deps.hideCaption()
+      ff = false
       T.setSlow(1, 0)
       beat = -1
       seek(T.year)
@@ -159,6 +213,7 @@ export function createDirector(deps: DirectorDeps): Director {
         set(DirectorState.Idle)
       } else {
         if (state === DirectorState.Dwell) deps.hideCaption()
+        ff = false
         T.setSlow(1, 0)
         beat = -1
         set(DirectorState.Off)
@@ -168,6 +223,7 @@ export function createDirector(deps: DirectorDeps): Director {
       if (state === DirectorState.Off) return
       if (state === DirectorState.Dwell) deps.hideCaption()
       if (state === DirectorState.Dwell || state === DirectorState.Release) T.setSlow(1, 0.3)
+      ffOff(0.3)
       // a beat led to is given up (it will have passed when following resumes)
       if (beat >= 0) done = Math.max(done, beat + 1)
       beat = -1
@@ -210,8 +266,12 @@ export function createDirector(deps: DirectorDeps): Director {
         case DirectorState.Idle: {
           if (!T.playing) return
           const b = nextBeat(plan, year, T.speed, done)
+          pace(b, year)
           if (b < 0) return
-          if (plan.beatYear[b] - year > DIRECTOR.leadSeconds * T.yearsPerSecond) return
+          // (with pacing the lead is measured at normal speed: a fast-forward, or its ease down, does not start it early)
+          const yps = pacing ? T.speed * DIRECTOR.yps1x : T.yearsPerSecond
+          if (plan.beatYear[b] - year > DIRECTOR.leadSeconds * yps) return
+          ffOff(0.3)
           beat = b
           const cell = plan.beatCell[b]
           if (cell >= 0) {

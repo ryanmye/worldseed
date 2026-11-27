@@ -200,6 +200,23 @@
   opacity: 0.45;
   cursor: default;
 }
+.tl-story-progress {
+  flex: none;
+  font-size: 11px;
+  color: #ffd68a;
+  opacity: 0.85;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tl-story-progress.hidden {
+  display: none;
+}
+html.compact .tl-story-progress {
+  font-size: 10px;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tl-ticks .tl-beats {
   position: absolute;
   inset: 0;
@@ -286,4 +303,26 @@ html.compact .tl-follow .tl-follow-label {
   .story-pulse {
     animation-duration: 0.01s;
   }
+}
+
+/* ---------- the drama strip (dramaStrip.ts): over the slider ---------- */
+.tl-drama {
+  position: relative;
+  height: 16px;
+  margin: 6px 7px -8px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.tl-drama canvas {
+  display: block;
+}
+.tl-drama:hover {
+  opacity: 1;
+}
+.timeline.disabled .tl-drama {
+  visibility: hidden;
+}
+
+.story-root.compact .story-card {
+  touch-action: pan-y;
 }

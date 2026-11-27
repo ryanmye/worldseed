@@ -25,6 +25,8 @@ const MAX_RADIUS = 6.5
 /** Smallest marker radius of a town and of a city (CSS pixels), so tiers read at any population scale. */
 const TOWN_MIN_RADIUS = 4.6
 const CITY_MIN_RADIUS = 7.0
+/** onboarding: the least marker radius on screen (CSS pixels, before the limb's foreshortening and the 3D town's yield). */
+const MARKER_FLOOR = 2.6
 const NEVER = 1e9
 /** Camera distances (planet radii from the centre) over which a great landmark's glyph fades in: none at the globe's far view, all from mid zoom down (the 3D town then takes over, see setYield). */
 const MARK_FAR = 2.3
@@ -260,6 +262,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         else if (vTier > 0.5) r0 = max(r0, ${TOWN_MIN_RADIUS.toFixed(2)});
         // foreshortened toward the limb, like the ground they sit on
         float r = r0 * uSizeScale * grow * mix(0.55, 1.0, sqrt(facing));
+        // onboarding: a floor in screen pixels, so a young village (tiny beside the run's largest city) stays visible zoomed out
+        r = max(r, ${MARKER_FLOOR.toFixed(2)} * mix(0.6, 1.0, sqrt(facing)));
         // up close the buildings take over: 1 = marker fully yielded
         vYield = uYield.y > 0.0 ? 1.0 - smoothstep(uYield.x, uYield.y, length(uCamObj - aCenterR)) : 0.0;
         r *= mix(1.0, 0.55, vYield);
@@ -479,7 +483,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
     let r0 = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * t
     if (pop >= CITY_POPULATION) r0 = Math.max(r0, CITY_MIN_RADIUS)
     else if (pop >= TOWN_POPULATION) r0 = Math.max(r0, TOWN_MIN_RADIUS)
-    return r0 * uniforms.uSizeScale.value * grow
+    return Math.max(r0 * uniforms.uSizeScale.value * grow, MARKER_FLOOR * 0.6) // (the pick radius: the floor at the limb, as drawn)
   }
   const aliveAt = (id: number) => year >= life[id * 2] && year < life[id * 2 + 1]
   /** Alive and not hidden by the known-world mask (what is drawn and pickable). */

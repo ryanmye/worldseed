@@ -77,8 +77,12 @@ export interface LandingDeps {
   years: number
   /** A new seed in the field (debounced): show that planet. */
   onSeed(seed: number): void
-  /** Start: begin the history of `seed`, `years` long (the hand-over then runs through frame()). */
-  onStart(seed: number, years: number): void
+  /** Start: begin the history of `seed`, `years` long (the hand-over then runs through frame()); `path` the play path chosen (onboarding). */
+  onStart(seed: number, years: number, path?: string): void
+  /** onboarding (ui/onboard.ts PLAY_PATHS): the ways to start, in place of the one Start button; returns false to keep the page (a path that leaves it, e.g. for a seat link). */
+  paths?: readonly { path: string; label: string; hint: string; primary?: boolean }[]
+  /** onboarding: a path that does not start this world here (true: handled, the page stays until the browser leaves it). */
+  onPath?(path: string, seed: number, years: number): boolean
   /** The planet's slot scrolled into or out of view (the slow turn pauses while it is out). */
   onVisible(visible: boolean): void
   /** Something on the page changed what the canvas shows (its place, the colours): draw. */
@@ -224,7 +228,20 @@ export function createLanding(deps: LandingDeps): Landing {
   }
   presetField.append(pills, presetHint)
   setPresetUi()
-  form.append(fields, presetField, start, plantBtn, throne)
+  // onboarding: the play paths (the primary one is the Start button, submitted by Enter in a field)
+  const pathBox = deps.paths ? el('div', 'landing-paths') : null
+  if (pathBox && deps.paths) {
+    for (const p of deps.paths) {
+      const b = p.primary ? start : el('button', 'landing-path')
+      b.type = 'submit'
+      b.value = p.path
+      b.title = p.hint
+      b.innerHTML = ''
+      b.append(el('span', 'landing-path-label', p.label), el('span', 'landing-path-hint', p.hint))
+      pathBox.appendChild(b)
+    }
+  }
+  form.append(fields, presetField, pathBox ?? start, plantBtn, throne)
   hero.append(title, subtitle, form)
 
   // ---------- the planet's slot ----------
@@ -367,6 +384,9 @@ export function createLanding(deps: LandingDeps): Landing {
     window.clearTimeout(seedTimer)
     const y = years()
     yearsInput.value = String(y)
+    const sub = (e as SubmitEvent).submitter as HTMLButtonElement | null
+    const path = sub?.value || deps.paths?.find((p) => p.primary)?.path
+    if (path && deps.onPath?.(path, s, y)) return
     reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     // the canvas leaves the page for the window, where it is now on screen
     y0 = canvas.getBoundingClientRect().top
@@ -384,7 +404,7 @@ export function createLanding(deps: LandingDeps): Landing {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
     root.setAttribute('aria-hidden', 'true')
     shownSeed = s
-    deps.onStart(s, y)
+    deps.onStart(s, y, path)
     // the app's bars have their places now: the stars as the app will show them
     skyDirty = true
     deps.wake()

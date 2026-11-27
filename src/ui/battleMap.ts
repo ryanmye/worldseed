@@ -27,8 +27,15 @@ export interface BattleMapDeps {
   fps?: () => number
 }
 
+export interface BattleOpenOptions {
+  /** onboarding: the story director's replay: a smaller panel beside the globe that closes by itself at the end. */
+  inline?: boolean
+  /** Called once when this replay closes (by hand, by itself, or replaced by another). */
+  onDone?: () => void
+}
+
 export interface BattleMap {
-  open(b: number): void
+  open(b: number, opts?: BattleOpenOptions): void
   close(): void
   isOpen(): boolean
   /** The battle `.` opens at `year`: the latest battle up to then at settlement `sel` (if any), else anywhere; -1 if none. */
@@ -38,6 +45,8 @@ export interface BattleMap {
 const SIZE = 480
 const SPAN = 3.2 // cells from the centre to the canvas edge
 const SPEEDS = [0.5, 1, 2, 4]
+/** onboarding: an inline replay closes this many ms after its end. */
+const INLINE_LINGER_MS = 2500
 
 export function createBattleMap(deps: BattleMapDeps): BattleMap {
   const root = document.createElement('div')
@@ -73,6 +82,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
   let battle = -1
   let tl: Timeline | null = null
   let t = 0, playing = false, si = 1, last = 0, raf = 0
+  let inline = false, onDone: (() => void) | null = null, lingerTimer = 0
   const pose: BlockPose = { x: 0, y: 0, depth: 0, facing: 1, alive: 1 }
   const px = SIZE / (2 * SPAN)
   const toX = (x: number): number => SIZE / 2 + x * px
@@ -174,7 +184,10 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       const dt = last > 0 ? Math.min(0.25, (now - last) / 1000) : 0
       last = now
       t += dt * SPEEDS[si]
-      if (t >= tl.seconds) { t = tl.seconds; playing = false; play.textContent = '▶' }
+      if (t >= tl.seconds) {
+        t = tl.seconds; playing = false; play.textContent = '▶'
+        if (inline) lingerTimer = window.setTimeout(() => api.close(), INLINE_LINGER_MS)
+      }
       frame()
     }
     if (playing) raf = requestAnimationFrame(tick)
@@ -196,7 +209,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
     if (i >= 0 && i < rows.length) api.open(rows[i])
   }
 
-  play.addEventListener('click', () => setPlaying(!playing))
+  play.addEventListener('click', () => { window.clearTimeout(lingerTimer); setPlaying(!playing) })
   speed.addEventListener('click', () => { si = (si + 1) % SPEEDS.length; speed.textContent = `${SPEEDS[si]}×` })
   prev.addEventListener('click', () => neighbour(-1))
   next.addEventListener('click', () => neighbour(1))
@@ -204,10 +217,21 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
   scrub.addEventListener('input', () => { if (!tl) return; t = (Number(scrub.value) / 1000) * tl.seconds; frame() })
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'Close the battle replay', group: 'Panels', first: true, run: () => { if (battle < 0) return false; api.close(); return true } })
 
+  const finish = () => {
+    window.clearTimeout(lingerTimer)
+    lingerTimer = 0
+    const done = onDone
+    onDone = null
+    done?.()
+  }
   const api: BattleMap = {
-    open(b: number) {
+    open(b: number, opts?: BattleOpenOptions) {
       const h = deps.history(), w = deps.world()
       if (!h || !w || b < 0 || b >= h.battles.count) return
+      finish()
+      inline = opts?.inline ?? false
+      onDone = opts?.onDone ?? null
+      root.classList.toggle('bm-inline', inline)
       battle = b
       tl = buildTimeline(h, w, b)
       const year = h.battles.year[b]
@@ -229,6 +253,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       battle = -1; tl = null
       setPlaying(false)
       root.classList.add('hidden')
+      finish()
     },
     isOpen: () => battle >= 0,
     pick(year: number, sel: number) {

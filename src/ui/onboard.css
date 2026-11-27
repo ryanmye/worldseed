@@ -1,0 +1,102 @@
+/* onboarding (ui/onboard.ts): the right column's "More panels" row and the panels it keeps out of the way */
+html:not(.compact) .side-column.right.rail-grouped > .rail-tucked {
+  display: none !important;
+}
+.side-column.right > .rail-more {
+  position: static;
+  pointer-events: auto;
+  flex: none;
+  align-self: stretch;
+  padding: 7px 12px;
+  border: 1px dashed var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.side-column.right > .rail-more:hover {
+  color: var(--text);
+}
+.side-column.right > .rail-more[hidden],
+html.compact .side-column.right > .rail-more {
+  display: none;
+}
+
+/* the start page's play paths (landing.ts, PLAY_PATHS): the primary path is the Start button, the others beside it */
+.landing-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.landing-paths > .landing-start {
+  grid-column: 1 / -1;
+  height: auto;
+  min-height: 54px;
+  padding: 8px 14px;
+}
+.landing-paths > button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.landing-path {
+  min-height: 50px;
+  padding: 7px 10px;
+  border: 1px solid var(--landing-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--landing-text);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.landing-path:hover {
+  border-color: var(--landing-line-hover);
+  background: rgba(255, 255, 255, 0.12);
+}
+.landing-path-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.25;
+  opacity: 0.7;
+}
+@media (max-width: 420px) {
+  .landing-path-hint {
+    display: none;
+  }
+  .landing-paths > .landing-start .landing-path-hint {
+    display: block;
+  }
+}
+html:not(.compact) .side-column.right.rail-grouped > .rail-empty {
+  display: none !important;
+}
+
+/* the story's battle as the context panel (ui/story/storyView.ts) */
+.context-battle .cb-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #ffb08a;
+}
+.context-battle .cb-title {
+  margin: 2px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.context-battle .cb-text {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.context-battle.hidden {
+  display: none;
+}

@@ -12,8 +12,7 @@
 
 import { VIEW_MODES, BIOME_NAMES, type ViewMode } from '../render/palette.ts'
 import type { Biome } from '../contract.ts'
-import { GOOD_COLORS } from '../render/trade.ts'
-import { GOOD_NAMES } from './format.ts'
+import { GOOD_COLORS, GOOD_NAMES } from './goodsNames.ts'
 import { addShortcut, shortcutList } from './shortcuts.ts'
 import { loadFlag, loadPref, saveFlag, savePref, titleWhenCut } from './panels.ts'
 import './trade.css'
