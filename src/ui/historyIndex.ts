@@ -14,6 +14,11 @@ import { isRenamingEvent, renamingHiddenInChronicle } from './renamingFormat.ts'
 import { isLandmarkEvent } from './landmarksFormat.ts'
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
+
+/** seat: the OrderFulfilled (171) of a Choice order (OrderKind 10): its OrderGiven line of the same year says it. */
+export function choiceEcho(h: History, e: { type: number; value: number }): boolean {
+  return (e.type as number) === 171 && h.orders?.[e.value]?.kind === 10
+}
 import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
 
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
@@ -790,6 +795,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
+    if (choiceEcho(h, e)) continue // seat: a Choice is given and fulfilled in one year; the given line says it (not twice)
     // (ideas: a farming technique's stays, for the Ideas filter: the chronicle leaves it out of All, where the species lines say it)
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
@@ -833,6 +839,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     const e = h.events[i]
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue // rulers: the accession line of the same year says it
+    if (choiceEcho(h, e)) continue
     if (ideasHiddenInChronicle(h, e)) continue // ideas: a farming technique's (the species lines say it)
     if (involves(e.settlement)) counts[e.settlement]++
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) counts[e.other]++
@@ -845,6 +852,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     const e = h.events[i]
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue
+    if (choiceEcho(h, e)) continue
     if (ideasHiddenInChronicle(h, e)) continue
     if (involves(e.settlement)) eventList[cursor[e.settlement]++] = i
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) eventList[cursor[e.other]++] = i

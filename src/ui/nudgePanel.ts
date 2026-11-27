@@ -181,7 +181,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
   }
   head.addEventListener('click', toggleCollapsed)
   registerPanel('nudge', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
-  addShortcut({ keys: ['o', 'O'], label: 'O', description: 'Show or hide the Nudge panel (urge a people, a state or a town)', group: 'Panels', run: () => (history ? toggleCollapsed() : false) })
+  addShortcut({ keys: ['o', 'O'], label: 'O', description: 'Show or hide the Nudge panel (urge a people, a state or a town)', group: 'Panels', run: () => (history && !history.seat ? toggleCollapsed() : false) })
 
   // ---------- state ----------
   let world: World | null = null
@@ -607,7 +607,7 @@ export function createNudgeView(deps: NudgeViewDeps): NudgeView {
       index = ix
       borderKey = ''
       hearthsSection?.commit(h)
-      root.classList.toggle('hidden', !h)
+      root.classList.toggle('hidden', !h || !!h.seat) // (seat mode: orders come from the decision cards; the panel is hidden)
       if (h && world) {
         const N = world.grid.cellCount
         landIndex = new Int32Array(N).fill(-1)
