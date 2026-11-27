@@ -46,6 +46,8 @@ import { BATTLE } from './params.ts'
 import { byWater, pickSite, siteFlags } from './site.ts'
 import type { BattleState } from './state.ts'
 import { commanderOf, fameGain, fameNow } from './commanders.ts'
+import { cbBattleX } from '../compose.ts' // CB stack
+import type { CBFactors } from '../compose.ts'
 import { intelEdge } from '../beliefs/system.ts' // beliefs: intelEdge (0 when beliefs is off)
 
 function logEx(s: HistoryState, type: EventType, settlement: number, other: number, value: number, extra: number): void {
@@ -169,7 +171,7 @@ function levyDead(s: HistoryState, ps: PolityState, p: number, skip: number, amo
  * WAR.battle of each) and the strengths A and D (war.ts strike). Records it and returns whether p won. Not neutral, the
  * toll war.ts deducts is left in bs.tollU / tollV (the front towns) and bs.realmP / realmQ (levies, already deducted).
  */
-export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, w: number, p: number, q: number, u: number, v: number, attacker: boolean, siege: boolean, r: number, U: number, path: readonly number[] | null, lu: number, lv: number, A: number, D: number): boolean {
+export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, w: number, p: number, q: number, u: number, v: number, attacker: boolean, siege: boolean, r: number, U: number, path: readonly number[] | null, lu: number, lv: number, A: number, D: number, cbf?: CBFactors): boolean {
   const rng = bs.rng
   const b = bs.bWar.length
   const neutral = bs.neutral
@@ -218,7 +220,7 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
     bs.diag.surprises++
   }
   // The odds (battles.md 3.3): neutral, today's x = r^2 against x* = 1.
-  let x = r * r, xs = 1, bA: number = BATTLE.break0, bD: number = BATTLE.break0
+  let x = cbBattleX(r, cbf), xs = 1, bA: number = BATTLE.break0, bD: number = BATTLE.break0
   if (!neutral) {
     const field = kind === BattleKind.Field || kind === BattleKind.Ambush || kind === BattleKind.Landing
     const tSite = ps.defense[site] + (defChooses && (flags & BattleFlag.Ford) !== 0 ? BATTLE.fordBonus : 0)

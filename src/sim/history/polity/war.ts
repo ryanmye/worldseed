@@ -62,6 +62,8 @@ import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
 import { battleDecisive, battleFought } from '../battles/system.ts' // battles:
 import { BATTLE } from '../battles/params.ts' // battles:
+import { cwAid, cwDeclared, cwJoinRestraint, cwRestraint } from './coldwar.ts' // cold wars:
+import { cbBattleX, jJoin } from '../compose.ts' // CB, J stacks
 import { bookPlunder, finExhaust, finPeaceDebt, finWarDrive } from '../finance/hooks.ts' // finance:
 import { logWarBankrupt, warBroke } from '../finance/war.ts' // finance:
 import type { C6Factors } from '../compose.ts'
@@ -122,6 +124,8 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (og !== null) C1F.grudge = 1 + OATH.drive * g // oaths: p's grudge against q
       const money = s.fin !== null ? finWarDrive(s, ps, p) : undefined // finance: can the crown fund it (C1 factor 4)
       C1F.money = money
+      const rs = ps.cw !== null ? cwRestraint(ps, p, q) : undefined // cold wars (ruling D-CW1): great powers' restraint (C1 factor 7)
+      C1F.restraint = rs
       if (oath) {
         // oaths: one 'history-oaths' draw per candidate, damped by the excess of breaking (oaths.ts, shadow.ts)
         const kase = inTruce ? OathCase.Truce : OathCase.AllyAttack
@@ -141,7 +145,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
         const ak = ps.og !== null && ps.og.arms ? armsAdv(ps, ps.og, r, p) : 1
         const bdrive = rv * crisisDrive(s, ps, s.bel, p, q, frontV, frontD, adv, ak) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
         if (bdrive <= 0) continue
-        const bmul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, 1, og !== null || money !== undefined ? C1F : undefined)
+        const bmul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, 1, og !== null || money !== undefined || rs !== undefined ? C1F : undefined)
         if (rng.next() >= POLITY.slowStep * WAR.declare * bdrive * bmul * BELIEF.pressMul) continue
         const motive = bargain(s, ps, s.bel, r, p, q)
         if (motive === 0) continue
@@ -155,7 +159,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       }
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
+      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined || rs !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       if (ps.why) whyPending(ps.why, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r], adv, e, mul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0, frontV, drive) // causes:
       const w0 = ps.wKind.length
@@ -180,6 +184,7 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
   ps.pWars[p]++
   ps.pWars[q]++
   ps.warEpoch++
+  if (ps.cw !== null) cwDeclared(s, ps, ps.cw, r, w) // cold wars: a war between the principals ends it (HotWar)
   if (ps.og !== null && ps.og.balance && kind === WarKind.Conquest && !joined) noteAggression(s, ps.og, p) // balance: offensive intent
   if (kind === WarKind.CivilWar) { logEvent(s, EventType.CivilWar, ps.pCapital[p], ps.pCapital[q], w); return }
   logEvent(s, EventType.WarDeclared, ps.pCapital[p], ps.pCapital[q], w)
@@ -192,7 +197,8 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
     if (x === p || ps.pEnded[x] >= 0 || ps.pWars[x] >= WAR.maxWars || atWar(ps, x, p) || bound(ps, x, p)) continue
     const rx = relIdx(ps, x, p)
     if (rx < 0 || ps.relEdges[rx].length === 0 || ps.relWar[rx] >= 0) continue
-    if (rng.next() >= (ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
+    const jf = ps.cw !== null ? cwJoinRestraint(ps, x, p) : undefined // cold wars (ruling on D-CW1): a great power's restraint in joining (J stack)
+    if (rng.next() >= jJoin(ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join, jf)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
     if (ps.og !== null) linkAlly(ps.og, ps.wKind.length, w) // oaths: the war it joined
     const wj = ps.wKind.length
     const dd = s.bel !== null ? beliefJoin(s, ps, s.bel, x, q, p, wj) : false // beliefs: a secret pact comes to light; double-dealing
@@ -445,7 +451,9 @@ function battle(s: HistoryState, ps: PolityState, w: number, p: number, q: numbe
   const path = armyJourney(s, ps, u, v, d - ps.dist[u], ps.pMass[p])
   const U = rng.next()
   let lu = WAR.battle * s.pop[u], lv = WAR.battle * s.pop[v]
-  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu, lv, strikeA, strikeD) : U < (r * r) / (r * r + 1) // battles: the contest recorded (neutral: the same test)
+  const cbf = ps.cw !== null ? cwAid(ps, w, p) : undefined // cold wars: proxy aid (CB stack, compose.ts)
+  const xb = cbBattleX(r, cbf)
+  const won = s.bat !== null ? battleFought(s, s.bat, ps, w, p, q, u, v, attacker, siege, r, U, path, lu, lv, strikeA, strikeD, cbf) : U < xb / (xb + 1) // battles: the contest recorded (neutral: the same test)
   if (s.bel !== null) beliefBattle(s, w, p, q, strikeA, strikeD) // beliefs: war reveals strength (battles §3.8: keep this call)
   let rp = 0, rq = 0
   if (s.bat !== null && !s.bat.neutral) { lu = s.bat.tollU; lv = s.bat.tollV; rp = s.bat.realmP; rq = s.bat.realmQ } // battles: the toll shared by casualties; the realm's levies (already deducted)
