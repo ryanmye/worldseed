@@ -3,6 +3,7 @@
 // this state, run in a fixed order each year (see index.ts).
 
 import type { FinanceState } from './finance/state.ts'
+import type { SocietyState } from './society/state.ts'
 import type { OrdersState } from './orders/state.ts' // orders:
 import type { AbandonCause as AbandonCauseT, EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
 import { AbandonCause, EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
@@ -161,6 +162,8 @@ export interface HistoryState {
   goods: GoodsState | null
   // finance: crown treasuries and loans (finance/state.ts), or null when HistoryOptions.finance is off (every hook is then a no-op).
   fin: FinanceState | null
+  // society: classes, elites and the secular cycle (society/state.ts), or null when HistoryOptions.society is off (every hook is then a no-op).
+  soc: SocietyState | null
   // disease: the disease system's state (disease/state.ts), or null when it is switched off (every hook is then a no-op).
   dz: DiseaseState | null
   // rulers: the rulers system's state (rulers/state.ts), or null when it (or the polity system) is off.
@@ -273,6 +276,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     pol: null, // polities: (set by index.ts when the system is on)
     goods: null, // goods: (set by index.ts when the system is on)
     fin: null, // finance: (set by index.ts when the system is on)
+    soc: null, // society: (set by index.ts when the system is on)
     dz: null, // disease: (set by index.ts when the system is on)
     rul: null, // rulers: (set by index.ts when the system is on)
     bat: null, // battles: (set by index.ts when the system is on)

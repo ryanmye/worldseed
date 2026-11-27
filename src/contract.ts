@@ -288,6 +288,14 @@ export const EventType = {
   DroughtBegan: 266, // a persistent drought settled on the region of `settlement` (its largest town); `other` -1; `extra` the weather region
   DroughtEnded: 267, // the drought broke; `settlement` the region's largest town (or the one where it began, if still alive); `other` -1; `extra` its years
   ClimateTurned: 268, // the world's slow climate entered an epoch: `settlement` the world's largest town; `other` -1; `extra` +1 warm, -1 cold
+  // society: classes, wages and rents, elites and the secular cycle (240-249; none when HistoryOptions.society is false).
+  SocialPhase: 240, // the polity `value` ruled from `settlement` entered a secular phase: `extra` the phase (SecularPhase: 2 a crisis of the social order, 0 a new expansion); `other` -1
+  LabourDear: 241, // labour grew dear in the polity `value` ruled from `settlement` (its people fewer than its land wants): `other` the settlement of the epidemic that thinned it, or -1; `extra` the rise of the real wage (2 = doubled)
+  SerfdomImposed: 242, // the lords of the polity `value` ruled from `settlement` bound its peasants to the land (labour scarce, the lords strong); `other` -1; `extra` the coercion now (0..1)
+  SerfdomEnded: 243, // the peasants of the polity `value` ruled from `settlement` threw off their bondage (labour scarce, the lords weak); `other` -1; `extra` the coercion before (0..1)
+  EliteFactions: 244, // the great families of the polity `value` ruled from `settlement` divided into factions (too many for the offices and lands; History.socElite); `other` -1; `extra` the elite pressure (EMP, 1 = reference)
+  Ennobled: 245, // merchants of `settlement` bought land and titles among the nobility of the polity ruled from `other`: `value` the merchant family (History.families), -1 for the town's merchants; `extra` the elite share bought in (a share of the people)
+  EliteThinned: 246, // the nobility of the polity `value` ruled from `settlement` was thinned by its wars and risings: `other` -1; `extra` the share of it lost since its peak (0..1)
   // language: the languages of the world (250-259; none when HistoryOptions.language is off).
   LanguageSplit: 250, // a language parted from its parent: `settlement` the daughter's seat (its first town), `other` the parent's seat; `value` the language id (History.languages); `extra` the LanguageSplitCause
   LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
@@ -500,6 +508,26 @@ export interface History {
   loans: Loans
   /** Principal outstanding per trade snapshot per loan account: loanBalance[q * loans.count + k] (0 before it opened and after it closed). */
   loanBalance: Float32Array
+
+  // society: classes and the secular cycle (all empty when HistoryOptions.society is false). Row-major x[q * polities.length + id]
+  // per snapshot like `tariff`, 0 outside the polity's life.
+  /** Real wage of each polity's peasants and townsfolk per snapshot, 0..255 for 0..4 (64 = subsistence). */
+  socWage: Uint8Array
+  socUrbanWage: Uint8Array
+  /** Rent index (1 = reference), 0..255 for 0..4. */
+  socRent: Uint8Array
+  /** Political stress Ψ and its factors MMP, EMP, SFD, 0..255 for 0..8 (32 = 1). */
+  socPsi: Uint8Array
+  socMMP: Uint8Array
+  socEMP: Uint8Array
+  socSFD: Uint8Array
+  /** Shares of the people: elites 0..255 for 0..0.128, townsfolk 0..255 for 0..1, clergy 0..255 for 0..0.032; coercion 0..255 for 0..1. Peasants are the rest. */
+  socElite: Uint8Array
+  socUrban: Uint8Array
+  socClergy: Uint8Array
+  socCoercion: Uint8Array
+  /** Secular phase (SecularPhase; 255 outside the polity's life). */
+  socPhase: Uint8Array
 
   // goods: worked goods, specialities, state secrets and long-distance trade (all empty when HistoryOptions.goods is false).
   /** Named kinds of goods within the market classes (Variety.id is the index; 0 is the unnamed Common variety). */
@@ -1511,7 +1539,10 @@ export const PolityQualifier = { None: 0, North: 1, South: 2, East: 3, West: 4, 
 export type PolityQualifier = (typeof PolityQualifier)[keyof typeof PolityQualifier]
 
 /** Cause of a revolt (the value of a Revolt event): the largest group of grievances. */
-export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want)
+export const RevoltCause = { Peasant: 0, Provincial: 1, Ethnic: 2, Colonial: 3, Religious: 4, Taxes: 5, Urban: 7 } as const // (religion: Religious, a ruler of another faith or persecution; finance: Taxes, the heavy taxes of a crown in want; 6 Burghers is city-states'; society: Urban, townsfolk rising over dear bread and low wages)
+/** society: phase of a polity's secular cycle (Turchin & Nefedov's four phases; History.socPhase). */
+export const SecularPhase = { Expansion: 0, Stagflation: 1, Crisis: 2, Depression: 3 } as const
+export type SecularPhase = (typeof SecularPhase)[keyof typeof SecularPhase]
 export type RevoltCause = (typeof RevoltCause)[keyof typeof RevoltCause]
 
 /**
@@ -2030,6 +2061,8 @@ export interface HistoryOptions {
   balance?: boolean
   /** finance (state-finances; needs polities): crown treasuries, borrowing from merchant capital, default and bankruptcy wars. Default false; false leaves the finance fields empty and the history exactly the one without them. */
   finance?: boolean
+  /** society (society-secular-cycles; needs polities): classes, wages and rents, elite overproduction and political stress (Ψ) feeding revolts, civil wars and successions. Default false; false leaves the society fields empty and the history exactly the one without them. */
+  society?: boolean
   /** arms (grudges-and-oaths; needs polities): Richardson arms races between rivals, raising war power and costing wealth. Default false; false leaves History.arms 0, armsRaces empty and wars.race -1. */
   arms?: boolean
   /**

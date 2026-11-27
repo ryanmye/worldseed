@@ -41,6 +41,7 @@ import { armsStep, armsUpkeep } from './arms.ts' // arms:
 import { fiscalYear } from '../finance/system.ts' // finance:
 import { bookTax, finTaxPressure } from '../finance/hooks.ts' // finance:
 import type { C8Factors } from '../compose.ts'
+import { societyStep, socYear } from '../society/system.ts' // society:
 import { tariffStep } from './policy.ts'
 import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
@@ -145,10 +146,12 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   campaigns(s, ps)
   warYear(s, ps)
   if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
+  if (s.soc !== null) socYear(s, ps, s.soc) // society: the year's internal violence counted, elites thinned
   if (s.year % POLITY.step !== 0) return
   controlPass(s, ps, ps.heap)
   dangerStep(s, ps)
   cohesionStep(s, ps)
+  if (s.soc !== null) societyStep(s, ps, s.soc) // society: classes, elites, Ψ (and h6: elite infighting rots asabiya)
   unrestStep(s, ps)
   revoltStep(s, ps)
   realmStep(s, ps, ts)
