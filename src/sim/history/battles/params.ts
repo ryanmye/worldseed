@@ -27,13 +27,13 @@ export const BATTLE = {
   /** Pursuit: share of what is left of the beaten side lost in the rout. */
   rout: 0.15,
   /** Hours per unit of tau (an even fight lasts about four hours). */
-  hourScale: 25,
+  hourScale: 30,
   minHours: 0.5,
   maxHours: 14,
   /** Approach cells (before the target) considered for a field battle. */
   reach: 3,
   /** T added to a defended river crossing in the defender's choice of ground. */
-  fordBonus: 0.3,
+  fordBonus: 0.15,
   /** Surprise: base chance (x 3 in fog, x 2 with cover), and the share of the surprised side lost in the opening volley. */
   surprise: 0.06,
   surpriseLoss: 0.15,
@@ -79,7 +79,7 @@ export const BATTLE = {
   logMen: 1500,
   /** Flags: Pursuit when the rout took >= pursuitLog of the loser's men; Pyrrhic when the winners lost >= pyrrhic. */
   pursuitLog: 0.1,
-  pyrrhic: 0.15,
+  pyrrhic: 0.18,
   /** Flank: the winner's horse exceeds the loser's by flankHorse, or x' beyond flankRatio either way, or a surprise. */
   flankHorse: 0.2,
   flankRatio: 4,
@@ -99,26 +99,26 @@ export const BATTLE = {
   asabK: 0.1,
   zeal: 0.05,
   famed: 0.04,
-  exhK: 0.1,
+  exhK: 0.03,
   breakMin: 0.6,
   breakMax: 0.92,
   // --- Toll (3.5, 3.12) ---
   /** Escalate: dead = (1 - realmShare) T_front + realmShare kill (lossA + lossD) C, C = 1 + coalition * linked wars (<= coalitionMax). */
   realmShare: 0.5,
-  kill: 0.25,
+  kill: 0.025,
   coalition: 0.5,
   coalitionMax: 4,
   /** Escalation: the realm toll x (1 + escalate)^(war-years so far), capped at escalateMax. */
-  escalate: 0.25,
-  escalateMax: 100,
+  escalate: 0.4,
+  escalateMax: 3000,
   /** A decisive defeat (x' beyond annihilateRatio either way) costs the loser annihilate of the men it had left. */
   annihilate: 0.15,
   annihilateRatio: 6,
-  /** Realm deaths per side and battle are capped at realmCap of its people (two battles a war-year at most). */
-  realmCap: 0.01,
+  /** Realm deaths per side and battle are capped at realmCap of its people (two battles a war-year at most; tuned with kill and escalate against realism war.alpha, maxShare and the median war's dead). */
+  realmCap: 0.03,
   // --- Tempo (3.12; C6) ---
   /** The tired-peace chance (C6 factor 1, replaces WAR.peaceChance), the years before it, and the exhaustion per war-year (replaces WAR.perYear). */
-  peaceChance: 0.1,
+  peaceChance: 0.11,
   peaceAfter: 1,
   perYear: 0.04,
   /** A decisive battle (the beaten side lost decisiveLoss of its men: a rout or an annihilation; or a ruler slain or taken) adds decisivePeace to that year's peace chance (C6 factor 4). */
