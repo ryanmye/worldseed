@@ -349,6 +349,20 @@ R(T.ScriptReformed, { cat: DramaCat.Culture, base: 3 })
 R(T.ScriptReplaced, { cat: DramaCat.Culture, base: 3 })
 R(T.ScriptLost, { cat: DramaCat.Culture, base: 3 })
 
+// --- oaths (190-194, grudges-and-oaths: only with HistoryOptions.oaths/balance/arms) ---
+R(T.Betrayal, { cat: DramaCat.Politics, base: 7, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+R(T.OathBroken, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+R(T.Avenged, { cat: DramaCat.War, base: 5, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+R(T.Bandwagon, { cat: DramaCat.Politics, base: 3, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+R(T.ArmsRace, { cat: DramaCat.War, base: 3, gate: (_c, e) => (e.extra ?? 0) !== 1, polities: (c, e) => [realmOf(c, e), e.other >= 0 ? c.polityBefore(e.other, e.year) : -1] })
+
+// --- crown finance (210-217, state-finances: only with HistoryOptions.finance) ---
+I(T.LoanTaken, T.ArmyUnpaid)
+R(T.CrownDefault, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })
+R(T.Repudiation, { cat: DramaCat.Politics, base: 5, polities: realmPolities, mag: realmPop })
+R(T.WarBankrupt, { cat: DramaCat.War, base: 5, polities: realmPolities })
+R(T.HousesRuined, { cat: DramaCat.Trade, base: 3 })
+
 // --- landmarks (140-146), danger on the way (150-151), merchants (160) ---
 I(T.LandmarkBegun, T.LandmarkAbandoned, T.LandmarkNeglected, T.LandmarkRestored, T.LandmarkConverted)
 R(T.LandmarkCompleted, { cat: DramaCat.Culture, base: 5, scale: DramaScale.Town })

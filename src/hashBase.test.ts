@@ -1,5 +1,6 @@
 // G0 (MASTER-PLAN §2.1 R2): hashBase of the default 2000-year history equals the 8cabf09 goldens on seeds 1, 42 and 1234,
 // and the projection drops added fields and narrows widened ones back to their 8cabf09 types.
+import { withoutLater } from './sim/history/laterFields.ts'
 import { describe, expect, it } from 'vitest'
 import { generateWorld, simulateHistory } from './sim/index.ts'
 import { hashValue } from './historyCache.ts'
@@ -21,7 +22,7 @@ describe('hashBase', () => {
     const base = hashBase(h)
     // identity on the 8cabf09 shape: hashValue of the History with only its 8cabf09 top-level keys (plans add top-level tables, e.g. battles)
     const top = (BASE_SHAPE as unknown as { o: Record<string, unknown> }).o
-    expect(base).toBe(hashValue(Object.fromEntries(Object.entries(h).filter(([k]) => k in top))))
+    expect(base).toBe(hashValue(Object.fromEntries(Object.entries(withoutLater(h)).filter(([k]) => k in top)))) // (later plans' columns inside 8cabf09 tables, e.g. wars.cause, dropped by withoutLater)
     const widened = { ...h, plannedField: new Float32Array(4), wars: { ...h.wars, plannedColumn: new Int32Array(h.wars.count) } } as unknown as History
     expect(hashBase(widened)).toBe(base)
     expect(hashValue(widened)).not.toBe(base)
