@@ -5,16 +5,16 @@
 // - every keyboard shortcut in src is listed in the primer;
 // - the primer's and personas' versions match their docs.
 import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { DecisionKind, SeatOptionKey, describeDecisionKinds } from '../contract.ts'
 import { AGGRESSIVE, AMBITION_STANCE, HANDLED_DECISION_KINDS, PERSONA_VERSION } from './personas.ts'
 import { OPTION_LABEL } from '../ui/seat/seatFormat.ts'
 import { PRIMER_VERSION } from './primer.ts'
 
-const root = new URL('../../', import.meta.url).pathname
-const primer = readFileSync(join(root, 'docs/PLAYER_PRIMER.md'), 'utf8')
-const personasDoc = readFileSync(join(root, 'docs/bots/PERSONAS.md'), 'utf8')
+import primer from '../../docs/PLAYER_PRIMER.md?raw'
+import personasDoc from '../../docs/bots/PERSONAS.md?raw'
+
+/** Every source file of the app (Vite's glob, as text). */
+const SOURCES = import.meta.glob(['../**/*.ts', '!../**/*.test.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 
 describe('fun-harness coverage drift', () => {
   it('versions match their docs', () => {
@@ -38,21 +38,18 @@ describe('fun-harness coverage drift', () => {
     }
   })
   it('every keyboard shortcut is in the primer', () => {
-    const files: string[] = []
-    const walk = (d: string) => { for (const e of readdirSync(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (p.endsWith('.ts') && !p.endsWith('.test.ts')) files.push(p) } }
-    walk(join(root, 'src'))
     const missing: string[] = []
-    for (const f of files) {
-      const src = readFileSync(f, 'utf8')
+    expect(Object.keys(SOURCES).length).toBeGreaterThan(100)
+    for (const [f, src] of Object.entries(SOURCES)) {
       for (const m of src.matchAll(/addShortcut\(\{\s*keys:\s*\[([^\]]*)\]/g)) {
         const first = m[1].split(',')[0].trim().replace(/^'|'$/g, '')
         const shown = first === ' ' ? 'Space' : first === 'ArrowLeft' || first === 'ArrowRight' ? '←' : first === 'Escape' ? 'Esc' : first === 'PageUp' || first === 'PageDown' ? (first === 'PageUp' ? 'X' : 'Z') : first.length === 1 ? first.toUpperCase() : first
-        if (!primer.includes('`' + shown) && !primer.includes(shown + '`') && !primer.includes(`\`${first}\``)) missing.push(`${shown} (${f.slice(root.length)})`)
+        if (!primer.includes('`' + shown) && !primer.includes(shown + '`') && !primer.includes(`\`${first}\``)) missing.push(`${shown} (${f})`)
       }
       for (const m of src.matchAll(/keys:\s*\[([^\]]*)\],\s*\n?\s*label: '([^']*)'/g)) {
         const label = m[2]
         const parts = label.split(/\s*\/\s*|\s*–\s*/).filter(Boolean)
-        if (!parts.some((x) => primer.includes(x))) missing.push(`${label} (${f.slice(root.length)})`)
+        if (!parts.some((x: string) => primer.includes(x))) missing.push(`${label} (${f})`)
       }
     }
     expect(missing, `shortcuts missing from docs/PLAYER_PRIMER.md: ${missing.join(', ')}`).toEqual([])

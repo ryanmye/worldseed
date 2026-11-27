@@ -4,7 +4,8 @@
 // order goes through the controller's own path (decisionOrders, the o= list, seatChoose), Defer through DEFER_OPTIONS.defer,
 // and the bot sees only the card. The one difference from the browser: the timeline is not played in real time (year()
 // is always at the pause); playback time is reported from the years (1x = 20/3 years a second, timeline.ts).
-import { decodeOrders, encodeOrders, encodeSeat } from '../contract.ts'
+import { SeatKind, decodeOrders, encodeOrders, encodeSeat } from '../contract.ts'
+import { generateWorld, simulateHistory } from '../sim/index.ts'
 import type { History, HistoryOptions, Order, SeatOptions } from '../contract.ts'
 import { createSeatController } from '../ui/seat/seatController.ts'
 import type { DecisionCard } from '../ui/seat/decisionCard.ts'
@@ -142,3 +143,15 @@ export async function runBot(cfg: RunConfig): Promise<BotRun> {
     self.onmessage({ data: { type: 'generate', requestId: worldId, seed: cfg.seed, options: { subdivisions: cfg.subdivisions ?? 48 }, historyOptions: cfg.historyOptions, worldOnly: true } })
   })
 }
+
+/** The seat a player would take: the top realm of the Factions list (most people) alive at `from`, unseated history. */
+export function pickSeat(seed: number, from: number, opts: HistoryOptions, subdivisions = 48): SeatOptions {
+  const h = simulateHistory(generateWorld(seed, { subdivisions }), { ...opts, years: from + 1 })
+  const N = h.settlements.length, q = Math.min(h.snapshotCount - 1, Math.floor(from / h.snapshotInterval))
+  const pop = new Map<number, number>()
+  for (let i = 0; i < N; i++) { const p = h.polity[q * N + i]; if (p >= 0) pop.set(p, (pop.get(p) ?? 0) + h.population[q * N + i]) }
+  const best = [...pop].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]
+  if (!best) throw new Error(`seed ${seed}: no realm alive at ${from}`)
+  return { kind: SeatKind.Polity, id: best[0], from }
+}
+

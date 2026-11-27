@@ -10,11 +10,11 @@
 // its list (the most people) alive at --from in the unseated history. --replay also checks each run against a fresh replay
 // of its URL (seat= and o=: simulateHistory with the same seat and orders). --null N re-runs `random` with N generator seeds
 // on each world to measure the metrics' noise.
-import { AmbitionKind, SeatKind, decodeSeat, decodeOrders, AMBITION_KIND_COUNT } from '../contract.ts'
-import type { HistoryOptions, SeatOptions } from '../contract.ts'
+import { AmbitionKind, decodeSeat, decodeOrders, AMBITION_KIND_COUNT } from '../contract.ts'
+import type { SeatOptions } from '../contract.ts'
 import { generateWorld, simulateHistory } from '../sim/index.ts'
 import { hashAll } from '../sim/history/seat/hashing.ts'
-import { runBot, type BotRun } from './headless.ts'
+import { pickSeat, runBot, type BotRun } from './headless.ts'
 import { measure, type RunMetrics } from './metrics.ts'
 import { personaOf, PERSONA_VERSION } from './personas.ts'
 import { resolveRun } from './presets.ts'
@@ -28,17 +28,6 @@ const { dirname } = await nodeMod('node:path')
 const argv = proc.argv.slice(2)
 const arg = (k: string, d?: string) => { const i = argv.indexOf(`--${k}`); return i >= 0 ? argv[i + 1] : d }
 const flag = (k: string) => argv.includes(`--${k}`)
-
-/** The seat a player would take: the top realm of the Factions list (most people) alive at `from`, unseated history. */
-export function pickSeat(seed: number, from: number, opts: HistoryOptions, subdivisions = 48): SeatOptions {
-  const h = simulateHistory(generateWorld(seed, { subdivisions }), { ...opts, years: from + 1 })
-  const N = h.settlements.length, q = Math.min(h.snapshotCount - 1, Math.floor(from / h.snapshotInterval))
-  const pop = new Map<number, number>()
-  for (let i = 0; i < N; i++) { const p = h.polity[q * N + i]; if (p >= 0) pop.set(p, (pop.get(p) ?? 0) + h.population[q * N + i]) }
-  const best = [...pop].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]
-  if (!best) throw new Error(`seed ${seed}: no realm alive at ${from}`)
-  return { kind: SeatKind.Polity, id: best[0], from }
-}
 
 function table(rows: RunMetrics[]): string {
   const cols: [string, (m: RunMetrics) => string | number][] = [
