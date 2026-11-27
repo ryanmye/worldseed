@@ -16,6 +16,7 @@ import { familyOtherIsSettlement, isFamilyEvent } from './familiesFormat.ts' // 
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
 import { isSeatEvent } from './seat/seatFormat.ts'
+import { absenteeOtherIsSettlement, isAbsenteeEvent } from './absenteeFormat.ts' // absentee:
 
 /** seat: the OrderFulfilled (171) of a Choice order (OrderKind 10): its OrderGiven line of the same year says it. */
 export function choiceEcho(h: History, e: { type: number; value: number }): boolean {
@@ -429,6 +430,7 @@ function isShownType(type: number): boolean {
   if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
   if (isSeatEvent(type)) return true // 182-184, 270-279: the player's seat and deference (seat/seatFormat.ts)
+  if (isAbsenteeEvent(type)) return true // 185-187: absentee and do-nothing rulers (absenteeFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
   if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
@@ -443,6 +445,7 @@ export function otherIsSettlement(type: number): boolean {
   if (rulersOtherIsSettlement(type)) return true // rulers, religion: the senior realm's capital, the marriage partner's, the parent faith's holy city, ...
   if (ideasOtherIsSettlement(type)) return true // ideas: where an idea came from, the first origin of an independent one
   if (battleOtherIsSettlement(type)) return true // battles: the attackers' base, the capital a commander served
+  if (absenteeOtherIsSettlement(type)) return true // absentee: the captive ruler's capital
   return type === EventType.Founded || type === EventType.Migration || type === EventType.TradeOpened || type === EventType.TradeClosed ||
     type === PeoplesEvent.Landfall || type === PeoplesEvent.FirstContact || type === PeoplesEvent.ExpeditionReturned ||
     type === PeoplesEvent.SpeciesAdopted || type === PeoplesEvent.Epidemic ||

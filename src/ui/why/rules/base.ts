@@ -357,7 +357,8 @@ export function eventCauses(ix: CauseIndex, i: number): Cand[] {
         const ch = ix.why.crises.chance[r] / 255
         const names: [number, string, string][] = [[CrisisBit.Minor, 'crisis.minor', 'the heir was a child'], [CrisisBit.Woman, 'crisis.woman', 'the heir was a woman'], [CrisisBit.Bastard, 'crisis.bastard', 'the heir was baseborn'],
           [CrisisBit.WeakPredecessor, 'crisis.weak', 'the last reign had been weak'], [CrisisBit.LowCohesion, 'crisis.cohesion', 'the realm had little cohesion'], [CrisisBit.ManyPeoples, 'crisis.peoples', 'it ruled several peoples'],
-          [CrisisBit.Law, 'crisis.law', 'its law left rival claimants'], [CrisisBit.RivalCentre, 'crisis.rival', 'a rival centre stood ready'], [CrisisBit.Extinct, 'crisis.extinct', 'the house had no heir']]
+          [CrisisBit.Law, 'crisis.law', 'its law left rival claimants'], [CrisisBit.RivalCentre, 'crisis.rival', 'a rival centre stood ready'], [CrisisBit.Extinct, 'crisis.extinct', 'the house had no heir'],
+          [CrisisBit.Deference, 'crisis.deference', 'the court had governed in the ruler’s name']] // (absentee: DeferenceCause read through the bit)
         const set = names.filter((n) => bits & n[0])
         for (const n of set) out.push(cond(n[1], i, y, e.settlement, n[2], 1 / Math.max(1, set.length), `contest chance ${pct(ch)}`, 'rec:why.crises'))
       }
@@ -552,6 +553,9 @@ function abandonCauses(ix: CauseIndex, i: number): Cand[] {
   return out
 }
 
+/** absentee: why the court governed (CouncilRuled extra: DeferenceCause 1-6). */
+const COUNCIL_WHY: Record<number, string> = { 1: 'a child on the throne', 2: 'the ruler away on campaign', 3: 'the ruler on another throne', 4: 'an idle ruler', 5: 'an old and failing ruler', 6: 'the ruler a captive' }
+
 function reignCauses(ix: CauseIndex, i: number): Cand[] {
   const h = ix.h
   const e = ev(ix, i)
@@ -569,6 +573,8 @@ function reignCauses(ix: CauseIndex, i: number): Cand[] {
   if (end === ReignEnd.Sack) for (const k of atPlace(ix, e.settlement, [E.Conquered, E.Sacked], y - 1, y).filter((k) => k < i).slice(0, 1)) out.push(rule(evKey(k), 'R13Sack'))
   if (end === ReignEnd.Overthrown || end === ReignEnd.Deposed) {
     for (const k of ofType(ix, E.RulerAcceded, y, y + 1, (x) => h.rulers[x.value]?.polity === p && h.rulers[x.value]?.how === AccessionHow.Usurped).slice(0, 1)) out.push(rule(evKey(k), 'R13Usurp'))
+    // absentee: the court had governed in the ruler's name (CouncilRuled of this reign; its extra the DeferenceCause)
+    for (const k of ofType(ix, E.CouncilRuled, r.acceded, y, (x) => x.other === e.value).filter((k) => k < i).slice(0, 1)) out.push(cond('ruler.council', i, y, e.settlement, 'the court governed in the ruler’s name', 0.6, COUNCIL_WHY[ev(ix, k).extra ?? 0] ?? 'ruled by others', 'rec:CouncilRuled', WhyTier.Recorded))
     if (r.ability < 0.9) out.push(cond('ruler.ability', i, y, e.settlement, 'a weak ruler', Math.min(1, (1 - r.ability) * 2), `ability ${fx(r.ability)} (1 is average)`, 'rec:Ruler.ability', WhyTier.Recorded))
   }
   if (end === ReignEnd.Plague) for (const k of atPlace(ix, e.settlement, [E.CityStricken], y - 1, y).filter((k) => k < i).slice(0, 1)) out.push(rule(evKey(k), 'R13Plague'))

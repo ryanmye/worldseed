@@ -18,7 +18,7 @@
 // The dynastic cycle: a new house starts with high vigour; each new generation regresses to the mean with a downward
 // drift (a settled court); ability scales the realm's mass (control.ts hook) and weak rulers invite overthrow.
 
-import { AccessionHow, EventType, PolityOrigin, ReignEnd, WarOutcome } from '../../../contract.ts'
+import { AccessionHow, CrisisBit, EventType, PolityOrigin, ReignEnd, WarOutcome } from '../../../contract.ts'
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
@@ -34,7 +34,7 @@ import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim }
 import { capitalFaith } from '../religion/system.ts' // religion:
 import { contestChanceOf, heirEligible, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
 import { designated } from '../orders/hooks.ts' // seat: Designate
-import { deferContestMul } from './deference.ts' // rulers: deference
+import { deferContestMul, deferenceK } from './deference.ts' // rulers: deference
 import { SEAT } from '../seat/params.ts' // seat:
 import { finAccession } from '../finance/hooks.ts' // finance:
 import { socCivilMul, socContest, socCrisisPlus } from '../society/api.ts' // society:
@@ -484,7 +484,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
       if (s.defer !== null) chance *= deferContestMul(s, p) // rulers: deference: the deciding body and the rival centres are stronger (x1 at 0)
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
-        if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year)) // causes: (before the heir accedes)
+        if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year) | (s.defer !== null && deferenceK(s, p) >= 0.4 ? CrisisBit.Deference : 0)) // causes: (before the heir accedes; absentee: the court had governed)
         clean = false
         // A disputed succession: the heir, or a rival of the house (or a usurper), takes the capital; the loser may rise.
         const rival = rivalIn(R, p, heir, year)

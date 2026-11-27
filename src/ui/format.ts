@@ -18,6 +18,7 @@ import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEve
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 import { describeOrderEvent, describeOrderEventFor, isOrderEvent } from './nudgeFormat.ts'
 import { describeSeatEvent, isSeatEvent } from './seat/seatFormat.ts'
+import { describeAbsenteeEvent, isAbsenteeEvent } from './absenteeFormat.ts' // absentee:
 import { describeCradleEvent, describeCradleEventFor, isCradleEvent } from './cradlesFormat.ts'
 import { battleEventKind, describeBattleEvent, describeBattleEventFor, isBattleEvent } from './battleFormat.ts' // battles:
 import { describeLanguageEvent, describeLanguageEventFor, isLanguageEvent } from './languageFormat.ts'
@@ -373,7 +374,8 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.FamilyFounded: case EventType.FamilyBranch: case EventType.BranchClosed: case EventType.FamilyHead: case EventType.FamilyMoved:
     case EventType.FamilyPatron: case EventType.FamilyFell: return 'lane'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
-    default: if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number) || isSeatEvent(e.type as number)) return 'order'
+    default: if (isAbsenteeEvent(e.type as number)) return (e.type as number) === EventType.RulerTaken ? 'battle' : 'ruler' // absentee:
+      if (isOrderEvent(e.type as number) || isCradleEvent(e.type as number) || isSeatEvent(e.type as number)) return 'order'
       if (battleEventKind(e)) return 'battle' // battles:
       return (goodsEventKind(e) as EventKind | null) ?? (diseaseEventKind(e) as EventKind | null) ?? (tourismEventKind(e) as EventKind | null) ?? (polityEventKind(null, e) as EventKind | null) ?? 'migration'
   }
@@ -436,6 +438,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       if (isOrderEvent(e.type as number)) return describeOrderEvent(h, e) ?? 'An order'
       if (isSeatEvent(e.type as number)) return describeSeatEvent(h, e) ?? 'A matter of the seat' // seat (270-279)
+      if (isAbsenteeEvent(e.type as number)) return describeAbsenteeEvent(h, e) ?? 'The court governed in the ruler’s name' // absentee (185-187)
       if (isCradleEvent(e.type as number)) return describeCradleEvent(h, e) ?? 'A first hearth'
       if (isBattleEvent(e.type as number)) return describeBattleEvent(h, e) ?? `A battle for ${name}` // battles:
       if (isLanguageEvent(e.type as number)) return describeLanguageEvent(h, e) ?? `The speech of ${name} changes`
@@ -520,6 +523,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       if (isOrderEvent(e.type as number)) return describeOrderEventFor(h, e, id) ?? 'An order'
       if (isSeatEvent(e.type as number)) return describeSeatEvent(h, e) ?? 'A matter of the seat' // seat (270-279)
+      if (isAbsenteeEvent(e.type as number)) return describeAbsenteeEvent(h, e) ?? 'The court governed in the ruler’s name' // absentee (185-187)
       if (isCradleEvent(e.type as number)) return describeCradleEventFor(h, e, id) ?? 'A first hearth'
       if (isBattleEvent(e.type as number)) return describeBattleEventFor(h, e, id) ?? 'A battle' // battles:
       if (isLanguageEvent(e.type as number)) return describeLanguageEventFor(h, e, id) ?? 'Its speech changed'
