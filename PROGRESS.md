@@ -23,5 +23,9 @@ Feature: HistoryOptions.governments, GOV_ON = false (default OFF; step 9 flip de
   realismStats.ts --check off.jsonl --from on.jsonl --noise docs/realism-noise.jsonl
 - harness: h-<seed>.out (governmentStats.ts <seed>)
 
+## Results (final, post-merge)
+- realism off vs baseline (--noise): 0.400 -> 0.400 OK; on vs off (--noise): 0.400 -> 0.384 OK, 3 rows WORSE vs single ref but within null noise (war.alpha, epi.plagueWorstNet, urb2000.u10). Full table runs/citystates/ab.txt
+- harness rows runs/citystates/h-*.out
+
 ## Next
 Report to coordinator (gates, A/B, harness rows, deviations). Not done: map capital colours, sagas phrases, polity naming by city, chronicle group of its own (uses Politics).
