@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'vitest'
 import baselineText from '../../../docs/realism-baseline.jsonl?raw'
 import sweepText from '../../../docs/realism-sweep22.jsonl?raw'
-import { miss, parseRows, REALISM_BASELINE, REALISM_SEEDS, REALISM_SWEEP_BASELINE, REALISM_SWEEP_SEEDS, realismCheck, realismScore, TARGETS } from './realismStats.ts'
+import noiseText from '../../../docs/realism-noise.jsonl?raw'
+import { miss, parseRows, REALISM_BASELINE, REALISM_SEEDS, REALISM_SWEEP_BASELINE, REALISM_SWEEP_SEEDS, realismCheck, realismNoise, realismScore, REALISM_TOL, REALISM_Z, TARGETS } from './realismStats.ts'
 
 const base = parseRows(baselineText)
 const sweep = parseRows(sweepText)
@@ -66,6 +67,54 @@ describe('realism ratchet', () => {
     const c = realismCheck(base, base.slice(1))
     expect(c.ok).toBe(false)
     expect(c.missing).toEqual([base[0].seed])
+  })
+  it('with a null ensemble (--noise), a move within the noise is not WORSE; one beyond it is', () => {
+    const [k, lo, hi] = target('urb1500.u10'), w = hi - lo
+    const at = (m: number, tag?: number) => base.map((r) => ({ ...r, [k]: m === 0 ? (lo + hi) / 2 : hi + m * w, ...(tag === undefined ? {} : { jitter: tag }) }))
+    const ref = at(0)
+    const noise = [0, 0.3, 0.1, 0.4, 0.2].flatMap((m, j) => at(m, 10001 + j)) // five jitters: member mean misses 0 .. 0.4
+    const nz = realismNoise(ref, noise)
+    expect(nz.k).toBe(6)
+    expect(nz.mean[k]).toBeCloseTo(1 / 6, 9)
+    const sd = Math.sqrt([0, 0, 0.3, 0.1, 0.4, 0.2].reduce((s, x) => s + (x - 1 / 6) ** 2, 0) / 5)
+    expect(nz.sd[k]).toBeCloseTo(sd, 9)
+    expect(nz.thr[k]).toBeCloseTo(REALISM_Z * sd * Math.sqrt(1 + 1 / 6), 9)
+    const within = at(0.35) // +0.35 band widths: WORSE against the single reference, inside the null spread
+    expect(realismCheck(ref, within, 1).worse).toEqual([k])
+    const c = realismCheck(ref, within, 1, [], noise)
+    expect(c.worse).toEqual([])
+    expect(c.ok).toBe(true)
+    expect(c.report).toContain('within null noise')
+    const beyond = realismCheck(ref, at(1.2), 1, [], noise) // far past null mean + 3 sd
+    expect(beyond.worse).toEqual([k])
+    expect(beyond.ok).toBe(false)
+    // An incomplete jitter group (a seed missing) is not a member; without members the rule is the plain one.
+    expect(realismNoise(ref, at(0.3, 7).slice(1)).k).toBe(1)
+    expect(realismCheck(ref, within, 1, [], []).worse).toEqual([k])
+  })
+  it('the committed null ensemble (docs/realism-noise.jsonl): 12 complete jitter groups on the realism seeds; the old rule flags pure noise, the noise rule mostly not', () => {
+    const noise = parseRows(noiseText)
+    const nz = realismNoise(base, noise)
+    expect(nz.k).toBe(13)
+    const tags = [...new Set(noise.map((r) => r.jitter))]
+    let oldFail = 0, newFail = 0
+    for (const t of tags) {
+      const cand = noise.filter((r) => r.jitter === t)
+      if (!realismCheck(base, cand).ok) oldFail++
+      if (!realismCheck(base, cand, REALISM_TOL, [], noise.filter((r) => r.jitter !== t)).ok) newFail++
+    }
+    expect(oldFail).toBe(12) // every null perturbation fails the single-reference ratchet
+    expect(newFail).toBeLessThanOrEqual(2) // leave-one-out against the other 11
+  })
+  it('with a null ensemble, the score tolerance widens to REALISM_Z score sds around the ensemble mean', () => {
+    const [k, lo, hi] = target('urb1500.u10'), w = hi - lo
+    const at = (m: number, tag?: number) => base.map((r) => ({ ...r, [k]: m === 0 ? (lo + hi) / 2 : hi + m * w, ...(tag === undefined ? {} : { jitter: tag }) }))
+    const noise = [0.5, 1, 1.5].flatMap((m, j) => at(m, 20001 + j))
+    const nz = realismNoise(at(0), noise)
+    const c = realismCheck(at(0), at(0), 0, [k], noise)
+    expect(c.base).toBeCloseTo(nz.score.mean, 12)
+    expect(c.tol).toBeCloseTo(REALISM_Z * nz.score.sd, 12)
+    expect(c.ok).toBe(true)
   })
   it('miss is 0 inside the band, in band widths outside, capped at 2, NaN as 2', () => {
     expect(miss(0.5, 0, 1)).toBe(0)

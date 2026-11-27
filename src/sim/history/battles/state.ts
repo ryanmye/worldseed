@@ -4,7 +4,7 @@
 import type { Rng } from '../../rng.ts'
 import { createRng } from '../../rng.ts'
 import type { HistoryState } from '../state.ts'
-import { BATTLE } from './params.ts'
+import { BATTLE_MODE } from './params.ts'
 
 export interface BattleDiag {
   battles: number
@@ -19,12 +19,37 @@ export interface BattleDiag {
   taken: number
   dismissed: number
   renowned: number
+  /** Not neutral: per battle the raw factors [ground, cmd, supply, sick, surprise, weather, xs, rain (x after / before the compression)] (battleStats takes the logs: the sim may not). */
+  factors: number[]
+  /** Naval battles, those the blockaders lost; coups, risings, turncoats; rulers slain or taken in the field. */
+  naval: number
+  navalLost: number
+  seized: number
+  rose: number
+  turned: number
+  rulersFell: number
+  /** Decisive battles (C6 factor 4) and the realm deaths of the escalated toll. */
+  decisive: number
+  realmDead: number
 }
 
 export interface BattleState {
   rng: Rng
-  /** BATTLE.neutral at creation: record only. */
+  /** BATTLE_MODE at creation: record only (neutral); the toll; war tempo; naval battles decide blockades; pretenders. */
   neutral: boolean
+  toll: 'baseline' | 'split' | 'escalate'
+  tempo: boolean
+  navalDecides: boolean
+  pretenders: boolean
+  /** The last battle's population toll (not neutral; war.ts deducts it): the front towns u and v, the realm levies beyond them per side (already deducted). */
+  tollU: number
+  tollV: number
+  realmP: number
+  realmQ: number
+  /** Events scanned for ArmyStricken; religion's holy wars seen (holy: the war ids). */
+  evSeen: number
+  holySeen: number
+  holy: Set<number>
   // --- Battles (History.battles) ---
   bWar: number[]
   bYear: number[]
@@ -53,6 +78,9 @@ export interface BattleState {
   // --- Per war (grown to the war count): the commander of each side (2 w: the war's attacker, 2 w + 1: its defender), battles so far ---
   wCmd: number[]
   wBattles: number[]
+  /** Per war side (2 w + side): the last year an ArmyStricken struck it (-9999). Per war: the year of its last decisive battle (-1). */
+  wSick: number[]
+  wDecisive: number[]
   // --- Per polity: the best surviving general, recalled for the next war (-1) ---
   pVeteran: number[]
   // --- Commanders (History.commanders) ---
@@ -86,6 +114,8 @@ export interface BattleState {
   cHome: number[]
   cLastBattle: number[]
   cRenowned: number[]
+  /** The war of his last battle (-1). */
+  cWar: number[]
   /** A ruler's commander row per reign. */
   reignCmd: Map<number, number>
   diag: BattleDiag
@@ -94,15 +124,20 @@ export interface BattleState {
 export function createBattles(s: HistoryState): BattleState {
   return {
     rng: createRng(s.world.seed, 'history-battles'),
-    neutral: BATTLE.neutral,
+    neutral: BATTLE_MODE.neutral,
+    toll: BATTLE_MODE.neutral ? 'baseline' : BATTLE_MODE.toll,
+    tempo: !BATTLE_MODE.neutral && BATTLE_MODE.tempo,
+    navalDecides: !BATTLE_MODE.neutral && BATTLE_MODE.navalDecides,
+    pretenders: !BATTLE_MODE.neutral && BATTLE_MODE.pretenders,
+    tollU: 0, tollV: 0, realmP: 0, realmQ: 0, evSeen: 0, holySeen: 0, holy: new Set(),
     bWar: [], bYear: [], bKind: [], bCounter: [], bSite: [], bTarget: [], bFrom: [], bAtt: [], bDef: [], bCmdA: [], bCmdD: [],
     bMenA: [], bMenD: [], bLossA: [], bLossD: [], bDead: [], bWinner: [], bHours: [], bWeather: [], bFlags: [], bRatio: [],
     bBreakA: [], bBreakD: [], bSiegeYear: [],
-    wCmd: [], wBattles: [], pVeteran: [],
+    wCmd: [], wBattles: [], wSick: [], wDecisive: [], pVeteran: [],
     cPolity: [], cPeople: [], cReign: [], cDyn: [], cBorn: [], cFemale: [], cSkill: [], cSkill0: [], cFirst: [], cLast: [], cBattles: [], cWins: [],
     cFame: [], cFameYear: [], cPeak: [], cPeakYear: [], cFate: [], cFateYear: [], cFateBattle: [], cFateWar: [], cReignAfter: [],
-    cRetire: [], cBase: [], cHome: [], cLastBattle: [], cRenowned: [],
+    cRetire: [], cBase: [], cHome: [], cLastBattle: [], cRenowned: [], cWar: [],
     reignCmd: new Map(),
-    diag: { battles: 0, byKind: [0, 0, 0, 0, 0, 0], byWeather: [0, 0, 0, 0, 0], surprises: 0, groundByDefender: 0, commanders: 0, rulerLed: 0, slain: 0, taken: 0, dismissed: 0, renowned: 0 },
+    diag: { battles: 0, byKind: [0, 0, 0, 0, 0, 0], byWeather: [0, 0, 0, 0, 0], surprises: 0, groundByDefender: 0, commanders: 0, rulerLed: 0, slain: 0, taken: 0, dismissed: 0, renowned: 0, factors: [], naval: 0, navalLost: 0, seized: 0, rose: 0, turned: 0, rulersFell: 0, decisive: 0, realmDead: 0 },
   }
 }

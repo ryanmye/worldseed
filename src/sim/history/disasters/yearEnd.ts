@@ -6,6 +6,7 @@
 import { DisasterKind, EventType } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logDx, regionTowns } from './climate.ts'
+import { dxBadRun } from './feedback.ts'
 import { DX } from './params.ts'
 import { addRow } from './state.ts'
 import type { DisasterState } from './state.ts'
@@ -97,6 +98,8 @@ export function disasterYearEnd(s: HistoryState, dx: DisasterState): void {
   dx.tempSeries.push(slow + ta + tv)
   dx.volcSeries.push(tv)
   dx.harvestSeries.push(wp > 0 ? wh / wp : 1)
+
+  dxBadRun(s, dx) // feedback: the regions' runs of bad harvests (no-op off)
 
   // local multipliers wear off
   let w = 0

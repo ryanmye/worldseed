@@ -32,6 +32,7 @@ import { toolFarm } from './goods/hooks.ts' // goods:
 import { ideaFarm } from './ideas/hooks.ts' // ideas:
 import { c5Growth, c5Harvest, c5Shortfall, c5Supply } from './compose.ts' // C5 stack
 import { dxLocal } from './disasters/state.ts' // disasters:
+import { dxDamp } from './disasters/feedback.ts' // disasters: Phase 2 storage exhaustion
 import { whyFamine, whyFood } from './why.ts' // causes:
 import { socDisorderMul } from './society/api.ts' // society:
 import type { C5SupplyFactors } from './compose.ts'
@@ -182,7 +183,7 @@ export function foodSystem(s: HistoryState): void {
     const expected = perStrength * stm
     const hw = s.harvest[s.weatherRegion[c]]
     let h = c5Harvest(hw, s.dx !== null ? { climate: hw * dxLocal(s.dx, id) } : undefined) // C5 (compose.ts): the harvest (disasters: the climate's, times the ash or flood on its own fields)
-    if (h < 1) h = stored(h, sp.damp[id]) // species-v2: drought sensitivity and stores of its staples (storage.ts)
+    if (h < 1) h = stored(h, s.dx !== null ? dxDamp(s.dx, c, sp.damp[id]) : sp.damp[id]) // species-v2 (disasters feedback: the stores run down over bad years): drought sensitivity and stores of its staples (storage.ts)
     if (h < 1 && s.dam[id] >= 0) h = 1 - (1 - h) * (1 - DAM.droughtDamp)
     const dm = s.soc !== null ? socDisorderMul(s, id) : undefined // society (h7): a failing state's insecure fields
     if (dm !== undefined) C5S.disorder = dm

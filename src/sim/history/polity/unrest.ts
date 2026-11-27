@@ -38,6 +38,7 @@ import type { PolityState } from './state.ts'
 import { faithGrievance } from '../religion/system.ts' // religion:
 import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
 import { finTaxGrief } from '../finance/hooks.ts' // finance:
+import { dxGrief } from '../disasters/feedback.ts' // disasters: Phase 2 grievance
 import { GRIEF, socContest, socCrisisPlus, socEliteLead, socGrief, socRevoltMul } from '../society/api.ts' // society:
 import type { C2HazardFactors } from '../compose.ts'
 
@@ -66,7 +67,8 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const since = s.year - ps.conqueredAt[i]
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
   const fam = s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0, crowd = U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)), bt = ps.badTax[i] ? U.badTax : 0
-  let peasant = fam + crowd + bt
+  const dis = s.dx !== null ? dxGrief(s, s.dx, i) : 0 // disasters feedback: a town struck by an eruption, quake, wave or flood (C2, peasant term)
+  let peasant = dis > 0 ? fam + crowd + bt + dis : fam + crowd + bt
   // society (h2): immiseration (a wage below subsistence) and a failed coercion add to the peasant term; townsfolk's dear bread is terms[6]
   let urb = 0
   const sg = s.soc !== null && socGrief(s, i, p)
@@ -82,7 +84,7 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
-  if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
+  if (ps.why) { whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial); if (dis > 0) ps.why.sub[UnrestPart.Disaster] = dis } // causes: the terms (disasters: UnrestPart.Disaster)
   if (sg && ps.why) { ps.why.sub[UnrestPart.Immiseration] = GRIEF.imm; ps.why.sub[UnrestPart.Coercion] = GRIEF.coerce; ps.why.sub[UnrestPart.Urban] = urb } // causes: (society)
   if (s.soc !== null) terms[6] = urb
   if (dv !== 0 && ps.why) ps.why.sub[UnrestPart.Deference] = dv // causes: (rulers: deference)

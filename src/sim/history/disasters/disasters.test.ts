@@ -13,6 +13,10 @@ import { createWeather } from '../weather.ts'
 import { createRng } from '../../rng.ts'
 import { DX } from './params.ts'
 import { createDisasters } from './state.ts'
+import type { DisasterState } from './state.ts'
+import { dxDamp, dxGrief, dxMalnut, dxMalnutSus } from './feedback.ts'
+import type { HistoryState } from '../state.ts'
+import { UnrestPart } from '../../../contract.ts'
 
 const worlds = new Map<number, World>()
 const world = (seed: number, n?: number): World => {
@@ -189,6 +193,65 @@ describe('disasters', () => {
     const { why: _w, ...rest } = b
     const { why: _w2, ...restA } = a
     expect(hashValue(rest)).toBe(hashValue(restA))
+  }, 900_000)
+
+  it('feedback (step 10): off by default; the hooks are neutral off and follow §3.8 on', () => {
+    expect(DX.feedback).toBe(false)
+    expect(UnrestPart.Disaster).toBe(24)
+    const dx = {
+      feedback: false, region: new Uint16Array([0, 1]), badRun: new Int16Array([2, 0]), rTv: new Float64Array([0, -0.8]),
+      cap: 4, struckYear: new Int16Array([100, -1, 95, 100]), struckLoss: new Float32Array([0.3, 0, 0.3, 0.15]), relieved: new Uint8Array([0, 0, 0, 1]),
+    } as unknown as DisasterState
+    const s = { year: 104, cell: new Int32Array([0, 1, 0, 0]) } as unknown as HistoryState
+    // off: every hook neutral
+    expect(dxDamp(dx, 0, 0.4)).toBe(0.4)
+    expect(dxMalnut(s, dx, 0, 0.9)).toBeCloseTo(0.1, 12)
+    expect(dxMalnutSus(s, dx, 1)).toBe(1)
+    expect(dxGrief(s, dx, 0)).toBe(0)
+    dx.feedback = true
+    // storage: two bad years of three run the stores two thirds down
+    const run2 = Math.min(1, 2 / DX.exhaustYears)
+    expect(dxDamp(dx, 0, 0.4)).toBeCloseTo(0.4 + 0.6 * run2, 12)
+    expect(dxDamp(dx, 1, 0.4)).toBe(0.4)
+    expect(dxDamp(dx, 0, 1.2)).toBe(1.2) // no stores to run down
+    // malnutrition: the run of bad years outlasts the hunger; a volcanic winter makes some even when fed
+    expect(dxMalnut(s, dx, 0, 1)).toBeCloseTo(DX.malnutK * run2, 12)
+    expect(dxMalnut(s, dx, 0, 0.2)).toBeCloseTo(Math.max(0.8, DX.malnutK * run2), 12)
+    expect(dxMalnut(s, dx, 0, 0.9)).toBeCloseTo(Math.max(0.1, DX.malnutK * run2), 12)
+    expect(dxMalnut(s, dx, 1, 1)).toBeCloseTo(DX.malnutK * DX.malnutWinter, 12)
+    expect(dxMalnutSus(s, dx, 1)).toBe(1 + DX.malnutSus)
+    expect(dxMalnutSus(s, dx, 0)).toBe(1)
+    // grievance: full within disasterYears of a heavy loss, none once they have passed, halved by relief, none unstruck
+    expect(dxGrief(s, dx, 0)).toBeCloseTo(DX.disasterGrievance, 6)
+    expect(dxGrief(s, dx, 1)).toBe(0)
+    s.year = 100 + DX.disasterYears + 1
+    expect(dxGrief(s, dx, 0)).toBe(0)
+    s.year = 101
+    expect(dxGrief(s, dx, 3)).toBeGreaterThan(0)
+    dx.relieved[3] = 0
+    const full = dxGrief(s, dx, 3)
+    dx.relieved[3] = 1
+    expect(dxGrief(s, dx, 3)).toBeCloseTo(full / 2, 12)
+    expect(dxGrief(s, dx, 9)).toBe(0) // beyond the arrays
+  })
+
+  it('feedback on: the invariants hold, the history changes, the shocks and climate stay world-only, and the bad-year runs are counted', () => {
+    const keep = { feedback: DX.feedback, volcMemory: DX.volcMemory, shapeFb: DX.shapeFb }
+    try {
+      const w = world(9, 24)
+      const off = simulateHistory(w, { years: 600, disasters: true })
+      DX.feedback = true
+      DX.volcMemory = 0.2; DX.shapeFb = [0.6, 1.0, 0.6, 0.4, 0.25, 0.15]
+      const run = simulateHistory(w, { years: 600, disasters: true, causes: true })
+      checkTable(w, run)
+      expect(hashBase(run)).not.toBe(hashBase(off))
+      const ref = worldOnly(simulateHistory(w, { years: 600, disasters: true }))
+      expect(worldOnly(simulateHistory(w, { years: 600, disasters: true, polities: false, goods: false, disease: false }))).toEqual(ref)
+      expect(worldOnly(simulateHistory(w, { years: 600, disasters: true, orders: [{ year: 100, kind: OrderKind.Explore, actor: 0, target: 0 }] }))).toEqual(ref)
+      expect(worldOnly(run)).toEqual(ref)
+      // the memory and the longer tail change the climate itself (against feedback off)
+      expect(Array.from(run.climate.temp)).not.toEqual(Array.from(off.climate.temp))
+    } finally { Object.assign(DX, keep) }
   }, 900_000)
 
   it('uses only + - * / sqrt floor at run time (no Math.log, exp or pow under disasters/)', () => {

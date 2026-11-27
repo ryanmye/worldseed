@@ -696,6 +696,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     s.landYear = year % LAND.step === 0
     if (s.defer !== null) deferenceYear(s) // rulers: deference fades (none until something feeds it)
     if (ox) ordersBegin(s, ox) // orders: the orders of the year given and put in force
+    if (options?.jitter && year === options.jitter.year) { const r = options.jitter.stream === 'structures' ? s.rngStructures : s.rngMigration; for (let k = 0; k < options.jitter.draws; k++) r.u32() } // realism null ensemble
     if (dx) climateYear(s, dx) // disasters: the year's shock schedule and climate (world-only), before the weather
     weatherSystem(s, weather)
     if (dx) shockYear(s, dx, weather) // disasters: eruptions, quakes, waves and floods where people live
@@ -891,7 +892,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
         absentee: abs ? { ...abs.diag, fed: abs.diag.fed.slice(), declines: abs.diag.declines.slice(), ended: abs.diag.ended.slice() } : undefined, // absentee:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
-        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
+        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice(), factors: bat.diag.factors.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         society: soc ? { ...soc.diag, steps: soc.diag.steps.slice() } : undefined, // society:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:

@@ -10,7 +10,7 @@ import { createRng } from '../../rng.ts'
 import { smoothstep } from '../../util.ts'
 import type { Terrain } from '../terrain.ts'
 import { gauss } from '../weather.ts'
-import { DX, RUPTURE_L7, RUPTURE_STEP, volcBias } from './params.ts'
+import { DX, RUPTURE_L7, RUPTURE_STEP, volcBias, volcShape } from './params.ts'
 
 /** VolcanoKind: where a volcano stands. */
 export const VolcanoKind = { Arc: 0, Rift: 1, Hotspot: 2 } as const
@@ -40,6 +40,8 @@ export interface DisasterDiag {
   clampVolc: number
   /** Years when a VolcanicWinter was logged (or would have been, with no settlement). */
   winterYears: number[]
+  /** Feedback (DX.feedback): land region-years with a bad harvest, and with the stores run out (badRun >= exhaustYears); reliefs paid and not paid. */
+  fbBad: number; fbExhausted: number; fbRelief: number; fbUnpaid: number
 }
 
 export interface DisasterState {
@@ -71,6 +73,8 @@ export interface DisasterState {
   rTa: Float64Array; rPa: Float64Array
   /** The mean volcanic cooling added back to the temperature (volcBias, degC). */
   bias: number
+  /** Forcing by years after an eruption (volcShape). */
+  shape: number[]
   /** Volcanic growing-season anomaly per region this year, degC (<= 0). */
   rTv: Float64Array
   /** Harvest deviation of the climate per region this year (added to the weather's harvest). */
@@ -93,6 +97,13 @@ export interface DisasterState {
   struckRow: Int32Array; struckLoss: Float32Array; struckYear: Int16Array
   /** This year's strikes: settlement, share, 1 for a flood (read by the landmarks at the end of the year). */
   yearStruck: number[]; yearShare: number[]; yearFlood: number[]
+  // --- Phase 2 feedback (DX.feedback; feedback.ts) ---
+  /** DX.feedback at set-up. */
+  feedback: boolean
+  /** Bad harvests in a row per region (harvest < DX.badRunAt), counted at the end of each year. */
+  badRun: Int16Array
+  /** 1 if the settlement's last strike was relieved by its polity (halves the disaster grievance). */
+  relieved: Uint8Array
   rows: DisasterRows
   tempSeries: number[]; volcSeries: number[]; harvestSeries: number[]
   diag: DisasterDiag
@@ -261,15 +272,16 @@ export function createDisasters(world: World, terrain: Terrain, region: Uint16Ar
     qCell: Int32Array.from(qc), qCum, qConv: Uint8Array.from(qv), rate7, rupture,
     rT, rRain, rLat, rHemi, rMon, rLand, landTotal, kT, kP, fOff, fCell,
     gPhi, gC, gT, rPhi, rC: DX.rSd * Math.sqrt(1 - rPhi * rPhi), pPhi, pC: DX.pSd * Math.sqrt(1 - pPhi * pPhi),
-    rTa, rPa, bias: volcBias(), rTv: new Float64Array(R), D: new Float64Array(R), forcing: [], forcingS: [],
+    rTa, rPa, bias: volcBias(volcShape(DX.feedback)), shape: volcShape(DX.feedback), rTv: new Float64Array(R), D: new Float64Array(R), forcing: [], forcingS: [],
     eruptVolc: -1, eruptVei: 0, eruptS: 0, eruptRow: -1, quakeCell: [], quakeM10: [], floodU: new Float64Array(R),
     dBelow: new Int16Array(R), dAbove: new Int16Array(R), dRow: new Int32Array(R).fill(-1), dFirst: new Int32Array(R),
     slowRing: new Float64Array(DX.epochWindow), slowSum: 0, epoch: 0, epochRow: -1,
     cap, local: new Float64Array(cap).fill(1), localLeft: new Int16Array(cap), localList: [],
     struckRow: new Int32Array(cap).fill(-1), struckLoss: new Float32Array(cap), struckYear: new Int16Array(cap).fill(-1),
     yearStruck: [], yearShare: [], yearFlood: [],
+    feedback: DX.feedback, badRun: new Int16Array(R), relieved: new Uint8Array(cap),
     rows: emptyRows(), tempSeries: [0], volcSeries: [0], harvestSeries: [1],
-    diag: { eruptions: [0, 0, 0], quakes: 0, quakeRows: 0, tsunamis: 0, floods: 0, floodRows: 0, destroyed: 0, clampLoss: 0, clampGain: 0, regionYears: 0, clampVolc: 0, winterYears: [] },
+    diag: { eruptions: [0, 0, 0], quakes: 0, quakeRows: 0, tsunamis: 0, floods: 0, floodRows: 0, destroyed: 0, clampLoss: 0, clampGain: 0, regionYears: 0, clampVolc: 0, winterYears: [], fbBad: 0, fbExhausted: 0, fbRelief: 0, fbUnpaid: 0 },
     mark: new Int32Array(N), markGen: 0, queue: new Int32Array(N),
   }
 }
@@ -284,6 +296,7 @@ export function ensureDisasterCap(dx: DisasterState, n: number): void {
   const row = new Int32Array(size).fill(-1); row.set(dx.struckRow); dx.struckRow = row
   const loss = new Float32Array(size); loss.set(dx.struckLoss); dx.struckLoss = loss
   const yr = new Int16Array(size).fill(-1); yr.set(dx.struckYear); dx.struckYear = yr
+  const rel = new Uint8Array(size); rel.set(dx.relieved); dx.relieved = rel
   dx.cap = size
 }
 

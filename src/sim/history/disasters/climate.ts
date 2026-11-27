@@ -111,7 +111,7 @@ export function climateYear(s: HistoryState, dx: DisasterState): void {
     dx.eruptRow = row
     let m = 0
     for (let r = 0; r < R; r++) m += dx.rLand[r] * hemiW(s, dx, c, r)
-    dx.rows.dT[row] = dx.landTotal > 0 ? -dx.eruptS * DX.shape[1] * (m / dx.landTotal) : 0
+    dx.rows.dT[row] = dx.landTotal > 0 ? -dx.eruptS * dx.shape[1] * (m / dx.landTotal) : 0
     dx.forcing.push(row); dx.forcingS.push(dx.eruptS)
     dx.diag.eruptions[dx.eruptVei - 5]++
   }
@@ -120,19 +120,25 @@ export function climateYear(s: HistoryState, dx: DisasterState): void {
   for (let k = 0; k < dx.gT.length; k++) dx.gT[k] = dx.gPhi[k] * dx.gT[k] + dx.gC[k] * gauss(rng)
   for (let r = 0; r < R; r++) dx.rTa[r] = dx.rPhi * dx.rTa[r] + dx.rC * gauss(rng)
   for (let r = 0; r < R; r++) dx.rPa[r] = dx.pPhi * dx.rPa[r] + dx.pC * gauss(rng)
-  // volcanic forcing of the eruptions of the last DX.shape.length years
+  // volcanic forcing of the eruptions of the last dx.shape.length years
   const rTv = dx.rTv
   rTv.fill(0)
   let w = 0
   for (let i = 0; i < dx.forcing.length; i++) {
     const row = dx.forcing[i]
     const t = year - dx.rows.year[row]
-    if (t >= DX.shape.length) continue
+    if (t >= dx.shape.length) continue
     dx.forcing[w] = row; dx.forcingS[w] = dx.forcingS[i]; w++
-    const c = dx.rows.cell[row], S = dx.forcingS[i] * DX.shape[t]
+    const c = dx.rows.cell[row], S = dx.forcingS[i] * dx.shape[t]
     for (let r = 0; r < R; r++) rTv[r] -= S * hemiW(s, dx, c, r)
   }
   dx.forcing.length = w; dx.forcingS.length = w
+  if (dx.feedback && DX.volcMemory > 0) {
+    // feedback: volcanic memory (feedback.ts): this year's area-mean cooling, less its climatological mean, into a slow component
+    let tv = 0
+    for (let r = 0; r < R; r++) tv += dx.rLand[r] * (rTv[r] < -DX.maxVolcanicDT ? -DX.maxVolcanicDT : rTv[r])
+    if (dx.landTotal > 0) dx.gT[DX.volcMemoryK] += DX.volcMemory * (tv / dx.landTotal + dx.bias)
+  }
   let slow = dx.bias
   for (let k = 0; k < dx.gT.length; k++) slow += dx.gT[k]
   for (let r = 0; r < R; r++) {

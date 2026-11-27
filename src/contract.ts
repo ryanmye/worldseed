@@ -2002,6 +2002,7 @@ export const GrievanceKind = {
   TownCeded: 8, // (beliefs) the offender took `settlement` from the wronged under threat, without war (EventType.Coerced; the towns of one crisis merged: `towns`)
   SpyCaught: 9, // (beliefs) the wronged caught the offender's spies (EventType.SpyCaught)
   ClaimForged: 10, // (beliefs) the offender's forged claim on the wronged was exposed (EventType.ClaimExposed)
+  GeneralTurned: 11, // (battles) a famous general of the wronged polity went over to the offender with the town `settlement` he held (GeneralTurned 226)
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
 
@@ -2208,6 +2209,8 @@ export interface Structure {
 }
 
 export interface HistoryOptions {
+  /** realism null ensemble only (realismStats --noise): discard `draws` draws of the migration (or structures) stream at `year`: the same model, another realisation of the trajectory. Default none: no draws. */
+  jitter?: { year: number; draws: number; stream?: 'migration' | 'structures' }
   /** Length of the run in years. Default 2000. */
   years?: number
   /** Years between snapshots. Default 5. */

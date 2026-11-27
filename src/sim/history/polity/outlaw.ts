@@ -20,6 +20,7 @@
 // its cargo goes to the most lawless place on it (protection money); its road cells take danger roadZ * lawlessness.
 // Smugglers' hubs and corruption (every step): see policy.ts for the contraband itself.
 
+import { navalBattle } from '../battles/naval.ts' // battles:
 import { EventType, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
@@ -484,6 +485,7 @@ export function blockade(s: HistoryState, ps: PolityState, w: number, p: number,
   const living = s.living
   for (let t = 0; t < living.length; t++) { const id = living[t]; if (ps.polity[id] === q && s.port[id] >= 0 && (port < 0 || s.pop[id] > s.pop[port])) port = id }
   if (port < 0) return
+  if (s.bat !== null && navyOf(s, ps, q) > 0 && !navalBattle(s, s.bat, ps, w, p, q, port)) return // battles: the fleets fight for the sea first
   ps.pBlockade[q] = w
   logEvent(s, EventType.Blockade, port, ps.pCapital[p], w)
 }
