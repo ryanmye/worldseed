@@ -14,6 +14,7 @@ export const DECIDER = {
   court: 'your court',
   regency: 'the regent’s council',
   league: 'the league’s council',
+  viceroy: 'the viceroy', // absentee: a junior realm of a personal union (its ruler reigns from the senior throne)
   // extension points (their words; no main-today rule reaches them yet):
   priests: 'the priests', // a theocracy (religious-evolution / modern-ideologies regime)
   council: 'the council', // city-states: a merchant republic or free city
@@ -65,7 +66,11 @@ function tierAtYear(h: History, p: number, year: number): number {
 /** Who decides for the seat at `year` when the player lets the matter be (see DECIDER). */
 export function deciderName(h: History, seat: SeatOptions, year: number): string {
   if (seat.kind === SeatKind.House) return DECIDER.family
-  const p = seatPolity(h, seat, year)
+  return deciderNameOf(h, seatPolity(h, seat, year), year)
+}
+
+/** Who decides for polity p at `year` when its ruler does not (any realm, the seat's or an AI's: absentee rulers). */
+export function deciderNameOf(h: History, p: number, year: number): string {
   if (p < 0 || !h.polities || p >= h.polities.length) return DECIDER.elders // (a people without a realm: its towns' elders)
   for (const rule of DECIDER_RULES) { const b = rule(h, p, year); if (b) return b }
   if (h.polities[p].origin === PolityOrigin.League) return DECIDER.league

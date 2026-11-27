@@ -262,8 +262,12 @@ export const EventType = {
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   // seat: deference (182-183, from the unassigned 182-189; none unless the player lets matters be decided without them).
   SeatDeclined: 182, // the seat's realm, ruled from `settlement`, came to be ruled in all but name by the body that decides without the player (seat/decider): `value` the polity id; `other` -1; `extra` the deference x 100
-  DeferBlamed: 184, // the body that decided a divisive matter for the ruler of the realm ruled from `settlement` bore the blame for it: `value` the polity id; `other` -1; `extra` the DecisionKind (seat: a matter left to it)
+  DeferBlamed: 184, // the body that decided a divisive matter for the ruler of the realm ruled from `settlement` bore the blame for it: `value` the polity id; `other` -1; `extra` the DecisionKind (seat: a matter left to it), or an absentee blame (BLAME_LOST_WAR 100: a lost war; BLAME_DEFAULT 101: the crown's default; an AI court that governed)
   SeatReasserted: 183, // the player took the seat's power back in the realm ruled from `settlement`: `value` the polity id; `other` -1; `extra` 0 by decisions taken in a row, 1 by reclaiming it (a risky act: the throne is less safe for years)
+  // absentee: absentee and do-nothing rulers of the AI realms (185-187, from the unassigned 182-189; none unless HistoryOptions.absentee).
+  CouncilRuled: 185, // the realm ruled from `settlement` came to be governed in its ruler's name by the body that decides without him (a regent's council, a viceroy, the court): `value` the polity id; `other` the reign (History.rulers); `extra` the DeferenceCause that weighed most (1 Minor, 2 Absent, 3 Union, 4 Indolent, 5 Infirm, 6 Captive)
+  RuledInPerson: 186, // the realm ruled from `settlement` was ruled in person again after a CouncilRuled: `value` the polity id; `other` the reign whose rule it was; `extra` how: 0 the reign ended, 1 the ruler came of age (the regent handed over), 2 the ruler came home (campaign or captivity over), 3 the union ended
+  RulerTaken: 187, // the ruler leading the realm ruled from `other` in person was taken captive in the battle for `settlement`: `value` the reign (History.rulers); `extra` the years of captivity (battles)
   // seat: the player's seat (seat-mode §3.7; 270-279; none when HistoryOptions.seat is undefined).
   SeatTaken: 270, // the player took the seat (HistoryOptions.seat) at its year: `settlement` the seat polity's capital (or the people's largest town); `other` -1; `value` the seat's id; `extra` the SeatKind
   SeatPassed: 271, // the seat passed to the polity `value` ruled from `settlement`: `other` the old capital (-1); `extra` how: 0 the house's other throne, 1 a partition heir's share, 2 the pretender's realm (civil war), 3 a seceded realm of the same house
@@ -2398,6 +2402,16 @@ export interface HistoryOptions {
    * the option chosen). encodeSeat / decodeSeat give the URL form.
    */
   seat?: SeatOptions
+  /**
+   * absentee (absentee-rulers.md; needs rulers): AI rulers who let the court decide. A child on the throne (the regent's
+   * council), a junior realm of a personal union (a viceroy), a ruler on campaign far from home or a captive, an idle ruler (low
+   * ability and little warlike), an old one: each feeds the realm's deference (rulers/deference.ts, the seat's "let the court
+   * decide"), whose shared effects weaken the throne; past the decline threshold the court governs in his name (CouncilRuled)
+   * until the reign ends, the regent hands over or the ruler comes home (RuledInPerson). A court that decides bears the blame
+   * for lost wars and defaults (DeferBlamed). The player's own seat realm is left to the player. Default false; false gives
+   * the history exactly as without it. No draws (captivity uses hash01).
+   */
+  absentee?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -2452,7 +2466,7 @@ export const AbandonCause = {
 export type AbandonCause = (typeof AbandonCause)[keyof typeof AbandonCause]
 
 /** What made a succession contested (CauseRecords.crises.bits). Extinct: the house died out (no heir), the contest a fixed chance. */
-export const CrisisBit = { Minor: 1, Woman: 2, Bastard: 4, WeakPredecessor: 8, LowCohesion: 16, ManyPeoples: 32, Law: 64, RivalCentre: 128, Extinct: 256 } as const
+export const CrisisBit = { Minor: 1, Woman: 2, Bastard: 4, WeakPredecessor: 8, LowCohesion: 16, ManyPeoples: 32, Law: 64, RivalCentre: 128, Extinct: 256, Deference: 512 } as const // (Deference, absentee: the court had governed in the dead ruler's name)
 
 /** The parts of a settlement's unrest (RevoltWhy), finer than RevoltCause: each one an accumulator of one term of unrest.ts' grievance(). */
 export const UnrestPart = {

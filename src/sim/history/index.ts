@@ -253,6 +253,8 @@ import { createSeatState } from './seat/state.ts'
 import type { SeatState } from './seat/state.ts'
 import { seatYear } from './seat/system.ts'
 import { assembleDeference, deferenceYear } from './rulers/deference.ts' // rulers: deference
+import { absenteeYear, createAbsentee } from './rulers/absentee.ts' // absentee: AI rulers who let the court decide
+import type { AbsenteeDiag } from './rulers/absentee.ts'
 import { seatWatch } from './seat/watch.ts'
 import { assembleSeat } from './seat/assemble.ts'
 
@@ -313,6 +315,8 @@ export interface HistoryDiagnostics {
   diseaseState?: DiseaseState
   /** rulers: counters of the rulers system (absent when it is off). */
   rulers?: RulerDiag
+  /** absentee: deference fed per cause, declines and how they ended, captives, blame borne (absent when it is off). */
+  absentee?: AbsenteeDiag
   /** oaths, balance, arms: their counters (absent when all three are off). */
   grudges?: GrudgeDiag
   /** cold wars: their counters (absent when off). */
@@ -546,6 +550,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // rulers: rulers and houses (they need the polities), unless switched off.
   const rul = pol && (options?.rulers ?? RULERS.enabled) ? createRulers(s) : null
   s.rul = rul
+  // absentee: absentee and do-nothing AI rulers feed the realm's deference (needs rulers; off by default).
+  const abs = rul && options?.absentee ? createAbsentee(seed) : null
   // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
   const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
   s.bat = bat
@@ -710,6 +716,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     abandonmentSystem(s)
     tradeAbandonSystem(s, trade)
     if (pol) politySystem(s, pol, trade) // polities: states, war, danger
+    if (abs && pol && rul) absenteeYear(s, pol, rul, abs, seat ? seat.polity : -1) // absentee: minors, unions, campaigns, captivity, idleness, old age feed deference
     if (ox && pol) ordersPolity(s, ox, pol) // orders: the court may move to an ordered seat
     structureSystem(s, scratch, portSearch)
     if (s.landYear) {
@@ -889,6 +896,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        absentee: abs ? { ...abs.diag, fed: abs.diag.fed.slice(), declines: abs.diag.declines.slice(), ended: abs.diag.ended.slice() } : undefined, // absentee:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
         coldWars: pol && pol.cw ? { ...pol.cw.diag, gate: pol.cw.diag.gate.slice() } : undefined, // cold wars:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice(), factors: bat.diag.factors.slice() } : undefined, // battles:
