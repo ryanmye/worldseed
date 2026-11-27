@@ -9,6 +9,7 @@
 import { DisasterKind, EventType, type History, type HistoryEvent } from '../contract.ts'
 import { peopleName, peopleOf, settlementName } from './format.ts'
 import type { TimelineMark } from './timeline.ts'
+import { DramaCat, DramaScale, ignoreDrama, registerDrama } from './story/drama.ts'
 import './disasters.css'
 
 export const isDisasterEvent = (t: number) => t >= EventType.Eruption && t <= EventType.ClimateTurned
@@ -138,4 +139,19 @@ export function climateMarks(h: History): TimelineMark[] {
     }
   }
   return out
+}
+
+// The story director's rules (experience §2.8): base weights are design defaults; people affected from the row's deaths (a
+// volcanic winter or a turn of the climate touches the whole world, scaled out to the continent).
+{
+  const deaths = (c: { h: History }, e: HistoryEvent) => { const d = D(c.h); return d && e.value >= 0 && e.value < d.count ? d.deaths[e.value] : 0 }
+  registerDrama(EventType.Eruption, { cat: DramaCat.Nature, base: 4, mag: deaths, boost: (_c, e) => ((e.extra ?? 5) >= 7 ? 2.5 : (e.extra ?? 5) >= 6 ? 1.5 : 1), first: true })
+  registerDrama(EventType.VolcanicWinter, { cat: DramaCat.Nature, base: 6, scale: DramaScale.Continent, first: true })
+  registerDrama(EventType.Earthquake, { cat: DramaCat.Nature, base: 4, mag: deaths, scale: DramaScale.Town })
+  registerDrama(EventType.Tsunami, { cat: DramaCat.Nature, base: 6, mag: deaths, first: true })
+  registerDrama(EventType.CityDestroyed, { cat: DramaCat.Nature, base: 8, mag: (c, e) => (e.extra ?? 0) * c.popBefore(e.settlement, e.year), scale: DramaScale.Town })
+  registerDrama(EventType.Flood, { cat: DramaCat.Nature, base: 3, mag: deaths })
+  registerDrama(EventType.DroughtBegan, { cat: DramaCat.Nature, base: 3 })
+  ignoreDrama(EventType.DroughtEnded)
+  registerDrama(EventType.ClimateTurned, { cat: DramaCat.Nature, base: 5, scale: DramaScale.Continent, first: true })
 }

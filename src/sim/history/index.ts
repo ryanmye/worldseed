@@ -72,6 +72,16 @@
 // (DiseaseVia.Visitors); religion after disease so a town struck hard is a woe for religion the same year, and its
 // pilgrims (rel.pilgrims, read by tourismExtraScores) feed next year's destinations. An epidemic at a capital may take
 // its ruler and heirs (disease/system.ts strike), which the rulers system (in politySystem) enacts the next year.
+// disasters (disasters/; HistoryOptions.disasters, off by default): before the weather, climateYear draws the year's shock
+// schedule ('history-shocks-<century>': eruption, earthquake slots, a flood roll per region) and the climate regime
+// ('history-climate': three global AR(1) temperature components, a regional temperature and rain regime, the volcanic
+// forcing), both a fixed count a year from the world alone, so orders and cradle wishes never move a shock; the weather
+// then adds the climate's deviation in place of its anonymous crisis (still drawn). Right after the weather shockYear
+// strikes where people live (eruptions, quakes, tsunamis, floods; 'history-disaster-damage'); foodSystem multiplies a
+// struck town's own harvest by its ash or flood factor (C5 climate); the landmarks may fall into ruin at the year's end
+// (their own stream); disasterYearEnd, before the snapshots, opens and closes droughts and epochs and records the climate
+// series. Volcano catalogue from 'history-volcanoes', names from 'names-volcano-<id>'. Switched off, the history is exactly
+// the one without it.
 // The sim uses only + - * / and sqrt (and floor), so output is bit-identical
 // across engines. Nothing depends on the run's length: a longer run repeats a
 // shorter one exactly up to its end.
