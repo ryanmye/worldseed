@@ -19,13 +19,14 @@ Worktree /home/claude/wsx-onboard, branch lane/onboard (from origin/main 363c570
 
 - pacing harness src/ui/story/pacingStats.ts -> /home/claude/runs/onboard/pacing.jsonl (log pacing.log)
 
-## Current / next
-- running (nohup): /home/claude/eval/onboard/runall.sh (resumable; after/before x desktop/phone, seed 61343, 120 s) ->
-  runs/onboard/measure.jsonl + eval/onboard/*.log/png; G0 -> runs/onboard/g0.log; vitest -> runs/onboard/vitest.log
-- after build served at http://localhost:4912/ (npx vite preview in /home/claude/wsx-onboard)
-- smoke: FORCE=1 simq node scripts/measure.mjs http://localhost:4912/ smoke1-desktop desktop 60 (log eval/onboard/smoke1-desktop.log)
-- then: after-desktop / after-phone (120 s), gates (tsc, build, G0, vitest src/ui/story), merge origin/main, push, report
+- ui-additions 1 (marker floor, top-5 town labels, peopleWash.ts washes + glowing hearths, hearth opening shot)
+- ui-additions 2 (contextPanel.ts registry; groupRightRail shows the current context; empty panels hidden)
+- ui-additions 3 (story/dramaStrip.ts over the slider; timeline.addAboveSlider, timeline.years)
+- ui-additions 4 (phone: story card swipe; sheet tabs context-first, empty hidden)
+- measurements so far in /home/claude/runs/onboard/measure.jsonl and pacing.jsonl; G0 OK (runs/onboard/g0.log);
+  vitest src/ui/story + battle tests 34/34 (runs/onboard/vitest.log)
 
-## Measurements
-- before-desktop: /home/claude/eval/onboard/before-desktop.log (start->shown 59.8 s, no caption in 120 s, dead air 120 s, JS 2.51 MB)
-- before-phone: /home/claude/eval/onboard/before-phone.log
+## Current / next
+- final dist built (index 872 KB); /home/claude/eval/onboard/runfinal.sh (nohup) waits for runall.sh then measures
+  final-desktop / final-phone on :4912
+- then: re-run G0 + vitest on final, merge origin/main, push, report (lane/setup landing conflict: see report)
