@@ -80,7 +80,11 @@ export function deathChance(age: number): number {
   if (age <= 0) return P.infant
   if (age < 5) return P.child
   if (age < 15) return P.youth
-  const q = P.adult + P.gompertz * Math.pow(P.gompertzRate, age - 20)
+  // (no Math.pow in src/sim: the Gompertz factor by multiplication, as the rulers' own table is built)
+  let g = 1
+  for (let k = 20; k < age && g < 1e6; k++) g *= P.gompertzRate
+  for (let k = age; k < 20; k++) g /= P.gompertzRate
+  const q = P.adult + P.gompertz * g
   return q > 1 ? 1 : q
 }
 
@@ -107,7 +111,7 @@ export function hudRow(s: HistoryState, p: number, out: number[], at: number): v
   const pm = s.soc !== null ? socRevoltMul(s, p) : undefined
   if (pm !== undefined) C2H.psiMul = pm
   // (the revolt pass runs every POLITY.step years: its chance per pass, made yearly)
-  const ch = 1 - Math.pow(1 - c2RevoltChance(UNREST.chance, pm !== undefined ? C2H : undefined), 1 / POLITY.step)
+  const ch = c2RevoltChance(UNREST.chance, pm !== undefined ? C2H : undefined) / POLITY.step // (per year, to first order: no Math.pow in src/sim)
   let lost = 0
   const sup0 = cap >= 0 ? 1 : 0
   for (const i of s.living) {
