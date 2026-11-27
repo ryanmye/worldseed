@@ -41,6 +41,9 @@ import { c7Alliance } from '../compose.ts' // C7 stack
 import { BELIEF } from '../beliefs/params.ts' // beliefs:
 import { projBel } from '../beliefs/system.ts' // beliefs:
 import { beliefSecret } from '../beliefs/deception.ts' // beliefs:
+import { CITY } from '../government/params.ts' // governments:
+import { govAbsorbable, govTributeOnly } from '../government/hooks.ts' // governments:
+import { govCharterBond } from '../government/system.ts' // governments:
 
 function logX(s: HistoryState, type: EventTypeT, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type, settlement, other, value, extra })
@@ -97,6 +100,11 @@ function newBond(s: HistoryState, ps: PolityState, kind: number, a: number, b: n
   return k
 }
 
+/** governments: the free city a is chartered by its overlord b (a Charter bond: duty-free, never at war, a yearly due). */
+export function charterBond(s: HistoryState, ps: PolityState, a: number, b: number): number {
+  return newBond(s, ps, BondKind.Charter, a, b, -1, -1)
+}
+
 /** Ends bond k this year. */
 export function endBond(s: HistoryState, ps: PolityState, k: number, cause: number): void {
   if (ps.bEnd[k] >= 0) return
@@ -105,7 +113,7 @@ export function endBond(s: HistoryState, ps: PolityState, k: number, cause: numb
   const i = ps.activeBonds.indexOf(k)
   if (i >= 0) ps.activeBonds.splice(i, 1)
   if (ps.bKind[k] !== BondKind.Alliance && ps.pSub[ps.bA[k]] === k) ps.pSub[ps.bA[k]] = -1
-  if (cause === BondEnd.Freed) logX(s, EventType.BecameVassal, ps.pCapital[ps.bA[k]], ps.pCapital[ps.bB[k]], ps.bB[k] + (ps.bKind[k] === BondKind.Tribute ? 1000 : 0), 1)
+  if (cause === BondEnd.Freed && ps.bKind[k] !== BondKind.Charter) logX(s, EventType.BecameVassal, ps.pCapital[ps.bA[k]], ps.pCapital[ps.bB[k]], ps.bB[k] + (ps.bKind[k] === BondKind.Tribute ? 1000 : 0), 1)
   if (cause === BondEnd.Freed && ps.og !== null) recordGrievance(s, ps, ps.og, GrievanceKind.BondThrownOff, ps.bB[k], ps.bA[k], OATH.wBond, ps.pCapital[ps.bA[k]], -1) // oaths: the overlord holds it
 }
 
@@ -153,7 +161,9 @@ export function protectorsOf(ps: PolityState, p: number): number[] {
 /** Terms at peace after a war of conquest that the attacker p did not finish: vassalage or tribute; returns the outcome to record (or `outcome`). */
 export function peaceTerms(s: HistoryState, ps: PolityState, p: number, q: number, outcome: number, vassalage: number, tribute: number): number {
   if (ps.pEnded[p] >= 0 || ps.pEnded[q] >= 0 || ps.pSub[p] >= 0 || overlordOf(ps, q) === p) return outcome
+  if (s.gov !== null && ps.pSub[q] >= 0 && ps.bKind[ps.pSub[q]] === BondKind.Charter) return outcome // governments: a free city keeps its charter (it can be conquered, not made a vassal)
   const adv = advantageAt(s, ps, p, q)
+  if (s.gov !== null && govTributeOnly(s.gov, p)) { if (adv >= VASSAL.tributeAdv && ps.pSub[q] < 0) { subject(s, ps, q, p, true); return tribute } return outcome } // governments: a merchant state takes trading privileges, not vassals
   if (adv >= VASSAL.vassalAdv && (ps.pMembers[q] >= VASSAL.vassalMembers || ps.pPeople[q] !== ps.pPeople[p])) { subject(s, ps, q, p, false); return vassalage }
   if (adv >= VASSAL.tributeAdv && ps.pSub[q] < 0) { subject(s, ps, q, p, true); return tribute }
   return outcome
@@ -164,7 +174,7 @@ export function overawe(s: HistoryState, ps: PolityState): void {
   const P = POLITY
   const alive = ps.alive.slice() // (member lists from absorption, just before: stale members are skipped)
   for (const p of alive) {
-    if (ps.pEnded[p] >= 0 || ps.pMembers[p] < P.absorbMembers || ps.pWars[p] > 0 || ps.pSub[p] >= 0 || ps.pOrigin[p] === PolityOrigin.League) continue
+    if (ps.pEnded[p] >= 0 || ps.pMembers[p] < P.absorbMembers || ps.pWars[p] > 0 || ps.pSub[p] >= 0 || ps.pOrigin[p] === PolityOrigin.League || (s.gov !== null && !govAbsorbable(s, p))) continue // (governments: a city does not bow whole)
     const c = ps.pCapital[p]
     let best = -1, bestR = 0
     const m0 = ps.memOff[p], m1 = ps.memOff[p + 1]
@@ -202,6 +212,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) { endBond(s, ps, k, BondEnd.Ended); continue }
     const kind = ps.bKind[k]
     if (kind === BondKind.Tribute) { if (s.year >= ps.bUntil[k]) endBond(s, ps, k, BondEnd.Lapsed); continue }
+    if (kind === BondKind.Charter) { if (s.gov !== null) govCharterBond(s, ps, s.gov, k); continue } // governments: a free city stops paying, or its charter is revoked
     if (kind === BondKind.Alliance) {
       const c = ps.bThreat[k]
       if (atWar(ps, a, b) || c < 0 || ps.pEnded[c] >= 0 || (relationOf(ps, a, c) < ALLIANCE.lapse && relationOf(ps, b, c) < ALLIANCE.lapse)) endBond(s, ps, k, BondEnd.Lapsed)
@@ -225,7 +236,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
 }
 
 /** The overlord b takes its vassal a in whole. */
-function absorbVassal(s: HistoryState, ps: PolityState, k: number, a: number, b: number, d: number): void {
+export function absorbVassal(s: HistoryState, ps: PolityState, k: number, a: number, b: number, d: number): void {
   endBond(s, ps, k, BondEnd.Absorbed)
   for (const j of subjectsOf(ps, a)) endBond(s, ps, j, BondEnd.Ended)
   if (ps.why) whyAbsorbed(ps.why, a, ps.pPop[b], ps.pPop[a], 1) // causes:
@@ -312,8 +323,8 @@ export function tributeFlows(s: HistoryState, ps: PolityState, inFood: Float64Ar
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
     const ca = ps.pCapital[a], cb = ps.pCapital[b]
     if (s.abandoned[ca] >= 0 || s.abandoned[cb] >= 0) continue
-    const share = kind === BondKind.Vassal ? VASSAL.share : VASSAL.tribute
-    const x = share * inFood[ca]
+    const share = kind === BondKind.Vassal ? VASSAL.share : kind === BondKind.Charter ? CITY.due : VASSAL.tribute // (governments: a free city's due, in money only)
+    const x = kind === BondKind.Charter ? 0 : share * inFood[ca]
     if (x > 0) { inFood[ca] -= x; inFood[cb] += x }
     if (s.fin !== null && FIN.divert) continue // (finance: tribute in coin is paid in the fiscal year, from treasury to treasury)
     const w = share * WEALTH.decay * s.wealth[ca]

@@ -52,6 +52,7 @@ import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
 import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
 import { c1WarDeclare, c6Peace } from '../compose.ts' // C1, C6 stacks
 import type { C1Factors } from '../compose.ts'
+import { govWarMul } from '../government/hooks.ts' // governments:
 import { ORDERS } from '../orders/params.ts' // orders:
 import { grievConquered, grudge, grudgeWarEnded, recordGrievance, strongestGrievance } from './grievances.ts' // oaths:
 import { put } from './grudgeState.ts' // oaths:
@@ -120,6 +121,8 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (og !== null) C1F.grudge = 1 + OATH.drive * g // oaths: p's grudge against q
       const money = s.fin !== null ? finWarDrive(s, ps, p) : undefined // finance: can the crown fund it (C1 factor 4)
       C1F.money = money
+      const fm = s.gov !== null ? govWarMul(s.gov, p, q) : undefined // governments: the form's appetite for war, and for trade wars (C1 factor 2)
+      C1F.form = fm
       if (oath) {
         // oaths: one 'history-oaths' draw per candidate, damped by the excess of breaking (oaths.ts, shadow.ts)
         const kase = inTruce ? OathCase.Truce : OathCase.AllyAttack
@@ -139,7 +142,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
         const ak = ps.og !== null && ps.og.arms ? armsAdv(ps, ps.og, r, p) : 1
         const bdrive = rv * crisisDrive(s, ps, s.bel, p, q, frontV, frontD, adv, ak) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
         if (bdrive <= 0) continue
-        const bmul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, 1, og !== null || money !== undefined ? C1F : undefined)
+        const bmul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, 1, og !== null || money !== undefined || fm !== undefined ? C1F : undefined)
         if (rng.next() >= POLITY.slowStep * WAR.declare * bdrive * bmul * BELIEF.pressMul) continue
         const motive = bargain(s, ps, s.bel, r, p, q)
         if (motive === 0) continue
@@ -153,7 +156,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       }
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
+      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null || money !== undefined || fm !== undefined ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge; finance: money
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       if (ps.why) whyPending(ps.why, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r], adv, e, mul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0, frontV, drive) // causes:
       const w0 = ps.wKind.length

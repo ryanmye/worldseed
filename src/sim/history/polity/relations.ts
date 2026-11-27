@@ -11,6 +11,8 @@
 // Pairs are kept in arrays in creation order (the Map is for lookup only); a pair whose polity ended is
 // skipped. The border edges of each pair this step are kept for the war rules.
 
+import { govRivalry } from '../government/hooks.ts' // governments:
+import { CITY } from '../government/params.ts' // governments:
 import { BELIEF } from '../beliefs/params.ts' // beliefs:
 import { forgedRivalry } from '../beliefs/deception.ts' // beliefs:
 import type { HistoryState } from '../state.ts'
@@ -126,6 +128,7 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     if (ps.og !== null && ps.og.oaths) { tg = grudgeRivalry(ps.og, a, b); tr = repRivalry(ps.og, a, b); d += tg + tr }
     if (s.bel !== null && BELIEF.forgery) d += forgedRivalry(s.bel, r) // beliefs: forged claims stir the quarrel
     x += step * d
+    if (s.gov !== null && ps.relEdges[r].length > 0) x += govRivalry(s.gov, a, b, step, CITY.tradeRival) // governments: trade rivals (Venice and Genoa)
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x
     if (ps.why) whyRivalry(ps.why, r, step, X.decay, ps.relR[r], tc, contested[r], CLAIM.dispute * ps.relDispute[r], tdf, th, tw, tt, tm, tf, tg, tr) // causes:
   }

@@ -6,6 +6,9 @@
 // territory is a function of membership and the territory map (territory.ts). Polity ids are assigned
 // in founding order and never reused, so they are prefix-stable.
 
+import { govReachMul } from '../government/hooks.ts' // governments:
+import { govLocal } from '../government/system.ts' // governments:
+import type { C4Factors } from '../compose.ts'
 import { BondEnd, BondKind, EventType, PolityEnd, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import type { PolityOrigin } from '../../../contract.ts'
 import type { Rng } from '../../rng.ts'
@@ -21,6 +24,7 @@ import { armsQuality } from '../goods/hooks.ts' // goods:
 import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
 import { socNewPolity } from '../society/system.ts' // society:
+import { govAfterRuler, govNewPolity } from '../government/system.ts' // governments:
 import { c4Reach } from '../compose.ts' // C4 stack
 import type { GrudgeState } from './grudgeState.ts' // oaths, balance, arms:
 import { grudgeEnded, grudgeNewPolity } from './grievances.ts' // oaths:
@@ -643,15 +647,21 @@ export function isCapital(ps: PolityState, id: number): boolean {
 export function localOf(s: HistoryState, ps: PolityState, id: number): number {
   let x = ps.asab[id] * ps.str[id] * ps.defense[s.cell[id]] * wallFactor(ps, id, isCapital(ps, id))
   if (s.ideas !== null && ps.walls[id] > 0) x *= ideaDefence(s.ideas, s.people[id]) // ideas: fortification
+  if (s.gov !== null) { const p = ps.polity[id]; if (p >= 0 && ps.pCapital[p] === id) x *= govLocal(s, s.gov, p, id) } // governments: a rich city's capital hires mercenaries
   return ps.fort[id] >= 0 ? x * (1 + FORT.bonus) : x // (v2: a fort on its border)
 }
+
+/** C4 factors (scratch). */
+const C4F: C4Factors = {}
 
 /** Reach lambda_p (cost units) of polity p with `members` members. */
 export function reachOf(s: HistoryState, p: number, people: number, members: number): number {
   const crafts = s.tech[people * TECH_FIELD_COUNT + TechField.Crafts]
-  void p
   const r = (POLITY.lambda0 * s.terrain.cellScale * (1 + POLITY.reachCrafts * (crafts - 1))) / Math.sqrt(1 + members / POLITY.overload)
-  return c4Reach(s.ideas !== null ? r * ideaAdmin(s.ideas, people) : r) // ideas: writing, law codes, roads, paper; C4 (compose.ts)
+  const rr = s.ideas !== null ? r * ideaAdmin(s.ideas, people) : r // ideas: writing, law codes, roads, paper
+  const gf = s.gov !== null ? govReachMul(s.gov, p) : undefined // governments: a small contado, not provinces (C4 factor 1)
+  if (gf !== undefined) { C4F.form = gf; return c4Reach(rr, C4F) }
+  return c4Reach(rr) // C4 (compose.ts)
 }
 
 /** True while polity p is in a succession crisis. */
@@ -737,7 +747,9 @@ export function newPolity(s: HistoryState, ps: PolityState, capital: number, ori
   setPolity(s, ps, capital, p, 0)
   logEvent(s, EventType.PolityFounded, capital, parent >= 0 ? ps.pCapital[parent] : -1, p)
   if (s.soc !== null) socNewPolity(s.soc, p, origin, parent) // society: its elites from the parent
+  if (s.gov !== null) govNewPolity(s, ps, s.gov, p) // governments: its founding form (before the rulers: an elected form elects a head)
   if (s.rul !== null) rulerNewPolity(s, ps, s.rul, p) // rulers: its first ruler
+  if (s.gov !== null) govAfterRuler(s, s.gov, p) // governments: the founding row's reign
   if (ps.og !== null && parent >= 0) grudgeNewPolity(s, ps, ps.og, p, parent) // oaths: a successor takes up its parent's grievances
   return p
 }

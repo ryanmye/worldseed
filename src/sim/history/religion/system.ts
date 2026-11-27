@@ -20,6 +20,8 @@
 // faiths, most of all on the holder of its holy city), pilgrims' wealth at holy cities, and monasteries (technology links
 // between peoples of one universal faith). Draws only from 'history-religion'.
 
+import { govOf } from '../government/hooks.ts' // governments:
+import { GOV } from '../government/params.ts' // governments:
 import { EventType, FaithKind, JourneyKind, RivalryPart, TECH_FIELD_COUNT, TOWN_POPULATION } from '../../../contract.ts'
 import { whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
@@ -815,6 +817,7 @@ export function holyDrive(s: HistoryState, rel: ReligionState, p: number, q: num
   const h = rel.holy[sf]
   const ps = s.pol
   if (ps !== null && h >= 0 && h < ps.seen && s.abandoned[h] < 0 && ps.polity[h] === q) m += X.crusade
+  if (s.gov !== null) { const g = GOV.holy[govOf(s.gov, p)]; if (g !== 1) m *= g } // governments: a theocracy's zeal
   return m
 }
 

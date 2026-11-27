@@ -11,6 +11,7 @@
 // and splits when the senior's succession is not clean (a new house, a crisis), when the junior throws off the bond, or
 // when the senior realm ends.
 
+import { govElected } from '../government/hooks.ts' // governments:
 import { AccessionHow, BondEnd, BondKind, EventType, PolityEnd, PolityOrigin, ReignEnd, TOWN_POPULATION, UnionEnd } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { logEvent } from '../state.ts'
@@ -125,7 +126,7 @@ export function extinctClaim(s: HistoryState, ps: PolityState, R: RulerState, p:
   const rng = R.rng
   let subjects = false // (a realm with vassals of its own does not pass into a union: they would pass to the senior)
   for (const k of ps.activeBonds) if (ps.bKind[k] !== BondKind.Alliance && ps.bB[k] === p) subjects = true
-  const can = !subjects && R.union[q] < 0 && ps.pSub[q] < 0 && !atWar(ps, p, q) && ps.pOrigin[p] !== PolityOrigin.League && !isSenior(R, p) && inContact(s, ps.pPeople[p], ps.pPeople[q])
+  const can = !subjects && R.union[q] < 0 && ps.pSub[q] < 0 && !atWar(ps, p, q) && !(s.gov !== null ? govElected(s.gov, p) : ps.pOrigin[p] === PolityOrigin.League) && !isSenior(R, p) && inContact(s, ps.pPeople[p], ps.pPeople[q])
   if (can && rng.next() < MARRIAGE.union * bc) { formUnion(s, ps, R, q, p); return true }
   // Passed over: the great men raise a house of their own; the claimant may fight for the throne.
   R.diag.passedOver++

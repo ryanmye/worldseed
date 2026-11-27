@@ -15,6 +15,7 @@
 // accreteMax per polity per step, the most dominated first (logged as Joined only for towns).
 // Absorption: a chiefdom whose capital would submit to a much larger neighbouring polity joins it whole.
 
+import { govAbsorbable } from '../government/hooks.ts' // governments:
 import { EventType, PolityEnd, PolityOrigin, TOWN_POPULATION } from '../../../contract.ts'
 import { whyAbsorbed } from '../why.ts' // causes:
 import type { HistoryState } from '../state.ts'
@@ -160,7 +161,7 @@ export function absorption(s: HistoryState, ps: PolityState): void {
   rebuildMembers(s, ps)
   const alive = ps.alive.slice()
   for (const p of alive) {
-    if (ps.pEnded[p] >= 0 || ps.pMembers[p] >= P.absorbMembers || ps.pWars[p] > 0 || ps.pOrigin[p] === PolityOrigin.League) continue // (v2: leagues do not bow whole)
+    if (ps.pEnded[p] >= 0 || ps.pMembers[p] >= P.absorbMembers || ps.pWars[p] > 0 || ps.pOrigin[p] === PolityOrigin.League || (s.gov !== null && !govAbsorbable(s, p))) continue // (v2: leagues do not bow whole; governments: nor do cities, GOV.absorb 0)
     const c = ps.pCapital[p]
     // Neighbouring polities of the members.
     let best = -1, bestR = 0, bestD = 0

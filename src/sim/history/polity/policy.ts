@@ -34,6 +34,7 @@
 // A major route that closes for danger is TradeForsaken; when it opens again, TradeRestored. Open routes re-path round danger
 // (and back when it falls) at every full refresh: reroute.ts.
 
+import { govEmbargo, govTariff } from '../government/hooks.ts' // governments:
 import { EventType, TECH_FIELD_COUNT, TechField } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
@@ -160,12 +161,12 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
     if (ps.relEdges[r].length > 0) { if (x > maxR[a]) maxR[a] = x; if (x > maxR[b]) maxR[b] = x }
     // Embargo short of war (with hysteresis); never between a vassal and its overlord. Recorded in History.embargoes.
     if (ps.relEmb[r] === 0) {
-      if (x >= X.embargoOn && !bound(ps, a, b)) {
+      if (x >= (s.gov !== null ? X.embargoOn * govEmbargo(s.gov, a, b) : X.embargoOn) && !bound(ps, a, b)) { // (governments: merchant states embargo sooner)
         ps.relEmb[r] = 1
         ps.relEmbRec[r] = ps.embA.length
         ps.embA.push(a); ps.embB.push(b); ps.embStart.push(s.year); ps.embEnd.push(-1)
       }
-    } else if (x < X.embargoOff || bound(ps, a, b)) {
+    } else if (x < (s.gov !== null ? X.embargoOff * govEmbargo(s.gov, a, b) : X.embargoOff) || bound(ps, a, b)) {
       ps.relEmb[r] = 0
       const k = ps.relEmbRec[r]
       if (k >= 0) { ps.embEnd[k] = s.year; ps.relEmbRec[r] = -1 }
@@ -179,6 +180,7 @@ export function tariffStep(s: HistoryState, ps: PolityState): void {
     if (mr > 1) mr = 1
     const fy = s.fin !== null ? finNeedYears(s, p) : NaN // finance: the treasury in years of revenue
     let target = X.base[tier] + (ps.pWars[p] > 0 ? X.war : 0) + X.need * (fy === fy ? smoothstep(FIN.needHigh, FIN.needLow, fy) : smoothstep(X.needHigh, X.needLow, w)) + X.rivalry * mr
+    if (s.gov !== null) { const gt = govTariff(s.gov, p); if (gt !== 1) target *= gt } // governments: open entrepots
     if (target > X.max) target = X.max
     ps.pTariff[p] += k * (target - ps.pTariff[p])
   }

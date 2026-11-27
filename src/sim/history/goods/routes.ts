@@ -20,6 +20,7 @@
 // polities: both searches price each cell at (1 + WAYRISK.path * the merchants' risk there) of its step (policy.ts), so a
 // lane bends round pirate waters and war zones when it can.
 
+import { govUrge } from '../government/hooks.ts' // governments:
 import { EventType, GOOD_COUNT, JourneyKind, LegKind, PostKind, SecretKind, StructureType, TECH_FIELD_COUNT, TechField, LeakChannel } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { EXPLORE, EXPEDITION_COST, MIGRATION, TRADE } from '../params.ts'
@@ -186,7 +187,8 @@ export function routePass(s: HistoryState, g: GoodsState, ts: TradeState, es: Ex
       const gd = g.vGood[bv]
       const Pi = best * CLASS.worth[gd]
       const half = LANE.half * CLASS.worth[gd]
-      g.urge[h] += 10 * LANE.urge * (Pi / (Pi + half)) * smoothstep(0.3, 0.7, f) * (1 + LANE.tech * (driveTech(s, h) - 1))
+      const du = 10 * LANE.urge * (Pi / (Pi + half)) * smoothstep(0.3, 0.7, f) * (1 + LANE.tech * (driveTech(s, h) - 1))
+      g.urge[h] += s.gov !== null && hp >= 0 ? du * govUrge(s.gov, hp) : du // (governments: republics and free cities send lanes and posts, not armies)
     }
     if (g.urge[h] < 1 || s.year < g.urgeNext[h]) continue
     tradeExpedition(s, g, ts, es, h, bv, port || !byLand)

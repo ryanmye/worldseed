@@ -23,17 +23,17 @@ export const CITY = {
   /** Member-town gates (§4.4). */
   minPop: 2000,
   settle: 20,
-  rich0: 0.3,
+  rich0: 0.2,
   rich1: 1.0,
-  mHead: 3,
+  mHead: 2,
   mHead1: 20,
   /** A rising when the town's force over the crown's suppression phi >= defy; chance step * rise * omega * (0.5 + 0.5 delta) * (1 + need). */
   defy: 0.8,
-  rise: 0.006,
+  rise: 0.012,
   /** A crushed rising: this share of the merchants' capital lost (fled or fined). */
   crushMerch: 0.4,
   /** A charter: chance step * charter * omega * need * (0.5 + 0.5 delta); the price price * (wealth + merchant capital). */
-  charter: 0.01,
+  charter: 0.06,
   price: 0.25,
   /** Contado: neighbours with pop <= contado * the city's (and below TOWN_POPULATION), nearer the city than their capital. */
   contado: 0.3,
@@ -48,7 +48,7 @@ export const CITY = {
   revokeChance: 0.004,
   /** Stateless free towns (§4.6). */
   freePop: 1500,
-  free: 0.06,
+  free: 0.03,
   freePop1: 4000,
   freeTrade: 0.3,
   /** Councils at a succession (§4.7): members <= councilMembers, trade_c >= councilTrade, m_c >= councilHead; chance council * smoothstep(councilHead, councilHead1, m_c). */
