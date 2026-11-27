@@ -7,6 +7,7 @@ import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts
 import { runHistory } from '../index.ts'
 import type { HistoryState } from '../state.ts'
 import { RESORT, SIGHT } from './params.ts'
+import { withoutLater } from '../laterFields.ts'
 
 const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows'])
 
@@ -27,6 +28,7 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field that exists without the tourism system (every key; settlements without `resort`, events without the tourism events). */
 export function hashPreTourism(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && !TOURISM_KEYS.has(x) && x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions' && x !== 'landmarks' && x !== 'why').sort()) { // (renaming, ideas, landmarks: later than tourism)

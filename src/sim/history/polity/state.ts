@@ -21,6 +21,9 @@ import { armsQuality } from '../goods/hooks.ts' // goods:
 import { ideaAdmin, ideaDefence, ideaWar } from '../ideas/hooks.ts' // ideas:
 import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers:
 import { c4Reach } from '../compose.ts' // C4 stack
+import type { GrudgeState } from './grudgeState.ts' // oaths, balance, arms:
+import { grudgeEnded, grudgeNewPolity } from './grievances.ts' // oaths:
+import { finPolityEnded } from '../finance/system.ts' // finance:
 import type { WhyRec } from '../why.ts' // causes:
 
 /** Never: a year long before any. */
@@ -130,6 +133,8 @@ export interface PolityState {
   pBlockade: Int32Array
   /** Leagues: year since which its members have been safe (-1 not). */
   pCalm: Int32Array
+  /** finance: the army's pay factor (1 paid; less while its soldiers go unpaid), read in projAt; always 1 with finance off. */
+  pPay: Float64Array
   /** The market's view of the trade pairs (policy.ts; refreshed every step and when the pairs change), and the capitals this year (1, listed). */
   policy: unknown
   /** Year of the last flush of the market's accounts (outlaw.ts flushAccounts). */
@@ -326,6 +331,8 @@ export interface PolityState {
   laneDirty: boolean
   /** Counters for the stats harness. */
   diag: PolityDiag
+  /** Grudges and oaths, balance of threat, arms races (grudgeState.ts; null when HistoryOptions.oaths, balance and arms are all off). */
+  og: GrudgeState | null
 }
 
 export interface PolityDiag {
@@ -442,13 +449,14 @@ export function createPolityState(s: HistoryState): PolityState {
   const v2 = {
     lawless: f64(cap), bandit: f64(cap), corrupt: f64(cap), smugYear: f64(cap), smugSm: f64(cap), incSm: f64(cap), pir: f64(cap), lane: f64(cap), pirRose: new Uint8Array(cap), taker: new Uint8Array(cap), ringDone: new Uint8Array(cap), fort: i32(cap, -1),
     hubBest: f64(cap), hubGood: i32(cap), hubPol: i32(cap, -1),
-    pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
+    pTariff: f64(pcap), pRevYear: f64(pcap), pRevSm: f64(pcap), pSub: i32(pcap, -1), pPorts: i32(pcap), pBlockade: i32(pcap, -1), pCalm: i32(pcap, -1), pPay: new Float64Array(pcap).fill(1), scratchPol: f64(pcap), scratchPol2: i32(pcap), policy: null, flushYear: 0, capMark: new Uint8Array(cap), capList: [], watch: new Uint8Array(cap), watchList: [], havens: [],
     bKind: [], bA: [], bB: [], bStart: [], bEnd: [], bCause: [], bUntil: [], bThreat: [], activeBonds: [],
     rPir: f64(256), rPirBy: i32(256, -1), rBand: f64(256), rBandBy: i32(256, -1), rSea: i32(256, -1), rSmug: f64(256), rLoss: f64(256), outRoutes: [], lossRoutes: [],
     nearRoutes: 0, nearOff: new Int32Array(1), nearId: new Int32Array(0), legAcc: new Float64Array(4), worldPop: 0,
     cellOut: new Float32Array(N), outCells: [], outFree: [], exId: [], exZ: [], exBy: [], exMark: i32(cap, -1), seaNearOff: null, seaNearCell: null,
     wayRisk: new Float32Array(N), wayYear: -1, waySea: [], seaZ: new Float32Array(N), seaZCells: [], rRisk: f64(256), rCause: new Int8Array(256), rPeak: f64(256), rForsaken: i32(256, -1), rRe: i32(256, -1), rTry: i32(256, -1), rTryCost: f64(256), rOrig: [] as number[][], laneDirty: false,
     cPol: new Int32Array(N).fill(-1), cOwner: new Int32Array(N).fill(-1), cKey: new Float64Array(N), cPeak: new Float32Array(N), cDisp: new Int32Array(N).fill(-1), relDispute: [], relDisputeOn: [], claimYear: -1,
+    og: null,
   }
   return Object.assign(base, v2) as PolityState
 }
@@ -541,6 +549,7 @@ function ensurePolities(ps: PolityState, need: number): void {
   ps.pPorts = grow(ps.pPorts, size)
   ps.pBlockade = grow(ps.pBlockade, size, -1)
   ps.pCalm = grow(ps.pCalm, size, -1)
+  ps.pPay = grow(ps.pPay, size, 1)
   ps.scratchPol = grow(ps.scratchPol, size)
   ps.scratchPol2 = grow(ps.scratchPol2, size)
   ps.pcap = size
@@ -654,7 +663,7 @@ export function projAt(ps: PolityState, p: number, d: number): number {
   const wars = ps.pWars[p]
   let e = ps.pExh[p]
   if (e > 1) e = 1
-  return (ps.pMass[p] * grip(d, ps.pReach[p])) / (1 + POLITY.multiWar * (wars > 1 ? wars - 1 : 0)) * (1 - POLITY.exhaustionProj * e)
+  return (ps.pMass[p] * grip(d, ps.pReach[p])) / (1 + POLITY.multiWar * (wars > 1 ? wars - 1 : 0)) * (1 - POLITY.exhaustionProj * e) * ps.pPay[p] // (finance: unpaid armies fight worse; x * 1 is exact)
 }
 
 /** The submission test: does settlement j submit to power `proj` of a polity of people `people` (alpha the threshold)? */
@@ -720,12 +729,14 @@ export function newPolity(s: HistoryState, ps: PolityState, capital: number, ori
   ps.pPorts[p] = 0
   ps.pBlockade[p] = -1
   ps.pCalm[p] = -1
+  ps.pPay[p] = 1
   ps.pCapIds.push([capital])
   ps.pCapYears.push([s.year])
   ps.alive.push(p) // (ids ascend)
   setPolity(s, ps, capital, p, 0)
   logEvent(s, EventType.PolityFounded, capital, parent >= 0 ? ps.pCapital[parent] : -1, p)
   if (s.rul !== null) rulerNewPolity(s, ps, s.rul, p) // rulers: its first ruler
+  if (ps.og !== null && parent >= 0) grudgeNewPolity(s, ps, ps.og, p, parent) // oaths: a successor takes up its parent's grievances
   return p
 }
 
@@ -767,6 +778,8 @@ export function endPolity(s: HistoryState, ps: PolityState, p: number, cause: Po
     ps.activeBonds.splice(j, 1)
   }
   if (s.rul !== null) rulerPolityEnded(s, ps, s.rul, p) // rulers: the reign ends with the realm
+  if (ps.og !== null) grudgeEnded(s, ps, ps.og, p, cause, by) // oaths: wrongs against it die with it, or pass to its absorber
+  if (s.fin !== null) finPolityEnded(s, ps, s.fin, p, cause, by) // finance: its debts pass to an absorber, or are lost
   logEvent(s, EventType.PolityEnded, ps.pCapital[p], by, p)
 }
 

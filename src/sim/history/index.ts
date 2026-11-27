@@ -128,6 +128,14 @@ import type { TechState } from './technology.ts'
 import { POLITY } from './polity/params.ts'
 import { createPolitySystem, politySystem, taxSystem } from './polity/system.ts'
 import { assemblePolityHistory, createSnaps, emptyPolityHistory, polLandSnapshot, polSnapshot, polTradeSnapshot } from './polity/assemble.ts'
+import { createGrudgeState } from './polity/grudgeState.ts'
+import type { GrudgeDiag } from './polity/grudgeState.ts'
+import type { FinanceDiag } from './finance/state.ts' // oaths, balance, arms:
+import { assembleGrudges, grudgeSnapshot } from './polity/grudgeAssemble.ts' // oaths, balance, arms:
+import { ALIGN, ARMS, OATH } from './polity/params.ts' // oaths, balance, arms:
+import { FIN } from './finance/params.ts' // finance:
+import { createFinance } from './finance/state.ts' // finance:
+import { assembleFinance, emptyFinanceHistory, finSnapshot, finTradeSnapshot } from './finance/assemble.ts' // finance:
 import type { PolityDiag } from './polity/state.ts'
 // goods: worked goods, specialities, stocks and merchants, long-haul trade, posts, secrets, smuggling (goods/).
 import { GOODS_ON } from './goods/params.ts'
@@ -279,8 +287,12 @@ export interface HistoryDiagnostics {
   diseaseState?: DiseaseState
   /** rulers: counters of the rulers system (absent when it is off). */
   rulers?: RulerDiag
+  /** oaths, balance, arms: their counters (absent when all three are off). */
+  grudges?: GrudgeDiag
   /** battles: counters of the battles system (absent when it is off). */
   battles?: BattleDiag
+  /** finance: its counters (absent when it is off). */
+  finance?: FinanceDiag
   /** religion: counters of the religion system, and the year each settlement first followed a universal faith in its majority (-1). */
   religion?: ReligionDiag & { firstUniversal: Int32Array }
   /** tourism: the tourism system's counters (absent when it is off). */
@@ -482,6 +494,11 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // polities: the polity system (states, war, danger), unless switched off.
   const pol = (options?.polities ?? POLITY.enabled) ? createPolitySystem(s, trade) : null
   s.pol = pol
+  // oaths, balance, arms (grudges-and-oaths): grievances and oaths, balance of threat, arms races (need the polities), unless off.
+  if (pol) {
+    const oaths = options?.oaths ?? OATH.enabled, balance = options?.balance ?? ALIGN.enabled, arms = options?.arms ?? ARMS.enabled
+    if (oaths || balance || arms) pol.og = createGrudgeState(seed, oaths, balance, arms)
+  }
   const polSnaps = pol ? createSnaps(pol) : null
   // goods: the goods system, unless switched off.
   const gx = (options?.goods ?? GOODS_ON) ? createGoodsSystem(s, trade) : null
@@ -492,6 +509,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // battles: every contest of a war a recorded battle (needs the polities), unless switched off.
   const bat = pol && (options?.battles ?? BATTLES_ON) ? createBattles(s) : null
   s.bat = bat
+  // finance: crown treasuries and loans (they need the polities), unless switched off.
+  if (pol && (options?.finance ?? FIN.enabled)) s.fin = createFinance(seed, s.count)
+  const fin = s.fin
   // religion: faiths, unless switched off.
   const rel = (options?.religion ?? RELIGION.enabled) ? createReligionSystem(s) : null
   s.rel = rel
@@ -589,6 +609,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     techUsed += PF
     speciesV2Snapshot(s) // species-v2: habit, storable
     if (pol && polSnaps) polSnapshot(s, pol, polSnaps) // polities:
+    if (pol && pol.og) grudgeSnapshot(pol, pol.og) // oaths, arms: faithless, armament
+    if (pol && fin) finSnapshot(s, pol, fin) // finance:
     if (gx) merchantSnapshot(s, gx) // goods: merchant capital
     if (dz) diseaseSnapshot(dz) // disease:
     if (rel) religionSnapshot(s, rel) // religion:
@@ -609,6 +631,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     volUsed += n
     for (let g = 0; g < GOOD_COUNT; g++) goodVolume.push(trade.goodYear[g])
     if (pol && polSnaps) polTradeSnapshot(pol, trade, polSnaps) // polities: (v2) contraband and losses per route
+    if (fin) finTradeSnapshot(fin) // finance: loan balances
     if (gx) goodsSnapshot(s, gx, trade) // goods:
     if (tz) tourismSnapshot(s, tz, volOff.length - 1) // tourism: visitors per pair
   }
@@ -765,6 +788,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         crop: crop.slice(0, landSnapshotCount * N), herd: herd.slice(0, landSnapshotCount * N),
         cash: cash.slice(0, landSnapshotCount * N), ...v2, // species-v2
         ...polHist, // polities:
+        ...assembleGrudges(pol, snapshotCount), // oaths, balance, arms: (empty when off)
+        ...(pol && fin ? assembleFinance(fin, pol.P, snapshotCount, tradeSnapshotCount) : emptyFinanceHistory()), // finance: (empty when off)
         ...goodsHist, // goods:
         merchantWealth: gx ? assembleMerchants(gx, snapshotCount, S) : new Float32Array(0), // goods: merchant capital
         ...diseaseHist, // disease:
@@ -800,7 +825,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         disease2: dz ? { ...dz.diag, army: dz.diag.army.slice(), spent: dz.diag.spent.slice(), epiDead: dz.diag.epiDead.slice(), endDead: dz.diag.endDead.slice(), feverDead: dz.diag.feverDead.slice() } : undefined, // disease:
         diseaseState: dz ?? undefined, // disease:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
+        grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
         battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
+        finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         religion: rel ? { ...rel.diag, firstUniversal: rel.firstUni.slice(0, S) } : undefined, // religion:
         tourism: tz ? { ...tz.diag, spendDecade: tz.diag.spendDecade.slice() } : undefined, // tourism:
         renaming: rn ? { ...rn.diag } : undefined, // renaming:

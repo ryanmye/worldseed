@@ -52,6 +52,10 @@ export type EventKind = 'founded' | 'abandoned' | 'famine' | 'migration' | 'buil
   | 'polity' | 'joined' | 'war' | 'peace' | 'conquest' | 'sack' | 'raid' | 'revolt' | 'walls'
   // polities, second version: civil wars, bonds, the outlaw economy, forts
   | 'civilwar' | 'vassal' | 'alliance' | 'smuggle' | 'pirate' | 'blockade' | 'fort'
+  // oaths, arms: broken faith, arms races
+  | 'betrayal' | 'arms'
+  // finance: loans, defaults, bankrupt wars
+  | 'money'
   // battles (battleFormat.ts): battles, sieges, commanders
   | 'battle'
   // claims: border disputes

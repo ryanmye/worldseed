@@ -34,6 +34,7 @@ import { FAR, clampAsab, endPolity, grip, inCrisis, moveCapital, projAt, setPoli
 import type { PolityState } from './state.ts'
 import { faithGrievance } from '../religion/system.ts' // religion:
 import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
+import { finTaxGrief } from '../finance/hooks.ts' // finance:
 
 /** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
@@ -51,7 +52,7 @@ export function cohesionStep(s: HistoryState, ps: PolityState): void {
 }
 
 /** Grievance terms of member i of polity p, grouped: [peasant, provincial, ethnic, colonial]. */
-const terms = new Float64Array(5) // (religion: [4] religious)
+const terms = new Float64Array(6) // (religion: [4] religious; finance: [5] taxes)
 function grievance(s: HistoryState, ps: PolityState, i: number, p: number): number {
   const U = UNREST
   const g = ps.dist[i] < FAR ? grip(ps.dist[i], ps.pReach[p]) : 0
@@ -70,14 +71,18 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
   if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
-  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
-  return c2Grievance(peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
+  // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
+  const tax = s.fin !== null ? finTaxGrief(s, p) : 0
+  terms[5] = tax
+  if (tax > 0 && ps.why) ps.why.sub[UnrestPart.Taxes] = tax // causes:
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(tax > 0 ? peasant + provincial + ethnic + colonial + r + tax : peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
+  return c2Grievance(tax > 0 ? peasant + provincial + ethnic + colonial + tax : peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
 }
 
 function causeOf(): number {
   let c = 0
-  for (let k = 1; k < 5; k++) if (terms[k] > terms[c]) c = k // (religion: terms[4] stays 0 without it)
-  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : c === 3 ? RevoltCause.Colonial : RevoltCause.Religious
+  for (let k = 1; k < 6; k++) if (terms[k] > terms[c]) c = k // (religion: terms[4], finance: terms[5] stay 0 without them)
+  return c === 0 ? RevoltCause.Peasant : c === 1 ? RevoltCause.Provincial : c === 2 ? RevoltCause.Ethnic : c === 3 ? RevoltCause.Colonial : c === 4 ? RevoltCause.Religious : RevoltCause.Taxes
 }
 
 /** System part (every step): grievance, unrest and assimilation of members. */

@@ -28,7 +28,8 @@
 
 import * as THREE from 'three'
 import type { History, World } from '../contract.ts'
-import { BondKind, BondEnd, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
+import { BondKind, BondEnd, EventType, PolityOrigin, routePathAt, WarOutcome } from '../contract.ts'
+import { grudgeSection } from './grudgesPanel.ts' // oaths, balance, arms:
 import { buildPolityLayer, PolityView, type PolityLayer } from '../render/polities.ts'
 import { buildOutlawLayer, type OutlawLayer } from '../render/outlaws.ts'
 import { tradeNetwork } from '../render/routeCurves.ts'
@@ -39,6 +40,7 @@ import { ViewMode } from '../render/palette.ts'
 import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
+import { crownAt } from './politiesData.ts' // finance:
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
@@ -301,6 +303,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
     if (!data) return PolityView.Off
     if (viewMode === ViewMode.Factions) return PolityView.Political
     if (viewMode === ViewMode.Danger) return PolityView.Danger
+    if (viewMode === ViewMode.Credit) return PolityView.Credit // finance:
     if (viewMode === ViewMode.Terrain && layerOn) return PolityView.Tint
     return PolityView.Off
   }
@@ -690,6 +693,14 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         const spark = tariffSpark(pd, selected)
         if (spark) t.append(spark)
       }
+      // finance: the crown's purse, debts and credit (History.treasury, crownDebt, creditRate)
+      const cr = crownAt(pd, selected, s0)
+      if (cr && cr.revenue >= 5) {
+        const parts = [`Treasury ${formatPopulation(Math.max(0, cr.treasury))}` + (cr.treasury < 0 ? ` (${formatPopulation(-cr.treasury)} in arrears)` : ''), `revenue ${formatPopulation(cr.revenue)} a year`]
+        if (cr.debt > 0) parts.push(`debts ${formatPopulation(cr.debt)}`)
+        parts.push(cr.rate === null ? 'no credit' : `borrows at ${Math.round(cr.rate * 100)}%`)
+        line(parts.join(' · ')).classList.add('fp-tariff')
+      }
       // embargoes in force (History.embargoes): drawn as a dashed amber border where the two meet
       for (const em of embargoesOn(pd, selected, year)) line('Under embargo with ', polityLink(em.other, pd.names[em.other]), ` since ${em.since}`).classList.add('fp-embargo')
       // goods: secrets held, lanes and trading posts (goodsPanel.ts)
@@ -766,7 +777,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       for (const b of shown) {
         const o = other(b)
         const kind = B.kind[b]
-        const endW = B.end[b] === BondEnd.Freed ? (B.a[b] === selected ? ', thrown off' : ', which threw it off') : B.end[b] === BondEnd.Absorbed ? ', absorbed' : ''
+        const endW = B.end[b] === BondEnd.Freed ? (B.a[b] === selected ? ', thrown off' : ', which threw it off') : B.end[b] === BondEnd.Absorbed ? ', absorbed' : B.end[b] === BondEnd.Betrayed ? (betrayerOf(b) === selected ? ', it betrayed' : ', betrayed by it') : ''
         const d = line()
         d.classList.add('fp-faint')
         if (kind === BondKind.Alliance) d.append('Allied with ', polityLink(o, pd.names[o]))
@@ -776,6 +787,8 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       }
       if (past.length > shown.length) line(`and ${past.length - shown.length} earlier bonds`).classList.add('fp-faint')
     }
+    // oaths, balance, arms: grudges held and borne, faithlessness, arms and races, coalitions (grudgesPanel.ts)
+    grudgeSection(h, pd, selected, year, s0, { cap, line, polityLink })
     // family tree: ancestors, this, successors (founded by now), each successor with its origin
     const anc: number[] = []
     for (let a = x.parent; a >= 0 && anc.length < 8; a = pd.list[a].parent) anc.unshift(a)
@@ -866,6 +879,20 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const r = line(`Revolts: ${revolts}` + (crushed ? `, ${crushed} crushed` : '') + (seceded ? `, ${seceded} broke away` : '') + ' · last at ')
       r.append(settLink(e.settlement), ` (${e.year})`)
     }
+  }
+
+  /** oaths: the polity that broke alliance bond b (BondEnd.Betrayed): the Betrayal or OathBroken (extra 1) of its end year (-1 unknown). */
+  function betrayerOf(b: number): number {
+    const pd = data!
+    const B = pd.bonds!
+    const h = pd.history
+    for (const q of [B.a[b], B.b[b]]) for (const i of pd.eventsOf[q]) {
+      const e = h.events[i]
+      if (e.year !== B.endYear[b] || !(e.type === EventType.Betrayal || (e.type === EventType.OathBroken && e.extra === 1))) continue
+      const p = polityAtYear(pd, e.settlement, e.year)
+      if (p === B.a[b] || p === B.b[b]) return p
+    }
+    return -1
   }
 
   /** The common rival of alliance bond b: from the Alliance event that made it (-1 unknown). */
@@ -1146,6 +1173,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       root.classList.toggle('hidden', !data)
       deps.setViewModeAvailable?.(ViewMode.Factions, !!data)
       deps.setViewModeAvailable?.(ViewMode.Danger, !!data?.land?.danger)
+      deps.setViewModeAvailable?.(ViewMode.Credit, !!data && (data.history.creditRate?.length ?? 0) > 0) // finance:
       if (data && !toggle && deps.addLayerToggle) {
         // the layer toggle appears with the first history that has factions
         toggle = deps.addLayerToggle({

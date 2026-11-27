@@ -6,6 +6,8 @@
 
 import { DISASTER_T, yearDisasterLines } from './disasters.ts' // disasters:
 import { CITY_POPULATION, EventType, FeatureKind, WarKind } from '../../contract.ts'
+import { GRUDGE_T, grudgeYearLines } from './grudges.ts' // oaths, arms:
+import { FIN_T, financeYearLines } from './finance.ts' // finance:
 import { Ctx, topBy } from './facts.ts'
 import { DIVINE_T, divineSummary, omensOfYears, omenText, OMEN_T } from './omens.ts'
 import { Refs } from './refs.ts'
@@ -58,7 +60,7 @@ const MILESTONES = ['pottery', 'wheel', 'iron', 'writing', 'coinage', 'paper', '
 
 export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worldName: string): Saga {
   const h = c.h
-  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T, DIVINE_T, DISASTER_T)
+  const v = new Voice(c.seed, `years:${a0}:${span}`, legend, T, OMEN_T, DIVINE_T, DISASTER_T, GRUDGE_T, FIN_T)
   const a = Math.max(0, a0)
   const b = Math.min(a + span - 1, c.Y)
   const kind = span === 1 ? 'year' : 'decade'
@@ -98,6 +100,8 @@ export function yearSaga(c: Ctx, a0: number, span: number, legend: boolean, worl
       const how = W.outcome[big] === 1 ? ', with nothing changed' : W.outcome[big] === 4 ? `, with ${c.pname(W.defender[big])} conquered` : W.outcome[big] === 6 ? ', in vassalage' : W.outcome[big] === 5 ? ', in tribute' : ''
       sents.push(cap(v.p('peace', { year: W.endYear[big], war: about(big), how })) + (ended.length > 1 ? v.p('peaceMore', { other: others(ended.length - 1, 'war') }) : ''))
     }
+    sents.push(...grudgeYearLines(c, v, of)) // oaths, arms: a betrayal, an arms race (grudges.ts)
+    sents.push(...financeYearLines(c, v, of)) // finance: a default (finance.ts)
   }
   // the worst sack
   const sacks = of(EventType.Sacked)

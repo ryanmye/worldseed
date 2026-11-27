@@ -123,7 +123,7 @@ export interface RulerDiag {
 export const MAX_AGE = 110
 
 /** Survival to each whole age from the hazards of RULERS (multiplication only). */
-function survival(): Float64Array {
+export function survival(): Float64Array {
   const X = RULERS
   const S = new Float64Array(MAX_AGE + 2)
   S[0] = 1

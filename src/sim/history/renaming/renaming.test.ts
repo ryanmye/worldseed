@@ -10,6 +10,7 @@ import { runHistory } from '../index.ts'
 import { createRenaming, renamingYear } from './system.ts'
 import type { RenamingState } from './state.ts'
 import { assembleRenamings, weaveEvents } from './assemble.ts'
+import { withoutLater } from '../laterFields.ts'
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -29,6 +30,7 @@ function hv(h: number, v: unknown): number {
 const isOurs = (t: number): boolean => t >= 110 && t <= 119
 /** Hash of every History field that exists without the renaming system (every key but `renamings`; events without PlaceRenamed). */
 export function hashPreRenaming(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && x !== 'renamings' && x !== 'ideas' && x !== 'ideaAdoptions' && x !== 'landmarks' && x !== 'why').sort()) { // (ideas, landmarks: later than renaming)

@@ -5,8 +5,8 @@
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
 //   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
-//   v2 bonds (vassals, tribute, alliances), coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
-//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, v2 alliances, v2 kin
+//   v2 bonds (vassals, tribute, alliances), [oaths: allies desert or turn], coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
+//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
 //   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger; [claims every mapStep years:
 //   the land states claim beyond their settlements' (claims.ts)].
@@ -20,7 +20,7 @@
 // and the costs of pirates, privateers, blockades and bandits in the market (trade.ts), refugees
 // carrying their skills (migration.ts).
 
-import { EventType, TECH_FIELD_COUNT } from '../../../contract.ts'
+import { EventType, TECH_FIELD_COUNT, WarKind } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
@@ -35,7 +35,12 @@ import { relationOf, relationStep } from './relations.ts'
 import { FAR, createPolityState, ensureSettlements, grainShare, grip, setPolity, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
 import { cohesionStep, lostCapitals, realmStep, revoltStep, unrestStep } from './unrest.ts'
-import { campaigns, declarations, raids, warYear } from './war.ts'
+import { campaigns, closeWar, declarations, declare, raids, warYear } from './war.ts'
+import { betrayalStep } from './oaths.ts' // oaths:
+import { armsStep, armsUpkeep } from './arms.ts' // arms:
+import { fiscalYear } from '../finance/system.ts' // finance:
+import { bookTax, finTaxPressure } from '../finance/hooks.ts' // finance:
+import type { C8Factors } from '../compose.ts'
 import { tariffStep } from './policy.ts'
 import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
@@ -43,6 +48,7 @@ import { kinStep } from './civil.ts'
 import type { Heap } from '../heap.ts'
 import { rulerYear } from '../rulers/system.ts' // rulers:
 import { c8Tax } from '../compose.ts' // C8 stack
+import { grievanceStep } from './grievances.ts' // oaths:
 
 let mapHeap: Heap | null = null
 
@@ -135,6 +141,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     mapPass(s, ps, ts, mapHeap)
     if (s.year % PIRACY.laneStep === 0) laneMap(s, ps, ts) // (v2: the sea lanes near each coast)
   }
+  if (s.fin !== null) fiscalYear(s, ps, s.fin) // finance: the crown's fiscal year (income, spending, loans, arrears, default)
   campaigns(s, ps)
   warYear(s, ps)
   if (s.rul !== null) rulerYear(s, ps, s.rul, ts) // rulers: deaths, births, overthrows and successions (yearly)
@@ -146,6 +153,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   revoltStep(s, ps)
   realmStep(s, ps, ts)
   bondStep(s, ps) // v2: vassals, tribute, alliances
+  if (ps.og !== null && ps.og.oaths) betrayalStep(s, ps, ps.og, (w, o) => closeWar(s, ps, w, o, false), (r, p, q) => declare(s, ps, r, p, q, WarKind.Conquest, true)) // oaths: allies desert or turn
   if (ps.exId.length > 0) coastRaids(s, ps) // v2: pirates raid the coasts
   tariffStep(s, ps) // v2: duties and embargoes
   if (s.year % POLITY.slowStep === 0) {
@@ -156,7 +164,9 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     const long = s.year % POLITY.mapStep === 0
     if (long) overawe(s, ps) // v2 (every mapStep years)
     relationStep(s, ps, ts)
+    if (ps.og !== null) grievanceStep(s, ps, ps.og) // oaths: holy cities, decay, avenging, the faithless score
     allianceStep(s, ps) // v2
+    if (ps.og !== null && ps.og.arms) armsStep(s, ps, ps.og) // arms: Richardson's equations, races
     if (long) kinStep(s, ps) // v2: kindred successor states reunified (every mapStep years)
     hubStep(s, ps) // v2: smugglers' hubs, corruption
     declarations(s, ps)
@@ -184,6 +194,9 @@ function taxShares(s: HistoryState, ps: PolityState): void {
     if (x > 0) payers.push(id)
   }
 }
+
+/** C8 factors (scratch). */
+const C8F: C8Factors = {}
 
 /**
  * System (yearly, between trade and population): the grain tax. Each member sends
@@ -213,12 +226,16 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
     const pid = s.pop[id]
     s.food[id] = s.supply[id] >= pid ? 1 : s.supply[id] / pid
     inFood[cap] += tax
-    const w = c8Tax(wt * g * s.wealth[id]) // C8 (compose.ts): the tax take
+    const fin = s.fin
+    const pr = fin !== null ? finTaxPressure(s, p) : undefined // finance: tax pressure (C8 factor 1)
+    if (pr !== undefined) C8F.pressure = pr
+    const w = c8Tax(wt * g * s.wealth[id], pr !== undefined ? C8F : undefined) // C8 (compose.ts): the tax take
     s.wealth[id] -= w
-    s.wealth[cap] += w
+    if (fin === null || !bookTax(fin, p, id, w)) s.wealth[cap] += w // (finance: to the treasury)
     if (s.harvest[s.weatherRegion[s.cell[id]]] < UNREST.badHarvest) ps.badTax[id] = 1
   }
   if (ps.activeBonds.length > 0) tributeFlows(s, ps, inFood) // v2: vassals and tributaries pay their overlords
+  if (ps.og !== null && ps.og.arms) armsUpkeep(s, ps, ps.og) // arms: the upkeep of arms (without finances)
   for (const p of ps.alive) {
     const cap = ps.pCapital[p]
     if (s.abandoned[cap] >= 0) continue

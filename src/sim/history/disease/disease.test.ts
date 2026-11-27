@@ -6,6 +6,7 @@ import type { History, World } from '../../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts'
 import { runHistory } from '../index.ts'
 import { DZ, FEVER } from './params.ts'
+import { withoutLater } from '../laterFields.ts'
 
 const DISEASE_KEYS = new Set(['diseases', 'epidemics', 'outbreaks', 'fever', 'feverTolerance', 'endemic', 'quarantines'])
 const TOURISM_KEYS = new Set(['scenery', 'sceneryKind', 'sights', 'visitorFlows', 'renamings', 'ideas', 'ideaAdoptions', 'landmarks']) // tourism, renaming, ideas, landmarks: (later than the disease system; the golden runs have them off)
@@ -27,6 +28,7 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field that exists without the disease system (all of them, every key; the later tourism fields and resort flags left out). */
 function hashPre(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => x !== 'disasters' && x !== 'climate' && x !== 'weatherRegion' && x !== 'battles' && x !== 'commanders' && !DISEASE_KEYS.has(x) && !TOURISM_KEYS.has(x) && x !== 'why').sort()) h = hv(h, k === 'settlements' ? hi.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : r[k])

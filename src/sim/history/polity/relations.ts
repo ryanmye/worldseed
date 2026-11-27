@@ -6,6 +6,8 @@
 //   claim  = contested / (contested + 6)   cells in the base catchments of members of both (Carneiro's squeeze), plus
 //            CLAIM.dispute per cell where the two states' claims meet (claims.ts: border disputes)
 //   hunger = mean (1 - food) of the members on the border, v = open trade loads a year between their members.
+// oaths (grievances.ts): + OATH.rivalry * (g(a, b) + g(b, a)) + OATH.repRivalry * (f_a / (f_a + 1) + f_b / (f_b + 1)), border or
+// not (grudges cross a gap): wrongs remembered and a name for faithlessness.
 // Pairs are kept in arrays in creation order (the Map is for lookup only); a pair whose polity ended is
 // skipped. The border edges of each pair this step are kept for the war rules.
 
@@ -17,6 +19,7 @@ import { CLAIM, POLITY, RELATION } from './params.ts'
 import { tied } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { faithRivalry } from '../religion/system.ts' // religion:
+import { grudgeRivalry, repRivalry } from './grievances.ts' // oaths:
 import { whyRivalry } from '../why.ts' // causes:
 
 function key(p: number, q: number): number {
@@ -99,6 +102,7 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     const i = ps.relIndex.get(key(pa, pb))
     if (i !== undefined) vol[i] += ts.rVol[r]
   }
+  if (ps.og !== null) ps.og.relVol = vol // (oaths, balance, arms: the trade a broken oath or an arms race would cost)
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
@@ -115,9 +119,11 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
       if (s.rul !== null && tied(s.rul, a, b)) { tm = MARRIAGE.rivalry; d -= tm } // rulers: a marriage tie
       if (s.rel !== null) { tf = faithRivalry(s, s.rel, a, b); d += tf } // religion: faiths shared or opposed
     }
+    let tg = 0, tr = 0 // oaths: grudges both ways, faithlessness
+    if (ps.og !== null && ps.og.oaths) { tg = grudgeRivalry(ps.og, a, b); tr = repRivalry(ps.og, a, b); d += tg + tr }
     x += step * d
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x
-    if (ps.why) whyRivalry(ps.why, r, step, X.decay, ps.relR[r], tc, contested[r], CLAIM.dispute * ps.relDispute[r], tdf, th, tw, tt, tm, tf) // causes:
+    if (ps.why) whyRivalry(ps.why, r, step, X.decay, ps.relR[r], tc, contested[r], CLAIM.dispute * ps.relDispute[r], tdf, th, tw, tt, tm, tf, tg, tr) // causes:
   }
 }
 

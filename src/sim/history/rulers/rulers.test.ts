@@ -27,7 +27,8 @@ export function hashBaseFields(h: History): string {
   for (const k of BASE_KEYS) {
     x = hv(x, k)
     // (tourism, later than rulers and religion and off in the golden runs: settlements without their resort flag)
-    x = hv(x, k === 'settlements' ? h.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : (h as unknown as Record<string, unknown>)[k])
+    // (oaths, arms: the wars' later columns cause, ally and race are left out)
+    x = hv(x, k === 'settlements' ? h.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : k === 'wars' ? (({ cause, ally, race, ...rest }) => { void cause; void ally; void race; return rest })(h.wars) : (h as unknown as Record<string, unknown>)[k])
   }
   return (x >>> 0).toString(16)
 }

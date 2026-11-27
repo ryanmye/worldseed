@@ -771,6 +771,7 @@ overlay.setViewModeAvailable(ViewMode.Cash, false)
 // the Factions and Danger views need the history's polities (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Factions, false)
 overlay.setViewModeAvailable(ViewMode.Danger, false)
+overlay.setViewModeAvailable(ViewMode.Credit, false) // finance: (offered with a history that has treasuries)
 // the Resources view needs the history's goods (deposits, industries)
 overlay.setViewModeAvailable(ViewMode.Resources, false)
 overlay.addLayerToggle({

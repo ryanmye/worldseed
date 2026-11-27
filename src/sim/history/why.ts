@@ -116,14 +116,14 @@ function relTo(w: WhyRec, r: number, to: number, part: number): void {
  * relationStep, per pair after its rivalry update (newR = ps.relR[r]): the terms as computed there. The claim term is split
  * between Claim and Dispute as contested : dispute (relations.ts c = contested + CLAIM.dispute · relDispute).
  */
-export function whyRivalry(w: WhyRec, r: number, step: number, decay: number, newR: number, claim: number, contested: number, dispute: number, differ: number, hunger: number, recent: number, trade: number, marriage: number, faith: number): void {
+export function whyRivalry(w: WhyRec, r: number, step: number, decay: number, newR: number, claim: number, contested: number, dispute: number, differ: number, hunger: number, recent: number, trade: number, marriage: number, faith: number, grudge = 0, reputation = 0): void {
   w.rel = grow(w.rel, (r + 1) * RP)
   const c = w.rel, o = r * RP
   const cs = contested + dispute
   const cl = cs > 0 ? (claim * contested) / cs : 0
   for (let k = 0; k < RP; k++) {
     const t = k === RivalryPart.Claim ? cl : k === RivalryPart.Dispute ? claim - cl : k === RivalryPart.Differ ? differ : k === RivalryPart.Hunger ? hunger :
-      k === RivalryPart.RecentWar ? recent : k === RivalryPart.Trade ? -trade : k === RivalryPart.Marriage ? -marriage : k === RivalryPart.Faith ? faith : 0
+      k === RivalryPart.RecentWar ? recent : k === RivalryPart.Trade ? -trade : k === RivalryPart.Marriage ? -marriage : k === RivalryPart.Faith ? faith : k === RivalryPart.Grudge ? grudge : k === RivalryPart.Reputation ? reputation : 0
     c[o + k] += step * (t - decay * c[o + k])
   }
   let sum = 0
@@ -156,6 +156,11 @@ export function whyPending(w: WhyRec, rv: number, adv: number, e: number, mul: n
   w.pend = true
   w.pRv = rv; w.pAdv = adv; w.pE = e; w.pMul = mul; w.pFront = front; w.pDrive = drive * mul
   w.pFlags = (crisis ? WarWhyFlag.Crisis : 0) | (holy > 1 ? WarWhyFlag.Holy : 0) | (order ? WarWhyFlag.Order : 0) | (ruler > 1.25 ? WarWhyFlag.Warlike : 0)
+}
+
+/** oaths: war `war` (its WarWhy row: one per declare, in war order) broke an oath (WarWhyFlag.Oath). */
+export function whyOath(w: WhyRec, war: number): void {
+  if (war >= 0 && war < w.wFlags.length) w.wFlags[war] |= WarWhyFlag.Oath
 }
 
 /** declare (first thing): one WarWhy row for the war being declared on relation r. */

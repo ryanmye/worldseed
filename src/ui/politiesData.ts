@@ -431,6 +431,7 @@ function buildPolitiesData(h: History): PolitiesData | null {
     const e = h.events[i]
     const t = e.type as number
     if (!isPolityEventType(t)) {
+      if ((t >= 190 && t <= 194) || (t >= 210 && t <= 217)) { for (const q of eventPolities(pd, e)) addTo(q, i); continue } // oaths, balance, arms: both sides; finance: the crown
       if ((t === EventType.Built || t === EventType.StructureLost) && h.structures?.[e.other]?.type === StructureType.Walls) addTo(polityAt(pd, e.settlement, snapAfter(pd, e.year)), i)
       continue
     }
@@ -535,6 +536,17 @@ export function eventPolities(pd: PolitiesData, e: HistoryEvent): number[] {
       return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
     case PolityEvent.PiratesRise:
       return [polityAt(pd, e.settlement, a)]
+    // oaths, balance, arms (190-194): the polities ruled from `settlement` and `other`; a betrayal also the common enemy
+    // finance (210-217): the crown ruled from `settlement` (HousesRuined: the debtor ruled from `other`)
+    case 210: case 211: case 212: case 213: case 214:
+      return [polityAt(pd, e.settlement, b)]
+    case 217:
+      return [polityAt(pd, e.other, b)]
+    case 190: case 191: case 192: case 193: case 194: {
+      const out = [polityAt(pd, e.settlement, b), e.other >= 0 ? polityAt(pd, e.other, b) : -1]
+      if (t === 190 && W && e.value >= 0 && e.value < W.count) out.push(W.defender[e.value])
+      return out
+    }
     case PolityEvent.PiratesSuppressed:
       return [polityAt(pd, e.settlement, a), e.other >= 0 ? polityAt(pd, e.other, a) : -1]
     default:
@@ -1098,4 +1110,14 @@ export function endWords(cause: number): string {
     case PolityEnd.Absorbed: return 'absorbed'
     default: return 'ended'
   }
+}
+
+/** finance: the crown of p at snapshot s: treasury, debt, ordinary revenue, spending, rate (null: no credit) and distress; null without finance. */
+export function crownAt(pd: PolitiesData, p: number, s: number): { treasury: number; debt: number; revenue: number; spending: number; rate: number | null; distress: number } | null {
+  const h = pd.history
+  const P = pd.count
+  if (!h.treasury || h.treasury.length < (s + 1) * P || s < 0) return null
+  const i = s * P + p
+  const b = h.creditRate[i]
+  return { treasury: h.treasury[i], debt: h.crownDebt[i], revenue: h.crownRevenue[i], spending: h.crownSpending[i], rate: b >= 255 ? null : (b / 255) * 0.5, distress: (h.fiscalDistress[i] / 255) * 6 }
 }
