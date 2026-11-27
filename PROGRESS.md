@@ -4,20 +4,22 @@ Findings: /home/claude/runs/llmpt1/REPORT-summary.md + log.md. UI only, no sim c
 Baseline build served from /home/claude/llmpt-wc (39e8470) at :4987 (before shots); lane build at :4988 (4951/4952 belong to N5).
 
 ## Items
-- [ ] 1 Read more expands the caption
-- [ ] 2 Why panel: scroll into view, R back to Factions, Esc closes
-- [ ] 3 Resume pill unpauses
-- [ ] 4 Show me on a seat card: following resumes after the card closes
-- [ ] 5 Chronicle: no auto-scroll under pointer/focus
-- [ ] 6 Factions min height with More panels open
-- [ ] 7 ~N min estimate updates
-- [ ] 8 Caption places pinned on the globe
-- [ ] 9 Battle replay: legible figures, side legend, skip/shorten
-- [ ] 10 Drama-strip jump: caption + framing
+- [x] 1 Read more expands the caption
+- [x] 2 Why panel: scroll into view, R back to Factions, Esc closes
+- [x] 3 Resume pill unpauses
+- [x] 4 Show me on a seat card: following resumes after the card closes
+- [x] 5 Chronicle: no auto-scroll under pointer/focus
+- [x] 6 Factions min height with More panels open
+- [x] 7 ~N min estimate updates
+- [x] 8 Caption places pinned on the globe
+- [x] 9 Battle replay: legible figures, side legend, skip/shorten
+- [x] 10 Drama-strip jump: caption + framing
 - [ ] primer + coverage, gates, merge origin/main
 
 ## Current
-setup
+all 10 items implemented (commits wip 1-3); primer v4; G0 OK; tests (coverage, battleTimeline, story, onboard) pass.
+Next: merge origin/main, rerun G0/typecheck/build/tests, final shots.
+Scenario scripts: /home/claude/runs/n4b/tools/sessA.mjs <base> <a|b> (session A items 1-3,5-10), sessB.mjs (item 4). Logs /home/claude/runs/n4b/?-sess?.log
 
 ## Next commands
 (none running)
