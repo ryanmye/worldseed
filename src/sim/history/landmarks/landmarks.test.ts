@@ -7,6 +7,7 @@ import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts
 import { LANDMARK } from './params.ts'
 import { EVENT_OF_STATE } from './assemble.ts'
 import { capitalCities } from './landmarksStats.ts'
+import { withoutLater } from '../laterFields.ts'
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -26,6 +27,7 @@ function hv(h: number, v: unknown): number {
 const isOurs = (t: number): boolean => t >= 140 && t <= 149
 /** Hash of every History field that exists without the landmarks system (every key but `landmarks`; events without 140-149). */
 export function hashPreLandmarks(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => x !== 'landmarks' && x !== 'why').sort()) {

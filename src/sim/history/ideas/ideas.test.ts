@@ -8,6 +8,7 @@ import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts
 import { runHistory } from '../index.ts'
 import { TQ } from '../species.ts'
 import { IDEA, IDEA_DEFS, TQ_BREEDING, TQ_HEAVY_PLOUGH, TQ_ROTATION, TQ_TERRACE } from './params.ts'
+import { withoutLater } from '../laterFields.ts'
 
 const IDEAS_KEYS = new Set(['ideas', 'ideaAdoptions', 'landmarks']) // (landmarks: later than the ideas, off in the golden runs)
 const isOurs = (t: number): boolean => t >= 120 && t <= 129
@@ -29,6 +30,7 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field that exists without the ideas system (every key but the ideas fields; events without 120-129). */
 export function hashPreIdeas(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => !IDEAS_KEYS.has(x) && x !== 'why').sort()) {

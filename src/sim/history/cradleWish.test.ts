@@ -10,6 +10,7 @@ import { cradleWishRadius } from './cradleWish.ts'
 import { CRADLE_WISH } from './params.ts'
 import type { Terrain } from './terrain.ts'
 import { buildTerrain } from './terrain.ts'
+import { withoutLater } from './laterFields.ts'
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -28,6 +29,7 @@ function hv(h: number, v: unknown): number {
 }
 /** Hash of every History field. */
 function hashAll(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   return (hv(0x811c9dc5, hi) >>> 0).toString(16)
 }
 

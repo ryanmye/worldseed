@@ -6,6 +6,7 @@ import { EventType, ORDER_KIND_COUNT, OrderKind, OrderReason, OrderRole, OrderSt
 import type { History, Order, World } from '../../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts'
 import { pickOrders } from './ordersStats.ts'
+import { withoutLater } from '../laterFields.ts'
 
 function fnvBytes(h: number, b: Uint8Array): number {
   for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) }
@@ -25,6 +26,7 @@ function hv(h: number, v: unknown): number {
 const isOurs = (t: number): boolean => t >= 170 && t <= 179
 /** Hash of every History field but the orders' own (orders, orderOutcomes, events 170-179). */
 function hashPreOrders(hi: History): string {
+  hi = withoutLater(hi) // (later plans' fields: laterFields.ts)
   const r = hi as unknown as Record<string, unknown>
   let h = 0x811c9dc5
   for (const k of Object.keys(r).filter((x) => x !== 'orders' && x !== 'orderOutcomes' && x !== 'why').sort()) {
