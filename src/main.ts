@@ -730,8 +730,17 @@ const intParam = (name: string): number | null => {
   return Number.isFinite(v) ? v : null
 }
 
-/** The start page: Start fetches the history view now if it has not come yet. */
+/** The start page: Start fetches the app's later chunks now if they have not come yet. */
 let historyViewGo: (() => void) | null = null
+/** onboarding (bundle split): the app's later chunks (history view, seat, city card) are fetched once this resolves: at
+ * once, or on the start page once it has drawn (an idle moment after 1.5 s, or Start, whichever comes first). */
+const appChunks: Promise<void> = showLanding
+  ? new Promise<void>((resolve) => {
+      historyViewGo = resolve
+      const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number }).requestIdleCallback
+      window.setTimeout(() => (ric ? ric(() => resolve(), { timeout: 4000 }) : resolve()), 1500)
+    })
+  : Promise.resolve()
 const historyView = lazyHistoryView(
   {
     bottom: overlay.bottom,
@@ -775,13 +784,12 @@ const historyView = lazyHistoryView(
     cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
-  // (on the start page, once it has drawn: an idle moment, or Start, whichever comes first)
-  showLanding ? new Promise<void>((resolve) => { historyViewGo = resolve; const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number }).requestIdleCallback; window.setTimeout(() => (ric ? ric(() => resolve(), { timeout: 4000 }) : resolve()), 1500) }) : undefined,
+  appChunks,
 ).value
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 // (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
-import('./ui/seat/seatController.ts').then(({ createSeatController }) => {
+appChunks.then(() => import('./ui/seat/seatController.ts')).then(({ createSeatController }) => {
 seatCtl = createSeatController({
   parent: app,
   post: (req) => {
@@ -1005,7 +1013,7 @@ const pointerInput = attachPointer({
 // ---------- city view (render/cityView.ts): fly down into a town, orbit it, fly back ----------
 
 // (a later chunk, onboarding bundle split: hidden until a town is flown into)
-const cityCard = lazyObject<CityCard>(() => import('./ui/cityCard.ts').then((m) => m.createCityCard(app, {
+const cityCard = lazyObject<CityCard>(() => appChunks.then(() => import('./ui/cityCard.ts')).then((m) => m.createCityCard(app, {
   onBack: () => cityView.flyOut(),
   onTurn: (rad) => cityView.turn(rad),
   onRaise: (k) => cityView.raise(k),
