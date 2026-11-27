@@ -11,6 +11,7 @@ import { worldName, worldSaga } from './world.ts'
 import { houseSaga } from './house.ts'
 import { yearSaga } from './year.ts'
 import { commanderSaga } from './commander.ts' // battles:
+import { familySaga } from './family.ts' // families:
 import type { Saga, SagaKind } from './types.ts'
 import { polish } from './voice.ts'
 
@@ -41,6 +42,7 @@ export function generateSaga(h: History, world: World | null, subject: SagaSubje
     case 'decade': s = yearSaga(c, subject.id, 10, legend, worldName(c)); break
     case 'year': s = yearSaga(c, subject.id, 1, legend, worldName(c)); break
     case 'commander': s = commanderSaga(c, subject.id, legend); break // battles:
+    case 'family': s = familySaga(c, subject.id, legend); break // families:
     default: s = worldSaga(c, legend)
   }
   const keep = s.paragraphs.map((x) => x.trim().length > 0)
@@ -70,6 +72,7 @@ export function sagaSubjectValid(h: History, subject: SagaSubject, year: number)
     case 'house': return subject.id >= 0 && subject.id < (h.dynasties?.length ?? 0) && h.dynasties[subject.id].founded <= year
     case 'decade': case 'year': return subject.id >= 0 && subject.id <= year
     case 'commander': return subject.id >= 0 && subject.id < (h.commanders?.count ?? 0) && h.commanders.firstYear[subject.id] <= year // battles:
+    case 'family': return subject.id >= 0 && subject.id < (h.families?.count ?? 0) && h.families.founded[subject.id] <= year // families:
   }
   return false
 }
@@ -81,7 +84,7 @@ export function subjectKey(s: SagaSubject): string {
 export function parseSubject(v: string | null): SagaSubject | null {
   if (!v) return null
   if (v === 'world') return { kind: 'world', id: 0 }
-  const m = /^(people|state|city|house|decade|year|commander):(\d+)$/.exec(v)
+  const m = /^(people|state|city|house|decade|year|commander|family):(\d+)$/.exec(v)
   return m ? { kind: m[1] as SagaKind, id: Number(m[2]) } : null
 }
 

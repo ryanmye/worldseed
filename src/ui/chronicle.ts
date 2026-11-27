@@ -18,6 +18,7 @@ import { addShortcut } from './shortcuts.ts'
 import { withEventNames } from './renamingData.ts'
 import { isRenamingHeadline } from './renamingFormat.ts'
 import { isLandmarkHeadline } from './landmarksFormat.ts'
+import { isFamilyHeadline } from './familiesFormat.ts' // families:
 import { describeTradeDangerGroup } from './tradeDangerFormat.ts'
 import { describeRepathGroup, repathTarget } from './tradeRepath.ts'
 
@@ -393,6 +394,8 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     else if (kind === EntryKind.Single && isRenamingHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
     // landmarks: a castle, palace or great temple finished, or a great work finished in a city or a capital
     else if (kind === EntryKind.Single && isLandmarkHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable headline`
+    // families: a house founded on a venture, married into a ruling house, or bankrupt
+    else if (kind === EntryKind.Single && isFamilyHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
     // goods: lanes opened, first posts, secrets leaking, bypassed marts, rushes (and a group of bypassed towns)
     else if ((kind === EntryKind.Single || kind === EntryKind.Goods) && isGoodsHeadline(h, h.events[ev])) r.li.className = `ev-${ek} notable`
     // rulers, religion: contested and dynastic successions, unions, wars of succession, faiths founded, schisms, holy wars, holy cities fallen
