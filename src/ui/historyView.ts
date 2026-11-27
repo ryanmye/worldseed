@@ -76,6 +76,7 @@ import { createNudgeView } from './nudgePanel.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
+import { followByDefault, groupRightRail, markVisited } from './onboard.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { createWhatIfView, type CompareAsk, type CompareResult } from './whatifPanel.ts' // what-if:
 import { createSwipe } from './whatif/swipe.ts'
@@ -213,6 +214,8 @@ export interface HistoryView {
   /** what-if: the worker's answers to deps.requestCompare. */
   compareResult(r: CompareResult): void
   compareProgress(years: number, target: number): void
+  /** onboarding: Follow the story turns on (or not) when the first history shows (the start page's play path). */
+  setFollowOnShow(on: boolean): void
   compareFailed(message: string): void
   /** what-if: open the comparison with these orders once the history is in (cmp= on load). */
   openCompare(orders: Order[]): void
@@ -568,8 +571,12 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     setUrlParam: deps.setUrlParam,
     requestRender,
     wake: () => deps.wake(),
-    initialOn: new URLSearchParams(window.location.search).get('follow') === '1',
+    initialOn: followByDefault(new URLSearchParams(window.location.search)), // onboarding: a first visit follows
+    openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
+    battleOpen: () => battleMap.isOpen(),
+    play: () => timeline.play(),
   })
+  groupRightRail(deps.right) // onboarding: the core panels in sight, the rest under "More panels"
   /** A fly-to the user asked for (a panel, a chronicle row, a selection): the director lets go. */
   function onUserFly() {
     story.userMoved()
@@ -1128,6 +1135,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       )
       if (keep) applyKept(h, keep)
       else if (first) applyInitial(h, target)
+      if (first) markVisited() // onboarding: the next visit is not a first (Follow then starts off)
       else if (interim) finishInterim(h)
       requestRender()
       deps.wake()
@@ -1341,6 +1349,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   }
 
   const api: HistoryView = {
+    setFollowOnShow: (on) => story.setFollowOnShow(on),
     setWorld(w: World) {
       world = w
       index = null

@@ -1,0 +1,27 @@
+/* onboarding (ui/onboard.ts): the right column's "More panels" row and the panels it keeps out of the way */
+html:not(.compact) .side-column.right.rail-grouped > .rail-tucked {
+  display: none !important;
+}
+.side-column.right > .rail-more {
+  position: static;
+  pointer-events: auto;
+  flex: none;
+  align-self: stretch;
+  padding: 7px 12px;
+  border: 1px dashed var(--panel-border);
+  border-radius: 10px;
+  background: var(--panel-bg);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.side-column.right > .rail-more:hover {
+  color: var(--text);
+}
+.side-column.right > .rail-more[hidden],
+html.compact .side-column.right > .rail-more {
+  display: none;
+}

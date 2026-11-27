@@ -200,6 +200,23 @@
   opacity: 0.45;
   cursor: default;
 }
+.tl-story-progress {
+  flex: none;
+  font-size: 11px;
+  color: #ffd68a;
+  opacity: 0.85;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.tl-story-progress.hidden {
+  display: none;
+}
+html.compact .tl-story-progress {
+  font-size: 10px;
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tl-ticks .tl-beats {
   position: absolute;
   inset: 0;

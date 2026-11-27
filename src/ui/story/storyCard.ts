@@ -20,6 +20,10 @@ export interface Caption {
   why?: (() => void) | null
   /** Reduced motion: "Show" cuts the camera to the place (null: no button). */
   show: (() => void) | null
+  /** onboarding: "Share" gives a link to this moment (null or absent: no button). */
+  share?: (() => void) | null
+  /** battles: "Watch the battle" opens the 2D replay of the beat's battle (null or absent: no button). */
+  battle?: (() => void) | null
 }
 
 export interface Notice {
@@ -44,6 +48,11 @@ export interface StoryCard {
   /** The Follow button (for the timeline row). */
   readonly button: HTMLButtonElement
   setButton(on: boolean, available: boolean): void
+  /** onboarding: the story's progress beside the Follow button ("~6 min left", "quiet years ⏩"); '' hides it. */
+  readonly progress: HTMLElement
+  setProgress(text: string, title?: string): void
+  /** onboarding: a short confirmation on the card ("Link copied"). */
+  flash(text: string): void
   /** A ring at a screen point (CSS px in the host), for a beat that needs no flight. */
   pulseAt(x: number, y: number): void
 }
@@ -117,12 +126,21 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   nextBtn.className = 'btn story-next'
   nextBtn.textContent = 'Next'
   nextBtn.title = 'On to the next story'
+  const battleBtn = document.createElement('button') // battles: the replay
+  battleBtn.type = 'button'
+  battleBtn.className = 'btn story-battle'
+  battleBtn.textContent = 'Watch the battle'
+  const shareBtn = document.createElement('button') // onboarding: share this moment
+  shareBtn.type = 'button'
+  shareBtn.className = 'btn story-share'
+  shareBtn.textContent = 'Share'
+  shareBtn.title = 'A link to this moment: the same world, this year, following the story'
   const closeBtn = document.createElement('button')
   closeBtn.type = 'button'
   closeBtn.className = 'story-close'
   closeBtn.setAttribute('aria-label', 'Close')
   closeBtn.textContent = '×'
-  row.append(showBtn, readBtn, whyBtn, nextBtn)
+  row.append(showBtn, battleBtn, readBtn, whyBtn, shareBtn, nextBtn)
   card.append(closeBtn, eyebrow, title, body, moreText, row)
   root.append(toasts, chip, card)
 
@@ -154,6 +172,8 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   showBtn.addEventListener('click', () => caption?.show?.())
   readBtn.addEventListener('click', () => caption?.more?.())
   whyBtn.addEventListener('click', () => caption?.why?.())
+  battleBtn.addEventListener('click', () => caption?.battle?.())
+  shareBtn.addEventListener('click', () => caption?.share?.())
   nextBtn.addEventListener('click', () => deps.onNext())
   closeBtn.addEventListener('click', () => deps.onClose())
 
@@ -166,6 +186,9 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
   button.setAttribute('aria-label', 'Follow the story')
   button.setAttribute('aria-pressed', 'false')
   button.addEventListener('click', () => deps.onToggle())
+  const progress = document.createElement('span')
+  progress.className = 'tl-story-progress hidden'
+  progress.setAttribute('aria-live', 'off')
 
   // ---- placement in the free rect ----
   const place = () => {
@@ -196,6 +219,9 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
       showBtn.hidden = !c.show
       readBtn.hidden = !c.more
       whyBtn.hidden = !c.why
+      battleBtn.hidden = !c.battle
+      shareBtn.hidden = !c.share
+      shareBtn.textContent = 'Share'
       card.classList.remove('hidden')
       // (re-run the entrance animation)
       card.classList.remove('enter')
@@ -252,6 +278,16 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
     clearNotices() {
       for (const v of visible.values()) v.el.remove()
       visible.clear()
+    },
+    progress,
+    setProgress(text, tip) {
+      if (progress.textContent !== text) progress.textContent = text
+      progress.classList.toggle('hidden', text === '')
+      progress.title = tip ?? ''
+    },
+    flash(text) {
+      shareBtn.textContent = text
+      window.setTimeout(() => (shareBtn.textContent = 'Share'), 2200)
     },
     setButton(on, available) {
       button.classList.toggle('on', on)
