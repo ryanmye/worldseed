@@ -11,7 +11,7 @@ export const BATTLE = {
   /** Pursuit: share of what is left of the beaten side lost in the rout. */
   rout: 0.15,
   /** Hours per unit of tau (an even fight lasts about four hours). */
-  hourScale: 20,
+  hourScale: 25,
   minHours: 0.5,
   maxHours: 14,
   /** Approach cells (before the target) considered for a field battle. */
@@ -24,8 +24,8 @@ export const BATTLE = {
   /** Weather: rain chance base (x (0.5 + rainfall) x 1.5 in a wet year), fog chance (x 2 by water), snow below this temperature (0..1 scale). */
   rain: 0.18,
   fog: 0.06,
-  snowT: 0.22,
-  /** Heat: a clear day on desert or savanna above this temperature. */
+  snowT: 0.35,
+  /** Heat: a clear day on desert above this temperature. */
   heatT: 0.75,
   /** New general's skill = clamp(1 + skillSd * gauss, skillMin, skillMax); veterancy per battle survived, capped. */
   skillSd: 0.2,
@@ -34,7 +34,7 @@ export const BATTLE = {
   veteran: 0.02,
   veteranMax: 0.1,
   /** Chance a ruler leads a war's army himself, by Tier (Chiefdom, Kingdom, Empire), x (0.5 + warlike). */
-  rulerLead: [0.9, 0.5, 0.2] as readonly number[],
+  rulerLead: [0.2, 0.12, 0.06] as readonly number[],
   /** An appointed general is a kinsman of the ruling house. */
   kin: 0.25,
   /** A woman in command (a general). */
@@ -45,12 +45,12 @@ export const BATTLE = {
   retireMin: 55,
   retireSpan: 17,
   /** Per battle: a commander of the beaten side is killed with slainLoser + slainRout * rho, else taken with taken; the winners' with slainWinner. */
-  slainLoser: 0.06,
-  slainRout: 0.3,
+  slainLoser: 0.03,
+  slainRout: 0.2,
   slainWinner: 0.01,
-  taken: 0.03,
+  taken: 0.02,
   /** A beaten general is relieved with dismiss * (1 - min(1, fame / renown)). */
-  dismiss: 0.35,
+  dismiss: 0.2,
   /** Fame: a win, doubled when decisive (the loser lost >= decisive), x sqrt(min(3, odds)), + capital, + famous enemy share; decays yearly. */
   fameWin: 1,
   decisive: 0.3,
@@ -58,8 +58,8 @@ export const BATTLE = {
   fameEnemy: 0.5,
   fameDecay: 0.97,
   /** Fame of a saga's hero (CommanderRenowned). */
-  renown: 6,
-  /** BattleFought is logged when the armies together reach logMen (or a commander fell, the target fell, the war's first battle). */
+  renown: 15,
+  /** BattleFought is logged when the armies together reach logMen (or a named commander fell, a walled town or capital fell, the war's first battle). */
   logMen: 1500,
   /** Flags: Pursuit when the rout took >= pursuitLog of the loser's men; Pyrrhic when the winners lost >= pyrrhic. */
   pursuitLog: 0.1,

@@ -29,7 +29,7 @@ function newRow(bs: BattleState, s: HistoryState, ps: PolityState, p: number, re
   bs.cSkill.push(skill); bs.cSkill0.push(skill); bs.cFirst.push(s.year); bs.cLast.push(s.year); bs.cBattles.push(0); bs.cWins.push(0)
   bs.cFame.push(0); bs.cFameYear.push(s.year); bs.cPeak.push(0); bs.cPeakYear.push(s.year)
   bs.cFate.push(CommanderFate.Serving); bs.cFateYear.push(-1); bs.cFateBattle.push(-1); bs.cFateWar.push(-1); bs.cReignAfter.push(-1)
-  bs.cRetire.push(retire); bs.cBase.push(-1); bs.cLastBattle.push(-1); bs.cRenowned.push(0)
+  bs.cRetire.push(retire); bs.cBase.push(-1); bs.cHome.push(-1); bs.cLastBattle.push(-1); bs.cRenowned.push(0)
   bs.diag.commanders++
   return c
 }

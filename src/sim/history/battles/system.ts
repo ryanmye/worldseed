@@ -8,7 +8,7 @@
 //             approach crossed the sea), Ambush (a field battle the defenders opened by surprise), else Field;
 //   site      site.ts, the ground chosen by the defenders with chance sD / (sA + sD) (commanders' skill);
 //   weather   rain with BATTLE.rain (0.5 + rainfall) (x 1.5 in a wet year), snow when it is cold, fog with BATTLE.fog (x 2 by
-//             water), heat on a clear day in hot desert or savanna;
+//             water), heat on a clear day in hot desert;
 //   surprise  BATTLE.surprise (x 3 in fog, x 2 with cover) x the better commander's skill over the worse; the defenders'
 //             with chance 0.5 + 0.25 (sD - sA);
 //   men       the attacker's army is the Journey's size (WAR.army * mass, clamped); the defenders' is derived, the chronicler's
@@ -60,6 +60,7 @@ function served(s: HistoryState, bs: BattleState, c: number, b: number, won: boo
   bs.cLast[c] = s.year
   bs.cLastBattle[c] = b
   bs.cBase[c] = base
+  if (bs.cHome[c] < 0) bs.cHome[c] = base
   if (won) bs.cWins[c]++
   if (bs.cReign[c] < 0 && bs.cBattles[c] > 1) { const sk = bs.cSkill[c] + BATTLE.veteran, cap = bs.cSkill0[c] + BATTLE.veteranMax; bs.cSkill[c] = sk < cap ? sk : cap }
   const f = fameNow(bs, c, s.year) + gain
@@ -107,7 +108,7 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
   const fog = fogDraw < BATTLE.fog * (byWater(s, ps, site) ? 2 : 1)
   if (fog && weather === BattleWeather.Clear) weather = BattleWeather.Fog
   const bm = W.biome[site]
-  if (weather === BattleWeather.Clear && temp > BATTLE.heatT && (bm === Biome.Desert || bm === Biome.Savanna)) weather = BattleWeather.Heat
+  if (weather === BattleWeather.Clear && temp > BATTLE.heatT && bm === Biome.Desert) weather = BattleWeather.Heat
   // Surprise.
   const cover = (flags & (BattleFlag.Wood | BattleFlag.Pass | BattleFlag.Hill)) !== 0
   const hi = sA > sD ? sA : sD, lo = sA > sD ? sD : sA
@@ -208,7 +209,7 @@ export function battleFought(s: HistoryState, bs: BattleState, ps: PolityState, 
     }
   }
   // Events.
-  if (menA + menD >= BATTLE.logMen || fell || won || first) logEx(s, EventType.BattleFought, v, u, b, kind | ((won ? 0 : 1) << 3))
+  if (menA + menD >= BATTLE.logMen || fell || (won && siege) || first) logEx(s, EventType.BattleFought, v, u, b, kind | ((won ? 0 : 1) << 3))
   const fellEv = (c: number, fate: number): void => {
     if (fate !== CommanderFate.Serving && bs.cBattles[c] >= 2) logEx(s, EventType.CommanderFell, v, -1, c, fate === CommanderFate.Slain ? 0 : 1)
   }

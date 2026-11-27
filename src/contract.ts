@@ -235,7 +235,7 @@ export const EventType = {
   OrderFailed: 172, // order `value` failed: `settlement` the actor's seat (or -1); `other` -1; `extra` the OrderReason
   OrderLapsed: 173, // order `value` ran out of time (OrderStatus.Expired, or Partly when something was done toward it): `settlement` the actor's seat; `other` -1; `extra` the OrderReason
   // battles (220-229; none when HistoryOptions.battles is false). `value` is the History.battles or History.commanders row.
-  BattleFought: 220, // battle `value` was fought for `settlement` (its target; Naval: the enemy's main port); `other` the settlement the attackers came from; `extra` kind | winner << 3 (0 the attackers won). Logged when menA + menD >= BATTLE.logMen, or a named commander fell, or the target fell, or it is the first battle of its war
+  BattleFought: 220, // battle `value` was fought for `settlement` (its target; Naval: the enemy's main port); `other` the settlement the attackers came from; `extra` kind | winner << 3 (0 the attackers won). Logged when menA + menD >= BATTLE.logMen, or a named commander fell, or a walled town or capital fell, or it is the first battle of its war
   SiegeLaid: 221, // a siege of `settlement` began (the first assault of a siege); `other` the besiegers' base; `value` the war id. (SiegeLifted 28 or Conquered 26 ends it)
   CommanderFell: 222, // commander `value` was killed (extra 0) or taken (extra 1) in battle at `settlement` (the battle's target); `other` -1. Logged for named commanders with >= 2 battles
   CommanderRenowned: 223, // commander `value` won the fame of a saga's hero (fame reached BATTLE.renown) with the battle for `settlement`; `other` the capital he served

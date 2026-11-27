@@ -15,20 +15,21 @@ import { BATTLE } from './params.ts'
 
 /** Flags of the last pickSite (terrain bits and GroundByDefender). */
 export let siteFlags = 0
+/** Field battles seen, those with a river cell among the candidates, those with a crossing (battleStats). */
+export const siteDiag = { field: 0, river: 0, crossing: 0 }
 
 function isRiver(s: HistoryState, c: number): boolean {
   const w = s.world
   return !s.terrain.sea[c] && !w.lake[c] && w.flow[c] >= RIVER_FLOW_THRESHOLD
 }
 
-/** Whether the approach crosses a river at path[k] (coming from path[k - 1], not along the same stream). */
+/**
+ * Whether the approach meets a river at path[k] that the defenders can hold: a river cell on the approach (an army marching
+ * down a valley still has the stream between it and a defender who stands on it; a strict crossing test, from a cell not
+ * on the same stream, found a crossing in only ~6% of field battles against ~24% with a river cell on the approach).
+ */
 function crossing(s: HistoryState, path: readonly number[], k: number): boolean {
-  if (k <= 0) return false
-  const c = path[k], prev = path[k - 1]
-  if (!isRiver(s, c)) return false
-  if (!isRiver(s, prev)) return true
-  const to = s.world.riverTo
-  return to[prev] !== c && to[c] !== prev
+  return k > 0 && isRiver(s, path[k])
 }
 
 function coastal(s: HistoryState, c: number): boolean {
@@ -79,16 +80,21 @@ export function pickSite(s: HistoryState, ps: PolityState, path: readonly number
     return c
   }
   if (path === null || path.length < 2) { const c = facing(s, cv, cu); siteFlags |= terrainFlags(ps, c); return c }
-  let best = -1, bestT = 0, bestFord = false, n = 0
+  let best = -1, bestT = 0, bestFord = false, n = 0, anyRiver = false, anyCross = false
   for (let k = path.length - 2; k >= 0 && n < BATTLE.reach; k--) {
     const c = path[k]
     if (sea[c]) continue
     n++
     const ford = crossing(s, path, k)
+    if (isRiver(s, c)) anyRiver = true
+    if (ford) anyCross = true
     const t = ps.defense[c] + (defenderChooses && ford ? BATTLE.fordBonus : 0)
     if (best < 0 || (defenderChooses ? t > bestT : t < bestT)) { best = c; bestT = t; bestFord = ford }
   }
   if (best < 0) best = facing(s, cv, cu)
+  siteDiag.field++
+  if (anyRiver) siteDiag.river++
+  if (anyCross) siteDiag.crossing++
   siteFlags |= terrainFlags(ps, best) | (bestFord ? BattleFlag.Ford : 0) | (coastal(s, best) && kind === BattleKind.Landing ? BattleFlag.Coast : 0)
   return best
 }

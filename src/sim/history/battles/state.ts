@@ -82,6 +82,8 @@ export interface BattleState {
   /** Age at which a general retires; his last base town; his last battle; 1 once renowned. */
   cRetire: number[]
   cBase: number[]
+  /** The town he first fought from (his name's language). */
+  cHome: number[]
   cLastBattle: number[]
   cRenowned: number[]
   /** A ruler's commander row per reign. */
@@ -99,7 +101,7 @@ export function createBattles(s: HistoryState): BattleState {
     wCmd: [], wBattles: [], pVeteran: [],
     cPolity: [], cPeople: [], cReign: [], cDyn: [], cBorn: [], cFemale: [], cSkill: [], cSkill0: [], cFirst: [], cLast: [], cBattles: [], cWins: [],
     cFame: [], cFameYear: [], cPeak: [], cPeakYear: [], cFate: [], cFateYear: [], cFateBattle: [], cFateWar: [], cReignAfter: [],
-    cRetire: [], cBase: [], cLastBattle: [], cRenowned: [],
+    cRetire: [], cBase: [], cHome: [], cLastBattle: [], cRenowned: [],
     reignCmd: new Map(),
     diag: { battles: 0, byKind: [0, 0, 0, 0, 0, 0], byWeather: [0, 0, 0, 0, 0], surprises: 0, groundByDefender: 0, commanders: 0, rulerLed: 0, slain: 0, taken: 0, dismissed: 0, renowned: 0 },
   }
