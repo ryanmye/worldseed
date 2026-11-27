@@ -35,6 +35,7 @@ import type { PolityState } from './state.ts'
 import { faithGrievance } from '../religion/system.ts' // religion:
 import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
 import { finTaxGrief } from '../finance/hooks.ts' // finance:
+import { dxGrief } from '../disasters/feedback.ts' // disasters: Phase 2 grievance
 
 /** System part (every step, after dangerStep, which marks the frontiers in scratchI): cohesion on frontiers and in interiors. */
 export function cohesionStep(s: HistoryState, ps: PolityState): void {
@@ -61,7 +62,8 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const since = s.year - ps.conqueredAt[i]
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
   const fam = s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0, crowd = U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)), bt = ps.badTax[i] ? U.badTax : 0
-  const peasant = fam + crowd + bt
+  const dis = s.dx !== null ? dxGrief(s, s.dx, i) : 0 // disasters feedback: a town struck by an eruption, quake, wave or flood (C2, peasant term)
+  const peasant = dis > 0 ? fam + crowd + bt + dis : fam + crowd + bt
   // (v2: corruption where contraband pays)
   const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
   const provincial = dist + exh + cri + cor
@@ -70,7 +72,7 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
-  if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
+  if (ps.why) { whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial); if (dis > 0) ps.why.sub[UnrestPart.Disaster] = dis } // causes: the terms (disasters: UnrestPart.Disaster)
   // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
   const tax = s.fin !== null ? finTaxGrief(s, p) : 0
   terms[5] = tax
