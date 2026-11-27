@@ -36,7 +36,7 @@ describe('EventType registry', () => {
 })
 
 describe('reserved order and decision rows (R40)', () => {
-  it('ORDER_KINDS is contiguous 0..83: 0–9 live, 10–83 reserved placeholders with no encode key', () => {
+  it('ORDER_KINDS is contiguous 0..83: 0–20 and 22 live, 21 and 23–83 reserved placeholders with no encode key', () => {
     const K = describeOrderKinds()
     expect(K.length).toBe(ORDER_KIND_COUNT)
     expect(ORDER_KIND_COUNT).toBe(84)
@@ -50,8 +50,9 @@ describe('reserved order and decision rows (R40)', () => {
     }
     // registry spot checks (§3.2)
     expect(K[10].key).toBe('choice') // (seat-mode step 3: live)
-    expect(K[11].reservedFor).toBe('seat-mode: Repudiate')
-    expect(K[22].reservedFor).toBe('seat-mode: Betray')
+    expect(K[11].key).toBe('renounce') // (seat-mode steps 8, 9, 13: live)
+    expect(K[22].key).toBe('betray')
+    expect(K[21].reservedFor).toBe('seat-mode: Charter') // (until city-states lands)
     expect(K[30].reservedFor).toBe('riots: Crackdown')
     expect(K[41].reservedFor).toBe('character-mode: PChoice')
     expect(K[59].reservedFor).toBe('migration: Gates')

@@ -20,6 +20,7 @@
 // society (s.soc): Ψ multiplies the revolt hazard once (C2 psiMul); immiseration, failed coercion and townsfolk's dear bread are
 // grievance terms (additive); disaffected elites strengthen rebels; elite pressure lengthens crises and erodes asabiya.
 
+import { deferUnrest } from '../rulers/deference.ts' // rulers: deference
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
 import { smoothstep } from '../../util.ts'
@@ -72,7 +73,10 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   if (sg) { peasant += GRIEF.imm + GRIEF.coerce; urb = GRIEF.urban }
   // (v2: corruption where contraband pays)
   const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
-  const provincial = dist + exh + cri + cor
+  let provincial = dist + exh + cri + cor
+  // rulers: deference: a realm ruled without its ruler is restive; the blame for divisive matters falls on the body that decided
+  const dv = s.defer !== null ? deferUnrest(s, p) : 0
+  if (dv !== 0) provincial = provincial + dv > 0 ? provincial + dv : 0
   const foreign = U.foreign * (1 - ps.assim[i])
   const ethnic = foreign + conquest
   const T = s.terrain
@@ -81,6 +85,7 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
   if (sg && ps.why) { ps.why.sub[UnrestPart.Immiseration] = GRIEF.imm; ps.why.sub[UnrestPart.Coercion] = GRIEF.coerce; ps.why.sub[UnrestPart.Urban] = urb } // causes: (society)
   if (s.soc !== null) terms[6] = urb
+  if (dv !== 0 && ps.why) ps.why.sub[UnrestPart.Deference] = dv // causes: (rulers: deference)
   // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
   const tax = s.fin !== null ? finTaxGrief(s, p) : 0
   terms[5] = tax

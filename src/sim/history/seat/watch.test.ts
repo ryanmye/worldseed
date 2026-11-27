@@ -97,3 +97,17 @@ describe('seat watcher (seat-mode §3.5)', () => {
     expect(/rDeath|\.kill\b|pCrisisUntil|\.rng\b|next\(\)/.test(src)).toBe(false)
   })
 })
+
+describe('decision-kind tables', () => {
+  it('cover every registered DecisionKind (cool, lastKind)', async () => {
+    const { DECISION_KIND_COUNT } = await import('../../../contract.ts')
+    const { createSeatState } = await import('./state.ts')
+    const kinds = Object.values(DecisionKind) as number[]
+    expect(Math.max(...kinds)).toBeLessThan(DECISION_KIND_COUNT)
+    expect(SEAT.cool.length).toBeGreaterThanOrEqual(DECISION_KIND_COUNT)
+    const st = createSeatState({ kind: SeatKind.Polity, id: 0, from: 0 })
+    expect(st.lastKind.length).toBeGreaterThanOrEqual(DECISION_KIND_COUNT)
+    st.lastKind[DECISION_KIND_COUNT - 1] = 5
+    expect(st.lastKind[DECISION_KIND_COUNT - 1]).toBe(5)
+  })
+})

@@ -1,9 +1,10 @@
 // seat: words for the decision cards (decisionCard.ts) and for the seat in the Chronicle and Legend (seat-mode §6.3-6.4).
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
-import { DecisionKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
+import { DEFER_OPTIONS, DecisionKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
+import { deciderChronicle } from './decider.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -11,7 +12,15 @@ registerDrama(270, { cat: DramaCat.Nudge, base: 7 }) // SeatTaken
 registerDrama(271, { cat: DramaCat.Nudge, base: 5 }) // SeatPassed
 registerDrama(272, { cat: DramaCat.Nudge, base: 7 }) // SeatLost
 registerDrama(273, { cat: DramaCat.Nudge, base: 7 }) // AmbitionFulfilled
-for (let t = 274; t <= 279; t++) registerDrama(t, { cat: DramaCat.Nudge, base: 3 })
+registerDrama(274, { cat: DramaCat.Nudge, base: 3 }) // HeirNamed
+registerDrama(275, { cat: DramaCat.Nudge, base: 3 }) // CourtPlacated
+registerDrama(276, { cat: DramaCat.Nudge, base: 5 }) // GeneralPurged (struck first: a coup follows)
+registerDrama(277, { cat: DramaCat.Nudge, base: 4 }) // BondRenounced
+registerDrama(278, { cat: DramaCat.Nudge, base: 4 }) // TributeOffered
+registerDrama(279, { cat: DramaCat.Nudge, base: 2 }) // LevyRaised
+registerDrama(182, { cat: DramaCat.Nudge, base: 6 }) // SeatDeclined: the court rules in all but name
+registerDrama(183, { cat: DramaCat.Nudge, base: 5 }) // SeatReasserted
+registerDrama(184, { cat: DramaCat.Nudge, base: 2 }) // DeferBlamed
 
 
 const DK = describeDecisionKinds()
@@ -29,25 +38,37 @@ export const OPTION_LABEL: Record<number, string> = {
   [SeatOptionKey.Crush]: 'Crush it', [SeatOptionKey.Borrow]: 'Borrow', [SeatOptionKey.Levy]: 'Raise taxes', [SeatOptionKey.Retrench]: 'Retrench',
   [SeatOptionKey.Grant]: 'Grant it', [SeatOptionKey.Refuse]: 'Refuse', [SeatOptionKey.SeparatePeace]: 'Make a separate peace', [SeatOptionKey.StandBy]: 'Stand by them',
   [SeatOptionKey.Settle]: 'Send settlers', [SeatOptionKey.ExploreOn]: 'Explore further', [SeatOptionKey.Stay]: 'Stay at home',
-  [SeatOptionKey.TakeUp]: 'Take it up', [SeatOptionKey.Seek]: 'Seek it out',
+  [SeatOptionKey.TakeUp]: 'Take it up', [SeatOptionKey.Seek]: 'Seek it out', [SeatOptionKey.RepudiateDebts]: 'Refuse the debts', [SeatOptionKey.Reclaim]: 'Reclaim power',
 }
 
 /** The court's own course (an option without orders): what the card says will happen. */
 const COURT_EXPECTS = 'The court keeps its own counsel; events take their course.'
 
-/** The year's polity name ("the Oreni realm" style: the proper name). */
+/** (politiesData.ts's qualifiers: a successor that kept its parent's name is "West Temukuntin") */
+const QUALIFIERS: readonly string[] = ['', 'North', 'South', 'East', 'West', 'New', 'Upper', 'Lower', 'Restored']
+/** A polity's distinct name: its proper name with the qualifier a successor bears ("West Temukuntin"). */
 export function polityWord(h: History, q: number): string {
   const P = h.polities?.[q]
-  return P ? P.name : 'a neighbour'
+  if (!P) return 'a neighbour'
+  const x = QUALIFIERS[P.qualifier] ?? ''
+  return x ? `${x} ${P.name}` : P.name
+}
+/** A polity named on a card of the seat polity `us`: never reads as the player's own realm (a same-named rival is "the rival X"). */
+export function otherWord(h: History, q: number, us: number): string {
+  const w = polityWord(h, q)
+  return q !== us && us >= 0 && w === polityWord(h, us) ? `the rival ${w}` : w
 }
 export function townWord(h: History, id: number, year: number): string {
   return id >= 0 && id < h.settlements.length ? spokenNameAt(h, id, year) : 'a town'
 }
 
 /** The name of a decision's subject (per kind). */
-export function subjectWord(h: History, kind: number, subject: number, year: number): string {
+export function subjectWord(h: History, kind: number, subject: number, year: number, us = -1): string {
   switch (kind) {
-    case DecisionKind.WarOnUs: case DecisionKind.Opening: return polityWord(h, subject)
+    case DecisionKind.WarOnUs: case DecisionKind.Opening: case DecisionKind.AllianceMade: case DecisionKind.AllianceSought:
+    case DecisionKind.Overlord: case DecisionKind.Match: case DecisionKind.Betrayal: return otherWord(h, subject, us)
+    case DecisionKind.Heir: case DecisionKind.General: return rulerWord(h, subject)
+    case DecisionKind.Crisis: case DecisionKind.Credit: return ''
     case DecisionKind.Plague: { const e = h.epidemics?.[subject]; const d = e ? h.diseases?.[e.disease] : undefined; return d ? `the ${d.name}` : 'a pestilence' }
     case DecisionKind.Faith: return h.faiths?.[subject]?.name ?? 'a faith'
     case DecisionKind.Revolt: return townWord(h, subject, year)
@@ -61,7 +82,7 @@ export function subjectWord(h: History, kind: number, subject: number, year: num
 /** Card title: "War is declared on us: Vosk". */
 export function decisionTitle(h: History, d: number): string {
   const D = h.seat!.decisions
-  const s = subjectWord(h, D.kind[d], D.subject[d], D.year[d])
+  const s = subjectWord(h, D.kind[d], D.subject[d], D.year[d], D.polity[d])
   const label = DK[D.kind[d]]?.label ?? 'A decision'
   return s ? `${label}: ${s}` : label
 }
@@ -71,8 +92,17 @@ export function decisionSituation(h: History, d: number): string {
   const D = h.seat!.decisions
   const y = D.year[d], k = D.kind[d], subj = D.subject[d], at = townWord(h, D.place[d], y)
   const us = D.polity[d] >= 0 ? polityWord(h, D.polity[d]) : 'our people'
-  const name = subjectWord(h, k, subj, y)
+  const name = subjectWord(h, k, subj, y, D.polity[d])
   switch (k) {
+    case DecisionKind.Heir: return `${capFirst(name)} grows old, or the succession is uncertain. The lords ask whom the crown will name.`
+    case DecisionKind.Crisis: return `The succession of ${us} is disputed: magnates take sides and the provinces wait to see who wins.`
+    case DecisionKind.General: return `The army is restless after the wars, and its general is spoken of as a better ruler than ${name}.`
+    case DecisionKind.Match: return `The house ruling ${name} has a child to marry, and so has ours. A match would bind the two courts.`
+    case DecisionKind.AllianceMade: return `${capFirst(name)} and ${us} are now allies against a common rival. The treaty binds us both.`
+    case DecisionKind.AllianceSought: return `A rival at least our size threatens ${us}, and ${name} too. They might stand with us.`
+    case DecisionKind.Overlord: return `${us} pays ${name} as its overlord. The tribute is heavy; the overlord is far.`
+    case DecisionKind.Credit: return `The treasury of ${us} is short: debts are heavy, or pay falls behind, or a war must be paid for.`
+    case DecisionKind.Betrayal: return `${us} fights beside ${name} in its war, and our levies are worn out. The enemy would take our own peace.`
     case DecisionKind.WarOnUs: return `In ${y} ${name} declared war on ${us}. Its armies gather at the border.`
     case DecisionKind.Opening: return `${name} is in turmoil: its court is divided and its levies uncertain. Our forces at the border are the stronger.`
     case DecisionKind.Plague: return `${capFirst(name)} has reached ${at}. The sick fill the streets; the ships still come in.`
@@ -99,7 +129,31 @@ export function optionExpects(h: History, d: number, option: number): string {
 /** The button word of option `option` of decision d. */
 export function optionLabel(h: History, d: number, option: number): string {
   const D = h.seat!.decisions
-  return OPTION_LABEL[D.optKey[D.optStart[d] + option]] ?? 'Choose'
+  const o = D.optStart[d] + option
+  if (D.optKey[o] === SeatOptionKey.NameHeir && D.orderStart[o + 1] > D.orderStart[o]) {
+    const born = D.orderTarget[D.orderStart[o]]
+    return `Name the heir born in ${born} (aged ${D.year[d] - born})${option === 0 ? ', the law’s choice' : ''}`
+  }
+  return OPTION_LABEL[D.optKey[o]] ?? 'Choose'
+}
+
+/** A ruler (History.rulers) by name: "Queen Asha", or "the ruler". */
+function rulerWord(h: History, r: number): string {
+  const x = h.rulers?.[r] as { name?: string } | undefined
+  return x?.name ? x.name : 'the ruler'
+}
+
+/** The polity ruling settlement id at `year` (its distinct name), from the snapshot. */
+function polityAt(h: History, id: number, year: number): string {
+  if (id < 0 || id >= h.settlements.length || !h.polity) return 'a realm'
+  const S = h.settlements.length, q = Math.max(0, Math.min(h.snapshotCount - 1, Math.floor(year / h.snapshotInterval)))
+  const p = h.polity[q * S + id]
+  return p >= 0 ? polityWord(h, p) : townWord(h, id, year)
+}
+/** The deciding body of polity p at `year` in the third person ("the elders", "its court"). */
+function DECIDER_BODY_AT(h: History, p: number, year: number): string {
+  const b = deciderChronicle(h, h.seat?.seat ?? { kind: SeatKind.Polity, id: p, from: 0 }, year)
+  return b === 'its court' ? 'the court' : b
 }
 
 const capFirst = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t)
@@ -147,6 +201,7 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
     [K.Placate]: ['{year}: the court of {us} is said to have bought off its magnates.', 'Gold went out from the treasury of {us}, and the lords fell quiet.'],
     [K.CrushPretender]: ['{year}: {us} is recorded moving against the pretender.', '{us} went after the pretender with fire.'],
     [K.Endure]: ['{year}: the court of {us} seems to have waited the crisis out.', '{us} held its breath and waited.'],
+    [K.Reclaim]: ['{year}: the ruler of {us} is said to have taken the power back from those who had ruled in the ruler’s name.', 'The ruler of {us} walked into the council chamber and sat down at its head again.'],
   },
   [DecisionKind.AllianceMade]: {
     [K.Honour]: ['{year}: {us} kept faith with its new ally {them}, as far as the annals tell.', '{us} gave its word to {them} and kept it.'],
@@ -187,6 +242,7 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
     [K.Borrow]: ['{year}: the treasury of {us} is said to have borrowed.', '{us} borrowed against the future.'],
     [K.Levy]: ['{year}: {us} raised its taxes, the annals record, to grumbling.', '{us} squeezed its towns for coin.'],
     [K.Retrench]: ['{year}: the court of {us} seems to have tightened its belt.', '{us} lived within its means.'],
+    [K.RepudiateDebts]: ['{year}: the crown of {us} is said to have refused its debts; the lenders, the annals record, were not repaid.', '{us} burned the bonds and told its lenders to whistle for their silver.'],
   },
   [DecisionKind.Charter]: {
     [K.Grant]: ['{year}: {us} is said to have granted {them} a charter.', '{them} got its charter from {us}.'],
@@ -212,7 +268,7 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
 }
 
 /** The words of a decision's choice: [chronicle, legend] filled for decision d and option `option` (null: no phrase). */
-export function choiceWords(h: History, d: number, option: number, legend: boolean): string | null {
+export function choiceWords(h: History, d: number, option: number, legend: boolean, deferred = false): string | null {
   const D = h.seat?.decisions
   if (!D || d < 0 || d >= D.count) return null
   const key = D.optKey[D.optStart[d] + option]
@@ -220,8 +276,13 @@ export function choiceWords(h: History, d: number, option: number, legend: boole
   if (!t) return null
   const y = D.year[d]
   const us = D.polity[d] >= 0 ? polityWord(h, D.polity[d]) : `the ${h.peoples?.[h.seat!.peopleAt[y - h.seat!.seat.from]]?.name ?? 'people'}`
-  const vars: Record<string, string> = { year: String(y + 1), us, them: subjectWord(h, D.kind[d], D.subject[d], y), at: townWord(h, D.place[d], y) }
-  const line = (legend ? t[1] : t[0]).replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '')
+  const vars: Record<string, string> = { year: String(y + 1), us, them: subjectWord(h, D.kind[d], D.subject[d], y, D.polity[d]), at: townWord(h, D.place[d], y) }
+  let line = (legend ? t[1] : t[0]).replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '')
+  if (deferred) {
+    // (a matter left to the deciding body: who decided, and on a divisive one who bore the blame)
+    const body = deciderChronicle(h, h.seat!.seat, y)
+    line = legend ? `${line.replace(/\.$/, '')}; but it was ${body === 'its court' ? 'the court' : body} that chose, not the ruler.` : `${line.replace(/\.$/, '')}; the ruler left the matter to ${body}.`
+  }
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
@@ -236,13 +297,14 @@ export function seatDecisionFacts(h: History, p: number, Y: number): DecisionFac
   for (let d = 0; d < D.count; d++) {
     if (D.year[d] >= Y || D.polity[d] !== p || D.chosen[d] < 0) continue
     const o = D.chosen[d]
-    out.push({ d, year: D.year[d], kind: D.kind[d], key: D.optKey[D.optStart[d] + o], chronicle: choiceWords(h, d, o, false) ?? '', legend: choiceWords(h, d, o, true) ?? '' })
+    const df = D.deferred?.[d] === 1
+    out.push({ d, year: D.year[d], kind: D.kind[d], key: D.optKey[D.optStart[d] + o], chronicle: choiceWords(h, d, o, false, df) ?? '', legend: choiceWords(h, d, o, true, df) ?? '' })
   }
   return out
 }
 
 /** Whether an event type is a seat event (270-279). */
-export const isSeatEvent = (t: number): boolean => t >= 270 && t <= 279
+export const isSeatEvent = (t: number): boolean => (t >= 270 && t <= 279) || (t >= 182 && t <= 184)
 
 /** Chronicle line of a seat event (270-273; the court kinds' events with their steps). */
 export function describeSeatEvent(h: History, e: { year: number; type: number; settlement: number; other: number; value: number; extra?: number }): string | null {
@@ -253,6 +315,15 @@ export function describeSeatEvent(h: History, e: { year: number; type: number; s
     case 271: return `The seat passes to ${polityWord(h, e.value)}, ruled from ${at}`
     case 272: return `The seat is lost: ${SEAT_END_WORDS[e.extra ?? 0] ?? 'it ended'}`
     case 273: return `${capFirst(AMBITION_WORDS[e.value] ?? 'An ambition')} is achieved, ${e.extra ?? 0} years after the seat was taken`
+    case 274: return `The ruler of ${polityAt(h, e.settlement, e.year)} names an heir, born in ${e.extra ?? '?'}`
+    case 275: return `The court of ${polityAt(h, e.settlement, e.year)} is said to have bought off its restive lords`
+    case 276: return (e.extra ?? 0) === 1 ? `The ruler of ${polityWord(h, e.value)} moved against the general, who seems to have struck first` : `The ruler of ${polityWord(h, e.value)} purges a too-popular general`
+    case 277: return `${capFirst(polityAt(h, e.settlement, e.year))} renounces its ${(e.extra ?? 0) % 16 === 2 ? 'alliance' : (e.extra ?? 0) % 16 === 3 ? 'marriage tie' : 'bond'} with ${polityWord(h, e.value)}`
+    case 278: return `${capFirst(polityAt(h, e.settlement, e.year))} buys peace from ${polityAt(h, e.other, e.year)} with ${e.extra ?? 0} years of tribute`
+    case 279: return `The crown of ${polityWord(h, e.value)} raises an extraordinary levy on its towns`
+    case 182: return `It was said that in ${polityWord(h, e.value)} ${DECIDER_BODY_AT(h, e.value, e.year)} ruled in all but name`
+    case 183: return (e.extra ?? 0) === 1 ? `The ruler of ${polityWord(h, e.value)} took the power back from ${DECIDER_BODY_AT(h, e.value, e.year)}, at some risk to the throne` : `The ruler of ${polityWord(h, e.value)} seems to have ruled again in person`
+    case 184: return `${capFirst(DECIDER_BODY_AT(h, e.value, e.year))} of ${polityWord(h, e.value)} bore the blame for ${(DK[e.extra ?? -1]?.label ?? 'a hard matter').toLowerCase()}`
   }
   return `At ${at}, a matter of the seat`
 }
@@ -264,5 +335,52 @@ export const AMBITION_WORDS: Record<number, string> = {
 /** The Choice order's story (the Nudge list and the chronicle): the decision's phrase in the chronicle register. */
 export function choiceStory(h: History, target: number): string {
   if (target < 0) return 'A choice of the court'
-  return choiceWords(h, Math.floor(target / 8), target % 8, false) ?? 'A choice of the court'
+  const d = Math.floor(target / 8), x = target % 8
+  if (x === DEFER_OPTIONS.defer) return choiceWords(h, d, h.seat?.decisions.courtPick[d] ?? 0, false, true) ?? 'A matter left to the court'
+  if (x === DEFER_OPTIONS.reclaim) return `The ruler of ${h.seat ? polityWord(h, h.seat.decisions.polity[d] ?? -1) : 'the realm'} took the power back`
+  return choiceWords(h, d, x, false) ?? 'A choice of the court'
+}
+
+// ---------- option cards (decisionCard.ts): the type tag, the tint and the corner badge of each option ----------
+
+/** Tints of the option cards (seat.css --seat-tint-*), by the kind of thing an option does. */
+export type OptionTint = 'war' | 'diplomacy' | 'court' | 'coin' | 'faith' | 'works' | 'discovery'
+/** Per order kind: [type tag, tint, corner badge (what it costs or risks, in a word or a number)]. */
+const OPTION_KIND: Record<number, readonly [string, OptionTint, string]> = {
+  [OrderKind.War]: ['War', 'war', 'War'],
+  [OrderKind.Peace]: ['Diplomacy', 'diplomacy', 'Terms'],
+  [OrderKind.Submit]: ['Diplomacy', 'coin', 'Tribute'],
+  [OrderKind.Ally]: ['Diplomacy', 'diplomacy', 'Ally'],
+  [OrderKind.Marry]: ['Diplomacy', 'diplomacy', 'Match'],
+  [OrderKind.Repudiate]: ['Diplomacy', 'war', 'Grudge'],
+  [OrderKind.Defy]: ['Diplomacy', 'war', 'War risk'],
+  [OrderKind.Betray]: ['Diplomacy', 'war', 'Grudge'],
+  [OrderKind.Designate]: ['Court', 'court', 'Heir'],
+  [OrderKind.Placate]: ['Court', 'coin', '−15% gold'],
+  [OrderKind.Purge]: ['Court', 'war', 'Risk'],
+  [OrderKind.Borrow]: ['Coin', 'coin', 'Debt'],
+  [OrderKind.Levy]: ['Coin', 'coin', 'Unrest'],
+  [OrderKind.Faith]: ['Faith', 'faith', 'Faith'],
+  [OrderKind.Fortify]: ['Works', 'works', 'Walls'],
+  [OrderKind.Quarantine]: ['Works', 'works', 'Ports'],
+  [OrderKind.Seat]: ['Court', 'court', 'Capital'],
+  [OrderKind.Settle]: ['Discovery', 'discovery', 'Settlers'],
+  [OrderKind.Explore]: ['Discovery', 'discovery', 'Explorers'],
+  [OrderKind.Crop]: ['Discovery', 'discovery', 'Fields'],
+  [OrderKind.Idea]: ['Discovery', 'discovery', 'Learning'],
+}
+
+/** The option's card face: type tag, tint, badge text (the court's own course: "Court"). */
+export function optionMeta(h: History, d: number, option: number): { tag: string; tint: OptionTint; badge: string; key: number; court: boolean } {
+  const D = h.seat!.decisions
+  const o = D.optStart[d] + option
+  const key = D.optKey[o]
+  if (D.orderStart[o] === D.orderStart[o + 1]) return { tag: 'Court', tint: 'court', badge: 'Wait', key, court: true }
+  const kind = D.orderKind[D.orderStart[o]]
+  const n = D.orderStart[o + 1] - D.orderStart[o]
+  const m = OPTION_KIND[kind] ?? ['Court', 'court', '']
+  let badge = m[2]
+  if (kind === OrderKind.Quarantine) badge = `${n} port${n > 1 ? 's' : ''}`
+  if (kind === OrderKind.Repudiate && D.orderTarget[D.orderStart[o]] === D.orderActor[D.orderStart[o]]) badge = 'Credit'
+  return { tag: m[0], tint: m[1], badge, key, court: false }
 }
