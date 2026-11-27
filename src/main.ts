@@ -43,6 +43,7 @@ import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/layer.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
+import { PLAY_PATHS, PlayPath, throneUrl } from './ui/onboard.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
@@ -1868,10 +1869,20 @@ if (showLanding) {
       landing?.setLoading(true)
       requestWorld(seed, true)
     },
-    onStart(seed, years) {
+    paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
+    onPath(path) {
+      if (path !== PlayPath.Rule) return false
+      window.location.assign(throneUrl(heldUrl ?? new URL(window.location.href)).href)
+      return true
+    },
+    onStart(seed, years, path) {
       // the address: what the app wrote meanwhile, with the seed and the years chosen
       const url = heldUrl ?? new URL(window.location.href)
       heldUrl = null
+      // onboarding: watching follows the story; exploring does not
+      historyView.setFollowOnShow(path !== PlayPath.Explore)
+      if (path === PlayPath.Watch) url.searchParams.set('follow', '1')
+      else url.searchParams.delete('follow')
       url.searchParams.delete('intro')
       url.searchParams.set('seed', String(seed))
       if (years === 2000) url.searchParams.delete('years')
