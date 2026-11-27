@@ -189,7 +189,7 @@ useful ones:
 | `view` | Start in a view (`terrain`, `biomes`, `factions`, `faiths`, `fever`, ...) | [`?seed=42&year=1500&view=factions`](https://ryanmye.github.io/worldseed/?seed=42&year=1500&view=factions) |
 | `select` | Select a settlement by id | `?seed=42&select=<id>` |
 | `fly` | Open in the city view of a settlement by id | `?seed=42&fly=<id>` |
-| `preset` | `realistic` (default) or `dramatic` (every merged system on; see Presets below) | [`?seed=42&preset=dramatic`](https://ryanmye.github.io/worldseed/?seed=42&preset=dramatic) |
+| `preset`, `v` | `realistic` (default), `dramatic` (every merged system on) or `off`; `v=2` marks a link made with presets (none: every new system off). See Presets below | [`?seed=42&preset=dramatic`](https://ryanmye.github.io/worldseed/?seed=42&preset=dramatic) |
 | `oaths` … `causes` | One system on (`1`) or off (`0`), over the preset | `?seed=42&preset=dramatic&battles=0` |
 | `seat` | Take a throne: `polity:<id>:<year>` | [`?seed=61343&seat=polity:0:700`](https://ryanmye.github.io/worldseed/?seed=61343&seat=polity:0:700) |
 | `o` | Nudges: `year:kind:actor[:target]` joined by `;` | `?seed=42&o=1000:explore:5:12345;1000:fortify:14` |
@@ -258,35 +258,62 @@ The single 8cabf09 realisation is noisy: on 4 seeds it flags null perturbations 
 WORSE. `npm run realism:check:noise` (the same as
 `npm run realism:check -- --noise docs/realism-noise.jsonl`) judges a target WORSE only
 when its mean miss exceeds the null ensemble's mean by more than max(0.1, 3 sd). The
-ensemble is the baseline re-run with jittered draws, 12 x 4 runs. Use it for the
-Realistic preset's gate.
+ensemble is the baseline re-run with jittered draws, 12 x 4 runs. Both are recorded
+under the Realistic default. Use it for the Realistic preset's gate.
 
 ### Presets
 
-`preset=realistic` (the default; a link without `preset` is realistic) runs today's
-defaults, so every post-8cabf09 system is off until its own flip. `preset=dramatic`
-turns on every merged system:
+There are three presets, and **Realistic is the default** (owner decision, 2026-11-27).
 
-- oaths, balance and arms;
-- families and finance;
-- society;
-- beliefs and barriers;
-- disasters, with the Phase-2 feedback;
-- battles, non-neutral;
-- cold wars, with great-power war restraint;
-- causes.
+- **Realistic** turns on the merged systems that pass the noise-aware realism ratchet
+  together:
+  - grudges (`oaths`, `balance`, `arms`);
+  - `finance`;
+  - `beliefs` and `barriers`;
+  - `battles`, with terrain, weather, supply and the other modifiers;
+  - `society`;
+  - `disasters`, with the Phase-2 feedback.
+
+  Families, cold wars, absentee rulers and city-states stay off.
+- **`preset=dramatic`** turns on every merged system: Realistic plus `families`,
+  `coldWars` with `warRestraint`, and `causes`.
+- **`preset=off`** turns off every post-8cabf09 system. This is the history from
+  before the presets.
 
 Any switch can be set per link, and an explicit switch wins over the preset. The
 switches are `oaths= balance= arms= families= finance= society= beliefs= barriers=
 disasters= battles= coldWars= warRestraint= causes=`, each `1` or `0`. For example,
-`?seed=7&preset=dramatic&battles=0` is the dramatic world without battles. The keys
-stay in the address, so share links and seat links (`seat=polity:0:700`) carry them.
-The start page has a Realistic / Dramatic toggle and an "Or take a throne" link.
+`?seed=7&v=2&preset=dramatic&battles=0` is the dramatic world without battles.
+The keys stay in the address, so share links and seat links (`seat=polity:0:700`)
+carry them. The start page has a Realistic / Dramatic toggle and an "Or take a
+throne" link.
 
-Dramatic is not realism-ratcheted. Its guard against incoherent churn is
-`node --experimental-strip-types --no-warnings src/sim/history/presetStats.ts --check`
-(seeds 1 7 42 1234; the bounds and the measured values are in that file). See
-`src/sim/history/presets.ts` and `docs/REGISTRY.md` for the registry.
+**Link version (`v=`).** New worlds write `v=2`. A link without `v`, made before the
+presets, replays with `preset=off` unless it names a preset. Old share links and seat
+URLs therefore keep exactly the history they always had, and `src/sim/history/presets.test.ts`
+checks this against the pre-preset G0 hash. With `v=2`, a link without `preset` is
+Realistic.
+
+**Gates.**
+- G0 has two identities, and `scripts/g0.ts` checks both:
+  - `G0_GOLDENS` for the Realistic default;
+  - `G0_OFF_GOLDENS` for `preset=off`. These are the 8cabf09 goldens, the stable
+    identity for every lane.
+- The realism baseline and the null ensemble are recorded under the Realistic default.
+- The unit suite runs on `preset=off` (`src/test/setup.ts`), the world its goldens
+  were recorded against. Tests of the default name `preset: 'realistic'`.
+
+**Costs and caveats.**
+- With every system on, a 2000-year run takes about 20% longer headless (about
+  19.7 s to 23.8 s per run, measured in plans/REJUDGE.md).
+- Dramatic is not realism-ratcheted. Its guard against incoherent churn is
+  `npm run preset:sanity` (`src/sim/history/presetStats.ts --check`, seeds 1 7 42
+  1234; the bounds and the measured values are in that file).
+- Known caveat: with cold wars on, `zipf1500.zeta` fails the noise-aware ratchet on 1
+  of 4 seeds (seed 1234). This is 4-seed evidence and may be chance; a 22-seed sweep
+  is pending.
+
+See `src/sim/history/presets.ts`, and `docs/REGISTRY.md` for the registry.
 
 ## How it is built
 

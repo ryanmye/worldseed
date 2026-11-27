@@ -65,7 +65,13 @@ resolved below.
 
 ## HistoryOptions (§3.3 additions)
 On main: `oaths`, `balance`, `arms`, `families`, `finance`, `society`, `beliefs`, `barriers`, `disasters`, `battles`,
-`language`, `typology`, `causes`, `seat`, `coldWars`, `warRestraint` and **`preset`** (lane/setup; `src/sim/history/presets.ts`). In lanes:
+`language`, `typology`, `causes`, `seat`, `coldWars`, `warRestraint` and **`preset`** (lane/setup; `src/sim/history/presets.ts`).
+`preset` is `'off' | 'realistic' | 'dramatic'`, and the default is **realistic** (owner decision (b)). Realistic turns on
+oaths, balance, arms, finance, beliefs, barriers, battles, society, and disasters with DX.feedback. Dramatic adds
+families, coldWars, warRestraint and causes. Off turns them all off.
+
+The URL link version is **`v=2`**. A link without `v` replays with preset off, so old links keep their history. G0 has two
+identities: `G0_GOLDENS` for realistic and `G0_OFF_GOLDENS` for off (the 8cabf09 values). In lanes:
 `governments` (citystates) and `absentee` (absentee).
 
 ## Plan collisions resolved (these supersede the plan text)
