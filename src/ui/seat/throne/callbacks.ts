@@ -5,7 +5,7 @@
 import { DEFER_OPTIONS, DecisionKind, EventType, OrderKind, OrderStatus, ReignEnd, WarOutcome } from '../../../contract.ts'
 import type { History, Ruler } from '../../../contract.ts'
 import { reasonWords, statusAt } from '../../nudgeFormat.ts'
-import { optionLabel, polityWord, subjectWord, townWord } from '../seatFormat.ts'
+import { AMBITION_WORDS, optionLabel, polityWord, subjectWord, townWord } from '../seatFormat.ts'
 import { crownedAs, heirName } from './heirs.ts'
 
 export interface Callback {
@@ -156,7 +156,7 @@ export function realmNews(h: History, p: number, from: number, to: number): News
     const won = o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute || o === WarOutcome.Vassalage ? att : o === WarOutcome.DefenderGains ? !att : null
     out.push({ year: W.endYear[w], kind: 'war', text: `${W.endYear[w]}: the war with ${them} ends${won === null ? ' with nothing won' : won ? ` in our favour${W.taken[w] ? ` (${W.taken[w]} towns change hands)` : ''}` : ' badly for us'}.` })
   }
-  for (const e of h.events) if (e.type === EventType.AmbitionFulfilled && e.year > from && e.year <= to) out.push({ year: e.year, kind: 'ambition', text: `${e.year}: an ambition is achieved.` })
+  for (const e of h.events) if (e.type === EventType.AmbitionFulfilled && e.year > from && e.year <= to) out.push({ year: e.year, kind: 'ambition', text: `${e.year}: an ambition is achieved: ${AMBITION_WORDS[e.value] ?? 'one of yours'}.` })
   return out.sort((a, b) => a.year - b.year || (a.kind === 'reign' ? -1 : 1))
 }
 

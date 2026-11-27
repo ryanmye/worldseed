@@ -19,7 +19,7 @@ export interface ReignSummary {
   year: number
 }
 
-const END: Record<number, string> = { 1: 'died in old age or illness', 2: 'fell in battle', 3: 'was killed when the capital fell', 4: 'was overthrown and killed', 5: 'was deposed', 6: 'died of the plague', 7: 'saw the realm end', 8: 'came to the end of the term' }
+const END: Record<number, string> = { 1: 'died', 2: 'fell in battle', 3: 'was killed when the capital fell', 4: 'was overthrown and killed', 5: 'was deposed', 6: 'died of the plague', 7: 'saw the realm end', 8: 'came to the end of the term' }
 
 /** The summary of reign r of the seat's realm, as of `year`. */
 export function reignSummary(h: History, r: Ruler, year: number): ReignSummary {
@@ -36,7 +36,8 @@ export function reignSummary(h: History, r: Ruler, year: number): ReignSummary {
   }
   const came = callbacksAt(h, end + 1, r.acceded, end - r.acceded + 30, 6).filter((c) => ds.includes(c.d))
   const lines: string[] = []
-  lines.push(`${crownedAs(h, r)} reigned ${end - r.acceded} years (${r.acceded}–${end})${r.ended >= 0 ? ` and ${END[r.end] ?? 'left the throne'}, aged ${r.ended - r.born}` : ''}.`)
+  const who = crownedAs(h, r)
+  lines.push(`${who}${who.includes(', crowned as') ? ',' : ''} reigned ${end - r.acceded} years (${r.acceded}–${end})${r.ended >= 0 ? ` and ${END[r.end] ?? 'left the throne'}, aged ${r.ended - r.born}` : ''}.`)
   if (decided.length) lines.push(`You decided: ${decided.slice(-6).join('; ')}${decided.length > 6 ? ` (and ${decided.length - 6} more)` : ''}.`)
   else lines.push('No matter of this reign came to you.')
   if (came.length) lines.push(`What came of it: ${came.map((c) => c.text.replace(/^Because /, '')).join(' ')}`)

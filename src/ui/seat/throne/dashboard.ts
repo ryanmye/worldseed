@@ -43,6 +43,9 @@ function svg(cls: string, markup: string): HTMLElement {
 
 export function createSeatDashboard(deps: SeatDashboardDeps): SeatDashboard {
   const root = el('section', 'panel seat-dash')
+  // (the title stays: the phone sheet names its tab from it, sheet.ts)
+  const title = el('h3', 'panel-title', 'Your throne')
+  root.append(title)
   root.setAttribute('aria-label', 'Your throne')
   let active = false
   deps.host.insertBefore(root, deps.host.querySelector(':scope > .chronicle'))
@@ -55,7 +58,7 @@ export function createSeatDashboard(deps: SeatDashboardDeps): SeatDashboard {
     root.hidden = !active
     document.body.classList.toggle('seat-active', active) // (the Factions panel's "Take this throne" hides while seated: seat.css)
     if (!h || !S || !active) { contextChanged(); return }
-    root.replaceChildren()
+    root.replaceChildren(title)
     const year = h.years
     const p = S.polityAt[Math.max(0, Math.min(S.polityAt.length - 1, year - S.seat.from))]
     const P = h.polities?.[p]
@@ -75,7 +78,7 @@ export function createSeatDashboard(deps: SeatDashboardDeps): SeatDashboard {
       who.append(rr)
     }
     head.append(who)
-    root.append(el('h3', 'panel-title', 'Your throne'), head)
+    root.append(head)
     const lastD = S.decisions.count - 1
     const heirs = lastD >= 0 ? heirsAt(h, lastD).slice(0, 4) : []
     if (heirs.length) {
