@@ -6,7 +6,7 @@
 import { DecisionKind, SeatOptionKey } from '../../../contract.ts'
 import type { History } from '../../../contract.ts'
 import { OPTION_RISK, SEAT } from '../../../sim/history/seat/params.ts'
-import { HUD, blowRate, hudRowOf, oddsOf } from './hudModel.ts'
+import { HUD, hudRowOf, oddsOfRow } from './hudModel.ts'
 import { heirOf, heirPhrase, heirsAt } from './heirs.ts'
 
 const K = SeatOptionKey
@@ -90,12 +90,12 @@ export function oddsAfter(h: History, d: number, option: number): number {
     const k0 = Math.min(1, dv / SEAT.deferFull), k1 = Math.min(1, (dv + 1 - SEAT.deferDivisive * D.divisive[d]) / SEAT.deferFull)
     r[HUD.Overthrow] *= (1 + SEAT.deferOverthrow * k1) / (1 + SEAT.deferOverthrow * k0)
     r[HUD.Contest] *= (1 + SEAT.deferContest * k1) / (1 + SEAT.deferContest * k0)
-    return oddsOf(blowRate(r))
+    return oddsOfRow(r)
   }
   const key = D.optKey[D.optStart[d] + option]
   const o = D.optStart[d] + option
   switch (key) {
-    case K.Placate: r[HUD.Overthrow] *= SEAT.placateMul; r[HUD.Unrest] *= SEAT.placateUnrest; r[HUD.Breakaway] *= SEAT.placateUnrest; if (r.length > HUD.LostShare) r[HUD.LostShare] *= SEAT.placateUnrest; break
+    case K.Placate: if (r.length > HUD.Crisis) r[HUD.Crisis] = 0; r[HUD.Overthrow] *= SEAT.placateMul; r[HUD.Unrest] *= SEAT.placateUnrest; r[HUD.Breakaway] *= SEAT.placateUnrest; if (r.length > HUD.LostShare) r[HUD.LostShare] *= SEAT.placateUnrest; break
     case K.Purge: r[HUD.Overthrow] = 0; break
     case K.NameHeir: {
       const law = D.info?.[d] ?? -1, born = D.orderTarget[D.orderStart[o]]
@@ -105,7 +105,7 @@ export function oddsAfter(h: History, d: number, option: number): number {
     case K.SuePeace: case K.OfferTribute: r[HUD.WarLoss] = 0; break
     default: return NaN
   }
-  return oddsOf(blowRate(r))
+  return oddsOfRow(r)
 }
 
 /** The stakes of option `option` of decision d. */
@@ -121,7 +121,7 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
     if (x) likely = `No one is named: the law’s heir, ${heirPhrase(x)}, succeeds unless the lords contest it.`
   }
   const r0 = hudRowOf(h, d)
-  const now = r0 ? oddsOf(blowRate(r0)) : NaN
+  const now = r0 ? oddsOfRow(r0) : NaN
   const after = oddsAfter(h, d, option)
   const odds = Number.isFinite(now) && Number.isFinite(after) && Math.abs(after - now) >= 0.005 ? `Odds the realm stands 50 years: ${pct(now)} → ${pct(after)}` : ''
   return { likely, risk: riskWord(key), odds, oddsAfter: after }

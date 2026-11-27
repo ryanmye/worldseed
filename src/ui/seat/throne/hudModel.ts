@@ -75,12 +75,16 @@ export function blowRate(r: ArrayLike<number>): number {
   // (breakaways: the yearly chance of losing a quarter of the realm's people to them, 4 x the expected share lost; a lone
   // village leaving is not a blow to the realm. A row from before LostShare existed has none: Breakaway / 10)
   const lost = r.length > HUD.LostShare && Number.isFinite(r[HUD.LostShare]) ? Math.min(1, 4 * r[HUD.LostShare]) : v(HUD.Breakaway) / 10
-  // (an open crisis: a rough 10% a year that it ends in civil war or partition: RULERS civil 0.32 / partition 0.12 over a crisis of a few years)
-  const crisis = r.length > HUD.Crisis && r[HUD.Crisis] > 0 ? CRISIS_YEARLY : 0
-  return v(HUD.Overthrow) + v(HUD.Contest) * v(HUD.DeathYear) + v(HUD.Default) + lost + v(HUD.WarLoss) + crisis
+  return v(HUD.Overthrow) + v(HUD.Contest) * v(HUD.DeathYear) + v(HUD.Default) + lost + v(HUD.WarLoss)
 }
 export const oddsOf = (rate: number) => Math.exp(-50 * rate)
-export const CRISIS_YEARLY = 0.1
+/** An open crisis: a one-off chance that it ends in civil war or a partition (RULERS civil 0.32, partition 0.12; a rough figure). */
+export const CRISIS_RISK = 0.3
+/** The 50-year odds of a HUD row: the yearly hazards over 50 years, and an open crisis once. */
+export function oddsOfRow(r: ArrayLike<number>): number {
+  const crisis = r.length > HUD.Crisis && r[HUD.Crisis] > 0
+  return oddsOf(blowRate(r)) * (crisis ? 1 - CRISIS_RISK : 1)
+}
 
 /** Legitimacy (UI meter, 0..1): how the realm sees the ruler's right, from the way they came to the throne, growing with years on it. */
 export function legitimacy(how: number, years: number): number {
@@ -160,14 +164,13 @@ export function hudModel(h: History, d: number, year: number): HudModel | null {
     const cb = before(HUD.Contest) * before(HUD.DeathYear)
     hazards.push(hz('succession', 'Contested succession', c * dy, cb, `If the ruler died now the succession would be contested with chance ${pct(c)}; at ${ruler ? y - ruler.born : '?'} the ruler's yearly chance of death is ${yrPct(dy)} (the life table, not a foretelling).`))
   }
-  if (r.length > HUD.Crisis && r[HUD.Crisis] > 0) hazards.push({ key: 'crisis', label: 'An open crisis', yearly: CRISIS_YEARLY, text: yrPct(CRISIS_YEARLY), trend: -1, change: '', why: 'A succession crisis or a regency is open: it may end in civil war or a partition (a rough estimate while it lasts). Placating the court ends it.' })
+  if (r.length > HUD.Crisis && r[HUD.Crisis] > 0) hazards.push({ key: 'crisis', label: 'An open crisis', yearly: 0, text: `${pct(CRISIS_RISK)} it ends in civil war`, trend: -1, change: '', why: 'A succession crisis or a regency is open: it may end in civil war or a partition (a rough figure, counted once in the odds). Placating the court ends it.' })
   if (Number.isFinite(r[HUD.Default])) hazards.push(hz('default', 'Crown default', r[HUD.Default], before(HUD.Default), `The crown defaults when the interest due passes what it can bear or the army goes unpaid for years: the interest is now ${pct(r[HUD.DebtService])} of that.`))
   hazards.push(hz('revolt', 'A town breaks away', r[HUD.Breakaway] || 0, before(HUD.Breakaway), `Towns past the point of rising rise with ${yrPct(r[HUD.Revolt] || 0)} between them; a rising wins against the capital's reach this often.`))
   if ((r[HUD.WarLoss] || 0) > 0 || (before(HUD.WarLoss) || 0) > 0) hazards.push(hz('war', 'A war lost badly', r[HUD.WarLoss] || 0, before(HUD.WarLoss), 'From the believed strength of the strongest enemy at war (a rough estimate).'))
   if (Number.isFinite(r[HUD.Psi])) hazards.push({ key: 'psi', label: 'Elite pressure (Ψ)', yearly: 0, text: r[HUD.Psi].toFixed(2), trend: trendOf(r[HUD.Psi], before(HUD.Psi), false, 0.01), change: arrow(r[HUD.Psi], before(HUD.Psi), 0.01, (x) => x.toFixed(2)), why: 'Society: too many would-be lords for too few posts. It feeds the hazards above (it is not counted again in the odds).' })
-  const rate = blowRate(r)
-  const odds = oddsOf(rate)
-  const ob = p0 ? oddsOf(blowRate(p0)) : NaN
+  const odds = oddsOfRow(r)
+  const ob = p0 ? oddsOfRow(p0) : NaN
   const founded = P?.foundedYear ?? y
   return {
     year: y, d, realm, realmAge: y - founded, rulerAge: ruler ? y - ruler.born : -1, meters, hazards,

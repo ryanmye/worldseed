@@ -34,6 +34,7 @@ import type { BattleOpenOptions } from '../battleMap.ts'
 import { battleTitle, describeBattle } from '../battleFormat.ts'
 import { contextChanged, registerContext } from '../contextPanel.ts'
 import { createDramaStrip } from './dramaStrip.ts'
+import { arcEntries, findArcs } from './arcs.ts'
 import { createStoryCard, type StoryCard } from './storyCard.ts'
 
 export interface StoryViewDeps {
@@ -564,7 +565,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     if (!index || !drama || !history) {
       plan = null
     } else {
-      plan = buildStoryPlan(drama, index.notableYear, { focus, until: history.years })
+      // lane N3: story arcs keep their chapters together (arcs.ts; plan.ts continuity and the payoff guarantee)
+      plan = buildStoryPlan(drama, index.notableYear, { focus, until: history.years, arcs: arcEntries(findArcs(history), drama.rep) })
     }
     director.setPlan(plan)
     strip.setData(drama, index ? index.notableYear : null, plan ? plan.beatYear : null)

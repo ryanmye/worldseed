@@ -55,6 +55,12 @@ export interface PlanOptions {
   focus?: ReadonlySet<number>
   /** Only entries up to this year (the history's length; default: all). */
   until?: number
+  /**
+   * Story arcs (ui/story/arcs.ts arcEntries; lane N3, throne-stories §2.2): per entry its arc (-1) and phase, per arc its
+   * payoff entry. Inside an arc whose earlier chapter is a beat, novelty ignores the arc's own beats and S grows x (1 + 0.4
+   * phase); an arc whose opening is a beat has its payoff made a beat too, kept at every speed its opening is.
+   */
+  arcs?: { arcOf: Int32Array; phase: Uint8Array; payoffOf: Int32Array }
 }
 
 /** The story plan of the static scores `sd` over entries dated `years` (HistoryIndex.notableYear). */
@@ -69,11 +75,15 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
   const isBeat = new Uint8Array(E)
 
   /** S0·N of entry n at its year, given the beats so far. */
+  const arcs = opts.arcs
+  const arcBeat = new Uint8Array(arcs ? arcs.payoffOf.length : 0) // (an arc with a beat so far)
   const novel = (n: number) => {
     const t = years[n]
     let sum = 0
+    const an = arcs && arcs.arcOf[n] >= 0 && arcBeat[arcs.arcOf[n]] ? arcs.arcOf[n] : -1
     for (let j = beats.length - 1; j >= 0; j--) {
       const b = beats[j]
+      if (an >= 0 && arcs!.arcOf[b] === an) continue // (continuity: the arc's own chapters do not count against it)
       const dt = t - years[b]
       if (dt > 6 * STORY.tauKey) break // e^-6: negligible (beats are in year order)
       if (sd.key[b] === sd.key[n]) sum += Math.exp(-dt / STORY.tauKey)
@@ -87,6 +97,7 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     const prev = beats.length > 0 ? beats[beats.length - 1] : -1
     if (prev >= 0) s *= 1 - (sd.cat[n] === sd.cat[prev] ? 0.3 : 0) - (shares(n, prev) ? 0.3 : 0)
     if (focus && focus.size > 0 && ((sd.polA[n] >= 0 && focus.has(sd.polA[n])) || (sd.polB[n] >= 0 && focus.has(sd.polB[n])))) s *= STORY.focus
+    if (arcs && arcs.arcOf[n] >= 0 && arcBeat[arcs.arcOf[n]]) s *= 1 + 0.4 * arcs.phase[n]
     return s
   }
 
@@ -112,6 +123,7 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       beats.push(best)
       beatNov.push(bestNov)
       isBeat[best] = 1
+      if (arcs && arcs.arcOf[best] >= 0) arcBeat[arcs.arcOf[best]] = 1
       tb = years[best]
     } else tb += STORY.window
   }
@@ -132,6 +144,23 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     beats.length = 0
     beats.push(...allBeats)
   }
+  // arcs: the payoff guarantee (an arc whose opening chapter is a beat gets its payoff as a beat, within `until`)
+  const payoffBeats = new Map<number, number>() // payoff entry -> the arc's first beat entry
+  if (arcs) {
+    const firstBeat = new Int32Array(arcs.payoffOf.length).fill(-1)
+    for (const b of beats) { const a = arcs.arcOf[b]; if (a >= 0 && firstBeat[a] < 0 && arcs.phase[b] < 3) firstBeat[a] = b }
+    for (let a = 0; a < arcs.payoffOf.length; a++) {
+      const n = arcs.payoffOf[a]
+      if (firstBeat[a] < 0 || n < 0 || years[n] > until || sd.score[n] <= 0) continue
+      payoffBeats.set(n, firstBeat[a])
+      if (isBeat[n]) continue
+      isBeat[n] = 1
+      let k = beats.length
+      while (k > 0 && beats[k - 1] > n) k--
+      beats.splice(k, 0, n)
+      beatNov.splice(k, 0, sd.score[n])
+    }
+  }
   // prominence (isolation): distance to the nearest beat of higher S0·N, ties broken by entry index (the earlier is higher)
   const B = beats.length
   const prom = new Float32Array(B)
@@ -141,6 +170,13 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     for (let j = i - 1; j >= 0; j--) if (higher(j, i)) { d = years[beats[i]] - years[beats[j]]; break }
     for (let j = i + 1; j < B; j++) if (higher(j, i)) { d = Math.min(d, years[beats[j]] - years[beats[i]]); break }
     prom[i] = d
+  }
+  // (a payoff is kept at every speed its arc's opening is: computed after prominence, so 16x ⊂ 4x ⊂ 1x still holds)
+  if (payoffBeats.size > 0) for (let i = 0; i < B; i++) {
+    const open = payoffBeats.get(beats[i])
+    if (open === undefined) continue
+    const oi = beats.indexOf(open)
+    if (oi >= 0 && prom[oi] > prom[i]) prom[i] = prom[oi]
   }
   return {
     beatEntry: Int32Array.from(beats),
