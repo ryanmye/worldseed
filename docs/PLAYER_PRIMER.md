@@ -156,7 +156,7 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     - The crown defaults (Default; finance): Raise taxes / Refuse the debts / Placate them / Retrench
     - The war chest (WarChest; finance): after you declare a war, Borrow / Raise taxes / Retrench; when the soldiers go
       unpaid, Sue for peace / Raise taxes / Borrow / Fight on
-    - After the battle (Battle; battles, at least 6,000 men): won, Offer terms / Reward the army / Fight on; lost, Sue for
+    - After the battle (Battle; battles, at least 300 men, at most one every 8 years): won, Offer terms / Reward the army / Fight on; lost, Sue for
       peace / Raise taxes / Recall the general / Fight on
     - A bluff exposed (Bluff; beliefs): a rival's bluff seen through, Call the bluff / Defy (if it is your overlord) / Stay
       out; your own seen through, Raise taxes / Fortify the capital / Seek an ally / Endure

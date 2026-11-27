@@ -67,8 +67,9 @@ export const SEAT = {
   // Credit: the crown's need (finance finNeed) at least creditNeed (surfacing lane: 0.5 needed war and heavy debt together, and
   // never came in 100 seated years; 0.4 is debt, arrears or a recent default, or a war with some debt)
   creditNeed: 0.4,
-  // Battle: a battle of the realm's army with at least battleMen men on both sides together
-  battleMen: 6000,
+  // Battle: a battle of the realm's army with at least battleMen men on both sides together (the armies of 800-1000 field a few
+  // hundred to a few thousand; the kind's cooldown keeps it to one card a war season)
+  battleMen: 300,
   // Disaster: a shock that killed at least disasterDead of the realm's people (or destroyed a town; a great flood of a city kills 250-450)
   disasterDead: 200,
   // ---- the court kinds' orders (orders/seatOrders.ts, orders/hooks.ts; seat-mode §3.6) ----
