@@ -15,6 +15,7 @@
 // parent before n's split, and so on up the lineage (a daughter inherits the words of the day she parted).
 
 import type { World } from '../../contract.ts'
+import { powD } from '../detMath.ts'
 import { createRng } from '../rng.ts'
 import type { Rng } from '../rng.ts'
 import { buildLexicon, GEO_CLASSES } from './featureNames.ts'
@@ -87,11 +88,11 @@ export function meaningRates(seed: number): number[] {
     for (;;) {
       const u1 = 1 - rng.next(), u2 = rng.next()
       const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2)
-      const v = Math.pow(1 + c * z, 3)
+      const v = powD(1 + c * z, 3)
       if (v <= 0) continue
       if (Math.log(1 - rng.next()) < 0.5 * z * z + d - d * v + d * Math.log(v)) { x = d * v; break }
     }
-    if (k < 1) x *= Math.pow(1 - rng.next(), 1 / k)
+    if (k < 1) x *= powD(1 - rng.next(), 1 / k)
     out.push(x / k)
   }
   return out
