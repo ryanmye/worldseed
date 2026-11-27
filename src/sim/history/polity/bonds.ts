@@ -16,7 +16,8 @@
 // Buffer states: attacking a small polity next to a rival of the attacker alarms that rival (rivalry + bufferR), which
 // may take the victim under its protection (an alliance).
 
-import { BondEnd, BondKind, EventType, GrievanceKind, TOWN_POPULATION } from '../../../contract.ts'
+import { BondEnd, BondKind, EventType, GrievanceKind, RivalryPart, TOWN_POPULATION } from '../../../contract.ts'
+import { whyAbsorbed, whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
@@ -211,7 +212,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
     if (proj < VASSAL.rebel * m) {
       endBond(s, ps, k, BondEnd.Freed)
       const r = ensureRelation(ps, a, b)
-      if (ps.relR[r] < RELATION.secedeR) ps.relR[r] = RELATION.secedeR
+      if (ps.relR[r] < RELATION.secedeR) { if (ps.why) whyRelSet(ps.why, r, RivalryPart.Secession, ps.relR[r], RELATION.secedeR); ps.relR[r] = RELATION.secedeR } // (causes: recorded)
       continue
     }
     if (s.year - ps.bStart[k] >= VASSAL.absorbYears && proj >= VASSAL.absorb * m && ps.pWars[a] === 0) absorbVassal(s, ps, k, a, b, d)
@@ -222,6 +223,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
 function absorbVassal(s: HistoryState, ps: PolityState, k: number, a: number, b: number, d: number): void {
   endBond(s, ps, k, BondEnd.Absorbed)
   for (const j of subjectsOf(ps, a)) endBond(s, ps, j, BondEnd.Ended)
+  if (ps.why) whyAbsorbed(ps.why, a, ps.pPop[b], ps.pPop[a], 1) // causes:
   const living = s.living
   for (let t = 0; t < living.length; t++) {
     const id = living[t]
@@ -325,6 +327,7 @@ export function bufferAlarm(s: HistoryState, ps: PolityState, p: number, q: numb
     if (c === p || ps.pEnded[c] >= 0 || ps.relEdges[r].length === 0) continue
     const rc = relIdx(ps, c, p)
     if (rc < 0 || ps.relR[rc] < ALLIANCE.threat) continue
+    if (ps.why) whyRelSet(ps.why, rc, RivalryPart.Alarm, ps.relR[rc], ps.relR[rc] + ALLIANCE.bufferR > 2 ? 2 : ps.relR[rc] + ALLIANCE.bufferR) // causes:
     ps.relR[rc] = ps.relR[rc] + ALLIANCE.bufferR > 2 ? 2 : ps.relR[rc] + ALLIANCE.bufferR
     if (!allied(ps, c, q) && overlordOf(ps, q) < 0 && alliances(ps, c) < 2 && roll() < ALLIANCE.join) ally(s, ps, c < q ? c : q, c < q ? q : c, p)
   }

@@ -18,7 +18,8 @@
 // resolved at once; if the rump left at the capital is small the polity ends (Fragmented).
 // Capitals move when a member has long been much larger and safer (and when the capital is lost).
 
-import { EventType, PolityEnd, PolityOrigin, RevoltCause } from '../../../contract.ts'
+import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
+import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
 import { smoothstep } from '../../util.ts'
 import { foodBase } from '../migration.ts'
 import type { HistoryState } from '../state.ts'
@@ -58,14 +59,18 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   if (e > 1) e = 1
   const since = s.year - ps.conqueredAt[i]
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
-  const peasant = (s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0) + U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)) + (ps.badTax[i] ? U.badTax : 0)
+  const fam = s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0, crowd = U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)), bt = ps.badTax[i] ? U.badTax : 0
+  const peasant = fam + crowd + bt
   // (v2: corruption where contraband pays)
-  const provincial = U.distance * (1 - g) + U.exhaustion * e + (inCrisis(s, ps, p) ? U.crisis : 0) + SMUGGLE.corruptUnrest * ps.corrupt[i]
-  const ethnic = U.foreign * (1 - ps.assim[i]) + conquest
+  const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
+  const provincial = dist + exh + cri + cor
+  const foreign = U.foreign * (1 - ps.assim[i])
+  const ethnic = foreign + conquest
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
-  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; return c2Grievance(peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
+  if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
+  if (s.rel !== null) { const r = faithGrievance(s, s.rel, i, p); terms[4] = r; if (ps.why) ps.why.sub[UnrestPart.Faith] = r; return c2Grievance(peasant + provincial + ethnic + colonial + r) } // religion: a ruler of another faith, persecution
   return c2Grievance(peasant + provincial + ethnic + colonial) // C2 (compose.ts): the form multiplier on the grievance sum
 }
 
@@ -87,6 +92,7 @@ export function unrestStep(s: HistoryState, ps: PolityState): void {
     if (p < 0) { ps.unrest[i] = 0; continue }
     if (ps.pCapital[p] === i) { ps.unrest[i] = 0; ps.badTax[i] = 0; continue }
     const h = grievance(s, ps, i, p)
+    if (ps.why) whyUnrest(ps.why, i, rate, h, ps.unrest[i]) // causes: the parts move with it
     ps.unrest[i] += rate * (h - ps.unrest[i])
     ps.badTax[i] = 0
     if (ps.assim[i] < 1) { const a = ps.assim[i] + step * U.assim; ps.assim[i] = a > 1 ? 1 : a }
@@ -117,6 +123,7 @@ function revolt(s: HistoryState, ps: PolityState, seat: number, p: number): bool
   let rb = 0
   for (const j of cluster) { rb += ps.asab[j] * ps.str[j] * ps.defense[s.cell[j]]; spike(ps, j, DANGER.revolt) }
   const sup = projAt(ps, p, ps.dist[seat] < FAR ? ps.dist[seat] : FAR) * (inCrisis(s, ps, p) ? 1 - U.crisisSupport : 1)
+  if (ps.why) whyRevolt(ps.why, s.events.length - 1, seat, ps.unrest[seat], rb, sup) // causes: (the Revolt is the last event)
   const win = rng.next() < (rb * rb) / (rb * rb + sup * sup + 1e-12)
   if (!win) {
     for (const j of cluster) {
@@ -213,6 +220,7 @@ export function realmStep(s: HistoryState, ps: PolityState, ts: TradeState): voi
       if (!inCrisis(s, ps, p) && rng.next() < chance) {
         ps.pCrisisUntil[p] = s.year + U.crisisMin + Math.floor(rng.next() * (U.crisisMax - U.crisisMin + 1))
         logEvent(s, EventType.SuccessionCrisis, ps.pCapital[p], -1, p)
+        if (ps.why) whyCrisisAt(ps.why, s.events.length - 1, chance, (ps.pAsab[p] < 0.5 ? CrisisBit.LowCohesion : 0) | (ps.pMulti[p] ? CrisisBit.ManyPeoples : 0)) // causes:
         crisisOpened(s, ps, ts, p) // v2: civil war or partition
         if (ps.pEnded[p] >= 0) continue
       }

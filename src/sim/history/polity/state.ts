@@ -23,6 +23,7 @@ import { rulerNewPolity, rulerPolityEnded } from '../rulers/system.ts' // rulers
 import { c4Reach } from '../compose.ts' // C4 stack
 import type { GrudgeState } from './grudgeState.ts' // oaths, balance, arms:
 import { grudgeEnded, grudgeNewPolity } from './grievances.ts' // oaths:
+import type { WhyRec } from '../why.ts' // causes:
 
 /** Never: a year long before any. */
 export const NEVER = -1000000
@@ -30,6 +31,8 @@ export const NEVER = -1000000
 export const FAR = 1e9
 
 export interface PolityState {
+  /** causes: the causal explorer's recorders (the HistoryState's `why`; why.ts), null or absent when causes are off. Written only. */
+  why?: WhyRec | null
   rng: Rng
   rngWar: Rng
   /** Static defensibility T in [1, 2.2] per cell, and D = (T - 1) / 1.2 in [0, 1]. */

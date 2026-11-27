@@ -24,7 +24,8 @@
 // On defection the alliance ends Betrayed, e cedes the towns (Joined) and the war ends; if x's rivalry with q is >= turnR and
 // it can strike q (adv >= 1), it turns on its former ally.
 
-import { BondEnd, BondKind, EventType, GrievanceKind, TOWN_POPULATION, WarOutcome } from '../../../contract.ts'
+import { BondEnd, BondKind, EventType, GrievanceKind, RivalryPart, TOWN_POPULATION, WarOutcome } from '../../../contract.ts'
+import { whyOath, whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
@@ -133,6 +134,7 @@ export function oathBroken(s: HistoryState, ps: PolityState, og: GrudgeState, p:
   } else og.diag.trucesBroken++
   og.diag.breakDeltaSum += lastDelta; og.diag.breakDeltaN++
   if (lastDelta < 0.6) og.diag.breaksByLowDelta++
+  if (ps.why) whyOath(ps.why, w) // causes: declared against an oath
   logX(s, EventType.OathBroken, ps.pCapital[p], ps.pCapital[q], w, extra)
 }
 
@@ -151,6 +153,7 @@ function witnesses(ps: PolityState, p: number, q: number): void {
     if (c === q || ps.pEnded[c] >= 0) continue
     if (!(ps.relEdges[r].length > 0 || allied(ps, c, q) || ps.pPeople[c] === ps.pPeople[q])) continue
     const x = ps.relR[r] + OATH.witnessR
+    if (ps.why) whyRelSet(ps.why, r, RivalryPart.Reputation, ps.relR[r], x > 2 ? 2 : x) // causes:
     ps.relR[r] = x > 2 ? 2 : x
   }
 }
@@ -229,7 +232,9 @@ export function betrayalStep(s: HistoryState, ps: PolityState, og: GrudgeState, 
     og.diag.separatePeace++
     closeWar(wx, ceded > 0 ? WarOutcome.AttackerGains : WarOutcome.WhitePeace)
     if (turn && ps.pWars[x] < WAR.maxWars && ps.pEnded[q] < 0 && ps.relWar[relIdx(ps, x, q)] < 0) {
+      const w = ps.wKind.length
       declare(relIdx(ps, x, q), x, q)
+      if (ps.why) whyOath(ps.why, w) // causes: it turned on its ally
       og.diag.turned++
     }
   }

@@ -3,7 +3,8 @@
 // inspector lines of the order events, their chronicle category and headlines. Pure functions of the History (and of the
 // place namer the Nudge panel registers for target cells, which needs the world's detected features).
 
-import { OrderKind, OrderReason, OrderStatus, describeOrderKinds, settlementNameAt } from '../contract.ts'
+import { spokenNameAt } from '../sim/names/spoken.ts' // language: the name as said in the year
+import { OrderKind, OrderReason, OrderStatus, describeOrderKinds } from '../contract.ts'
 import type { History, HistoryEvent, Order, OrderOutcome } from '../contract.ts'
 
 export const ORDER_KINDS = describeOrderKinds()
@@ -91,7 +92,7 @@ export function capitalAt(h: History, p: number, y: number): number {
   return c < 0 && P.capitals.length ? P.capitals[0] : c
 }
 
-const town = (h: History, id: number, y: number) => (id >= 0 && id < h.settlements.length ? settlementNameAt(h, id, y) : 'a town')
+const town = (h: History, id: number, y: number) => (id >= 0 && id < h.settlements.length ? spokenNameAt(h, id, y) : 'a town')
 /** (politiesData.ts's qualifiers: a successor that kept its parent's name is "North Temukuntin") */
 const QUALIFIERS: readonly string[] = ['', 'North', 'South', 'East', 'West', 'New', 'Upper', 'Lower', 'Restored']
 /** A state's short name with its qualifier ("North Temukuntin"). */

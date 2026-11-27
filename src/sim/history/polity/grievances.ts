@@ -217,10 +217,15 @@ export function grudgeWarEnded(s: HistoryState, ps: PolityState, og: GrudgeState
   if (any) rebuild(og)
 }
 
-/** Rivalry hook (relationStep, per pair a < b, a year): grudges both ways and each side's name for faithlessness. */
-export function oathRivalry(og: GrudgeState, a: number, b: number): number {
+/** Rivalry hook (relationStep, per pair a < b, a year): grudges both ways (RivalryPart.Grudge). */
+export function grudgeRivalry(og: GrudgeState, a: number, b: number): number {
+  return OATH.rivalry * (grudge(og, a, b) + grudge(og, b, a))
+}
+
+/** Rivalry hook: each side's name for faithlessness (RivalryPart.Reputation). */
+export function repRivalry(og: GrudgeState, a: number, b: number): number {
   const fa = at(og.faith, a, 0), fb = at(og.faith, b, 0)
-  return OATH.rivalry * (grudge(og, a, b) + grudge(og, b, a)) + OATH.repRivalry * (fa / (fa + 1) + fb / (fb + 1))
+  return OATH.repRivalry * (fa / (fa + 1) + fb / (fb + 1))
 }
 
 /** History.grievances. */

@@ -3,7 +3,8 @@
 // Rilko falls into ruin"; "Keep of Thesmu (castle), built 1405-1432 by Thesmu IV of Vashtar, neglected since 1820"). Names
 // and states come from History.landmarks; every function tolerates a history without them (null or '': the caller falls back).
 
-import { CITY_POPULATION, EventType, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, landmarkNameAt, landmarksAt, landmarkTownAt, settlementNameAt, type History, type HistoryEvent } from '../contract.ts'
+import { spokenNameAt } from '../sim/names/spoken.ts' // language: the name as said in the year
+import { CITY_POPULATION, EventType, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, landmarkNameAt, landmarksAt, landmarkTownAt, type History, type HistoryEvent } from '../contract.ts'
 import { settlementName } from './format.ts'
 import { faithName, faithsOf } from './faithsData.ts'
 import { capitalAt, polityAtYear, politiesOf } from './politiesData.ts'
@@ -63,7 +64,7 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
 /** "the Keep of Thesmu at Rilko" at `year` (its name then, landmarkNameAt; the town it belongs to then added unless the name holds it). */
 function called(h: History, i: number, year: number, withTown = true): string {
   const n = landmarkNameAt(h, i, year)
-  const town = settlementNameAt(h, landmarkTownAt(h, i, year), year)
+  const town = spokenNameAt(h, landmarkTownAt(h, i, year), year)
   return withTown && town && !n.includes(town) ? `${n} at ${town}` : n
 }
 

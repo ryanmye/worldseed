@@ -55,6 +55,7 @@ import { breakExcess, breakFactor, joinChance, linkAlly, oathBroken, oathTruce, 
 import { OathCase } from './shadow.ts' // oaths:
 import { noteAggression } from './align.ts' // balance:
 import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
+import { whyPending, whyRelScale, whyWar } from '../why.ts' // causes:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -109,6 +110,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
         const E = breakExcess(s, ps, og!, r, p, q, adv, kase)
         const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, C1F)
         if (og!.rng!.next() >= POLITY.slowStep * WAR.declare * rv * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e) * mul * breakFactor(E)) continue
+        if (ps.why) whyPending(ps.why, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r], adv, e, mul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0, frontV, rv * (1 - e) * breakFactor(E)) // causes:
         const w0 = ps.wKind.length
         declare(s, ps, r, p, q)
         if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
@@ -120,6 +122,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (drive <= 0) continue
       const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
+      if (ps.why) whyPending(ps.why, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r], adv, e, mul, inCrisis(s, ps, q), s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0, frontV, drive) // causes:
       const w0 = ps.wKind.length
       declare(s, ps, r, p, q)
       if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
@@ -131,6 +134,7 @@ export function declarations(s: HistoryState, ps: PolityState): void {
 /** p declares war on q (relation r); a civil war (v2) is logged as CivilWar, and allies and protectors of q may join a war of conquest. */
 export function declare(s: HistoryState, ps: PolityState, r: number, p: number, q: number, kind: number = WarKind.Conquest, joined = false): void {
   const w = ps.wKind.length
+  if (ps.why) whyWar(ps.why, ps, r, kind, joined) // causes: why it was declared
   ps.wKind.push(kind)
   ps.wAtt.push(p); ps.wDef.push(q)
   ps.wStart.push(s.year); ps.wEnd.push(-1); ps.wOutcome.push(WarOutcome.Ongoing)
@@ -185,6 +189,7 @@ export function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: n
     if (ps.og !== null && ps.og.oaths) swearTruce(ps.og, r, w) // oaths: the truce is sworn
     if (ps.og !== null && ps.og.arms) armsPeace(ps.og, r) // arms: demobilisation
     ps.relR[r] *= WAR.peaceR
+    if (ps.why) whyRelScale(ps.why, r, WAR.peaceR) // causes:
     ps.relLastWar[r] = s.year
   }
   ps.pWars[p]--

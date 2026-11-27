@@ -33,6 +33,8 @@ export interface ChronicleCallbacks {
   landName?(id: number, year: number): string | null
   /** Whether settlement `id` lies south of the equator (for expeditions reaching a pole). */
   southern?(id: number): boolean
+  /** causes: "Why?" on a row: the entry's representative event (its first member) and how many events the entry stands for. */
+  onWhy?(event: number, members: number): void
 }
 
 export interface Chronicle {
@@ -110,6 +112,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     const text = document.createElement('span')
     text.className = 'ev-text'
     li.append(year, text)
+    if (callbacks.onWhy) { const why = document.createElement('button'); why.type = 'button'; why.className = 'ev-why'; why.textContent = '?'; why.tabIndex = -1; why.setAttribute('aria-label', 'Why?'); li.append(why) } // causes:
     li.hidden = true
     li.tabIndex = 0
     li.setAttribute('role', 'button')
@@ -148,14 +151,24 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   if (container.parentElement) {
     attachWidthHandle(root, { side: 'left', target: container.parentElement, cssVar: '--right-w', key: 'worldseed.rightWidth', min: 240, max: 460, initial: 292, label: 'Resize the right panels' })
   }
+  /** causes: the row's representative event (its first member that is an event) and the entry's member count. */
+  const whyOf = (row: Row): { event: number; members: number } | null => {
+    if (!index || row.entry < 0) return null
+    const lo = index.notableOffsets[row.entry], hi = index.notableOffsets[row.entry + 1]
+    for (let q = lo; q < hi; q++) if (index.notableMembers[q] >= 0) return { event: index.notableMembers[q], members: hi - lo }
+    return null
+  }
   const activate = (e: Event) => {
     const li = (e.target as HTMLElement).closest('li')
     if (!li || !index) return
     const row = rows.find((r) => r.li === li)
+    const w = row && (e.target as HTMLElement).closest('.ev-why') ? whyOf(row) : null // causes: the "?" button
+    if (w && callbacks.onWhy) { callbacks.onWhy(w.event, w.members); return }
     if (row && row.entry >= 0 && row.target >= 0) callbacks.onSelect(row.target)
   }
   list.addEventListener('click', activate)
   list.addEventListener('keydown', (e) => {
+    if (e.key === '?' && callbacks.onWhy) { const li = (e.target as HTMLElement).closest('li'); const row = rows.find((r) => r.li === li); const w = row ? whyOf(row) : null; if (w) { e.preventDefault(); e.stopPropagation(); callbacks.onWhy(w.event, w.members) } return } // causes:
     if (e.key !== 'Enter' && e.key !== ' ') return
     e.preventDefault()
     activate(e)

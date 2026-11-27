@@ -15,7 +15,8 @@
 // Proxies without balance: theta(c -> x) = 0.5 * smoothstep(1, 2, advantageAt(c, x)); an alliance against c is worth
 // smoothstep(0.7, 1.2, R(x, c)).
 
-import { BondKind, EventType } from '../../../contract.ts'
+import { BondKind, EventType, RivalryPart } from '../../../contract.ts'
+import { whyRelSet } from '../why.ts' // causes:
 import type { EventType as EventTypeT } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
@@ -198,7 +199,7 @@ export function bandwagonStep(s: HistoryState, ps: PolityState, og: GrudgeState)
       subject(s, ps, x, h, true)
       og.diag.bandwagonTribute++
     }
-    if (ps.relR[rx] > X.bandR) ps.relR[rx] = X.bandR
+    if (ps.relR[rx] > X.bandR) { if (ps.why) whyRelSet(ps.why, rx, RivalryPart.Grudge, ps.relR[rx], X.bandR); ps.relR[rx] = X.bandR } // (causes: a fall rescales)
   }
 }
 

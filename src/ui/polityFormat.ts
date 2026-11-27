@@ -3,9 +3,10 @@
 // polity data, so the caller falls back to its own wording). Claims: BorderDispute (130),
 // two states' claims meeting over unsettled land.
 
+import { spokenName } from './languageData.ts' // language: names as said in the year
 import { BondKind, EventType, GOOD_COUNT, PolityEnd, RevoltCause, StructureType, WarKind, WarOutcome, type History, type HistoryEvent } from '../contract.ts'
 import { CITY_POPULATION } from '../contract.ts'
-import { renamedName } from './renamingData.ts'
+import { namesYear, renamedName } from './renamingData.ts'
 import { isOathEvent, OathEvent } from './grudgesData.ts' // oaths, balance, arms:
 import { capitalAt, isPolityEventType, polityAt, polityAtYear, polityTitle, politiesOf, PolityEvent, snapAfter, snapBefore, TRIBUTE_BASE, wallSlighted, type PolitiesData } from './politiesData.ts'
 
@@ -36,7 +37,7 @@ function laneWords(h: History, r: number): string | null {
 }
 
 // (renaming: the name borne at the year shown, or at the event's year inside withEventNames: renamingData.ts)
-const settlementName = (h: History, id: number) => (id >= 0 && id < h.settlements.length ? renamedName(h, id) ?? (h.settlements[id].name || `Settlement #${id}`) : 'a settlement')
+const settlementName = (h: History, id: number) => (id >= 0 && id < h.settlements.length ? spokenName(h, id, namesYear()) ?? renamedName(h, id) ?? (h.settlements[id].name || `Settlement #${id}`) : 'a settlement')
 
 /** Short name of polity p ("North Vashtar"), or a fallback. */
 export function polityName(pd: PolitiesData, p: number, fallback = 'its neighbours'): string {
