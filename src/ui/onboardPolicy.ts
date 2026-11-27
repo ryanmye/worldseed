@@ -12,7 +12,7 @@ export function followByDefault(params: URLSearchParams, firstVisit: boolean): b
 
 // ---------- the start page's play paths ----------
 
-export const PlayPath = { Watch: 'watch', Explore: 'explore', Rule: 'rule' } as const
+export const PlayPath = { Watch: 'watch', Explore: 'explore', Rule: 'rule', /** lane N3: the second curated throne */ Old: 'old' } as const
 export type PlayPath = (typeof PlayPath)[keyof typeof PlayPath]
 
 export interface PlayPathSpec {
@@ -26,6 +26,7 @@ export interface PlayPathSpec {
 export const PLAY_PATHS: readonly PlayPathSpec[] = [
   { path: PlayPath.Watch, label: 'Watch history unfold', hint: 'The camera follows the great events: some seven minutes for 2,000 years', primary: true },
   { path: PlayPath.Rule, label: 'Rule a kingdom', hint: 'Take a throne and decide: heirs, wars, revolts' },
+  { path: PlayPath.Old, label: 'Keep an old great power alive', hint: 'A realm of five centuries, deep in debt and paying tribute: can you save it?' },
   { path: PlayPath.Explore, label: 'Explore freely', hint: 'Turn the globe yourself; history plays in the background' },
 ]
 
@@ -34,6 +35,11 @@ export const PLAY_PATHS: readonly PlayPathSpec[] = [
  * Seed 61343's Kelurair from 700 reached its first card in 14.5 s on a phone viewport in the evaluation.
  */
 export const THRONE_START = { seed: 61343, seat: 'polity:0:700' }
+/**
+ * lane N3: "Keep an old great power alive" (ui-additions, owner-approved): seed 7's Thotakor from 995, 477 years old, its
+ * debts 4x its revenue and rising, a tributary of Fowinlan (Dramatic; found with the lane's probe of old indebted realms).
+ */
+export const OLD_POWER_START = { seed: 7, seat: 'polity:1:995' }
 
 /** The address of the Rule a kingdom path (keeps `keep` parameters of the page, e.g. preset=). */
 export function throneUrl(from: URL, keep: readonly string[] = ['preset', 'lang']): URL {

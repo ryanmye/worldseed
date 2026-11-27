@@ -7,7 +7,7 @@
 
 import { loadFlag, loadPref, saveFlag, savePref } from './panels.ts'
 import './onboard.css'
-export { followByDefault, PLAY_PATHS, PlayPath, THRONE_START, throneUrl, type PlayPathSpec } from './onboardPolicy.ts'
+export { followByDefault, PLAY_PATHS, PlayPath, THRONE_START, OLD_POWER_START, throneUrl, type PlayPathSpec } from './onboardPolicy.ts'
 import { currentContext, isContextRoot, onContextChange, registerContext } from './contextPanel.ts'
 
 const VISITED_KEY = 'worldseed.visited'

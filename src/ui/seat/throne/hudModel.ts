@@ -75,15 +75,19 @@ export function blowRate(r: ArrayLike<number>): number {
   // (breakaways: the yearly chance of losing a quarter of the realm's people to them, 4 x the expected share lost; a lone
   // village leaving is not a blow to the realm. A row from before LostShare existed has none: Breakaway / 10)
   const lost = r.length > HUD.LostShare && Number.isFinite(r[HUD.LostShare]) ? Math.min(1, 4 * r[HUD.LostShare]) : v(HUD.Breakaway) / 10
-  return v(HUD.Overthrow) + v(HUD.Contest) * v(HUD.DeathYear) + v(HUD.Default) + lost + v(HUD.WarLoss)
+  // (a default due now counts once, oddsOfRow; the yearly part is capped: a crown can default only once in FIN.defaultGap years)
+  return v(HUD.Overthrow) + v(HUD.Contest) * v(HUD.DeathYear) + Math.min(0.05, v(HUD.Default)) + lost + v(HUD.WarLoss)
 }
 export const oddsOf = (rate: number) => Math.exp(-50 * rate)
 /** An open crisis: a one-off chance that it ends in civil war or a partition (RULERS civil 0.32, partition 0.12; a rough figure). */
 export const CRISIS_RISK = 0.3
+/** A default due now (the rule's own test is met): counted once, as a blow (a rough figure). */
+export const DEFAULT_RISK = 0.5
 /** The 50-year odds of a HUD row: the yearly hazards over 50 years, and an open crisis once. */
 export function oddsOfRow(r: ArrayLike<number>): number {
   const crisis = r.length > HUD.Crisis && r[HUD.Crisis] > 0
-  return oddsOf(blowRate(r)) * (crisis ? 1 - CRISIS_RISK : 1)
+  const due = Number.isFinite(r[HUD.Default]) && r[HUD.Default] >= 0.5
+  return oddsOf(blowRate(r)) * (crisis ? 1 - CRISIS_RISK : 1) * (due ? 1 - DEFAULT_RISK : 1)
 }
 
 /** Legitimacy (UI meter, 0..1): how the realm sees the ruler's right, from the way they came to the throne, growing with years on it. */

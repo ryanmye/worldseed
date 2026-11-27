@@ -19,7 +19,9 @@ Changelog:
 - **Play paths** (ui/onboardPolicy.ts PLAY_PATHS): the start page offers three ways in. **Watch history unfold** (the
   primary button; `Enter` in a field picks it) starts the world with Follow the story on. **Rule a kingdom** opens the
   throne link below (seed 61343, `seat=polity:0:700`) in **Dramatic**, unless you picked a preset on the page first (main.ts
-  onPath, lane N3). **Explore freely** starts the world with
+  onPath, lane N3). **Keep an old great power alive** (lane N3) opens the second curated throne: seed 7's Thotakor from
+  995 (`seat=polity:1:995`, Dramatic), a realm of nearly five centuries, deep in debt and paying tribute (onboardPolicy.ts
+  OLD_POWER_START). **Explore freely** starts the world with
   Follow off: you turn the globe yourself while history plays.
 - **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
   timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write

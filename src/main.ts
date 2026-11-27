@@ -44,7 +44,7 @@ import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/active.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
-import { PLAY_PATHS, PlayPath } from './ui/onboard.ts'
+import { OLD_POWER_START, PLAY_PATHS, PlayPath } from './ui/onboard.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
@@ -1956,6 +1956,14 @@ if (showLanding) {
     throneHref: (p) => throneHrefFor(p),
     paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
     onPath(path) {
+      if (path === PlayPath.Old) {
+        // lane N3: the second curated throne (always Dramatic: its debts need finance and its story needs the rest)
+        const u = new URL(throneHrefFor('dramatic'), window.location.href)
+        u.searchParams.set('seed', String(OLD_POWER_START.seed))
+        u.searchParams.set('seat', OLD_POWER_START.seat)
+        window.location.assign(u.pathname + u.search)
+        return true
+      }
       if (path !== PlayPath.Rule) return false
       // (Rule a kingdom: the throne slice is played in Dramatic, EVALUATION §4 Lane 3, unless the player picked a preset on the page)
       window.location.assign(throneHrefFor(!landingPresetPicked ? 'dramatic' : presetOpts.preset === 'dramatic' ? 'dramatic' : 'realistic'))
