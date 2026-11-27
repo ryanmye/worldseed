@@ -34,10 +34,10 @@ import { prosperity } from '../migration.ts'
 import { learnPath } from '../knowledge.ts'
 import { controlOne, distTo } from './control.ts'
 import { loseFort, loseWalls, spike } from './danger.ts'
-import { ALLIANCE, CIVIL, COHESION, OATH, POLITY, VASSAL, WAR } from './params.ts'
+import { ALLIANCE, ARMS, CIVIL, COHESION, OATH, POLITY, VASSAL, WAR } from './params.ts'
 import { blockade } from './outlaw.ts'
 import { bound } from './policy.ts'
-import { bufferAlarm, overlordOf, peaceTerms, protectorsOf, subject } from './bonds.ts'
+import { allied, bufferAlarm, overlordOf, peaceTerms, protectorsOf, subject } from './bonds.ts'
 import { chooseCapital, membersOf, successors } from './realm.ts'
 import { relIdx, relationOf } from './relations.ts'
 import { FAR, clampAsab, endPolity, horseOf, inCrisis, isCapital, localOf, moveCapital, projAt, setPolity, submits, wallFactor } from './state.ts'
@@ -51,6 +51,10 @@ import type { C1Factors } from '../compose.ts'
 import { ORDERS } from '../orders/params.ts' // orders:
 import { grievConquered, grudge, grudgeWarEnded, recordGrievance, strongestGrievance } from './grievances.ts' // oaths:
 import { put } from './grudgeState.ts' // oaths:
+import { breakExcess, breakFactor, joinChance, linkAlly, oathBroken, oathTruce, swearTruce } from './oaths.ts' // oaths:
+import { OathCase } from './shadow.ts' // oaths:
+import { noteAggression } from './align.ts' // balance:
+import { armsAdv, armsAgainst, armsDeclared, armsPeace } from './arms.ts' // arms:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -80,23 +84,40 @@ export function declarations(s: HistoryState, ps: PolityState): void {
   const R = ps.relA.length
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
-    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0 || s.year < ps.relTruce[r]) continue
+    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0) continue
+    const inTruce = s.year < ps.relTruce[r]
+    if (inTruce && !(og !== null && oathTruce(ps, og, r))) continue // (oaths: a truce sworn at a peace may be broken, below)
     const wo = s.orders !== null ? warOrders(s.orders, a, b) : 0 // orders: a side urged to war (rivalry read higher, warMul below)
     const rv = smoothstep(WAR.rLow, WAR.rHigh, wo !== 0 ? warRivalry(wo, ps.relR[r]) : ps.relR[r])
     if (rv <= 0 || ps.relEdges[r].length === 0) continue
     if (bound(ps, a, b)) continue // (v2: a vassal and its overlord never fight)
+    const oath = og !== null && (inTruce || allied(ps, a, b)) // oaths: a truce or an alliance to break
     for (let dir = 0; dir < 2; dir++) {
       const p = dir === 0 ? a : b, q = dir === 0 ? b : a
       if (ps.pWars[p] >= WAR.maxWars || ps.relWar[r] >= 0) continue
       if (exposedFront(s, ps, ps.relEdges[r], p, q) <= 0) continue
       const pq = projAt(ps, q, ps.dist[frontV])
-      const adv = projAt(ps, p, frontD) / (pq + 1e-9)
+      let adv = projAt(ps, p, frontD) / (pq + 1e-9)
+      if (ps.og !== null && ps.og.arms) adv *= armsAdv(ps, ps.og, r, p) // arms: arming deters as well as provokes
       let e = ps.pExh[p]
       if (e > 1) e = 1
-      const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
-      if (drive <= 0) continue
       const g = og !== null ? grudge(og, p, q) : 0
       if (og !== null) C1F.grudge = 1 + OATH.drive * g // oaths: p's grudge against q
+      if (oath) {
+        // oaths: one 'history-oaths' draw per candidate, damped by the excess of breaking (oaths.ts, shadow.ts)
+        const kase = inTruce ? OathCase.Truce : OathCase.AllyAttack
+        const E = breakExcess(s, ps, og!, r, p, q, adv, kase)
+        const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, C1F)
+        if (og!.rng!.next() >= POLITY.slowStep * WAR.declare * rv * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e) * mul * breakFactor(E)) continue
+        const w0 = ps.wKind.length
+        declare(s, ps, r, p, q)
+        if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
+        if (g >= OATH.revengeMin) { put(og!.wCause, w0, strongestGrievance(og!, p, q), -1); og!.diag.revengeWars++ }
+        oathBroken(s, ps, og!, p, q, w0, kase === OathCase.Truce ? 0 : 1)
+        continue
+      }
+      const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
+      if (drive <= 0) continue
       const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       const w0 = ps.wKind.length
@@ -120,8 +141,10 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
   ps.pWars[p]++
   ps.pWars[q]++
   ps.warEpoch++
+  if (ps.og !== null && ps.og.balance && kind === WarKind.Conquest && !joined) noteAggression(s, ps.og, p) // balance: offensive intent
   if (kind === WarKind.CivilWar) { logEvent(s, EventType.CivilWar, ps.pCapital[p], ps.pCapital[q], w); return }
   logEvent(s, EventType.WarDeclared, ps.pCapital[p], ps.pCapital[q], w)
+  if (ps.og !== null && ps.og.arms) armsDeclared(s, ps, ps.og, r, w) // arms: the race ends in war
   if (joined) return
   // v2: buffer states alarm the attacker's rivals; allies and the overlord of the attacked come to its defence.
   const rng = ps.rngWar
@@ -130,22 +153,23 @@ export function declare(s: HistoryState, ps: PolityState, r: number, p: number, 
     if (x === p || ps.pEnded[x] >= 0 || ps.pWars[x] >= WAR.maxWars || atWar(ps, x, p) || bound(ps, x, p)) continue
     const rx = relIdx(ps, x, p)
     if (rx < 0 || ps.relEdges[rx].length === 0 || ps.relWar[rx] >= 0) continue
-    if (rng.next() >= ALLIANCE.join) continue
+    if (rng.next() >= (ps.og !== null ? joinChance(s, ps, p, q, x) : ALLIANCE.join)) continue // (oaths: a faithless realm finds fewer friends; balance: those who fear p come readily)
+    if (ps.og !== null) linkAlly(ps.og, ps.wKind.length, w) // oaths: the war it joined
     declare(s, ps, rx, x, p, WarKind.Conquest, true)
   }
 }
 
 // --- Campaigns -----------------------------------------------------------------------------------------
 
-/** Ends war w this year with the given outcome. */
-function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number): void {
+/** Ends war w this year with the given outcome (terms false: a separate peace, no vassalage or tribute). Exported for oaths and seat-mode. */
+export function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number, terms = true): void {
   if (ps.wEnd[w] >= 0) return
   const p = ps.wAtt[w], q = ps.wDef[w]
   ps.wEnd[w] = s.year
   ps.warEpoch++
   // v2: a civil war ends in reunification when one side is gone; an unfinished war of conquest may end in vassalage or tribute.
   if (ps.wKind[w] === WarKind.CivilWar && (ps.pEnded[p] >= 0 || ps.pEnded[q] >= 0)) outcome = WarOutcome.Reunified
-  else if (ps.wKind[w] === WarKind.Conquest && outcome !== WarOutcome.Conquest && outcome !== WarOutcome.DefenderGains && outcome !== WarOutcome.Vassalage)
+  else if (terms && ps.wKind[w] === WarKind.Conquest && outcome !== WarOutcome.Conquest && outcome !== WarOutcome.DefenderGains && outcome !== WarOutcome.Vassalage)
     outcome = peaceTerms(s, ps, p, q, outcome, WarOutcome.Vassalage, WarOutcome.Tribute)
   ps.wOutcome[w] = outcome
   if (ps.og !== null) grudgeWarEnded(s, ps, ps.og, w, (outcome === WarOutcome.AttackerGains || outcome === WarOutcome.Conquest || outcome === WarOutcome.Vassalage || outcome === WarOutcome.Tribute) && overlordOf(ps, p) !== q) // oaths: a won revenge war repays the wrongs
@@ -158,6 +182,8 @@ function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number):
   if (r !== undefined) {
     ps.relWar[r] = -1
     ps.relTruce[r] = s.year + WAR.truce
+    if (ps.og !== null && ps.og.oaths) swearTruce(ps.og, r, w) // oaths: the truce is sworn
+    if (ps.og !== null && ps.og.arms) armsPeace(ps.og, r) // arms: demobilisation
     ps.relR[r] *= WAR.peaceR
     ps.relLastWar[r] = s.year
   }
@@ -228,6 +254,7 @@ function strike(s: HistoryState, ps: PolityState, p: number, q: number, u: numbe
   // (at its capital a realm's field army counts at capitalField: the rest holds the provinces and garrisons, so a
   // stronger attacker can take a peer's capital; the citadel and walls are in Local)
   strikeD = projAt(ps, q, ps.dist[v]) * (cap ? WAR.capitalField : 1) * ps.defense[s.cell[v]] * (WAR.fieldWall ? wallFactor(ps, v, cap) : 1) + localOf(s, ps, v)
+  if (ps.og !== null && ps.og.arms) { strikeA *= 1 + ARMS.proj * armsAgainst(ps, ps.og, p, q); strikeD *= 1 + ARMS.proj * armsAgainst(ps, ps.og, q, p) } // arms: the pair's arms on its fronts
   return strikeA / (strikeD + 1e-9)
 }
 

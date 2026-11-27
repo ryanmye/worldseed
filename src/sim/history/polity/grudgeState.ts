@@ -22,6 +22,9 @@ export interface GrudgeDiag {
   breakDeltaSum: number
   breakDeltaN: number
   breaksByLowDelta: number
+  /** Oath checks (truce, ally attack, defection) with E > 0, and E's quartiles' sample (every 8th check, for tuning). */
+  excessPos: number
+  excessSample: number[]
   /** balance: alliances formed by the threat rule, those against the hegemon, bandwagons. */
   balancing: number
   coalitionAlliances: number
@@ -133,7 +136,7 @@ export function createGrudgeState(seed: number, oaths: boolean, balance: boolean
     snapFaith: new Uint8Array(1024), snapArms: new Uint8Array(1024), sUsed: 0, sOff: [], sCount: [],
     diag: {
       grievances: 0, avenged: 0, inherited: 0, trucesBroken: 0, alliesAttacked: 0, betrayals: 0, separatePeace: 0, turned: 0, revengeWars: 0,
-      deltaSum: 0, deltaN: 0, breakDeltaSum: 0, breakDeltaN: 0, breaksByLowDelta: 0,
+      deltaSum: 0, deltaN: 0, breakDeltaSum: 0, breakDeltaN: 0, breaksByLowDelta: 0, excessPos: 0, excessSample: [],
       balancing: 0, coalitionAlliances: 0, bandwagonAlly: 0, bandwagonTribute: 0,
       races: 0, racesWar: 0, racesEased: 0, armsCapYears: 0,
     },

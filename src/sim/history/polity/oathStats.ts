@@ -7,6 +7,7 @@ import { BondEnd, BondKind, EventType, WarKind, WarOutcome } from '../../../cont
 import type { History } from '../../../contract.ts'
 import { generateWorld } from '../../index.ts'
 import { runHistory } from '../index.ts'
+import { ALIGN, ARMS, OATH } from './params.ts'
 
 const argv: string[] = ((globalThis as { process?: { argv: string[] } }).process?.argv ?? []).slice(2)
 const flag = (k: string) => argv.includes(k)
@@ -14,6 +15,14 @@ let years = 2000
 const yi = argv.indexOf('--years')
 if (yi >= 0) years = Number(argv[yi + 1])
 const seeds = argv.filter((x, i) => /^\d+$/.test(x) && argv[i - 1] !== '--years').map(Number)
+// --set OATH.breakMul=0.3 (tuning: overrides a param for this run)
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] !== '--set') continue
+  const [k, v] = argv[i + 1].split('=')
+  const [t, f] = k.split('.')
+  const tab = (t === 'OATH' ? OATH : t === 'ALIGN' ? ALIGN : ARMS) as unknown as Record<string, number>
+  tab[f] = Number(v)
+}
 const opts = { years, oaths: flag('--oaths'), balance: flag('--balance'), arms: flag('--arms') }
 
 function quantile(a: number[], q: number): number {
@@ -107,7 +116,8 @@ function stats(seed: number): Record<string, unknown> {
     coalitionDecades: +(coalDec / Math.max(1, shares.length)).toFixed(3), coalitionDecades30: dec30 ? +(coalDec30 / dec30).toFixed(3) : null, alliancesVsTop: vsTop, alliancesVsTop3: vsTop3,
     bandwagon: ev(EventType.Bandwagon), races: AR.count, racesClosed: closed, racesEased: eased, racesWar: warEnd, raceLenMedian: quantile(raceLen, 0.5), raceWarShare: conquest ? +(raceWars / conquest).toFixed(3) : 0,
     meanDelta: gd && gd.deltaN ? +(gd.deltaSum / gd.deltaN).toFixed(3) : null, meanBreakDelta: gd && gd.breakDeltaN ? +(gd.breakDeltaSum / gd.breakDeltaN).toFixed(3) : null,
-    diag: gd,
+    excessQ: gd ? [0.1, 0.5, 0.9, 0.99].map((q) => +quantile(gd.excessSample, q).toFixed(3)) : null,
+    diag: gd ? { ...gd, excessSample: gd.excessSample.length } : null,
   }
 }
 

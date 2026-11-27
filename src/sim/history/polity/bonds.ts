@@ -25,6 +25,10 @@ import { distTo } from './control.ts'
 import { atWar } from './formation.ts'
 import { ALLIANCE, OATH, POLITY, RELATION, VASSAL } from './params.ts'
 import { recordGrievance } from './grievances.ts' // oaths:
+import { repFactor } from './oaths.ts' // oaths:
+import { allianceStepBalance, bandwagonStep, threatLapsed } from './align.ts' // balance:
+import type { C7Factors } from '../compose.ts'
+import type { GrudgeState } from './grudgeState.ts'
 import { ensureRelation, relIdx, relationOf } from './relations.ts'
 import { FAR, Tier, endPolity, grainShare, inContact, localOf, projAt, setPolity, tierOf } from './state.ts'
 import type { PolityState } from './state.ts'
@@ -196,6 +200,7 @@ export function bondStep(s: HistoryState, ps: PolityState): void {
     if (kind === BondKind.Alliance) {
       const c = ps.bThreat[k]
       if (atWar(ps, a, b) || c < 0 || ps.pEnded[c] >= 0 || (relationOf(ps, a, c) < ALLIANCE.lapse && relationOf(ps, b, c) < ALLIANCE.lapse)) endBond(s, ps, k, BondEnd.Lapsed)
+      else if (ps.og !== null && ps.og.balance && threatLapsed(s, ps, a, b, c)) endBond(s, ps, k, BondEnd.Lapsed) // balance: the threat faded for both
       continue
     }
     // Vassal a of b.
@@ -228,8 +233,14 @@ function absorbVassal(s: HistoryState, ps: PolityState, k: number, a: number, b:
   endPolity(s, ps, a, PolityEnd.Absorbed, ps.pCapital[b])
 }
 
-/** System part (every slow step, after rivalry): polities threatened by a common rival ally. */
+/** System part (every slow step, after rivalry): polities threatened by a common rival ally (balance: by threat, align.ts). */
 export function allianceStep(s: HistoryState, ps: PolityState): void {
+  if (ps.og !== null && ps.og.balance) { allianceStepBalance(s, ps, ps.og); bandwagonStep(s, ps, ps.og); return } // balance:
+  allianceStepLegacy(s, ps)
+}
+
+/** The 8cabf09 alliance rule: a common rival with rivalry >= ALLIANCE.threat with both, at least as populous as each. */
+function allianceStepLegacy(s: HistoryState, ps: PolityState): void {
   const X = ALLIANCE
   const R = ps.relA.length
   const hostA: number[] = [], hostB: number[] = []
@@ -253,16 +264,25 @@ export function allianceStep(s: HistoryState, ps: PolityState): void {
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
       if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
-      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1)) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
+      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, repC7(ps.og, x, y))) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }
   }
 }
 
-function alliances(ps: PolityState, p: number): number {
+export function alliances(ps: PolityState, p: number): number {
   let n = 0
   for (const k of ps.activeBonds) if (ps.bKind[k] === BondKind.Alliance && (ps.bA[k] === p || ps.bB[k] === p)) n++
   return n
+}
+
+/** C7 factors (scratch): oaths' reputation (undefined when neither is doubted, so the chance is the 8cabf09 one). */
+const C7F: C7Factors = {}
+function repC7(og: GrudgeState | null, x: number, y: number): C7Factors | undefined {
+  const f = repFactor(og, x, y)
+  if (f === undefined) return undefined
+  C7F.reputation = f
+  return C7F
 }
 
 /** p and q ally against c. */

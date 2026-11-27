@@ -5,8 +5,8 @@
 //   capital is replaced) -> [map pass every POLITY.mapStep years] -> campaigns of the wars -> war
 //   weariness and ravage fade -> every POLITY.step years: control (power, reach, mass), cohesion,
 //   danger, unrest, revolts, successions / fragmentation / capital moves (v2: civil wars, partitions at crises),
-//   v2 bonds (vassals, tribute, alliances), coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
-//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances, v2 kin
+//   v2 bonds (vassals, tribute, alliances), [oaths: allies desert or turn], coastal raids by pirates, tariffs and embargoes; every POLITY.slowStep years
+//   also formation, v2 leagues, accretion, absorption, v2 overawe (every mapStep), rivalry, [oaths: grievances], v2 alliances [balance: by threat; bandwagons], [arms], v2 kin
 //   reunification (every mapStep), declarations, raids, walls and v2 forts, hostile borders, v2 smugglers' hubs and
 //   corruption, v2 pirates, privateers and bandits (every PIRACY.step years); cell danger; [claims every mapStep years:
 //   the land states claim beyond their settlements' (claims.ts)].
@@ -20,7 +20,7 @@
 // and the costs of pirates, privateers, blockades and bandits in the market (trade.ts), refugees
 // carrying their skills (migration.ts).
 
-import { EventType, TECH_FIELD_COUNT } from '../../../contract.ts'
+import { EventType, TECH_FIELD_COUNT, WarKind } from '../../../contract.ts'
 import { smoothstep } from '../../util.ts'
 import { TECH, WEALTH } from '../params.ts'
 import type { HistoryState } from '../state.ts'
@@ -35,7 +35,9 @@ import { relationOf, relationStep } from './relations.ts'
 import { FAR, createPolityState, ensureSettlements, grainShare, grip, setPolity, tierOf, Tier } from './state.ts'
 import type { PolityState } from './state.ts'
 import { cohesionStep, lostCapitals, realmStep, revoltStep, unrestStep } from './unrest.ts'
-import { campaigns, declarations, raids, warYear } from './war.ts'
+import { campaigns, closeWar, declarations, declare, raids, warYear } from './war.ts'
+import { betrayalStep } from './oaths.ts' // oaths:
+import { armsStep, armsUpkeep } from './arms.ts' // arms:
 import { tariffStep } from './policy.ts'
 import { coastRaids, hubStep, laneMap, outlawStep } from './outlaw.ts'
 import { allianceStep, bondStep, overawe, tributeFlows } from './bonds.ts'
@@ -147,6 +149,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
   revoltStep(s, ps)
   realmStep(s, ps, ts)
   bondStep(s, ps) // v2: vassals, tribute, alliances
+  if (ps.og !== null && ps.og.oaths) betrayalStep(s, ps, ps.og, (w, o) => closeWar(s, ps, w, o, false), (r, p, q) => declare(s, ps, r, p, q, WarKind.Conquest, true)) // oaths: allies desert or turn
   if (ps.exId.length > 0) coastRaids(s, ps) // v2: pirates raid the coasts
   tariffStep(s, ps) // v2: duties and embargoes
   if (s.year % POLITY.slowStep === 0) {
@@ -159,6 +162,7 @@ export function politySystem(s: HistoryState, ps: PolityState, ts: TradeState): 
     relationStep(s, ps, ts)
     if (ps.og !== null) grievanceStep(s, ps, ps.og) // oaths: holy cities, decay, avenging, the faithless score
     allianceStep(s, ps) // v2
+    if (ps.og !== null && ps.og.arms) armsStep(s, ps, ps.og) // arms: Richardson's equations, races
     if (long) kinStep(s, ps) // v2: kindred successor states reunified (every mapStep years)
     hubStep(s, ps) // v2: smugglers' hubs, corruption
     declarations(s, ps)
@@ -221,6 +225,7 @@ export function taxSystem(s: HistoryState, ps: PolityState): void {
     if (s.harvest[s.weatherRegion[s.cell[id]]] < UNREST.badHarvest) ps.badTax[id] = 1
   }
   if (ps.activeBonds.length > 0) tributeFlows(s, ps, inFood) // v2: vassals and tributaries pay their overlords
+  if (ps.og !== null && ps.og.arms) armsUpkeep(s, ps, ps.og) // arms: the upkeep of arms (without finances)
   for (const p of ps.alive) {
     const cap = ps.pCapital[p]
     if (s.abandoned[cap] >= 0) continue

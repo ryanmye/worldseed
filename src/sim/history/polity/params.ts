@@ -676,17 +676,17 @@ export const OATH = {
   /** Saturation of the grudge: g = G / (G + half). */
   half: 1.0,
   /** dR per year += rivalry * (g(a, b) + g(b, a)). */
-  rivalry: 0.03,
+  rivalry: 0.005,
   /** C1 grudge factor: 1 + drive * g(p, q). */
   drive: 1.5,
   /** g at which a declaration counts as revenge (Wars.cause). */
-  revengeMin: 0.3,
+  revengeMin: 0.12,
   /** Weight multiplier on the grudges behind a won revenge war. */
   avenged: 0.3,
   /** Share of a parent's grievances each successor state inherits. */
   inherit: 0.5,
   /** Oath-breaking chance multiplier (on the declaration chance) and the smoothstep width of the excess E (shadow.ts). */
-  breakMul: 0.12,
+  breakMul: 1.5,
   breakSpan: 0.1,
   /** Faithless score added per broken truce and per betrayal (or attack on an ally); its per-slow-step decay 0.5^(10 / 50) (literal), and its cap (and the snapshot scale). */
   faithTruce: 0.6,
@@ -701,12 +701,12 @@ export const OATH = {
   /** Alliance and join chances / (1 + repAlliance * f). */
   repAlliance: 1.5,
   /** Yearly base defection chance of an ally in a defensive war when its excess is full; towns the enemy may cede for a separate peace; rivalry with its ally above which a defector also turns on it. */
-  defect: 0.12,
+  defect: 0.6,
   cedeMax: 2,
   turnR: 0.5,
   // Shadow of the future (shadow.ts), payoffs in realm shares per period (POLITY.slowStep years).
   /** Base patience per period, before the ruler. */
-  delta0: 0.9,
+  delta0: 0.8,
   /** Heir-security weight lambda by law of succession (Primogeniture, Partible, Elective, Seniority). */
   lawSec: [0.9, 0.6, 0.3, 0.7] as readonly number[],
   /** lambda multiplier when the best heir is a minor or a bastard, or when there is no heir. */
@@ -723,15 +723,15 @@ export const OATH = {
   /** Border towns counted in the gain of a broken truce (the capital excluded). */
   takeMax: 3,
   /** c_w: the cost of a war per period in realm share; h: expected wars per period once enemies for good (grim trigger). */
-  warCost: 0.04,
+  warCost: 0.015,
   hostile: 0.5,
   /** Trade lost with the partner: tradeW * v / (v + 200); an alliance's worth: allyW * threat it balances; a marriage tie; removing a threat: threatW * theta(q -> p). */
   tradeW: 0.05,
-  allyW: 0.15,
+  allyW: 0.04,
   tieW: 0.03,
   threatW: 0.1,
   /** Value lost per period per unit of faithless score (fewer alliances and joins). */
-  repCost: 0.03,
+  repCost: 0.015,
   /** Defection: value of the old reasons to stay, per unit. */
   bondW: 0.05,
 }
