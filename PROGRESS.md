@@ -24,3 +24,8 @@ Worktree /home/claude/wsx-setup, branch lane/setup. Runs are in /home/claude/run
   - G0 new values: runs/setup/g0-new.log (`node --experimental-strip-types scripts/g0.ts 2000 1 42 1234`)
   - sanity: runs/setup/{off,realistic,dramatic}.jsonl (presetStats.ts --out)
 - Next: fill G0_GOLDENS (src/hashBase.ts, PENDING*), _LANE_BRIEF.md, MASTER-PLAN §2; assemble docs/realism-baseline.jsonl (base), docs/realism-sweep22.jsonl (base+sweep18), docs/realism-noise.jsonl (12 jitters); update REALISM_BASELINE and REALISM_SWEEP_BASELINE from realismStats.test output; run presets/registry/hashBase/realismStats tests; build; smoke; push.
+
+## Status after restart (resumed)
+- Realism re-baseline DONE (runs complete, 70 rows): baseline 0.371197 48/104; sweep22 0.371930 246/572; null ensemble k=13 mean 0.3483 sd 0.0300, in range 46.5 sd 3.8. Commit b662140.
+- G0 new (1 086a0ba67ed15ca6, 42 b81096d393b32e50, 1234 8b177fd80d554a37); G0-off unchanged. presets/registry/hashBase tests OK; 15 golden/battles/disasters/history test files OK (91 tests); build OK; Playwright smoke OK (runs/setup/smoke.log, shots/).
+- Merged origin/main 17ae06d (absentee) → Dramatic adds absentee. Pending: G0 after merge (runs/setup/g0-after-absentee.log), dramatic sanity rerun (runs/setup/dramatic.jsonl), vt-realism.log, realism-check-noise-new.log. If G0 realistic changed after the merge, the realism rows must be rerun (delete runs/setup/realism/*.jsonl, rerun realism-runner.sh).
