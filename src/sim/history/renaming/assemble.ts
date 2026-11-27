@@ -19,6 +19,8 @@ export interface RenamingHistory {
   renamings: Renamings
   /** PlaceRenamed events in chronological order (index.ts weaves them into History.events). */
   events: HistoryEvent[]
+  /** language: with drift, each row's underlying form and coining language (NameForms.renamingForm / renamingLanguage). */
+  forms?: { form: string[]; language: number[] }
 }
 
 export function emptyRenamings(): Renamings {
@@ -36,6 +38,8 @@ export function emptyRenamingHistory(): RenamingHistory {
 interface Row {
   settlement: number; year: number; name: string; cause: number; form: number; polity: number; ruler: number; dynasty: number; faith: number
   people: number; previous: number; restored: number; source: number; keptBy: number; other: number
+  /** language: the underlying form and coining language (with drift). */
+  coin: string; coinLang: number
 }
 
 /**
@@ -59,8 +63,20 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
   const identName: string[] = new Array<string>(K)
   const rows: Row[] = []
   const endings = new Map<string, string[]>()
-  const endingsOf = (at: number): string[] => cityEndings(world, naming, endings, naming.tribe[at], naming.level[at])
-  const langOf = (at: number) => naming.language(naming.tribe[at], naming.level[at])
+  // language: with drift a name is coined in the tongue `at` speaks in the year, with its words then, and borne as said then.
+  const drift = naming.drift
+  const endingsOf = (at: number, year: number): string[] => drift ? drift.endingsAt(drift.node(at, year), year) : cityEndings(world, naming, endings, naming.tribe[at], naming.level[at])
+  const langOf = (at: number, year: number) => drift ? drift.langAt(drift.node(at, year), year) : naming.language(naming.tribe[at], naming.level[at])
+  const nodeOf = (at: number, year: number): number => drift ? drift.node(at, year) : -1
+  const say = (x: string, at: number, year: number): string => drift ? drift.surfaceName(x, drift.node(at, year), year) : x
+  const identCoin: string[] = new Array<string>(K)
+  const identLang = new Int32Array(K).fill(-1)
+  const coinOfIdent = (ident: number): [string, number] => {
+    if (ident >= 0) return [identCoin[ident], identLang[ident]]
+    const id = -ident - 2
+    if (distRow[id] >= 0) return [rows[distRow[id]].coin, rows[distRow[id]].coinLang]
+    return [naming.forms?.[id] ?? settlements[id].name.toLowerCase(), naming.level[id]]
+  }
   const free = (name: string, year: number): boolean => {
     const lc = name.toLowerCase()
     if (owner.has(lc)) return false
@@ -84,14 +100,15 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
       cur[id] = st.name
       if (!owner.has(lc)) { owner.set(lc, id); continue }
       // Founded with a name another town already bore: a qualified form from its founding.
-      const lang = langOf(id), ends = endingsOf(id)
+      const fy = st.foundedYear
+      const lang = langOf(id, fy), ends = endingsOf(id, fy)
       const rng = createRng(world.seed, `names-placequal-${id}`)
-      let name = ''
-      for (let attempt = 0; attempt < 20 && !name; attempt++) { const q = qualify(st.name, lang, ends, rng); if (q !== null && free(q, st.foundedYear)) name = q }
-      for (let attempt = 0; !name; attempt++) { const q = attempt < 200 ? freshPlace(lang, ends, rng) : capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng)); if (free(q, st.foundedYear) || attempt > 400) name = q }
+      let name = '', coin = ''
+      for (let attempt = 0; attempt < 20 && !name; attempt++) { const q = qualify(st.name, lang, ends, rng); const c = q === null ? null : say(q, id, fy); if (c !== null && free(c, fy)) { name = c; coin = q as string } }
+      for (let attempt = 0; !name; attempt++) { const q = attempt < 200 ? freshPlace(lang, ends, rng) : capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng)); const c = say(q, id, fy); if (free(c, fy) || attempt > 400) { name = c; coin = q } }
       distRow[id] = rows.length
       lastRow[id] = rows.length
-      rows.push({ settlement: id, year: st.foundedYear, name, cause: RenameCause.Distinguished, form: RenameForm.Qualified, polity: -1, ruler: -1, dynasty: -1, faith: -1, people: st.people, previous: -1, restored: NEW_NAME, source: -1, keptBy: -1, other: -1 })
+      rows.push({ settlement: id, year: st.foundedYear, name, cause: RenameCause.Distinguished, form: RenameForm.Qualified, polity: -1, ruler: -1, dynasty: -1, faith: -1, people: st.people, previous: -1, restored: NEW_NAME, source: -1, keptBy: -1, other: -1, coin: coin.toLowerCase(), coinLang: nodeOf(id, fy) })
       owner.set(name.toLowerCase(), id)
       cur[id] = name
     }
@@ -105,15 +122,18 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
     let form = rn.yForm[k]
     const restore = rn.yRestore[k]
     let name = ''
+    let coin = '', coinLang = -1
     if (form === RenameForm.Restored || form === RenameForm.Revived) {
       name = nameOfIdent(restore)
+      ;[coin, coinLang] = coinOfIdent(restore)
       const o = owner.get(name.toLowerCase())
       // (a restored name is the town's own; a revived one the ruin's, which passes to the town on its site)
       if (o !== undefined && o !== v && !(form === RenameForm.Revived && o === rn.ySource[k])) name = ''
     } else {
       const at = rn.yLang[k]
-      const lang = langOf(at), ends = endingsOf(at)
+      const lang = langOf(at, year), ends = endingsOf(at, year)
       const rng = createRng(world.seed, `names-place-${k}`)
+      coinLang = nodeOf(at, year)
       for (let attempt = 0; attempt < 24 && !name; attempt++) {
         let cand: string | null = null
         if (form === RenameForm.Adapted) cand = adaptName(old, lang, ends, rng)
@@ -121,22 +141,27 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
         else if (form === RenameForm.House) cand = rn.yDynasty[k] >= 0 && rn.yDynasty[k] < dynasties.length ? dedicate(dynasties[rn.yDynasty[k]].name, lang, ends, rng) : null
         else if (form === RenameForm.Faith) cand = rn.yFaith[k] >= 0 && rn.yFaith[k] < faiths.length ? dedicate(faiths[rn.yFaith[k]].name, lang, ends, rng) : null
         else cand = freshPlace(lang, ends, rng)
-        if (cand !== null && free(cand, year)) name = cand
+        const c = cand === null ? null : say(cand, at, year)
+        if (c !== null && free(c, year)) { name = c; coin = cand as string }
       }
       for (let attempt = 0; !name; attempt++) {
         const cand = attempt < 200 ? freshPlace(lang, ends, rng) : capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng))
-        if (free(cand, year) || attempt > 400) { name = cand; form = RenameForm.New }
+        const c = say(cand, at, year)
+        if (free(c, year) || attempt > 400) { name = c; coin = cand; form = RenameForm.New }
       }
     }
     if (!name) {
       // (practically unreachable: a revived name that someone else bears) a new name of the town's own language
-      const lang = langOf(v), ends = endingsOf(v)
+      const lang = langOf(v, year), ends = endingsOf(v, year)
       const rng = createRng(world.seed, `names-place-${k}`)
-      for (let attempt = 0; !name; attempt++) { const cand = freshPlace(lang, ends, rng); if (free(cand, year) || attempt > 400) name = cand }
+      coinLang = nodeOf(v, year)
+      for (let attempt = 0; !name; attempt++) { const cand = freshPlace(lang, ends, rng); const c = say(cand, v, year); if (free(c, year) || attempt > 400) { name = c; coin = cand } }
       form = RenameForm.New
     }
     owner.set(name.toLowerCase(), v)
     identName[k] = name
+    identCoin[k] = coin.toLowerCase()
+    identLang[k] = coinLang
     rowOf[k] = rows.length
     const prev = rn.yPrev[k]
     // (a revived name is the ruin's as it was given up: the row that gave the ruin that name, which may itself have been revived
@@ -147,6 +172,7 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
     rows.push({
       settlement: v, year, name, cause: rn.yCause[k], form, polity: rn.yPolity[k], ruler: rn.yRuler[k], dynasty: rn.yDynasty[k], faith: rn.yFaith[k],
       people: rn.yPeople[k], previous: prev >= 0 ? rowOf[prev] : distRow[v], restored, source: rn.ySource[k], keptBy: rn.yKept[k], other: rn.yOther[k],
+      coin: coin.toLowerCase(), coinLang,
     })
     cur[v] = name
     lastRow[v] = rowOf[k]
@@ -168,7 +194,7 @@ export function assembleRenamings(world: World, rn: RenamingState, settlements: 
     out.source[i] = r.source; out.keptBy[i] = r.keptBy
     events.push({ year: r.year, type: EventType.PlaceRenamed, settlement: r.settlement, other: r.other, value: i, extra: r.cause })
   }
-  return { renamings: out, events }
+  return drift ? { renamings: out, events, forms: { form: rows.map((r) => r.coin), language: rows.map((r) => r.coinLang) } } : { renamings: out, events }
 }
 
 /** `base` with `extra` (both chronological) woven in: each extra event after every base event of its year. */
