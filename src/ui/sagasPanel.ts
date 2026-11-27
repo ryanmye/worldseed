@@ -45,7 +45,7 @@ export interface SagasView {
   readonly legend: boolean
 }
 
-const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year', commander: 'Commander' }
+const KIND_LABEL: Record<SagaKind, string> = { world: 'World', people: 'People', state: 'State', city: 'City', house: 'House', decade: 'Decade', year: 'Year', commander: 'Commander', whatif: 'What if' }
 /** Entries per subject list (the selected subject is always added). */
 const LIST_CAP = 80
 

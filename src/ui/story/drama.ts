@@ -543,3 +543,17 @@ export function buildStaticDrama(ix: NotableIndex, ctx: DramaCtx = createDramaCt
   }
   return out
 }
+
+/**
+ * what-if (experience §1.6 step 3): the static score of one event on its own, B·M·U·R (no aggregation, no firsts): 0 when
+ * the type is ignored or its gate fails. Ranks a comparison's first differences.
+ */
+export function eventScore(c: DramaCtx, e: HistoryEvent): number {
+  const rule = dramaRule(e.type as number)
+  if (!rule || rule.base <= 0 || (rule.gate && !rule.gate(c, e))) return 0
+  const B = rule.base * (rule.boost ? rule.boost(c, e) : 1)
+  const M = rule.mag ? magnitude(rule.mag(c, e)) : 1
+  const U = rule.upset ? Math.max(1, Math.min(3, rule.upset(c, e))) : 1
+  const pols = (rule.polities ? rule.polities(c, e) : c.pd ? eventPolities(c.pd, e) : []).filter((p) => p >= 0)
+  return B * M * U * reachOf(c, pols, e.settlement, e.year)
+}

@@ -1,7 +1,7 @@
 // Sagas: what a generator returns.
 
 /** A town's, a people's, a state's or a house's saga, the world's chronicle, or the chronicle of a decade or a year (id: its first year). */
-export type SagaKind = 'world' | 'people' | 'state' | 'city' | 'house' | 'decade' | 'year' | 'commander' // (battles: a commander of armies)
+export type SagaKind = 'world' | 'people' | 'state' | 'city' | 'house' | 'decade' | 'year' | 'commander' | 'whatif' // (battles: a commander of armies; what-if: a comparison's saga, sagas/whatif.ts, never in the library's contents)
 
 /** What a paragraph is: plain narrative (null), a scene (a set piece on one recorded event), or an omen (an order told as a sign). */
 export type SagaMark = 'scene' | 'omen' | null
