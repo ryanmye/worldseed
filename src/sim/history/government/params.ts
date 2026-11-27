@@ -21,7 +21,7 @@ export const CITY = {
   merc: 1.2,
   mercHalf: 20,
   /** Member-town gates (§4.4). */
-  minPop: 2000,
+  minPop: 1500,
   settle: 20,
   rich0: 0.2,
   rich1: 1.0,
@@ -33,7 +33,7 @@ export const CITY = {
   /** A crushed rising: this share of the merchants' capital lost (fled or fined). */
   crushMerch: 0.4,
   /** A charter: chance step * charter * omega * need * (0.5 + 0.5 delta); the price price * (wealth + merchant capital). */
-  charter: 0.06,
+  charter: 0.4,
   price: 0.25,
   /** Contado: neighbours with pop <= contado * the city's (and below TOWN_POPULATION), nearer the city than their capital. */
   contado: 0.3,
@@ -48,7 +48,7 @@ export const CITY = {
   revokeChance: 0.004,
   /** Stateless free towns (§4.6). */
   freePop: 1500,
-  free: 0.03,
+  free: 0.015,
   freePop1: 4000,
   freeTrade: 0.3,
   /** Councils at a succession (§4.7): members <= councilMembers, trade_c >= councilTrade, m_c >= councilHead; chance council * smoothstep(councilHead, councilHead1, m_c). */
@@ -62,7 +62,7 @@ export const CITY = {
   /** Theocracy (§4.9): holy cities of universal faiths with org >= theoOrg and pop >= theoPop. */
   theoOrg: 0.5,
   theoPop: 1500,
-  theoMembers: 6,
+  theoMembers: 12,
   theoCrown: 0.3,
   theoFree: 0.05,
   theoSecede: 0.03,
