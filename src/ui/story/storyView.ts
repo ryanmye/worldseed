@@ -33,6 +33,7 @@ import { battlesOf, battleWeight } from '../battlesData.ts'
 import type { BattleOpenOptions } from '../battleMap.ts'
 import { battleTitle, describeBattle } from '../battleFormat.ts'
 import { contextChanged, registerContext } from '../contextPanel.ts'
+import { createDramaStrip } from './dramaStrip.ts'
 import { createStoryCard, type StoryCard } from './storyCard.ts'
 
 export interface StoryViewDeps {
@@ -444,6 +445,15 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   })
   deps.timeline.addControl(card.button)
   deps.timeline.addControl(card.progress)
+  // ui-additions 3: the drama strip over the slider; a click jumps to the peak there (following lets go)
+  const strip = createDramaStrip((y) => {
+    director.suspend()
+    deps.timeline.pause()
+    deps.timeline.setYear(Math.min(y, deps.timeline.years))
+    deps.requestRender()
+    deps.wake()
+  })
+  deps.timeline.addAboveSlider(strip.root)
   director.setPacing(true)
   const syncButton = () => card.setButton(director.on, !!plan)
   syncButton()
@@ -557,6 +567,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       plan = buildStoryPlan(drama, index.notableYear, { focus, until: history.years })
     }
     director.setPlan(plan)
+    strip.setData(drama, index ? index.notableYear : null, plan ? plan.beatYear : null)
     if (director.on) deps.timeline.setBeats(plan ? plan.beatYear : null, plan ? plan.beatProminence : null, Math.min(STORY.gMin, STORY.promPerSpeed))
     resetNotes(deps.timeline.year)
     syncButton()
@@ -602,6 +613,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
         setFollow(true)
       }
       stepTurn(dt)
+      strip.setRange(deps.timeline.years)
       const wasFf = director.fastForward
       const prevYear = tickYear
       tickYear = year

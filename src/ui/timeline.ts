@@ -108,6 +108,10 @@ export interface Timeline {
   setBeats(years: Float64Array | null, prominence: Float32Array | null, perSpeed?: number): void
   /** Put a control (the director's Follow button) in the bar's row, before the speed buttons. */
   addControl(el: HTMLElement): void
+  /** onboarding (drama strip): put `el` just above the slider, as wide as it. */
+  addAboveSlider(el: HTMLElement): void
+  /** The range's length in years (0 while disabled). */
+  readonly years: number
   /** A faint sparkline behind the slider: one value per snapshot from year 0 (the world's people), or null for none. */
   setSparkline(values: ArrayLike<number> | null, interval: number): void
   /**
@@ -719,6 +723,12 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     },
     addControl(el: HTMLElement) {
       row.insertBefore(el, speedBox)
+    },
+    addAboveSlider(el: HTMLElement) {
+      root.insertBefore(el, slider)
+    },
+    get years() {
+      return enabled ? years : 0
     },
     setClimate(temp: ArrayLike<number> | null, m: readonly TimelineMark[]) { // disasters:
       climate = temp && temp.length > 1 ? { temp, marks: m.slice() } : null

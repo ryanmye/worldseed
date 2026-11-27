@@ -304,3 +304,21 @@ html.compact .tl-follow .tl-follow-label {
     animation-duration: 0.01s;
   }
 }
+
+/* ---------- the drama strip (dramaStrip.ts): over the slider ---------- */
+.tl-drama {
+  position: relative;
+  height: 16px;
+  margin: 6px 7px -8px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.tl-drama canvas {
+  display: block;
+}
+.tl-drama:hover {
+  opacity: 1;
+}
+.timeline.disabled .tl-drama {
+  visibility: hidden;
+}
