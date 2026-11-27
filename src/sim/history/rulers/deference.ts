@@ -7,6 +7,7 @@
 // API (HistoryState s, polity p):
 //   addDeference(s, p, amount, cause)   feed it (creates the state); may tip the realm into decline (SeatDeclined)
 //   deferenceTaken(s, p)                a decision the ruler took himself: x SEAT.deferTaken, one more in a row (may reassert)
+//   deferenceRelease(s, p, keep)        absentee: the ruler rules in person again (x keep, out of decline); true if it was in decline
 //   reclaimPower(s, p)                  the ruler takes the power back at once: 0, out of decline (SeatReasserted extra 1);
 //                                       the throne is less safe for SEAT.reclaimYears (the C3 factor below)
 //   deferenceYear(s)                    yearly, first thing: x SEAT.deferKeep
@@ -14,7 +15,8 @@
 //   figureheadOf(s, p)                  true while the deciding body rules in all but name (value reached SEAT.deferDecline)
 //   seatDeferencePressure(s, p)         the pressure 0..1 later plans read: court-politics (faction and estates strength,
 //                                       privileges, regime drift toward the deciding body, a mayor of the palace), riots
-//                                       (legitimacy), modern-ideologies (constitutional drift). Today = deferenceK.
+//                                       (legitimacy), modern-ideologies (constitutional drift). Today = deferenceK. Also
+//                                       exported as deferencePressure (the plan's name).
 //   deferOverthrowMul(s, p)             C3 order-slot factor (1 + deferOverthrow k) x (reclaimRisk while a reclaim's risk holds), undefined at 1
 //   deferContestMul(s, p)               the contest chance's factor 1 + deferContest k (1 at 0)
 //   deferUnrest(s, p)                   the Provincial grievance term deferUnrest k - the blame shield (UnrestPart.Deference; 0 at 0)
@@ -80,6 +82,8 @@ export function figureheadOf(s: HistoryState, p: number): boolean {
   return d !== null && p >= 0 && p < d.figurehead.length && d.figurehead[p] === 1
 }
 export const seatDeferencePressure = deferenceK
+/** The same pressure under its plan name (absentee-rulers: court-politics reads it for the deciding body's strength). */
+export const deferencePressure = deferenceK
 
 export function addDeference(s: HistoryState, p: number, amount: number, cause: DeferenceCause): void {
   if (p < 0 || !(amount > 0)) return
@@ -88,7 +92,26 @@ export function addDeference(s: HistoryState, p: number, amount: number, cause: 
   d.fed[p * DEFERENCE_CAUSE_COUNT + cause] += amount
   d.run[p] = 0
   d.live.add(p)
-  if (!d.figurehead[p] && d.value[p] >= SEAT.deferDecline) { d.figurehead[p] = 1; push(s, EventType.SeatDeclined, p, Math.round(d.value[p] * 100)) }
+  if (!d.figurehead[p] && d.value[p] >= SEAT.deferDecline) {
+    d.figurehead[p] = 1
+    // (the player's realm: SeatDeclined; an AI cause's decline is told by its feeder, rulers/absentee.ts CouncilRuled)
+    if (cause === DeferenceCause.Player) push(s, EventType.SeatDeclined, p, Math.round(d.value[p] * 100))
+  }
+}
+
+/**
+ * absentee: the ruler rules again in person (an AI reign ended, a regent handed over, the ruler came home): deference x keep,
+ * out of decline. Returns whether the realm was in decline (the caller tells it: RuledInPerson). No-op without the state.
+ */
+export function deferenceRelease(s: HistoryState, p: number, keep: number): boolean {
+  const d = s.defer
+  if (d === null || p < 0 || p >= d.value.length) return false
+  d.value[p] *= keep
+  if (d.value[p] < 1e-3) d.value[p] = 0
+  d.run[p] = 0
+  const was = d.figurehead[p] === 1
+  d.figurehead[p] = 0
+  return was
 }
 
 export function deferenceTaken(s: HistoryState, p: number): void {
