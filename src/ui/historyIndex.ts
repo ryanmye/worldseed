@@ -423,8 +423,9 @@ export function countUpTo(years: Float64Array, year: number, lo = 0, hi = years.
 /** A CradlePlaced event for a cradle the simulation chose: not news (only the planted ones are told). */
 const hiddenCradle = (e: { type: number; extra?: number }) => isCradleEvent(e.type) && !isShownCradleEvent(e)
 
-/** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). */
-function isShownType(type: number): boolean {
+/** Event types the chronicle and inspector can describe (unknown future types are left out rather than misread). Exported
+ * for the drama coverage test: a type with a drama rule that is no chronicle entry can never be a beat (surfacing lane). */
+export function isShownType(type: number): boolean {
   if (isRulersOrFaithEvent(type)) return true // 80-97: rulers and faiths (rulersFormat.ts)
   if (isIdeasEvent(type)) return true // 120-123: ideas (ideasFormat.ts)
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)

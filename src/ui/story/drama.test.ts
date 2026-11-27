@@ -5,9 +5,9 @@
 import { describe, expect, it } from 'vitest'
 import { EventType, type HistoryEvent } from '../../contract.ts'
 import { generateWorld, simulateHistory } from '../../sim/index.ts'
-import { buildHistoryIndex, EntryKind } from '../historyIndex.ts'
+import { buildHistoryIndex, EntryKind, isShownType } from '../historyIndex.ts'
 import type { PolitiesData } from '../politiesData.ts'
-import { buildStaticDrama, DRAMA, DRAMA_IGNORED, dramaRule, ENTRY_FAMINE_BURST, ENTRY_SINGLE, isReservedEventId, magnitude, provisionalDrama, registerDrama, ignoreDrama, upsetOf, type DramaCtx } from './drama.ts'
+import { MERGED_SYSTEMS, buildStaticDrama, DRAMA, DRAMA_IGNORED, dramaRule, ENTRY_FAMINE_BURST, ENTRY_SINGLE, isReservedEventId, magnitude, provisionalDrama, registerDrama, ignoreDrama, upsetOf, type DramaCtx } from './drama.ts'
 
 describe('drama coverage', () => {
   it('every EventType has a drama rule or is explicitly ignored (and not both)', () => {
@@ -21,6 +21,18 @@ describe('drama coverage', () => {
     }
     expect(missing, 'add a rule with registerDrama(type, rule) in the plan\'s *Format.ts, or ignoreDrama(type)').toEqual([])
     expect(both).toEqual([])
+  })
+
+  it('every merged system\'s event type with a drama rule can be a chronicle entry (surfacing lane: society, disasters and cold wars were not)', () => {
+    const hidden = Object.entries(EventType).filter(([, id]) => MERGED_SYSTEMS.some(([, f]) => f(id)) && DRAMA[id] !== undefined && !isShownType(id)).map(([n, id]) => `${n} (${id})`)
+    expect(hidden, 'historyIndex.ts isShownType must list it, or the director never sees it').toEqual([])
+  })
+
+  it('every merged system has a scored headline type (MERGED_SYSTEMS)', () => {
+    for (const [name, inSys] of MERGED_SYSTEMS) {
+      const ruled = Object.values(EventType).filter((id) => inSys(id) && (DRAMA[id]?.base ?? 0) >= 4)
+      expect(ruled.length, `${name}: no rule of base >= 4`).toBeGreaterThan(0)
+    }
   })
 
   it('rules and ignores name only live event types', () => {
