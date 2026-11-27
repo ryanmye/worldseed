@@ -423,6 +423,7 @@ function isShownType(type: number): boolean {
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
+  if (type >= 200 && type <= 205) return true // 200-205: governments (polityFormat.ts)
   if (type >= 230 && type <= 238) return true // 230-238: beliefs (polityFormat.ts)
   if (isFamilyEvent(type)) return true // 161-169: merchant families (familiesFormat.ts)
   if (isBattleEvent(type)) return true // 220-229: battles (battleFormat.ts)
