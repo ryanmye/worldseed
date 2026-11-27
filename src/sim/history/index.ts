@@ -165,6 +165,11 @@ import { assembleLandmarks, emptyLandmarkHistory } from './landmarks/assemble.ts
 // orders: the player's nudges (orders/).
 import { assembleOrders, createOrders, ordersBegin, ordersEnd, ordersPolity } from './orders/system.ts'
 import { appendOrders } from './orders/state.ts'
+// seat: the player's seat and its decisions (seat/).
+import { createSeatState } from './seat/state.ts'
+import type { SeatState } from './seat/state.ts'
+import { seatYear } from './seat/system.ts'
+import { assembleSeat } from './seat/assemble.ts'
 
 /** Grows a Float32 buffer, keeping its contents. */
 function ensure(a: Float32Array<ArrayBuffer>, need: number): Float32Array<ArrayBuffer> {
@@ -438,6 +443,8 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   // those orders would have had all along, because no hook acts and the stream draws nothing before an order's year)
   let ox = options?.orders && options.orders.length > 0 ? createOrders(s, options.orders, createRng(seed, 'history-orders')) : null
   s.orders = ox
+  // seat: the player's seat, only with HistoryOptions.seat (none: the history is exactly the one without it).
+  const seat: SeatState | null = options?.seat ? createSeatState(options.seat) : null
 
   // Land snapshots (Uint8 per cell), growing with the run: snapshot q at q * N.
   const landInterval = HISTORY_DEFAULTS.landInterval
@@ -573,6 +580,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (rn) renamingYear(s, rn) // renaming: conquest, cession, capitals, faith, trade, restoration, revival (reads only)
     if (lm) landmarksYear(s, lm) // landmarks: works begun and finished, neglect, ruin, restoration, conversion (reads only)
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
+    if (seat) seatYear(s, seat) // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -658,6 +666,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...ideasHist, // ideas:
         landmarks: lmHist.landmarks, // landmarks:
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
+        ...(seat ? { seat: assembleSeat(seat, ox ? ox.given : [], years) } : {}), // seat: (absent without a seat)
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
       terrain,
