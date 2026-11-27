@@ -4,6 +4,7 @@
 // it stands at the year told. Every sentence comes from the records (events up to the year, the snapshots, the
 // landmark, renaming, faith and goods tables); a town where little happened gets a short notice instead.
 
+import { archaicName } from '../languageFormat.ts' // language: the old form of a drifted name
 import { CITY_POPULATION, EventType, LandmarkRank, LandmarkState, landmarksAt, OrderKind, PostKind, RenameCause, StructureType, TOWN_POPULATION } from '../../contract.ts'
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { goodsOf } from '../goodsData.ts'
@@ -79,6 +80,11 @@ const T: PhraseTable = {
   renamed: [
     ['In {year} it was renamed {new}, {why}.', '{why2} it took the name {new} in {year}.'],
     ['In {year} its name was changed to {new}, {why}.'],
+  ],
+  // language: a name worn by the years (drift; archaicName in ui/languageFormat.ts)
+  oldTongue: [
+    ['Its name was once said {old}; it is said {now} today.'],
+    ['In the old tongue it was {old}; men now say {now}.', 'Of old it was called {old}, but men now say {now}.'],
   ],
   heldFirst: [
     ['It first came under the {state} in {year}.', 'In {year} it became part of the {state}.'],
@@ -373,6 +379,8 @@ export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
     const why = whyRenamed(c, k)
     p2.push(v.p('renamed', { year: R.year[k], new: R.name[k], why, why2: cap(why) + ',' }).replace(/, ,/g, ','))
   }
+  const archaic = archaicName(h, id, Y) // language: (null without drift)
+  if (archaic) p2.push(v.p('oldTongue', { old: archaic, now: c.name(id, Y) }))
   section('hGrowth', p2.join(' '))
 
   // ---- who held it, whose seat it was, war ----

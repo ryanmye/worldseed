@@ -134,6 +134,9 @@ function medialPairOk(a: Unit, b: Unit): boolean {
   return false
 }
 
+/** language: what may begin the one medial three-consonant run a drifted name may have (isEuphonicDrift). */
+const TRIPLE_HEAD = ['s', 'n', 'r', 'l']
+
 const REPEATED_CHUNK = /([a-z]{2,})\1/
 const REPEATED_CV = /([b-df-hj-np-tv-z][aeiou])[a-z]?\1/
 const DOUBLED = /([a-z])\1/
@@ -151,6 +154,20 @@ const MAX_SAME_VOWEL = 3
  * syllables and no consonant used three times.
  */
 export function isEuphonic(word: string): boolean {
+  return euphonic(word, false)
+}
+
+/**
+ * language: the gate for a name worn by sound change (soundChange.ts): isEuphonic, except that one three-consonant run inside
+ * the word is allowed when it is a sonorant or s before a known onset cluster ("vastra", "kantro", "elstra"). Founding forms
+ * still pass isEuphonic itself.
+ */
+export function isEuphonicDrift(word: string): boolean {
+  return euphonic(word, true)
+}
+
+function euphonic(word: string, relaxTriple: boolean): boolean {
+  let triple = false
   if (letterCount(word) < 2) return false
   if (DOUBLED.test(word) || REPEATED_CHUNK.test(word) || REPEATED_CV.test(word)) return false
   const u = toUnits(word)
@@ -175,6 +192,11 @@ export function isEuphonic(word: string): boolean {
     } else {
       let w = 0
       for (let k = i; k < j; k++) w += u[k].w
+      if (relaxTriple && !triple && len === 3 && w === 3 && i > 0 && j < n && TRIPLE_HEAD.indexOf(u[i].s) >= 0 && ONSET_CLUSTERS_OK.indexOf(u[i + 1].s + u[i + 2].s) >= 0) {
+        triple = true
+        i = j
+        continue
+      }
       if (w > 2) return false
       if (i === 0) {
         if (len === 1 && u[0].s === 'ng') return false

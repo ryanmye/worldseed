@@ -4,7 +4,8 @@
 // A small label follows the pointer over a landmark. Text is rewritten only when it changes,
 // and only on frames that are drawn anyway.
 
-import { landmarkNameAt, settlementNameAt, type History } from '../contract.ts'
+import { spokenNameAt } from '../sim/names/spoken.ts' // language: the name as said in the year (settlementNameAt without drift)
+import { landmarkNameAt, type History } from '../contract.ts'
 import { formatInt, peopleName, peopleOf } from './format.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { battlesOf } from './battlesData.ts' // battles:
@@ -84,7 +85,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
     update(h, id, year, focus, landmarks, flying) {
       root.classList.toggle('flying', flying)
       const y = Math.floor(year)
-      set(nameEl, settlementNameAt(h, id, y))
+      set(nameEl, spokenNameAt(h, id, y))
       const p = peopleOf(h, id)
       const people = p >= 0 ? peopleName(h, p) : null
       const pd = politiesOf(h)

@@ -650,7 +650,7 @@ function failPost(s: HistoryState, g: GoodsState, i: number, ts: TradeState): vo
   if (s.abandoned[x] >= 0) return
   const idx = s.living.indexOf(x)
   if (idx < 0) return
-  abandon(s, x)
+  abandon(s, x, 2) // (causes: AbandonCause.Supply)
   s.living.splice(idx, 1)
   const ps = s.pol
   if (ps !== null && x < ps.seen) { if (ps.walls[x] > 0) loseWalls(s, ps, x); if (ps.fort[x] >= 0) loseFort(s, ps, x) }

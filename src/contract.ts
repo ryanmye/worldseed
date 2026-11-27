@@ -245,6 +245,11 @@ export const EventType = {
   CommanderDismissed: 227, // commander `value` (a general) was relieved after a defeat at `settlement`; `other` the capital; logged for commanders with fame >= BATTLE.renown / 2 only
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
   CradlePlaced: 180, // year 0, right after the people's first settlement (`settlement`) is founded, for each people with a wish: `value` the people; `other` -1; `extra` the CradleOutcome (Placed, Moved or Rejected)
+  // language: the languages of the world (250-259; none when HistoryOptions.language is off).
+  LanguageSplit: 250, // a language parted from its parent: `settlement` the daughter's seat (its first town), `other` the parent's seat; `value` the language id (History.languages); `extra` the LanguageSplitCause
+  LanguageShift: 251, // the people of `settlement` (a town) took up the tongue of their rulers: `other` the capital of the polity whose people's language it took; `value` the language now spoken there; `extra` the language given up
+  LoanWave: 252, // the language spoken at `settlement` (its largest town then) took many words from another (at least LANG.waveLoans of its visible words in LANG.waveYears): `other` the donor's seat (its largest town then); `value` the recipient language id; `extra` the donor language id
+  LanguageDied: 253, // the last town that spoke language `value` (`settlement`) gave it up or was abandoned; `other` -1; `extra` the language that replaced it there, or -1
 } as const
 export type EventType = (typeof EventType)[keyof typeof EventType]
 
@@ -541,6 +546,13 @@ export interface History {
   // landmarks: great buildings (castles, palaces, temples, ...) and the lesser houses of worship, raised as a consequence of history
   // (empty when HistoryOptions.landmarks is false). Never removed: a landmark outlives its town's fortunes in its states.
   landmarks: Landmarks
+  // language: languages that split and drift (absent when HistoryOptions.language is off: older histories and links without lang=1).
+  /** The language tree (Languages). */
+  languages?: Languages
+  /** What each settlement speaks over time (Speech). */
+  speech?: Speech
+  /** Names as underlying forms, and exonyms (NameForms); the name said at a year is spokenNameAt (names/spoken.ts). */
+  nameForms?: NameForms
   // orders: (absent when HistoryOptions.orders is undefined or empty).
   /** The orders as given (HistoryOptions.orders, a copy, in the given order). */
   orders?: Order[]
@@ -559,6 +571,9 @@ export interface History {
   // battles: the battles of the wars and their commanders (all empty when HistoryOptions.battles or polities is false).
   battles: Battles
   commanders: Commanders
+  // causes: why things happened, for the causal explorer (HistoryOptions.causes). Recording only: every other field is the same
+  // with it on or off. Empty (counts 0) when it is off; absent in histories cached before it existed.
+  why?: CauseRecords
 }
 
 /**
@@ -601,6 +616,106 @@ export function canonicalCradles(cells: readonly number[]): number[] {
 
 // ---------------------------------------------------------------------------
 // renaming: places renamed as a consequence of history.
+
+/** language: why a language parted from its parent (Languages.cause). */
+export const LanguageSplitCause = { Proto: 0, Overseas: 1, Distance: 2 } as const
+export type LanguageSplitCause = (typeof LanguageSplitCause)[keyof typeof LanguageSplitCause]
+
+/**
+ * language: the kinds of regular sound change (SOUND_CHANGES in names/soundChange.ts is the catalogue; Languages.ruleKind
+ * indexes it). Each is a rewrite on phoneme units with a context; a word whose result would not be euphonic keeps its form.
+ */
+export const SoundChangeKind = {
+  Lenition: 0, // a stop or fricative softens between vowels (t > d, k > g, p > b)
+  Palatalisation: 1, // a consonant before i or e becomes palatal (k > ch, s > sh, g > y)
+  VowelShift: 2, // a vowel moves everywhere (a > o, e > i), sometimes as a chain
+  Raising: 3, // a vowel rises before a nasal that closes its syllable (a > o, e > i)
+  Umlaut: 4, // a back vowel fronts when i follows in the next syllable (a > e, o > e, u > i)
+  Syncope: 5, // the vowel of the second (or the next-to-last) syllable falls between consonants in a word of 3+ syllables
+  Apocope: 6, // a final vowel falls in a word of 3+ syllables
+  FinalLoss: 7, // a final consonant falls after a vowel (or a final nasal after an unstressed vowel, the vowel opening to a)
+  ClusterSimplify: 8, // the first of two consonants assimilates to the second (kt > t, nd > n)
+  Monophthong: 9, // a diphthong becomes one vowel (ai > e, au > o)
+  HLoss: 10, // h falls (initially, between vowels)
+  Depalatalise: 11, // a palatal turns back (sh > s, ch > t, y > l)
+  Fortition: 12, // a word-initial w, y or v hardens (w > v, y > g before back vowels, v > b)
+  Prothesis: 13, // a vowel is put before an initial s-cluster (sp > esp)
+} as const
+export type SoundChangeKind = (typeof SoundChangeKind)[keyof typeof SoundChangeKind]
+
+/**
+ * language: the language tree (absent when HistoryOptions.language is off). Row i is language i, in order of appearance (a
+ * parent before its daughters; a people's proto-language when its first town is founded). A language is not a people: a people
+ * speaks one or more languages over time, and a town may shift to another people's (History.speech).
+ */
+export interface Languages {
+  count: number
+  /** Language it parted from, or -1 for a people's proto-language. */
+  parent: Int16Array
+  /** People whose tongue it is by descent (the proto-language's people), index into History.peoples. */
+  people: Int16Array
+  /** Year it parted from its parent (the founding year of its people's first town for a proto-language). */
+  splitYear: Int16Array
+  cause: Uint8Array
+  /** First settlement that spoke it (the daughter's seat; the founder for a proto-language). */
+  seat: Int32Array
+  /** Its name as its speakers say it at the end of the run ("Vashtari", "Kepian"). */
+  name: string[]
+  /** Relative pace of change (1 typical; drawn once, LANG.rateSpread). */
+  rate: Float32Array
+  /** Sound changes of language i: rows ruleStart[i] .. ruleStart[i + 1] - 1 of the rule columns, in date order (length count + 1). */
+  ruleStart: Int32Array
+  /** Rule columns: the year it took hold, its SoundChangeKind and its catalogue variant (SOUND_CHANGES[kind][variant]). */
+  ruleYear: Int16Array
+  ruleKind: Uint8Array
+  ruleVariant: Uint8Array
+  /**
+   * Core vocabulary (LANG.core meanings; 0 .. LANG.visible - 1 the words names are made of): the rows of each language by
+   * meaning, lexStart[i * core + m] .. lexStart[i * core + m + 1] - 1 of the lex columns (length count * core + 1): the year a
+   * word took the meaning (the proto-language's inherited words at its start), the donor language (-1 a native word) and the
+   * word's form (a native word's underlying form; a loan's form as borrowed).
+   */
+  lexStart: Int32Array
+  lexYear: Int16Array
+  lexDonor: Int16Array
+  lexForm: string[]
+}
+
+/**
+ * language: what each settlement speaks over time (absent when off). Each settlement has a founding row; a row is added when
+ * its region parts as a daughter language (LanguageSplit) or it shifts (LanguageShift). Rows by settlement, years ascending:
+ * rows start[id] .. start[id + 1] - 1 (start has length settlements + 1).
+ */
+export interface Speech {
+  start: Int32Array
+  year: Int16Array
+  language: Int16Array
+}
+
+/**
+ * language: names as underlying forms (absent when off). A settlement's founding name, and each renaming's name, was coined as
+ * an underlying form in a language; the name said in a year is that form through the sound changes of the speakers' line up to
+ * the year (spokenNameAt). Settlement.name stays the name as said at the founding, and Renamings.name the name as said at the
+ * renaming.
+ */
+export interface NameForms {
+  /** Underlying form (lower case) and coining language of each settlement's founding name. */
+  form: string[]
+  language: Int16Array
+  /** Per renaming row (History.renamings), its underlying form and coining language (a restored name: its earlier row's). */
+  renamingForm: string[]
+  renamingLanguage: Int16Array
+  /**
+   * Exonyms: what another people calls a town, borrowed once (`year`) from the name said then, into language `language` (the
+   * form as borrowed, worn on from then by that language's changes). Towns that reached TOWN_POPULATION, for each people in
+   * contact with the town's. Sorted by (settlement, people).
+   */
+  exoSettlement: Int32Array
+  exoPeople: Int16Array
+  exoYear: Int16Array
+  exoLanguage: Int16Array
+  exoForm: string[]
+}
 
 /** Why a settlement was renamed (History.renamings.cause, the `extra` of EventType.PlaceRenamed). */
 export const RenameCause = {
@@ -1615,6 +1730,177 @@ export interface HistoryOptions {
    * field is the same as with battles off (events aside, which gain 220-227).
    */
   battles?: boolean
+  /**
+   * language: languages that split with their speakers (overseas settlers, distant regions) and change by regular sound change,
+   * lexical replacement and contact (loans, language shift), with exonyms (History.languages, speech, nameForms); names are said
+   * as in the year shown. Default false (MASTER-PLAN R32: on only for new worlds, which write lang=1; a link without the flag keeps
+   * the names it always had). A pure consequence layer at assembly: on or off, every non-name field is the same (events aside,
+   * which gain 250-253); off, the history is exactly the one without it.
+   */
+  language?: boolean
+  /**
+   * causes: record why things happened (the drive behind each war declared and the parts of the rivalry behind it, the parts
+   * of each revolt's unrest, the harvest of each weather region and year and the factors of each famine, why each town was
+   * abandoned, each chiefdom absorbed and each succession contested) in History.why, for the causal explorer. Recording only:
+   * every other field is the same with it on or off (no draws; nothing the simulation reads). Default false.
+   */
+  causes?: boolean
+}
+
+// ---------------------------------------------------------------------------
+// causes: why things happened, recorded for the causal explorer (HistoryOptions.causes; all empty when it is false). Recording
+// only: the history is the same with it on or off, but for History.why. Rows refer to History.events by index (stable under
+// extension: a longer run's tables begin with the shorter run's).
+
+/**
+ * The parts of the rivalry between two polities (WarWhy.parts): each one an accumulator of one term of relations.ts' rule (or of
+ * one of the few other writers of rivalry), so that they sum to the rivalry.
+ */
+export const RivalryPart = {
+  Claim: 0, // contested farmland: cells in both states' base catchments (Carneiro's squeeze)
+  Dispute: 1, // their claims meeting over unsettled land (BorderDispute)
+  Differ: 2, // ruling peoples that differ
+  Hunger: 3, // hunger on the border
+  RecentWar: 4, // a war between them within RELATION.recentYears
+  Trade: 5, // trade between their members (negative: it calms)
+  Marriage: 6, // a marriage tie between their houses (negative; rulers)
+  Faith: 7, // faiths opposed (positive) or shared (negative), and a schism between their churches (religion)
+  Grudge: 8, // grievances (grudges-and-oaths)
+  Arms: 9, // an arms race (grudges-and-oaths), if it feeds rivalry
+  TradeRival: 10, // trade rivalry between city-states (city-states)
+  Bloc: 11, // ideological blocs (modern ideologies)
+  Reputation: 12, // reputation for faithlessness (grudges)
+  Secession: 13, // a break: a province seceded, a civil war or partition split them, a vassal threw off its overlord
+  Alarm: 14, // alarm at the other's attack on a small neighbour (bonds: buffer states)
+  // 15 reserved
+} as const
+export type RivalryPart = (typeof RivalryPart)[keyof typeof RivalryPart]
+export const RIVALRY_PARTS = 16
+
+/** What else drove a declaration (WarWhy.flags, bits). */
+export const WarWhyFlag = {
+  Crisis: 1, // the defender was in crisis (a contested succession, a regency, a civil war: WAR.crisisMul)
+  Holy: 2, // the religion system's holy-war drive was above 1
+  Order: 4, // a player's order urged it (OrderKind.War, or a seat card)
+  Warlike: 8, // the ruler's warlike multiplier was above 1.25
+  Joined: 16, // an ally or protector came to a defence; WarWhy.parts are then those of its own rivalry with the attacker
+  Civil: 32, // a civil war (CivilWar): see History.why.crises for the contested succession behind it
+  Bargained: 64, // beliefs: the war followed a failed bargain
+  Oath: 128, // grudges: declared against an oath (OathBroken)
+} as const
+
+/** Why a settlement was abandoned (CauseRecords.abandons.cause). */
+export const AbandonCause = {
+  Dwindled: 0, // its people fell below POPULATION.abandonPop (died, or left for other towns: Migration events)
+  Outpost: 1, // an expedition base given up (exploration)
+  Supply: 2, // a fort or station whose supply failed (goods)
+  Resort: 3, // a resort town whose visitors failed for good (tourism)
+} as const
+export type AbandonCause = (typeof AbandonCause)[keyof typeof AbandonCause]
+
+/** What made a succession contested (CauseRecords.crises.bits). Extinct: the house died out (no heir), the contest a fixed chance. */
+export const CrisisBit = { Minor: 1, Woman: 2, Bastard: 4, WeakPredecessor: 8, LowCohesion: 16, ManyPeoples: 32, Law: 64, RivalCentre: 128, Extinct: 256 } as const
+
+/** The parts of a settlement's unrest (RevoltWhy), finer than RevoltCause: each one an accumulator of one term of unrest.ts' grievance(). */
+export const UnrestPart = {
+  Famine: 0, Crowding: 1, BadTax: 2, // Peasant
+  Distance: 3, Exhaustion: 4, Crisis: 5, Corruption: 6, // Provincial
+  Foreign: 7, Conquest: 8, // Ethnic
+  Colony: 9, // Colonial
+  Faith: 10, // Religious (religion)
+  Taxes: 11, // state-finances
+  Burghers: 12, // city-states
+  Urban: 13, // society
+  // 14-20 riots-uprisings (Tyranny, Conscription, Hunger, Persecution, Usurpation, Ideology, Mutiny), 21 court-politics (Estates)
+  Displaced: 22, // future-tech
+  Generations: 23, // future politics
+  Disaster: 24, // disasters
+  Immiseration: 25, Coercion: 26, // society
+  Shock: 27, // a jump not made by grievance: the bitterness left by a crushed revolt, a realm breaking up (UNREST.crushAfter, fragment)
+} as const
+export type UnrestPart = (typeof UnrestPart)[keyof typeof UnrestPart]
+export const UNREST_PARTS = 32
+/** The RevoltCause group of each UnrestPart (-1: none; parts of later plans keep -1 until they say). */
+export const UNREST_PART_GROUP: readonly number[] = [0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 4]
+
+/**
+ * Why each war was declared (one entry per History.wars id). The drive of the declaration roll is the product
+ * smoothstep(rivalry) · smoothstep(odds) · crisis · (1 − exhaustion) · mul (polity/war.ts declarations); its numbers at the
+ * roll are kept here, with the parts of the rivalry (RivalryPart order, each a signed share of the rivalry, -127..127 for
+ * -1..1: parts[w * RIVALRY_PARTS + k]). A war that was not rolled for (an ally joining, a civil war, a war of succession) has
+ * odds 0, keeps the rivalry and its parts at its declaration, and says what it was in `flags`.
+ */
+export interface WarWhy {
+  /** Rivalry the roll read (with an order, as the order made it read), 0..255 for 0..2. */
+  rivalry: Uint8Array
+  parts: Int8Array
+  /** Front advantage (attacker projection / defender projection at the front), log-coded: b means 2^((b - 128) / 32); 0 when not rolled. */
+  odds: Uint8Array
+  /** Attacker's war exhaustion, 0..255 for 0..1. */
+  exhaustion: Uint8Array
+  /** The C1 multiplier (ruler · holy · order), log-coded like `odds`. */
+  mul: Uint8Array
+  flags: Uint8Array
+  /** The front town of the defender the attacker saw most exposed, -1. */
+  front: Int32Array
+}
+
+/**
+ * Why each Revolt (History.events index `event`) broke out: its seat's unrest at the roll (0..255 for 0..2), the four largest
+ * parts of it (UnrestPart part[k * 4 + j] and share[k * 4 + j] 0..255 for 0..1; part 255: none), and the rebels' odds
+ * against the capital's support (0..255 for 0..1).
+ */
+export interface RevoltWhy { count: number; event: Int32Array; unrest: Uint8Array; part: Uint8Array; share: Uint8Array; odds: Uint8Array }
+
+/** What a famine row splits the shortfall into (FamineWhy columns). */
+export const FamineFactor = { Harvest: 0, Stored: 1, Ravaged: 2, Crowded: 3, Imports: 4 } as const
+
+/**
+ * Why each Famine (History.events index `event`) happened: the region's harvest multiplier (0..255 for 0..1.4), what storage
+ * and dams left of it (same scale), the share of the fields ravaged by war or left for danger (0..255 for 0..1), people per
+ * food expected at an average harvest (0..255 for 0..2: crowding), the share of the year's usual food imports that did not
+ * come (0..255 for 0..1), and the weather region.
+ */
+export interface FamineWhy { count: number; event: Int32Array; harvest: Uint8Array; stored: Uint8Array; ravaged: Uint8Array; crowded: Uint8Array; imports: Uint8Array; region: Uint8Array }
+
+/**
+ * The weather as the harvest felt it, per year and weather region (weather.ts; the same whatever the settlements do):
+ * harvest[y * regions + r] 0..255 for 0..1.4, drought[y * regions + r] the regional drought's severity 0..255 for 0..1 (0 none),
+ * crisis[y] the world's harvest crisis 0..255 for 0..1 (year 0 is all 0), region[cell] the weather region of each cell.
+ */
+export interface WeatherRecord { regions: number; harvest: Uint8Array; drought: Uint8Array; crisis: Uint8Array; region: Uint8Array }
+
+/** Everything the causes switch records (History.why). */
+export interface CauseRecords {
+  wars: WarWhy
+  revolts: RevoltWhy
+  famines: FamineWhy
+  weather: WeatherRecord
+  /** Abandoned events: event index and AbandonCause. */
+  abandons: { count: number; event: Int32Array; cause: Uint8Array }
+  /** PolityEnded events with PolityEnd.Absorbed: event index, the absorber's people over its own (log-coded like WarWhy.odds), and 1 when it had been the absorber's vassal. */
+  absorbed: { count: number; event: Int32Array; ratio: Uint8Array; bound: Uint8Array }
+  /** SuccessionCrisis events: event index, CrisisBit, and the contest chance 0..255 for 0..1. */
+  crises: { count: number; event: Int32Array; bits: Uint16Array; chance: Uint8Array }
+}
+
+/** An empty CauseRecords (causes off; also for histories cached before it existed). */
+export function emptyCauseRecords(): CauseRecords {
+  const i32 = () => new Int32Array(0), u8 = () => new Uint8Array(0)
+  return {
+    wars: { rivalry: u8(), parts: new Int8Array(0), odds: u8(), exhaustion: u8(), mul: u8(), flags: u8(), front: i32() },
+    revolts: { count: 0, event: i32(), unrest: u8(), part: u8(), share: u8(), odds: u8() },
+    famines: { count: 0, event: i32(), harvest: u8(), stored: u8(), ravaged: u8(), crowded: u8(), imports: u8(), region: u8() },
+    weather: { regions: 0, harvest: u8(), drought: u8(), crisis: u8(), region: u8() },
+    abandons: { count: 0, event: i32(), cause: u8() },
+    absorbed: { count: 0, event: i32(), ratio: u8(), bound: u8() },
+    crises: { count: 0, event: i32(), bits: new Uint16Array(0), chance: u8() },
+  }
+}
+
+/** Decodes a log-coded byte (WarWhy.odds, .mul, absorbed.ratio): 2^((b - 128) / 32); 0 for 0 (not recorded). */
+export function decodeLog2(b: number): number {
+  return b === 0 ? 0 : Math.pow(2, (b - 128) / 32)
 }
 
 /**

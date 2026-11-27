@@ -22,13 +22,14 @@ import type { FeatureMap } from './features.ts'
 import type { SettlementLike, SettlementNaming } from './index.ts'
 import { nameSettlementsDetailed } from './index.ts'
 import type { Language } from './phonology.ts'
+import type { Drift } from './drift.ts'
 import { buildMorph, buildRoot, capitalizeName, fluentName, fuseWords, isEuphonic, letterCount, shiftWord } from './words.ts'
 
-type GeoClass = 'ocean' | 'sea' | 'lake' | 'river' | 'mount' | 'land' | 'island' | 'desert' | 'forest' | 'great'
-const GEO_CLASSES: readonly GeoClass[] = ['ocean', 'sea', 'lake', 'river', 'mount', 'land', 'island', 'desert', 'forest', 'great']
+export type GeoClass = 'ocean' | 'sea' | 'lake' | 'river' | 'mount' | 'land' | 'island' | 'desert' | 'forest' | 'great'
+export const GEO_CLASSES: readonly GeoClass[] = ['ocean', 'sea', 'lake', 'river', 'mount', 'land', 'island', 'desert', 'forest', 'great']
 
 /** A language's geographic vocabulary and naming habits. */
-interface Lexicon {
+export interface Lexicon {
   words: Record<GeoClass, string>
   /** Generic word before the name ("Tal Oru") rather than after ("Oru Tal"). */
   headFirst: boolean
@@ -42,7 +43,7 @@ interface Lexicon {
 
 const LENITIONS: Array<[string, string]> = [['p', 'ph'], ['t', 'th'], ['k', 'kh'], ['b', 'v'], ['d', 'dh'], ['g', 'gh'], ['s', 'sh'], ['m', 'v'], ['r', 'l']]
 
-function buildLexicon(lang: Language, rng: Rng): Lexicon {
+export function buildLexicon(lang: Language, rng: Rng): Lexicon {
   const words = {} as Record<GeoClass, string>
   for (const cls of GEO_CLASSES) {
     for (let attempt = 0; ; attempt++) {
@@ -206,14 +207,16 @@ export function nameFeatures(world: World, settlements: readonly NamedSettlement
  * and names given by year Y never depend on what comes after Y. nameFeatures on the returned names
  * gives the same features.
  */
-export function nameWorld(world: World, settlements: readonly SettlementLike[], map: FeatureMap = detectFeatures(world)): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
-  return nameAll(world, settlements, map, null)
+export function nameWorld(world: World, settlements: readonly SettlementLike[], map: FeatureMap = detectFeatures(world), drift?: Drift): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
+  return nameAll(world, settlements, map, null, drift)
 }
 
-function nameAll(world: World, settlements: readonly SettlementLike[], map: FeatureMap, given: readonly string[] | null): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
+// language: with a drift context (HistoryOptions.language) a feature is named with the namer's language's words in force at the
+// naming year and borne as said that year (names/drift.ts); a settlement renamed here is coined the same way (its form updated).
+function nameAll(world: World, settlements: readonly SettlementLike[], map: FeatureMap, given: readonly string[] | null, drift?: Drift): { names: string[]; features: GeoFeature[]; naming: SettlementNaming } {
   const F = map.features.length
   const S = settlements.length
-  const naming = nameSettlementsDetailed(world, settlements)
+  const naming = nameSettlementsDetailed(world, settlements, drift)
   const names = given ? given.slice() : naming.names.slice()
   if (S === 0) return { names, features: [], naming }
 
@@ -249,7 +252,7 @@ function nameAll(world: World, settlements: readonly SettlementLike[], map: Feat
   const admit = (upTo: number): void => {
     for (; admitted <= upTo && admitted < S; admitted++) {
       const id = admitted
-      if (!given && used.has(names[id].toLowerCase())) names[id] = rename(world, naming, id, used)
+      if (!given && used.has(names[id].toLowerCase())) names[id] = rename(world, naming, id, used, settlements[id].foundedYear)
       used.add(names[id].toLowerCase())
     }
   }
@@ -275,11 +278,16 @@ function nameAll(world: World, settlements: readonly SettlementLike[], map: Feat
     // the root of the namer's name; recomputed names match the table unless the settlement was renamed
     const own = names[by]
     const root = naming.names[by] === own ? naming.roots[by] : own.toLowerCase().split(/[ '-]/)[0]
-    const ctx: NameContext = { lang: naming.language(tribe, level), lex: lexicon(tribe, level), settlementRoot: root, major: major[f] === 1 }
+    const year = settlements[by].foundedYear
+    const ctx: NameContext = drift
+      ? { lang: drift.langAt(level, year), lex: drift.lexiconAt(level, year), settlementRoot: root, major: major[f] === 1 }
+      : { lang: naming.language(tribe, level), lex: lexicon(tribe, level), settlementRoot: root, major: major[f] === 1 }
+    const say = drift ? (x: string): string => drift.surfaceName(x, level, year) : (x: string): string => x
     const rng = createRng(world.seed, `names-feature-${det.key}`)
     let name = ''
     for (let attempt = 0; attempt < 400; attempt++) {
-      const cand = featureName(det.kind, ctx, rng)
+      const raw = featureName(det.kind, ctx, rng)
+      const cand = raw === null ? null : say(raw)
       if (cand === null || letterCount(cand) > MAX_NAME || letterCount(cand) < 3 || used.has(cand.toLowerCase()) || (attempt < 300 && !fluentName(cand))) continue
       name = cand
       break
@@ -287,7 +295,7 @@ function nameAll(world: World, settlements: readonly SettlementLike[], map: Feat
     if (!name) {
       // practically unreachable: a fresh root with the kind word, then numbered roots of fresh draws
       for (let attempt = 0; !name; attempt++) {
-        const cand = capitalizeName(buildRoot(ctx.lang, rng)) + ' ' + capitalizeName(ctx.lex.words[KIND_WORD[det.kind]])
+        const cand = say(capitalizeName(buildRoot(ctx.lang, rng)) + ' ' + capitalizeName(ctx.lex.words[KIND_WORD[det.kind]]))
         if (!used.has(cand.toLowerCase()) || attempt > 1000) name = cand
       }
     }
@@ -308,18 +316,24 @@ function nameAll(world: World, settlements: readonly SettlementLike[], map: Feat
 }
 
 /** A fresh name for settlement `id` in its language, not in `used` (its own was taken by an earlier name). */
-function rename(world: World, naming: SettlementNaming, id: number, used: Set<string>): string {
-  const lang = naming.language(naming.tribe[id], naming.level[id])
+function rename(world: World, naming: SettlementNaming, id: number, used: Set<string>, year: number): string {
+  const drift = naming.drift
+  const node = naming.level[id]
+  const lang = drift ? drift.langAt(node, year) : naming.language(naming.tribe[id], node)
+  const say = drift ? (x: string): string => drift.surfaceName(x, node, year) : (x: string): string => x
   const rng = createRng(world.seed, `names-rename-${id}`)
-  let name = ''
+  let name = '', form = ''
   for (let attempt = 0; attempt < 300 && !name; attempt++) {
-    const cand = capitalizeName(buildRoot(lang, rng))
+    const raw = buildRoot(lang, rng)
+    const cand = say(capitalizeName(raw))
     const lc = letterCount(cand)
-    if (lc >= 3 && lc <= 12 && !used.has(cand.toLowerCase()) && (attempt >= 200 || fluentName(cand))) name = cand
+    if (lc >= 3 && lc <= 12 && !used.has(cand.toLowerCase()) && (attempt >= 200 || fluentName(cand))) { name = cand; form = raw }
   }
   for (let attempt = 0; !name; attempt++) { // practically unreachable
-    const cand = capitalizeName(buildRoot(lang, rng) + buildRoot(lang, rng))
-    if (!used.has(cand.toLowerCase()) || attempt > 1000) name = cand
+    const raw = buildRoot(lang, rng) + buildRoot(lang, rng)
+    const cand = say(capitalizeName(raw))
+    if (!used.has(cand.toLowerCase()) || attempt > 1000) { name = cand; form = raw }
   }
+  if (naming.forms) naming.forms[id] = form
   return name
 }
