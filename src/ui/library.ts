@@ -8,6 +8,7 @@
 // (sagas/index.ts).
 
 import type { History, World } from '../contract.ts'
+import { createPartisanTag, createPovSelect, fillPovSelect, parsePov, povKey, type Pov } from './sagas/povPicker.ts' // partisan:
 import { decadeOf, generateSaga, parseSubject, sagaMarkdown, sagaSubjectValid, sagaText, subjectKey, type Saga, type SagaSubject } from './sagas/index.ts'
 import { Ctx, topBy } from './sagas/facts.ts'
 import { worldNameOf } from './sagas/world.ts'
@@ -28,7 +29,7 @@ export interface LibraryDeps {
 export interface Library {
   commit(h: History | null, world: World | null, extend: boolean): void
   /** Opens on `subject` (else the last one read, else the world), in the register given (else the last). */
-  open(subject?: SagaSubject, legend?: boolean): void
+  open(subject?: SagaSubject, legend?: boolean, pov?: Pov | null): void
   close(): void
   readonly isOpen: boolean
 }
@@ -48,6 +49,7 @@ export function createLibrary(deps: LibraryDeps): Library {
   const params = new URLSearchParams(window.location.search)
   let subject: SagaSubject = parseSubject(params.get('saga')) ?? { kind: 'world', id: 0 }
   let legend = params.get('legend') === '1'
+  let pov: Pov | null = parsePov(params.get('pov')) // partisan: who tells it
   let told = -1
   let wantOpen = params.get('library') === '1'
   let toldFromUrl = params.has('told') ? Number(params.get('told')) : params.get('library') === '1' && params.has('year') ? Number(params.get('year')) : -1
@@ -77,6 +79,8 @@ export function createLibrary(deps: LibraryDeps): Library {
   const chronBtn = btn('Chronicle', 'Tell it plainly, as a chronicle (L switches)')
   const legBtn = btn('Legend', 'Tell the same facts as a legend (L switches)')
   regWrap.append(chronBtn, legBtn)
+  const povSel = createPovSelect((p) => { pov = p; show() })
+  const tag = createPartisanTag(() => { pov = null; show() })
   const toldWrap = document.createElement('label')
   toldWrap.className = 'lib-told'
   toldWrap.append('Told to the year ')
@@ -102,7 +106,7 @@ export function createLibrary(deps: LibraryDeps): Library {
     tocBtn.setAttribute('aria-expanded', String(open))
   }
   tocBtn.addEventListener('click', () => setTocOpen(!root.classList.contains('toc-open')))
-  top.append(heading, tocBtn, regWrap, toldWrap, prevBtn, nextBtn, copyBtn, dlBtn, closeBtn)
+  top.append(heading, tocBtn, regWrap, povSel, toldWrap, prevBtn, nextBtn, copyBtn, dlBtn, closeBtn)
   const main = document.createElement('div')
   main.className = 'lib-main'
   const toc = document.createElement('nav')
@@ -350,8 +354,11 @@ export function createLibrary(deps: LibraryDeps): Library {
       text.appendChild(p)
       saga = null
     } else {
-      saga = generateSaga(history, world, subject, legend, told)
+      fillPovSelect(povSel, history, world, told, pov)
+      tag.set(pov)
+      saga = generateSaga(history, world, subject, legend, told, pov)
       renderSaga(text, saga, (r) => { subject = r.subject; show() }, 'h2')
+      if (pov) text.prepend(tag.el)
     }
     page.scrollTop = 0
     // the contents: mark the entry read (refill when it is not listed, as when a decade of another century is chosen)
@@ -379,6 +386,7 @@ export function createLibrary(deps: LibraryDeps): Library {
     deps.setUrlParam('library', '1')
     deps.setUrlParam('saga', subjectKey(subject))
     deps.setUrlParam('legend', legend ? '1' : null)
+    deps.setUrlParam('pov', pov ? povKey(pov) : null)
   }
 
   function syncHeading() {
@@ -398,7 +406,8 @@ export function createLibrary(deps: LibraryDeps): Library {
       if (wantOpen) { wantOpen = false; window.setTimeout(() => api.open(), 0); return }
       if (openNow) { syncHeading(); show() }
     },
-    open(s, leg) {
+    open(s, leg, pv) {
+      if (pv !== undefined) pov = pv
       if (!history) { wantOpen = true; if (s) subject = s; if (leg !== undefined) legend = leg; return }
       build()
       if (s) subject = s

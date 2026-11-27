@@ -82,6 +82,8 @@ export interface SettlementLayer {
   /** Per frame: continuous year, interpolation fraction between s0 and s1, pulse length in years. */
   setTime(year: number, frac: number, pulseYears: number): void
   setSelected(id: number): void
+  /** what-if swipe: draw only on one side of a screen-space divider at `x` device px (`side` +1: right, -1: left), or everywhere. */
+  setClip(x: number, side: number, on: boolean): void
   setHovered(id: number): void
   setStyle(style: number): void
   /** Per frame: camera/sun in object space and viewport size. */
@@ -169,6 +171,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
   const uniforms = {
     uReliefK: reliefUniforms.uReliefK,
     ...flatUniforms,
+    /** what-if swipe: divider x (device px), side (+1 right, -1 left), on (0/1). */
+    uClip: { value: new THREE.Vector3(0, 1, 0) },
     uYear: { value: 0 },
     uFrac: { value: 0 },
     uPulseYears: { value: 20 },
@@ -289,6 +293,7 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       }
     `,
     fragmentShader: /* glsl */ `
+      uniform vec3 uClip;
       uniform int uStyle;
       uniform float uTint;
       varying vec3 vPeople;
@@ -375,6 +380,8 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
         return min(d, sdBox(p, vec2(0.0, 0.2), vec2(0.78, 0.08)));
       }
       void main() {
+        // what-if swipe: clipped at a screen-space divider (uClip: x in device px, side ±1, on 0/1)
+        if (uClip.z > 0.5 && (gl_FragCoord.x - uClip.x) * uClip.y < 0.0) discard;
         float d = length(vPx);
         vec3 fed = uStyle == 0 ? vec3(1.0, 0.74, 0.30) : vec3(0.97, 0.98, 1.0);
         vec3 hungry = uStyle == 0 ? vec3(0.96, 0.38, 0.20) : vec3(0.62, 0.86, 1.0);
@@ -501,6 +508,9 @@ export function buildSettlementLayer(world: World, history: History, maxPopulati
       uniforms.uYear.value = y
       uniforms.uFrac.value = f
       uniforms.uPulseYears.value = pulse
+    },
+    setClip(x: number, side: number, on: boolean) {
+      uniforms.uClip.value.set(x, side, on ? 1 : 0)
     },
     setSelected(id: number) {
       uniforms.uSelected.value = id

@@ -101,6 +101,8 @@ export interface PolityLayer {
   update(camera: THREE.Camera, drawSize: THREE.Vector2, pixelRatio: number): void
   /** Polity of each cell at the snapshot shown (WATER, -1 or an id), or null. */
   readonly cells: Int16Array | null
+  /** what-if swipe: draw only on one side of a screen-space divider at `x` device px (`side` +1: right of it, -1: left), or everywhere (`on` false). */
+  setClip(x: number, side: number, on: boolean): void
   dispose(): void
 }
 
@@ -178,6 +180,7 @@ void main() {
 `
 
 const OVERLAY_FRAG = /* glsl */ `
+uniform vec3 uClip;
 uniform sampler2D uPalette;
 uniform sampler2D uRel;
 uniform vec4 uEmb[${MAX_EMB / 2}];
@@ -299,6 +302,8 @@ vec3 pl_heat(float x) {
 }
 
 void main() {
+  // what-if swipe: clipped at a screen-space divider (uClip: divider x in device px, side ±1, on 0/1)
+  if (uClip.z > 0.5 && (gl_FragCoord.x - uClip.x) * uClip.y < 0.0) discard;
   vec3 p = vObj;
   vec3 up = normalize(p);
   float footprint = length(fwidth(p));
@@ -624,6 +629,7 @@ void main() {
 `
 
 const MARK_FRAG = /* glsl */ `
+uniform vec3 uClip;
 uniform float uDanger;
 varying vec2 vPx;
 flat varying float vKind;
@@ -672,6 +678,8 @@ vec4 glyph(float d, vec3 col, float outline) {
   return vec4(c * edge, edge);
 }
 void main() {
+  // what-if swipe: clipped at a screen-space divider (uClip: divider x in device px, side ±1, on 0/1)
+  if (uClip.z > 0.5 && (gl_FragCoord.x - uClip.x) * uClip.y < 0.0) discard;
   vec2 p = vPx;
   float r = vSize;
   vec4 o = vec4(0.0);
@@ -842,6 +850,8 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uDaylight: sunUniforms.uDaylight,
     /** World units per CSS pixel at the centre of the view (the claims' hatch). */
     uPxW: { value: 0.001 },
+    /** what-if swipe: divider x (device px), side (+1 right, -1 left), on (0/1). */
+    uClip: { value: new THREE.Vector3(0, 1, 0) },
   }
   const overlayMat = new THREE.ShaderMaterial({
     uniforms: ou,
@@ -871,6 +881,7 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     uSizeScale: { value: 1 },
     uCamObj: { value: new THREE.Vector3(0, 0, 3) },
     uMaskOn: { value: 0 },
+    uClip: { value: new THREE.Vector3(0, 1, 0) },
   }
   const markMat = new THREE.ShaderMaterial({
     uniforms: mu,
@@ -1252,6 +1263,10 @@ export function buildPolityLayer(world: World, h: History, pd: PolitiesData): Po
     object,
     get cells() {
       return cells
+    },
+    setClip(x: number, side: number, on: boolean) {
+      ou.uClip.value.set(x, side, on ? 1 : 0)
+      mu.uClip.value.set(x, side, on ? 1 : 0)
     },
     setGlobe(globe: GlobeMesh | null) {
       if (overlay) {

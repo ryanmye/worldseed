@@ -1,0 +1,155 @@
+/* What-if panel (whatifPanel.ts) and the swipe globe's divider (historyView.ts setAlt) */
+
+.whatif {
+  width: var(--right-w);
+  padding: 8px 10px 8px 12px;
+  flex: 0 1 auto !important;
+  max-height: max(160px, min(560px, 60vh));
+  display: flex;
+  flex-direction: column;
+}
+.whatif.collapsed .gp-head .caret {
+  transform: translate(-2px, 2px) rotate(-45deg);
+}
+.whatif.collapsed .gp-body {
+  display: none;
+}
+.whatif .gp-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wi-header {
+  font-weight: 700;
+  font-size: 12px;
+  margin: 2px 2px 0;
+}
+.wi-header:empty,
+.wi-status:empty {
+  display: none;
+}
+.wi-timeline {
+  width: 100%;
+  height: 56px;
+  cursor: pointer;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.wi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wi-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.wi-text {
+  flex: 1 1 auto;
+}
+.wi-side {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+.wi-side.there {
+  color: var(--accent, #e0b060);
+}
+.wi-caution {
+  font-style: italic;
+}
+.wi-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.wi-buttons .gp-link.on {
+  text-decoration: underline;
+}
+.wi-saga:empty {
+  display: none;
+}
+.wi-saga .wi-saga-p {
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 4px 2px;
+}
+
+/* swipe globe: the divider over the canvas, and the other world's state names */
+.wi-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px; /* the hit target (44 px: Apple HIG, WCAG 2.5.5) around a 2 px line */
+  margin-left: -22px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.wi-divider::before {
+  content: '';
+  position: absolute;
+  left: 21px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.6);
+}
+.wi-divider .wi-grip {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin-top: -14px;
+  border-radius: 14px;
+  background: rgba(20, 20, 24, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: #fff;
+  font-size: 12px;
+  line-height: 26px;
+  text-align: center;
+}
+.wi-tag {
+  position: absolute;
+  pointer-events: none;
+  font-size: 11px;
+  color: #fff;
+  text-shadow: 0 0 3px #000, 0 0 2px #000;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+}
+.wi-sidelabel {
+  position: absolute;
+  top: 8px;
+  font-size: 11px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 5;
+}
+.wi-peek {
+  position: absolute;
+  right: 12px;
+  bottom: 120px;
+  z-index: 6;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(20, 20, 24, 0.85);
+  color: #fff;
+  touch-action: none;
+}
