@@ -18,7 +18,7 @@ Baseline build served from /home/claude/llmpt-wc (39e8470) at :4987 (before shot
 
 ## Current
 all 10 items implemented (commits wip 1-3); primer v4; G0 OK; tests (coverage, battleTimeline, story, onboard) pass.
-Next: merge origin/main, rerun G0/typecheck/build/tests, final shots.
+Done: merged origin/main (no new commits, 39e8470), G0 OK, typecheck OK, tests OK, before/after shots in /home/claude/eval/n4b (b- before, a- after). Lane complete.
 Scenario scripts: /home/claude/runs/n4b/tools/sessA.mjs <base> <a|b> (session A items 1-3,5-10), sessB.mjs (item 4). Logs /home/claude/runs/n4b/?-sess?.log
 
 ## Next commands
