@@ -76,6 +76,8 @@ import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
+import { createWhatIfView, type CompareAsk, type CompareResult } from './whatifPanel.ts' // what-if:
+import { createSwipe } from './whatif/swipe.ts'
 
 export interface HistoryViewDeps {
   /** Overlay containers. */
@@ -113,6 +115,9 @@ export interface HistoryViewDeps {
   cityEngaged?(): boolean
   /** seat mode: the Factions panel's "Take this throne" (ui/seat). */
   onTakeSeat?(polity: number, year: number): void
+  /** what-if: simulate the world with `orders` beside the history shown (answered by compareResult); returns the compare id. */
+  requestCompare?(orders: Order[]): number
+  cancelCompare?(): void
 }
 
 export interface InitialHistoryState {
@@ -204,6 +209,12 @@ export interface HistoryView {
   isCellHidden(cell: number): boolean
   /** Expedition trails, the marks of lost expeditions, supply lines and discoveries. */
   setExpeditionsVisible(show: boolean): void
+  /** what-if: the worker's answers to deps.requestCompare. */
+  compareResult(r: CompareResult): void
+  compareProgress(years: number, target: number): void
+  compareFailed(message: string): void
+  /** what-if: open the comparison with these orders once the history is in (cmp= on load). */
+  openCompare(orders: Order[]): void
 }
 
 const FLY_DIST = 2.3
@@ -493,7 +504,47 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   })
   inspector.peopleSlot.before(sagas.inspectorLinks)
   // orders: the Nudge panel and its map marks (nudgePanel.ts, render/nudges.ts)
-  const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() }, hearths: deps.hearths, getCradles: deps.getCradles, requestCradles: deps.requestCradles, pause: () => timeline.pause() })
+  const nudge = createNudgeView({ right: deps.right, canvas: deps.canvas, planetGroup: deps.planetGroup, getOrders: () => deps.getOrders?.() ?? [], requestOrders: deps.requestOrders, selection: () => ({ settlement: selected, people: peoples.selection ?? -1, polity: polities.selected }), featuresNear: (cell) => featuresNear(cell, false), onSelectSettlement: (id) => api.select(id, true), onSelectPolity: (p) => polities.select(p), flyToCell: (cell) => goodsFly(cell), setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() }, hearths: deps.hearths, getCradles: deps.getCradles, requestCradles: deps.requestCradles, pause: () => timeline.pause(), compare: deps.requestCompare ? (ask) => whatif.open(ask) : undefined })
+  // what-if: the swipe globe (whatif/swipe.ts: the other world's polity layer beside this one's, split by a divider)
+  const swipe = createSwipe({
+    host: deps.canvas.parentElement ?? document.body,
+    canvas: deps.canvas,
+    planetGroup: deps.planetGroup,
+    getGlobe: deps.getGlobe,
+    aPolities: () => polityLayer,
+    aSettlements: () => layer,
+    aLabels: () => labels,
+    political: () => viewMode === ViewMode.Factions,
+    phone: window.matchMedia('(pointer: coarse)').matches && Math.min(window.innerWidth, window.innerHeight) <= 600,
+    wake: () => deps.wake(),
+  })
+  // what-if: the comparison panel (W), entered from the Nudge panel's "what if not?" (whatifPanel.ts)
+  const whatif = createWhatIfView({
+    right: deps.right,
+    requestCompare: (orders) => deps.requestCompare?.(orders) ?? -1,
+    cancelCompare: () => deps.cancelCompare?.(),
+    adopt: (orders, keepYear) => deps.requestOrders?.(orders, keepYear),
+    setCmpParam: (v) => deps.setUrlParam('cmp', v),
+    setYear: (y) => { timeline.setYear(y); requestRender(); deps.wake() },
+    flyToCell: (cell) => goodsFly(cell),
+    year: () => timeline.year,
+    positions: () => world?.grid.positions ?? null,
+    setSwipe: (alt, pMatch) => swipe.setAlt(world, alt, index ? politiesOf(index.history) : null, pMatch),
+    world: () => world,
+    legend: () => sagas.legend,
+  })
+  /** cmp= on load: the comparison to open with the first history. */
+  let pendingCompare: Order[] | null = null
+  const compareAsk = (h: History, orders: Order[]): CompareAsk => {
+    const mine = h.orders ?? []
+    const key = (o: Order) => `${o.year}:${o.kind}:${o.actor}:${o.target ?? -1}`
+    if (orders.length === 0) return { orders, label: 'The world without your orders', focus: mine.length === 1 ? { world: 'A', k: 0 } : null }
+    if (orders.length === mine.length - 1) {
+      for (let k = 0; k < mine.length; k++) if (mine.filter((_, i) => i !== k).every((o, i) => key(o) === key(orders[i]))) return { orders, label: 'The world without one of your orders', focus: { world: 'A', k } }
+    }
+    if (orders.length === mine.length + 1 && mine.every((o, i) => key(o) === key(orders[i]))) return { orders, label: 'The world with one order more', focus: { world: 'B', k: orders.length - 1 } }
+    return { orders, label: `Another world, with ${orders.length} ${orders.length === 1 ? 'order' : 'orders'}`, focus: null }
+  }
   // the story director: drama scores, the story plan, Follow the story (H), captions and notices (ui/story)
   const story: StoryView = createStoryView({
     host: deps.bottom.parentElement ?? document.body,
@@ -703,6 +754,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     sagas.commit(null, null, false)
     story.commit(null, null, null, false)
     nudge.commit(null, null)
+    whatif.commit(null) // what-if:
     timeline.setSparkline(null, 1)
     timeline.setClimate(null, []) // disasters:
     if (disasterLayer) { deps.planetGroup.remove(disasterLayer.mesh); disasterLayer.dispose(); disasterLayer = null } // disasters:
@@ -917,6 +969,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     cities.commit(b.cities ?? null, h, index.peoples)
     sagas.commit(h, w, extend)
     nudge.commit(h, index)
+    whatif.commit(h) // what-if: (a comparison of an older history goes stale)
+    if (pendingCompare) { const o = pendingCompare; pendingCompare = null; whatif.open(compareAsk(h, o)) }
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
     // disasters: the climate strip under the slider, and the shocks on the globe
@@ -1342,6 +1396,22 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (timeline.intro && !interim) deferred = { h, ms } // swapped in when the initial animation ends (tick)
       else stage(h, ms)
     },
+    compareResult(r: CompareResult) {
+      timeline.setProgress(null, null)
+      whatif.onResult(r)
+    },
+    compareProgress(years: number, target: number) {
+      timeline.setProgress('Simulating the other world…', target > 0 ? Math.min(1, years / target) : null)
+      whatif.onProgress(years, target)
+    },
+    compareFailed(message: string) {
+      timeline.setProgress(null, null)
+      whatif.onError(message)
+    },
+    openCompare(orders: Order[]) {
+      if (index) whatif.open(compareAsk(index.history, orders))
+      else pendingCompare = orders
+    },
     setSimProgress(years: number, target: number, label?: string | null) {
       if (label === null) return timeline.setProgress(null, null)
       const frac = target > 0 ? Math.min(1, years / target) : null
@@ -1656,6 +1726,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       // factions: effects step back at high playback speed (as the merchants do)
       const fx = !timeline.playing ? 1 : timeline.speed >= 16 ? 0.35 : timeline.speed >= 4 ? 0.75 : 1
       polities.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio)
+      if (swipe.on) swipe.tick(year, pos.s0, pos.s1, pos.frac, pulseYears, fx, deps.camera, drawSize, pixelRatio) // what-if:
       goods.tick(year, pos.s0, pos.s1, pos.frac, fx, deps.camera, drawSize, pixelRatio)
       rulers.tick(year)
       faiths.tick(year, timeline.playing && timeline.speed >= 4, deps.camera, drawSize, pixelRatio)

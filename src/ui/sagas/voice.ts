@@ -47,6 +47,20 @@ export class Voice {
     return fill(s, vars)
   }
 
+  /**
+   * partisan: the variant of `key.<stance>` (lens.ts STANCE_KEY: `key.us`, `key.foe`, ...) when a table has it, else of
+   * `key` (the neutral wording). A neutral stance (suffix '') is `key` itself.
+   */
+  ps(key: string, suffix: string, vars: Vars = {}): string {
+    if (suffix && this.has(`${key}.${suffix}`)) return this.p(`${key}.${suffix}`, vars)
+    return this.p(key, vars)
+  }
+
+  /** Whether a table holds `key`. */
+  has(key: string): boolean {
+    return this.tables.some((t) => !!t[key])
+  }
+
   /** One of `xs`, by the seeded stream (for a choice the tables do not hold, such as which epithet of several fits). */
   one<T>(xs: readonly T[]): T {
     return xs[Math.min(xs.length - 1, Math.floor(this.rng.next() * xs.length))]

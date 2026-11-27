@@ -73,6 +73,9 @@ import { startPlatform } from './platform/index.ts'
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
+// cmp=<orders> (what-if, ui/whatifPanel.ts: the other world's order list, `-` for none): reopens the comparison of the world
+// shown with that run (simulated again, or read from the cache, on open); written while a comparison is open, cleared with
+// a new seed. The other world is simulated whole on desktops and kept as a skeleton on phones and weak devices (memory).
 // lang=1 (language drift, HistoryOptions.language: names that split and wear with their speakers; MASTER-PLAN R32): part of
 // the history like o=. A new world (Start on the start page, a seed typed or drawn) writes lang=1; a link without it (every
 // link made before drift) keeps the names it always had. lang=2 is drift + typology (HistoryOptions.typology: typological
@@ -402,6 +405,10 @@ let extending = 0
 let failNextExtension = false
 /** The player's orders (o=, the Nudge panel), canonical; the history shown or on its way was simulated with them. */
 let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
+/** cmp=: the what-if comparison to reopen with the first history ('-': the world without orders; null none). */
+let pendingCompare: Order[] | null = params.get('cmp') === '-' ? [] : params.get('cmp') ? decodeOrders(params.get('cmp') ?? '') : null
+/** what-if: the latest compare asked for (worker.ts `compare`). */
+let compareId = 0
 /** seat=: the seat to resume once the world is in (null none). */
 let pendingSeat = decodeSeat(params.get('seat') ?? '')
 /** seat mode (ui/seat/seatController.ts; created with the history view below). */
@@ -479,6 +486,19 @@ function onWorkerMessage(ev: MessageEvent<WorkerResponse>) {
       extending = 0
       historyView.extendHistory(msg.history, msg.ms)
     } else historyView.setHistory(msg.history, historyYears) // (shorter than asked: shown at once, then extended to it)
+    if (pendingCompare && !msg.extend && !msg.replace) {
+      historyView.openCompare(pendingCompare) // what-if: cmp= (opened once the history is staged)
+      pendingCompare = null
+    }
+  } else if (msg.type === 'compare') {
+    // what-if: the other world and how it differs (whatifPanel.ts)
+    if (msg.compareId !== compareId) return
+    console.info(`what-if: the other world ${msg.cached ? 'read' : 'simulated'} in ${msg.ms.toFixed(0)} ms (${msg.skeleton ? 'skeleton' : 'whole'}), divergence ${msg.digest.divergence}`)
+    historyView.compareResult(msg)
+  } else if (msg.type === 'compareProgress') {
+    if (msg.compareId === compareId) historyView.compareProgress(msg.years, msg.target)
+  } else if (msg.stage === 'compare') {
+    if (msg.compareId === compareId) historyView.compareFailed(msg.message)
   } else if (msg.stage === 'world') {
     overlay.setGenerating(false)
     console.error('world generation failed:', msg.message)
@@ -611,6 +631,7 @@ function clearHistoryParams() {
   setUrlParam('faith', null)
   for (const k of ['tradition', 'secret', 'deposit', 'lane', 'price', 'epidemic', 'sickness']) setUrlParam(k, null)
   setUrlParam('o', null) // (orders belong to the world they were given in)
+  setUrlParam('cmp', null) // (and so does a comparison)
   currentOrders = []
   setUrlParam('seat', null) // (and the seat)
   pendingSeat = null
@@ -739,6 +760,13 @@ const historyView = createHistoryView(
     precompile: (objects) => Promise.all(objects.map((o) => renderer.compileAsync(o, camera, scene))),
     addLayerToggle: (t) => overlay.addLayerToggle(t),
     onTakeSeat: (p, y) => seatCtl?.start({ kind: SeatKind.Polity, id: p, from: y }, currentCradles), // seat mode (ui/seat)
+    // what-if (whatifPanel.ts): the other world simulated beside the one shown; phones and weak devices get a skeleton (memory)
+    requestCompare: (orders) => {
+      const years = historyView.years || historyYears
+      worker.postMessage({ type: 'compare', requestId, compareId: ++compareId, orders: decodeOrders(encodeOrders(orders)), cradles: currentCradles, years, lite: device.phone || device.weak } satisfies WorkerRequest)
+      return compareId
+    },
+    cancelCompare: () => worker.postMessage({ type: 'compareCancel', compareId } satisfies WorkerRequest),
     // (the story director, ui/story, never flies while the city view is engaged; cityView is created below)
     cityEngaged: () => cityView.engaged,
   },

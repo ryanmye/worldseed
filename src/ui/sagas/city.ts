@@ -9,6 +9,7 @@ import { CITY_POPULATION, EventType, LandmarkRank, LandmarkState, landmarksAt, O
 import { landmarkNoun } from '../landmarksFormat.ts'
 import { goodsOf } from '../goodsData.ts'
 import { speciesGloss } from '../format.ts'
+import { PARTISAN_T } from './partisan.ts' // partisan: (the sack scenes through the lens)
 import { Ctx, farmingAt, settingOf, topBy } from './facts.ts'
 import { cityEpithet, reignFacts, rulerEpithet, withEpithet } from './epithets.ts'
 import { an, cap, list, num, people, plural, shareWords, times, Voice, type PhraseTable } from './voice.ts'
@@ -263,7 +264,7 @@ const TIER_WORD = (pop: number) => (pop >= CITY_POPULATION ? 'city' : pop >= TOW
 export function citySaga(c: Ctx, id: number, legend: boolean): Saga {
   const h = c.h
   const s = h.settlements[id]
-  const v = new Voice(c.seed, `city:${id}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, DISASTER_T)
+  const v = new Voice(c.seed, `city:${id}${c.povSuffix}`, legend, T, SCENE_T, OMEN_T, DIVINE_T, DISASTER_T, PARTISAN_T)
   const Y = c.Y
   const nowName = c.name(id, Y)
   const pn = c.peopleName(s.people)
