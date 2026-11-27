@@ -39,6 +39,8 @@ export interface StoryViewDeps {
   /** The register of the Sagas panel (legend or chronicle). */
   legend(): boolean
   openSaga(subject: SagaSubject): void
+  /** causes: the caption's "Why?" opens the Why panel on the beat's event (absent: no button). */
+  openWhy?(event: number): void
   addLayerToggle?(t: LayerToggle): HTMLInputElement
   setUrlParam(name: string, value: string | null): void
   requestRender(): void
@@ -171,6 +173,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       title: scene?.title ?? line?.text ?? '',
       body: scene ? scene.text : '',
       more: subject ? () => deps.openSaga(subject) : null,
+      why: rep >= 0 && deps.openWhy ? () => deps.openWhy!(rep) : null, // causes:
       show: reducedMotion() && validCell(cell) ? () => flyTo(cell, [1.8, 2.3, 2.8][scale] ?? 2.3, 0) : null,
     }
   }

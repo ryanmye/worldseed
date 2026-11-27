@@ -403,6 +403,7 @@ function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
   if (years !== 2000) o.years = years
   if (currentOrders.length > 0) o.orders = currentOrders
   if (currentCradles.length > 0) o.cradles = currentCradles
+  if (params.get('causes') === '1') o.causes = true // causes: record why things happened (the Why panel's records; causes=1)
   return Object.keys(o).length > 0 ? o : undefined
 }
 /** A re-simulation with new orders is on its way: the year to keep when it arrives (-1 none). */
