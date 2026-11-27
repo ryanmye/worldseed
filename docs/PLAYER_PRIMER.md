@@ -130,7 +130,7 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   button names it ("They would choose: …"). The body can be your court, the elders, the regent's council, the league's
   council or the family (decider.ts). Each deferral lowers Authority by (1 − 0.7 × divisiveness) / 5 (SEAT.deferDivisive, deferFull): close to 1/5 for a routine matter and less for a divisive one,
   whose blame then falls on the body. Each decision you take yourself restores some. At low Authority the body rules in all
-  but name: only urgent cards come, the throne is less safe and successions are more contested. A Crisis card may then
+  but name: only urgent cards come (war on us, a crisis, plague, a battle, a default, a disaster, an ally's call, a betrayal, a city breaking free), the throne is less safe and successions are more contested. A Crisis card may then
   offer **Reclaim power**, which is risky.
 - **Card kinds** (contract.ts DecisionKind) and their options:
   - War declared on us: Fight on / Sue for peace / Offer tribute / Seek an ally

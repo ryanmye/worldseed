@@ -134,7 +134,12 @@ export const SEAT = {
 } as const
 
 /** Urgent kinds come whatever the gap since the last card. */
-export const URGENT: readonly number[] = [DecisionKind.WarOnUs, DecisionKind.Crisis, DecisionKind.Plague]
+export const URGENT: readonly number[] = [
+  DecisionKind.WarOnUs, DecisionKind.Crisis, DecisionKind.Plague,
+  // surfacing: the merged systems' cards that answer an event of this year (a battle, a default, a disaster, an ally's call,
+  // a betrayal, a town's rising) come whatever the gap; their cooldowns keep them rare
+  DecisionKind.Battle, DecisionKind.Default, DecisionKind.Disaster, DecisionKind.AllyCalls, DecisionKind.Betrayed, DecisionKind.Commune,
+]
 
 /** The order cards are kept in when more than maxCards come in one year (first kept). */
 export const PRIORITY: readonly number[] = [
