@@ -52,6 +52,8 @@ import { createPeoplesView } from './peoplesPanel.ts'
 import { buildExpeditionData, discoveryNote } from './expeditionsData.ts'
 import { buildOutpostLayer, type OutpostLayer } from '../render/outposts.ts'
 import { buildDiscoveryLayer, type DiscoveryLayer } from '../render/discoveries.ts'
+import { buildDisasterLayer, type DisasterLayer } from '../render/disasters.ts' // disasters:
+import { climateMarks } from './disastersFormat.ts' // disasters:
 import { applySpeciesStandIn, buildSpeciesData, CASH_VIEW, cropSnapshotAt, inViewCategory, layerOf } from './speciesData.ts'
 import { buildSpeciesLayer, type SpeciesLayer } from '../render/species.ts'
 import { createSpeciesView } from './speciesPanel.ts'
@@ -258,6 +260,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
   let labelsVisible = true
   let outposts: OutpostLayer | null = null
   let discoveries: DiscoveryLayer | null = null
+  let disasterLayer: DisasterLayer | null = null // disasters: eruptions, quakes, waves, floods (built at commit)
   let speciesLayer: SpeciesLayer | null = null
   let epidemics: ContactPulses | null = null
   /** Per-cell polity ids of the faction layer (WATER, -1 or an id), for click-to-select-faction. */
@@ -584,6 +587,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     const cells = peoples.knownCells
     outposts?.setKnownMask(cells)
     discoveries?.setKnownMask(cells)
+    disasterLayer?.setKnownMask(cells) // disasters:
     speciesLayer?.setKnownMask(cells)
     epidemics?.setKnownMask(cells)
     polities.setKnownMask(cells)
@@ -690,6 +694,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     story.commit(null, null, null, false)
     nudge.commit(null, null)
     timeline.setSparkline(null, 1)
+    timeline.setClimate(null, []) // disasters:
+    if (disasterLayer) { deps.planetGroup.remove(disasterLayer.mesh); disasterLayer.dispose(); disasterLayer = null } // disasters:
     polityLayer = null
     geo = null
   }
@@ -903,6 +909,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     nudge.commit(h, index)
     // the world's people behind the timeline's slider (its dips: famines, wars, epidemics)
     timeline.setSparkline(index.totalPopulation, h.snapshotInterval)
+    // disasters: the climate strip under the slider, and the shocks on the globe
+    timeline.setClimate((h as Partial<History>).climate?.temp ?? null, climateMarks(h))
+    if (disasterLayer) { deps.planetGroup.remove(disasterLayer.mesh); disasterLayer.dispose() }
+    disasterLayer = buildDisasterLayer(w, h)
+    if (disasterLayer) { disasterLayer.mesh.visible = markersVisible; disasterLayer.setKnownMask(peoples.knownCells); deps.planetGroup.add(disasterLayer.mesh) }
     polityLayer = b.polities?.layer ?? null
     globe?.setCapacity(h.capacity)
     {
@@ -1451,6 +1462,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       peoples.setMarkersVisible(show)
       outposts?.setFlagsVisible(show)
       if (epidemics) epidemics.mesh.visible = show
+      if (disasterLayer) disasterLayer.mesh.visible = show // disasters:
       if (!show) api.setHover(-1)
     },
     setExpeditionsVisible(show: boolean) {
@@ -1584,6 +1596,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       if (discoveries && discoveries.mesh.visible) {
         discoveries.setTime(year, pulseYears)
         discoveries.update(deps.camera, drawSize, pixelRatio)
+      }
+      if (disasterLayer && disasterLayer.mesh.visible) { // disasters:
+        disasterLayer.setTime(year, pulseYears)
+        disasterLayer.update(deps.camera, drawSize, pixelRatio)
       }
       if (speciesLayer) {
         speciesLayer.setTime(year, pulseYears)

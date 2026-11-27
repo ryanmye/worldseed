@@ -111,6 +111,11 @@ export interface Timeline {
   /** A faint sparkline behind the slider: one value per snapshot from year 0 (the world's people), or null for none. */
   setSparkline(values: ArrayLike<number> | null, interval: number): void
   /**
+   * disasters: a thin climate strip under the slider (History.climate.temp, one value per year: blue fill below 0, red above),
+   * with ticks and spans (great eruptions, epochs) that jump to their year when clicked; null for none.
+   */
+  setClimate(temp: ArrayLike<number> | null, marks: readonly TimelineMark[]): void
+  /**
    * A thin progress strip along the top edge of the bar, with a short label in the status line:
    * `label` null hides it; `frac` (0..1) shows that much filled, or null for an indeterminate
    * animation. Shown (and legible) even while the bar is `disabled`, for the world-generation,
@@ -267,6 +272,10 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
   beatBox.setAttribute('aria-hidden', 'true')
   let beatSpeed = -1
   let spark: { values: ArrayLike<number>; interval: number } | null = null
+  // disasters: the climate strip and its marks
+  let climate: { temp: ArrayLike<number>; marks: readonly TimelineMark[] } | null = null
+  const climateCanvas = document.createElement('canvas')
+  climateCanvas.className = 'tl-climate'
   const sparkCanvas = document.createElement('canvas')
   sparkCanvas.className = 'tl-spark'
 
@@ -366,6 +375,21 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       ticks.appendChild(sparkCanvas)
       drawSpark()
     }
+    if (climate) { // disasters:
+      ticks.appendChild(climateCanvas)
+      drawClimate()
+      climate.marks.forEach((mk, k) => {
+        if (mk.from > years) return
+        const b = document.createElement('i')
+        b.className = 'tl-cmark'
+        b.dataset.cmark = String(k)
+        b.title = mk.title
+        b.style.left = `${(100 * Math.max(0, mk.from)) / years}%`
+        b.style.width = `${(100 * Math.max(0, Math.min(years, mk.to) - mk.from)) / years}%`
+        b.style.backgroundColor = mk.color
+        ticks.appendChild(b)
+      })
+    }
     // the story director's beats (shown while Follow is on)
     if (beats) {
       ticks.appendChild(beatBox)
@@ -393,6 +417,35 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
       t.className = 'tl-beat'
       t.style.left = `${(100 * y) / years}%`
       beatBox.appendChild(t)
+    }
+  }
+
+  /** disasters: the climate strip over the range shown (temperature anomaly per year, fill blue below 0 and red above). */
+  function drawClimate() {
+    if (!climate) return
+    const w = Math.max(100, Math.round(ticks.clientWidth || 600))
+    const hgt = 6
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    climateCanvas.width = w * dpr
+    climateCanvas.height = hgt * dpr
+    const ctx = climateCanvas.getContext('2d')
+    if (!ctx) return
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, w, hgt)
+    const v = climate.temp
+    const n = Math.min(v.length, years + 1)
+    if (n < 2) return
+    let max = 0.3
+    for (let k = 0; k < n; k++) max = Math.max(max, Math.abs(v[k]))
+    const mid = hgt / 2
+    const px = Math.max(1, Math.ceil(w / n))
+    for (let k = 0; k < n; k++) {
+      const t = v[k] / max
+      const x = (k / years) * w
+      const hh = Math.abs(t) * mid
+      ctx.fillStyle = t < 0 ? `rgba(110, 170, 255, ${0.35 + 0.5 * Math.min(1, -t)})` : `rgba(255, 120, 90, ${0.35 + 0.5 * Math.min(1, t)})`
+      if (t < 0) ctx.fillRect(x, mid, px, hh)
+      else ctx.fillRect(x, mid - hh, px, hh)
     }
   }
 
@@ -657,6 +710,10 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     addControl(el: HTMLElement) {
       row.insertBefore(el, speedBox)
     },
+    setClimate(temp: ArrayLike<number> | null, m: readonly TimelineMark[]) { // disasters:
+      climate = temp && temp.length > 1 ? { temp, marks: m.slice() } : null
+      buildTicks()
+    },
     setSparkline(values: ArrayLike<number> | null, iv: number) {
       spark = values && values.length > 1 ? { values, interval: Math.max(1, iv) } : null
       buildTicks()
@@ -703,7 +760,8 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
 
   ticks.addEventListener('click', (e) => {
     const m = (e.target as HTMLElement).closest('[data-mark]') as HTMLElement | null
-    const mk = m ? marks[Number(m.dataset.mark)] : undefined
+    const cm = (e.target as HTMLElement).closest('[data-cmark]') as HTMLElement | null // disasters: the climate strip's marks
+    const mk = m ? marks[Number(m.dataset.mark)] : cm && climate ? climate.marks[Number(cm.dataset.cmark)] : undefined
     if (!mk || !enabled) return
     softStop = null
     stopPoint = -1
