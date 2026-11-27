@@ -27,6 +27,15 @@ const HEIGHT = 16
 const SMOOTH_YEARS = 6
 const SNAP_PX = 10
 
+/**
+ * lane N3 (throne slice): the seat's marks on every strip: the years of its decision cards (blue ticks) and the span it is
+ * held from (a faint band), so the strip reads as the reign's own record while seated. null clears them.
+ */
+const stripsMarks = new Set<(m: { from: number; cards: number[] } | null) => void>()
+export function setSeatMarks(m: { from: number; cards: number[] } | null): void {
+  for (const f of stripsMarks) f(m)
+}
+
 export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
   const root = document.createElement('div')
   root.className = 'tl-drama'
@@ -85,7 +94,16 @@ export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
     }
     g.fillStyle = 'rgba(255, 244, 214, 0.95)'
     for (const by of beatYears) if (by <= years) g.fillRect(Math.round((by / years) * w) - 0.5, 0, 1, 3)
+    if (seatMarks) {
+      g.fillStyle = 'rgba(140, 190, 255, 0.12)'
+      const x0 = Math.round((seatMarks.from / years) * w)
+      g.fillRect(x0, 0, w - x0, HEIGHT)
+      g.fillStyle = 'rgba(150, 200, 255, 0.95)'
+      for (const cy of seatMarks.cards) if (cy <= years) g.fillRect(Math.round((cy / years) * w) - 1, HEIGHT - 5, 2, 5)
+    }
   }
+  let seatMarks: { from: number; cards: number[] } | null = null
+  stripsMarks.add((m) => { seatMarks = m; dirty = true; schedule() })
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { dirty = true; schedule() }) : null
   ro?.observe(root)
   let raf = 0

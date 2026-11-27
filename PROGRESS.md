@@ -4,17 +4,22 @@ Spec: plans/EVALUATION.md §4 Lane 3 + §1c; plans/ui-additions.md N3 items 3,3b
 
 ## Steps
 - [x] S0 setup: worktree, merge lane/onboard (landing conflict: preset pills + play paths; main.ts lazy seat chunk loads decisionCard too) — 77da84a
-- [ ] S1 watcher fixes (sim/history/seat): heir min age, crisis repeat/cause text, Crush real order (garrison), Opening as a state lever, Unify/Monument judged, per-decision HUD snapshot (hazards, meters) + heir roster
-- [ ] S2 card model: named heirs, stakes (likely effects + risk), "Because you…" callbacks, honest labels, defer wording
-- [ ] S3 seat dashboard (context panel 'seat'): HUD, hazards + Why, 50-y odds, heraldry/portraits, your-realm feed, drama strip, age milestones; hide Take this throne while seated
-- [ ] S4 succession message, reign summary + epithet + share link, marriage answers
+- [x] S1 watcher fixes (sim/history/seat): heir min age, crisis repeat/cause text, Crush real order (garrison), Opening as a state lever, Unify/Monument judged, per-decision HUD snapshot (hazards, meters) + heir roster
+- [x] S2 card model: named heirs, stakes (likely effects + risk), "Because you…" callbacks, honest labels, defer wording
+- [~] S3 seat dashboard (context panel 'seat'): HUD, hazards + Why, 50-y odds, heraldry/portraits, your-realm feed, drama strip, age milestones; hide Take this throne while seated
+- [~] S4 succession message, reign summary + epithet + share link, marriage answers
 - [ ] S5 arcs (ui/story/arcs.ts: T1, T3, revenge war, bankruptcy war), director continuity + payoff guarantee, bots arcCompletion
 - [ ] S6 landing: Rule a kingdom → Dramatic; old great power start
 - [ ] S7 phone layout
 - [ ] S8 primer/personas/coverage; bots Realistic+Dramatic; screenshots; merge origin/main
 
 ## Current
-S1
+S3/S4 wired (dashboard.ts, summary.ts, controller reign summaries); next: browser check (build + shotscripts/throne.mjs), then S5 arcs
+
+## Notes
+- merged origin/main 39e8470 (onboard + primer v3) at fc6f744
+- play-test #1 findings folded (keys exclusive, reason words, chronicle year dup, Arrange phrase hedged, grows-old by age, regency only for minors)
+- Unify: share 0.6 + vassals count; Monument judged (LandmarkCompleted in realm)
 
 ## Next commands
 (none running)

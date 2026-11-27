@@ -2,7 +2,7 @@ import './style.css'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, PresetName, World, WorldOptions } from './contract.ts'
-import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
+import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
 import type { SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
@@ -834,8 +834,30 @@ const historyView = lazyHistoryView(
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
 // (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
-appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts')])).then(([{ createSeatController }, { createDecisionCard }]) => {
+appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts'), import('./ui/seat/throne/dashboard.ts'), import('./ui/story/dramaStrip.ts')])).then(([{ createSeatController }, { createDecisionCard }, { createSeatDashboard }, { setSeatMarks }]) => {
+// lane N3: the seat dashboard (the context panel while seated) and the drama strip's seat marks
+const seatSeat = () => decodeSeat(new URL(window.location.href).searchParams.get('seat') ?? '')
+const dash = createSeatDashboard({
+  host: overlay.right,
+  seed: () => currentSeed,
+  ambition: () => seatSeat()?.ambitions?.[0],
+  setAmbition: (k) => {
+    const s0 = seatSeat()
+    if (!s0) return
+    // (a new ambition restarts the reign from its first year: the cards, and so the choices, may differ)
+    const u = new URL(window.location.href)
+    u.searchParams.set('seat', encodeSeat({ ...s0, ambitions: [k, ...[0, 1, 2, 3, 4, 5].filter((x) => x !== k)] }))
+    u.searchParams.delete('o')
+    window.location.assign(u.href)
+  },
+})
 seatCtl = createSeatController({
+  onUpdate: (h) => {
+    dash.update(h)
+    const D = h?.seat?.decisions
+    setSeatMarks(h && h.seat && D ? { from: h.seat.seat.from, cards: Array.from(D.year) } : null)
+  },
+  shareLink: (y) => { const u = new URL(window.location.href); u.searchParams.set('year', String(y)); return u.href },
   card: createDecisionCard(app), // (bots: the card is made here, the controller takes it; both in the seat chunk)
   post: (req) => {
     extending = 0

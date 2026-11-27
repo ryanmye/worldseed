@@ -7,6 +7,8 @@ import { decisionOrders, encodeSeat } from '../../contract.ts'
 import type { History, Order, SeatOptions } from '../../contract.ts'
 import type { DecisionCard } from './decisionCard.ts'
 import { SEAT_END_WORDS, seatWords } from './seatFormat.ts'
+import { reignSummary } from './throne/summary.ts' // lane N3: the reign's end told
+import { SeatKind } from '../../contract.ts'
 
 export type SeatRequest =
   | { type: 'seat'; seat: SeatOptions; orders: Order[]; cradles?: number[] }
@@ -31,6 +33,10 @@ export interface SeatControllerDeps {
   /** The length to extend to when the player leaves the throne. */
   watchYears(years: number): number
   progress(label: string | null): void
+  /** lane N3: each pause's History (the seat dashboard), null when the seat ends. */
+  onUpdate?(h: History | null): void
+  /** lane N3: a reign's share link (the page's address with its year; absent: no link). */
+  shareLink?(year: number): string
 }
 
 export interface SeatController {
@@ -47,6 +53,14 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
   const card = deps.card
   let seat: SeatOptions | null = null
   let lastPause = -1
+  let prevPause = -1
+  /** The seat realm's reigns that ended in (from, to] (lane N3). */
+  function reignsEnded(h: History, from: number, to: number) {
+    const S = h.seat
+    if (!S || S.seat.kind !== SeatKind.Polity && S.seat.kind !== SeatKind.House) return []
+    const mine = new Set(Array.from(S.polityAt).filter((p) => p >= 0))
+    return (h.rulers ?? []).filter((r) => mine.has(r.polity) && r.ended > from && r.ended <= to && r.ended >= S.seat.from)
+  }
   let wait: ReturnType<typeof setInterval> | null = null
   const clearWait = () => { if (wait !== null) clearInterval(wait); wait = null }
 
@@ -79,7 +93,9 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
       deps.progress(null)
       card.hide()
       deps.replaceHistory(h, ms, Math.min(lastPause, h.years))
+      prevPause = lastPause
       lastPause = h.years
+      deps.onUpdate?.(h)
       // (wait for the timeline to reach the pause, then ask)
       wait = setInterval(() => {
         if (deps.year() < h.years - 1e-6) return
@@ -91,8 +107,17 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
           ])
           return
         }
-        if (cards.length === 0) { deps.post({ type: 'seatChoose', orders: [] }); return }
-        ask(h, cards, 0, [])
+        // lane N3: the reigns that ended since the last pause, told first (no ruler changes silently)
+        const go = () => { if (cards.length === 0) deps.post({ type: 'seatChoose', orders: [] }); else ask(h, cards, 0, []) }
+        const ended = reignsEnded(h, prevPause, h.years)
+        const tell = (i: number) => {
+          if (i >= ended.length) { go(); return }
+          const sum = reignSummary(h, ended[i], h.years)
+          const link = deps.shareLink?.(sum.year)
+          const extra = typeof document !== 'undefined' && link ? (() => { const a = document.createElement('a'); a.className = 'seat-share'; a.href = link; a.textContent = 'Share this reign'; a.title = 'A link that replays this reign: the same seat and the same choices'; return a })() : undefined
+          card.message(`The reign of ${sum.title} ends`, sum.lines.join(' '), [{ label: 'Continue', run: () => tell(i + 1) }], sum.callbacks, extra)
+        }
+        tell(0)
       }, 200)
     },
     stop() {
@@ -100,6 +125,7 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
       clearWait()
       card.hide()
       seat = null
+      deps.onUpdate?.(null)
       deps.post({ type: 'seatStop', years: deps.watchYears(lastPause) })
     },
   }
