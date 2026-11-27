@@ -4,7 +4,7 @@ import { withoutLater } from './sim/history/laterFields.ts'
 import { describe, expect, it } from 'vitest'
 import { generateWorld, simulateHistory } from './sim/index.ts'
 import { hashValue } from './historyCache.ts'
-import { G0_GOLDENS, G0_YEARS, hashBase, project, projectBase } from './hashBase.ts'
+import { G0_GOLDENS, G0_OFF_GOLDENS, G0_YEARS, hashBase, project, projectBase } from './hashBase.ts'
 import type { History } from './contract.ts'
 import { BASE_SHAPE } from './hashBaseShape.ts'
 
@@ -30,8 +30,12 @@ describe('hashBase', () => {
   })
 
   for (const seed of [1, 42, 1234]) {
-    it(`G0: seed ${seed} at ${G0_YEARS} years is ${G0_GOLDENS[seed]}`, () => {
-      expect(hashBase(simulateHistory(generateWorld(seed), { years: G0_YEARS }))).toBe(G0_GOLDENS[seed])
-    }, 300_000)
+    // (the suite's default preset is 'off', src/test/setup.ts: name both)
+    it(`G0 (realistic default): seed ${seed} at ${G0_YEARS} years is ${G0_GOLDENS[seed]}`, () => {
+      expect(hashBase(simulateHistory(generateWorld(seed), { years: G0_YEARS, preset: 'realistic' }))).toBe(G0_GOLDENS[seed])
+    }, 600_000)
+    it(`G0-off (every new system off): seed ${seed} at ${G0_YEARS} years is ${G0_OFF_GOLDENS[seed]}`, () => {
+      expect(hashBase(simulateHistory(generateWorld(seed), { years: G0_YEARS, preset: 'off' }))).toBe(G0_OFF_GOLDENS[seed])
+    }, 600_000)
   }
 })

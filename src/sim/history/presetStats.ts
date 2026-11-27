@@ -2,7 +2,7 @@
 // real history; this only catches incoherent churn (a realm that swallows the world for centuries, centuries with no war once
 // states exist, successions every few years, a flood of family-head events, non-finite numbers).
 //   node --experimental-strip-types --no-warnings src/sim/history/presetStats.ts [seed ...]            (default 1 7 42 1234)
-//   ... --preset realistic     measure another preset (default dramatic)
+//   ... --preset realistic|off measure another preset (default dramatic)
 //   ... --years N              run length (default 2000)
 //   ... --check                exit 1 if any Dramatic row breaks SANITY_BOUNDS
 //   ... --json                 one JSON row per seed
@@ -131,7 +131,7 @@ export function sanityViolations(r: SanityRow, realistic?: SanityRow): string[] 
 
 export function runSanity(seed: number, preset: PresetName, years = 2000, extra: HistoryOptions = {}): SanityRow {
   const opts: HistoryOptions = { years, ...extra }
-  if (preset === 'dramatic') opts.preset = preset
+  opts.preset = preset
   return sanityRow(seed, preset, simulateHistory(generateWorld(seed), opts))
 }
 

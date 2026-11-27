@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 // The simulation's code version, for the history cache (src/historyCache.ts): a hash of every
 // file whose change can change a generated World or a simulated History. A cached history is
 // only ever served to the same version.
@@ -67,4 +68,7 @@ function simVersionPlugin(): Plugin {
 export default defineConfig({
   // the PWA (build/pwa.ts): manifest, icons and an offline service worker; build only
   plugins: [simVersionPlugin(), pwaPlugin()],
+  // the unit suite runs on preset 'off' (src/test/setup.ts): the identity its goldens were recorded against; tests of the
+  // realistic default name it (hashBase.test.ts G0, presets.test.ts)
+  test: { setupFiles: ['src/test/setup.ts'] },
 })
