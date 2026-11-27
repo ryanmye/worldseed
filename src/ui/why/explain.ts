@@ -53,6 +53,13 @@ const T: Record<number, string> = {
   [E.Persecution]: 'Persecution', [E.FaithReached]: 'Faith arrived', [E.FaithFounded]: 'Faith founded', [E.IdeaAdopted]: 'Idea adopted', [E.IdeaConceived]: 'Idea conceived',
   [E.TradeClosed]: 'Trade route closed', [E.TradeForsaken]: 'Trade forsaken', [E.OrderGiven]: 'Order given', [E.ResortAbandoned]: 'Resort given up', [E.BecameTown]: 'Became a town',
   [E.BecameCity]: 'Became a city',
+  // (play-test 1: the merged systems' events were "Event at …")
+  [E.BattleFought]: 'Battle', [E.SiegeLaid]: 'Siege', [E.CommanderFell]: 'A commander fell', [E.GeneralSeized]: 'A general seized the throne',
+  [E.GeneralRose]: 'A general rose', [E.CrownDefault]: 'Default of the crown', [E.Repudiation]: 'Debts refused', [E.WarBankrupt]: 'War bankruptcy',
+  [E.ArmyUnpaid]: 'Soldiers unpaid', [E.Betrayal]: 'Betrayal', [E.OathBroken]: 'Oath broken', [E.Avenged]: 'Vengeance', [E.BluffExposed]: 'Bluff exposed',
+  [E.AllianceRevealed]: 'Secret alliance revealed', [E.Coerced]: 'Coercion', [E.SpyCaught]: 'Spies caught', [E.Eruption]: 'Eruption', [E.Earthquake]: 'Earthquake',
+  [E.Tsunami]: 'Great wave', [E.Flood]: 'Flood', [E.VolcanicWinter]: 'Volcanic winter', [E.CityDestroyed]: 'A town destroyed', [E.SocialPhase]: 'A turn of the social order',
+  [E.EliteFactions]: 'Factions of the great', [E.CommuneProclaimed]: 'A commune proclaimed', [E.ColdWarBegan]: 'Cold war', [E.FamilyFell]: 'Fall of a merchant house',
 }
 
 /** Short label of event i ("Conquest of Oruma (1204)"). */
@@ -64,6 +71,7 @@ export function eventLabel(ix: CauseIndex, i: number): string {
   const at = placeName(ix, e.settlement, e.year)
   if ((e.type === E.WarDeclared || e.type === E.CivilWar) && h.wars && e.value >= 0) return `${t}: ${polName(ix, h.wars.attacker[e.value])} on ${polName(ix, h.wars.defender[e.value])} (${e.year})`
   if (e.type === E.PolityEnded || e.type === E.PolityFounded) return `${t}: ${polName(ix, e.value)} (${e.year})`
+  if (e.type === E.BattleFought && h.battles && e.value >= 0 && e.value < h.battles.count && h.battles.name[e.value]) return `${h.battles.name[e.value][0].toUpperCase()}${h.battles.name[e.value].slice(1)} (${e.year})`
   if (e.type === E.ReignEnded || e.type === E.RulerAcceded) { const r = h.rulers?.[e.value]; return `${t}: ${r ? r.name + (r.regnal > 1 ? ' ' + roman(r.regnal) : '') : 'a ruler'} at ${at} (${e.year})` }
   return `${t} at ${at} (${e.year})`
 }

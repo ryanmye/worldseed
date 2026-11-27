@@ -3,6 +3,8 @@
 // few lookups the rules need: the events of each war, each polity's founding and end, events by polity pair, the rows of
 // History.why per event, and each reign's accession and end. Everything is O(events).
 
+import { spokenName } from '../languageData.ts'
+import { namesYear } from '../renamingData.ts'
 import { EventType as E, settlementNameAt } from '../../contract.ts'
 import type { CauseRecords, History, HistoryEvent } from '../../contract.ts'
 import { politiesOf, polityAtYear } from '../politiesData.ts'
@@ -154,7 +156,8 @@ export function ofType(ix: CauseIndex, type: number, y0: number, y1: number, f?:
 
 /** Name of settlement `id` at `y`. */
 export function placeName(ix: CauseIndex, id: number, y: number): string {
-  return id >= 0 && id < ix.h.settlements.length ? settlementNameAt(ix.h, id, y) : 'a far place'
+  // (play-test 1: with language drift the chronicle says the spoken name of the shown year; the Why said the written one)
+  return id >= 0 && id < ix.h.settlements.length ? spokenName(ix.h, id, namesYear()) ?? settlementNameAt(ix.h, id, y) : 'a far place'
 }
 
 /** Short name of polity p ("North Vashtar"). */
