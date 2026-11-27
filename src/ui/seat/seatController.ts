@@ -5,7 +5,7 @@
 // nudges are), so a reload replays the same reign.
 import { decisionOrders, encodeSeat } from '../../contract.ts'
 import type { History, Order, SeatOptions } from '../../contract.ts'
-import { createDecisionCard } from './decisionCard.ts'
+import type { DecisionCard } from './decisionCard.ts'
 import { SEAT_END_WORDS, seatWords } from './seatFormat.ts'
 
 export type SeatRequest =
@@ -14,7 +14,8 @@ export type SeatRequest =
   | { type: 'seatStop'; years: number }
 
 export interface SeatControllerDeps {
-  parent: HTMLElement
+  /** The decision screen (decisionCard.ts createDecisionCard; the bot harness, src/bots, gives its own reader of the same card model). */
+  card: DecisionCard
   /** Post a seat request to the worker (main gives it a new request id). */
   post(req: SeatRequest): void
   /** Swap a pause's History in, played on from `keepYear`. */
@@ -43,11 +44,11 @@ export interface SeatController {
 }
 
 export function createSeatController(deps: SeatControllerDeps): SeatController {
-  const card = createDecisionCard(deps.parent)
+  const card = deps.card
   let seat: SeatOptions | null = null
   let lastPause = -1
-  let wait: number | null = null
-  const clearWait = () => { if (wait !== null) window.clearInterval(wait); wait = null }
+  let wait: ReturnType<typeof setInterval> | null = null
+  const clearWait = () => { if (wait !== null) clearInterval(wait); wait = null }
 
   /** Show cards[i...] of h; then send the orders chosen. */
   function ask(h: History, cards: number[], i: number, chosen: Order[]) {
@@ -80,7 +81,7 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
       deps.replaceHistory(h, ms, Math.min(lastPause, h.years))
       lastPause = h.years
       // (wait for the timeline to reach the pause, then ask)
-      wait = window.setInterval(() => {
+      wait = setInterval(() => {
         if (deps.year() < h.years - 1e-6) return
         clearWait()
         if (lost) {
