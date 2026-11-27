@@ -7,13 +7,17 @@ import { DecisionKind as D } from '../../../contract.ts'
 /** Categories of scene. */
 export const Scene = { War: 0, Court: 1, Bond: 2, Plague: 3, Faith: 4, Unrest: 5, Treasury: 6, Frontier: 7, Land: 8, Learning: 9 } as const
 
-/** The scene of each DecisionKind (0-17). */
+/** The scene of each DecisionKind (0-17, 102-112). */
 export const SCENE_OF: Record<number, number> = {
   [D.WarOnUs]: Scene.War, [D.Opening]: Scene.War, [D.Betrayal]: Scene.War,
   [D.Heir]: Scene.Court, [D.Crisis]: Scene.Court, [D.General]: Scene.Court,
   [D.AllianceMade]: Scene.Bond, [D.AllianceSought]: Scene.Bond, [D.Overlord]: Scene.Bond, [D.Match]: Scene.Bond,
   [D.Plague]: Scene.Plague, [D.Faith]: Scene.Faith, [D.Revolt]: Scene.Unrest, [D.Charter]: Scene.Unrest,
   [D.Credit]: Scene.Treasury, [D.Frontier]: Scene.Frontier, [D.Crop]: Scene.Land, [D.Idea]: Scene.Learning,
+  // surfacing (102-112)
+  [D.Default]: Scene.Treasury, [D.WarChest]: Scene.Treasury, [D.Houses]: Scene.Treasury,
+  [D.Battle]: Scene.War, [D.Betrayed]: Scene.War, [D.AllyCalls]: Scene.Bond, [D.ColdWar]: Scene.Bond,
+  [D.Bluff]: Scene.Court, [D.Intelligence]: Scene.Court, [D.Disaster]: Scene.Plague, [D.Commune]: Scene.Unrest,
 }
 
 /** A small deterministic generator (mulberry32) for the scene's variation. */

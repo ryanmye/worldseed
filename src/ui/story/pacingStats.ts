@@ -11,6 +11,7 @@ import { buildHistoryIndex } from '../historyIndex.ts'
 import { buildStaticDrama } from './drama.ts'
 import { buildStoryPlan, type StoryPlan } from './plan.ts'
 import { createDirector, DIRECTOR } from './director.ts'
+import { loadDramaRules } from '../../bots/metrics.ts'
 
 const args = ((globalThis as { process?: { argv: string[] } }).process?.argv ?? []).slice(2)
 const out = args[0] ?? '/tmp/pacing.jsonl'
@@ -70,6 +71,8 @@ export function playPlan(plan: StoryPlan, years: number, pacing: boolean): Pacin
   return { firstCaption: first === null ? null : +first.toFixed(1), deadAir120: +dead.toFixed(1), yearAt120: Math.round(yearAt120), minutesToEnd: +(t / 60).toFixed(1), captions120: captions }
 }
 
+// (surfacing lane: every *Format.ts drama rule, as the browser loads them)
+await loadDramaRules()
 for (const seed of seeds) {
   if (done.includes(`"seed":${seed},"years":${years},`)) {
     console.log(`seed ${seed}: already in ${out}`)

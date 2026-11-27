@@ -5,13 +5,13 @@
 // Phrases come from WHY_T through the sagas' Voice, seeded by the root's key, so the same click always reads the same.
 // Named nodes come back as links (segments with a key). A node with no cause found says "The record does not say why."
 
-import { EventType as E, ReignEnd, WarWhyFlag, decodeLog2, settlementNameAt } from '../../contract.ts'
+import { EventType as E, ReignEnd, WarWhyFlag, decodeLog2 } from '../../contract.ts'
 import type { History } from '../../contract.ts'
 import { Voice, cap, num, polish } from '../sagas/voice.ts'
 import type { PhraseTable } from '../sagas/voice.ts'
 import { WhyTier, causesIn, parseKey } from './graph.ts'
 import type { WhyLink, WhyTree } from './graph.ts'
-import { causeIndexOf, ev, polAt, polName } from './causeIndex.ts'
+import { causeIndexOf, ev, placeName, polAt, polName } from './causeIndex.ts'
 import type { CauseIndex } from './causeIndex.ts'
 import { roman } from './explain.ts'
 
@@ -111,13 +111,20 @@ function linkSentence(ix: CauseIndex, v: Voice, l: WhyLink, subj: string, st: { 
 // Names and phrases
 
 function town(ix: CauseIndex, id: number, y: number): string {
-  return id >= 0 && id < ix.h.settlements.length ? settlementNameAt(ix.h, id, y) : 'a far place'
+  return placeName(ix, id, y)
 }
 function ruler(ix: CauseIndex, r: number): string {
   const x = ix.h.rulers?.[r]
   return x ? `${x.name}${x.regnal > 1 ? ' ' + roman(x.regnal) : ''}` : 'its ruler'
 }
 const attOf = (ix: CauseIndex, w: number) => polName(ix, ix.h.wars.attacker[w])
+/** Who took the town of a Conquered event: the realm its army came from (play-test 1: the war's attacker named a defender's
+ * counter-conquest wrongly), else the realm holding it after, else the war's attacker. */
+function takerOf(ix: CauseIndex, e: { settlement: number; other: number; value: number; year: number }): string {
+  const q = e.other >= 0 ? polAt(ix, e.other, e.year) : polAt(ix, e.settlement, e.year + 1)
+  if (q >= 0) return polName(ix, q)
+  return ix.h.wars && e.value >= 0 ? attOf(ix, e.value) : 'its enemies'
+}
 const defOf = (ix: CauseIndex, w: number) => polName(ix, ix.h.wars.defender[w])
 
 /** A noun phrase for a node ("the fall of Oruma to Vashtar in 1204"). */
@@ -131,7 +138,8 @@ export function np(ix: CauseIndex, key: string): string {
   const y = e.year
   const at = town(ix, e.settlement, y)
   switch (e.type) {
-    case E.Conquered: return `the fall of ${at} to ${h.wars && e.value >= 0 ? attOf(ix, e.value) : 'its enemies'} in ${y}`
+    case E.Conquered: return `the fall of ${at} to ${takerOf(ix, e)} in ${y}`
+    case E.BattleFought: return `${h.battles && e.value >= 0 && e.value < h.battles.count ? h.battles.name[e.value] : `the battle for ${at}`} in ${y}`
     case E.Sacked: return `the sack of ${at} in ${y}`
     case E.WarDeclared: return `the war ${attOf(ix, e.value)} made on ${defOf(ix, e.value)} in ${y}`
     case E.CivilWar: return `the civil war that broke out at ${at} in ${y}`
@@ -210,7 +218,7 @@ function rootSentence(ix: CauseIndex, key: string): string {
     case E.PolityEnded: return `${cap(polName(ix, e.value))} came to an end in ${y}.`
     case E.PolityFounded: return `${cap(polName(ix, e.value))} was founded at ${at} in ${y}.`
     case E.WarDeclared: return `${cap(attOf(ix, e.value))} made war on ${defOf(ix, e.value)} in ${y}.`
-    case E.Conquered: return `${at} fell to ${h.wars && e.value >= 0 ? attOf(ix, e.value) : 'its enemies'} in ${y}.`
+    case E.Conquered: return `${at} fell to ${takerOf(ix, e)} in ${y}.`
     case E.Revolt: return `${at} rose against ${town(ix, e.other, y)} in ${y}.`
     case E.Famine: return `Hunger struck ${at} in ${y}; ${shareOf(e.value)} of its people were lost.`
     case E.Abandoned: return `${at} was left empty in ${y}.`

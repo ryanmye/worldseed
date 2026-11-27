@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 4 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 5 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -13,6 +13,10 @@ Changelog:
   on, the caption's place is pinned on the globe, a drama-strip jump captions and frames its story, the time left follows
   the real pace, Why sits in the context slot (`R` or `Esc` closes it), the chronicle holds still under the pointer,
   Factions keeps its rows with More panels open, the replay's side legend and skip button, Show me lets following resume.
+- v5 (2026-11-27, lane/n1 surfacing; written as v4 in the lane, renumbered at the merge after n4b): eleven cards for the
+  merged systems (finance, battles, beliefs, disasters, oaths, city-states, cold wars, merchant houses), a renowned general
+  bringing the General card, Credit coming at a lower need, and the story director telling battles, eruptions, defaults,
+  betrayals and bluffs.
 
 ## 1. Starting a world
 
@@ -141,7 +145,7 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   button names it ("They would choose: …"). The body can be your court, the elders, the regent's council, the league's
   council or the family (decider.ts). Each deferral lowers Authority by (1 − 0.7 × divisiveness) / 5 (SEAT.deferDivisive, deferFull): close to 1/5 for a routine matter and less for a divisive one,
   whose blame then falls on the body. Each decision you take yourself restores some. At low Authority the body rules in all
-  but name: only urgent cards come, the throne is less safe and successions are more contested. A Crisis card may then
+  but name: only urgent cards come (war on us, a crisis, plague, a battle, a default, a disaster, an ally's call, a betrayal, a city breaking free), the throne is less safe and successions are more contested. A Crisis card may then
   offer **Reclaim power**, which is risky.
 - **Card kinds** (contract.ts DecisionKind) and their options:
   - War declared on us: Fight on / Sue for peace / Offer tribute / Seek an ally
@@ -162,6 +166,26 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - Frontier: Send settlers / Explore further / Stay at home
   - Crop: Take it up / Ignore it
   - Idea: Seek it out / Ignore it
+  - The merged systems' cards (each comes from something that happened to your realm that year; seat/watch.ts mergedCards).
+    Every option but the last gives a real order, named in its line of consequence; the last is the court's own course:
+    - The crown defaults (Default; finance): Raise taxes / Refuse the debts / Placate them / Retrench
+    - The war chest (WarChest; finance): after you declare a war, Borrow / Raise taxes / Retrench; when the soldiers go
+      unpaid, Sue for peace / Raise taxes / Borrow / Fight on
+    - After the battle (Battle; battles, at least 300 men, at most one every 8 years): won, Offer terms / Reward the army / Fight on; lost, Sue for
+      peace / Raise taxes / Recall the general / Fight on
+    - A bluff exposed (Bluff; beliefs): a rival's bluff seen through, Call the bluff / Defy (if it is your overlord) / Stay
+      out; your own seen through, Raise taxes / Fortify the capital / Seek an ally / Endure
+    - An intelligence report (Intelligence; beliefs): a rival's secret alliance revealed, Seek an ally / Fortify the capital
+      / Ignore it; its spies caught, Strike / Renounce it / Fortify the capital / Ignore it
+    - Disaster (an eruption, quake, wave or flood that killed at least 200, a town destroyed, a volcanic winter):
+      Send relief / Raise taxes / Move the court (if it struck the capital) / Endure
+    - An ally calls (AllyCalls; oaths): Join the war / Renounce it / Stay out
+    - Betrayed by an ally (Betrayed; oaths): Avenge it / Seek an ally / Endure
+    - A city breaks free (Commune; city-states): Strike / Seek an ally / Stay out
+    - A cold war (ColdWar): Seek an ally / Raise taxes / Fortify the capital / Endure
+    - The merchant houses take sides (Houses; families): Placate them / Fortify the capital / Ignore it
+  - With battles on, a general of yours who wins renown brings the General card (Honour / Purge him / Ignore it).
+  - Credit comes when the crown's need is at least 0.4 (debts, arrears, a recent default, or a war with some debt).
 - **What you can know:** cards describe what your realm's people know (the fog). A bot or play-tester must judge only from
   the screen: the card, the meter, the chronicle and the map.
 

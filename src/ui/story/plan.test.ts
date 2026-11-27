@@ -26,7 +26,7 @@ function seeded() {
 }
 
 /** Seed 7 at 1200 years, default options: the beats as `year:entry`. */
-const GOLDEN = ['31:18', '503:143', '593:203', '645:263', '700:304', '751:332', '778:356', '840:433', '911:524', '970:637', '1028:729', '1100:847', '1155:950', '1200:1079']
+const GOLDEN = ['31:18', '174:32', '396:92', '500:138', '590:193', '645:260', '700:304', '751:332', '778:356', '825:402', '911:524', '970:637', '1028:729', '1070:797', '1140:911', '1190:1044'] // (re-recorded, surfacing lane: the freshness term and the floor)
 
 describe('story plan', () => {
   it('is deterministic', { timeout: 300_000 }, () => {
@@ -93,5 +93,30 @@ describe('story plan', () => {
     const old = (p: StoryPlan) => Array.from(p.beatEntry).filter((_, i) => p.beatYear[i] < cut).map((n, i) => `${p.beatYear[i]}:${n}`)
     expect(old(pShort).length).toBeGreaterThan(3)
     expect(old(pLong)).toEqual(old(pShort))
+  })
+})
+
+// surfacing lane: a merged system's first story gets its debut, and a far greater story is not lost to novelty
+describe('freshness, debut and floor (synthetic)', () => {
+  /** A StaticDrama of entries [year, score, cat, kind, polity]. */
+  function synth(rows: [number, number, number, number, number][]): { sd: StaticDrama; years: Float64Array } {
+    const E = rows.length
+    const f = (k: number) => Float32Array.from(rows, (r) => r[k])
+    const sd = {
+      score: f(1), cat: Uint8Array.from(rows, (r) => r[2]), cell: new Int32Array(E).fill(-1), scale: new Uint8Array(E), key: Int32Array.from(rows, (r) => r[2] * (1 << 20) + r[4]),
+      rep: Int32Array.from(rows, (_, i) => i), type: Int16Array.from(rows, (r) => r[3]), polA: Int32Array.from(rows, (r) => r[4]), polB: new Int32Array(E).fill(-1),
+      fB: f(1), fM: new Float32Array(E).fill(1), fU: new Float32Array(E).fill(1), fR: new Float32Array(E).fill(1), fF: new Float32Array(E).fill(1),
+    } as StaticDrama
+    return { sd, years: Float64Array.from(rows, (r) => r[0]) }
+  }
+  it('a merged system (kind >= 1000) wins its window over a slightly stronger classic once (its debut)', () => {
+    const { sd, years } = synth([[30, 9, 0, 26, 1], [40, 8, 1, 1005, 2], [100, 9, 0, 26, 1], [110, 8, 1, 1005, 2]]) // (classic 9 x 1.6 fresh < merged 8 x 2 debut)
+    const plan = buildStoryPlan(sd, years)
+    expect(Array.from(plan.beatEntry)).toContain(1)
+  })
+  it('the floor: an entry far above the rest is a beat right after one like it', () => {
+    const { sd, years } = synth([[30, 10, 0, 26, 1], [60, 40, 0, 26, 1], [62, 12, 2, 80, 3]])
+    const plan = buildStoryPlan(sd, years)
+    expect(Array.from(plan.beatEntry)).toContain(1)
   })
 })

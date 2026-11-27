@@ -1,10 +1,11 @@
 // seat: words for the decision cards (decisionCard.ts) and for the seat in the Chronicle and Legend (seat-mode §6.3-6.4).
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
-import { DEFER_OPTIONS, DecisionKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
+import { DEFER_OPTIONS, DecisionKind, DisasterKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
 import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
+import { disasterTitle, volcanoName } from '../disastersFormat.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -39,6 +40,10 @@ export const OPTION_LABEL: Record<number, string> = {
   [SeatOptionKey.Grant]: 'Grant it', [SeatOptionKey.Refuse]: 'Refuse', [SeatOptionKey.SeparatePeace]: 'Make a separate peace', [SeatOptionKey.StandBy]: 'Stand by them',
   [SeatOptionKey.Settle]: 'Send settlers', [SeatOptionKey.ExploreOn]: 'Explore further', [SeatOptionKey.Stay]: 'Stay at home',
   [SeatOptionKey.TakeUp]: 'Take it up', [SeatOptionKey.Seek]: 'Seek it out', [SeatOptionKey.RepudiateDebts]: 'Refuse the debts', [SeatOptionKey.Reclaim]: 'Reclaim power',
+  // surfacing (the merged systems' cards)
+  [SeatOptionKey.SendRelief]: 'Send relief', [SeatOptionKey.RecallGeneral]: 'Recall the general', [SeatOptionKey.JoinWar]: 'Join the war',
+  [SeatOptionKey.Avenge]: 'Avenge it', [SeatOptionKey.CallBluff]: 'Call the bluff', [SeatOptionKey.OfferTerms]: 'Offer terms',
+  [SeatOptionKey.RewardArmy]: 'Reward the army',
 }
 
 /** The court's own course (an option without orders): what the card says will happen. */
@@ -67,6 +72,13 @@ export function subjectWord(h: History, kind: number, subject: number, year: num
   switch (kind) {
     case DecisionKind.WarOnUs: case DecisionKind.Opening: case DecisionKind.AllianceMade: case DecisionKind.AllianceSought:
     case DecisionKind.Overlord: case DecisionKind.Match: case DecisionKind.Betrayal: return otherWord(h, subject, us)
+    case DecisionKind.WarChest: case DecisionKind.Bluff: case DecisionKind.Intelligence: case DecisionKind.AllyCalls:
+    case DecisionKind.Betrayed: case DecisionKind.ColdWar: return otherWord(h, subject, us)
+    case DecisionKind.Default: return ''
+    case DecisionKind.Battle: return h.battles?.name[subject] ?? 'a battle'
+    case DecisionKind.Disaster: return disasterWord(h, subject)
+    case DecisionKind.Commune: return townWord(h, subject, year)
+    case DecisionKind.Houses: return h.families && subject >= 0 && subject < h.families.count ? `House ${h.families.name[subject]}` : 'a merchant house'
     case DecisionKind.Heir: case DecisionKind.General: return rulerWord(h, subject)
     case DecisionKind.Crisis: case DecisionKind.Credit: return ''
     case DecisionKind.Plague: { const e = h.epidemics?.[subject]; const d = e ? h.diseases?.[e.disease] : undefined; return d ? `the ${d.name}` : 'a pestilence' }
@@ -77,6 +89,37 @@ export function subjectWord(h: History, kind: number, subject: number, year: num
     case DecisionKind.Frontier: return 'the new lands'
   }
   return ''
+}
+
+/** A disaster row in a word or two ("an eruption of Mount Oru", "the Year Without Summer"). */
+function disasterWord(h: History, row: number): string {
+  const d = h.disasters
+  if (!d || row < 0 || row >= d.count) return 'a disaster'
+  const t = disasterTitle(h, row)
+  if (t) return t
+  switch (d.kind[row]) {
+    case DisasterKind.Eruption: return `the eruption of ${volcanoName(h, row)}`
+    case DisasterKind.Earthquake: return 'an earthquake'
+    case DisasterKind.Tsunami: return 'a great wave'
+    case DisasterKind.Flood: return 'a great flood'
+    case DisasterKind.Drought: return 'a drought'
+  }
+  return 'a disaster'
+}
+
+/** Battle b from the seat polity us's side: [won, our men, their men, the dead] (null without the row). */
+function battleSide(h: History, b: number, us: number): [boolean, number, number, number] | null {
+  const B = h.battles
+  if (!B || b < 0 || b >= B.count) return null
+  const a = B.attacker[b] === us
+  return [B.winner[b] === (a ? 0 : 1), a ? B.menA[b] : B.menD[b], a ? B.menD[b] : B.menA[b], B.dead[b]]
+}
+const roundMen = (x: number) => (Math.round(x / (x >= 1000 ? 100 : 10)) * (x >= 1000 ? 100 : 10)).toLocaleString('en-US')
+/** The polity holding settlement id at `year` (snapshot), -1. */
+function polityIdAt(h: History, id: number, year: number): number {
+  if (id < 0 || id >= h.settlements.length || !h.polity) return -1
+  const S = h.settlements.length, q = Math.max(0, Math.min(h.snapshotCount - 1, Math.floor(year / h.snapshotInterval)))
+  return h.polity[q * S + id]
 }
 
 /** Card title: "War is declared on us: Vosk". */
@@ -111,6 +154,26 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Frontier: return `Explorers came home to ${at} with tales of lands no one of ours has seen.`
     case DecisionKind.Crop: return `Traders tell of ${name}, grown by the people of ${at}. Our fields have never known it.`
     case DecisionKind.Idea: return `At ${at} they have ${name}. Our scholars know of it only by report.`
+    // surfacing (the merged systems' cards)
+    case DecisionKind.Default: return `The crown of ${us} has stopped paying its lenders. The houses that lent to it are ruined or angry, and no one will lend again soon.`
+    case DecisionKind.WarChest: return `The war with ${name} must be paid for. The soldiers' pay falls behind, or soon will, and the treasury cannot carry it alone.`
+    case DecisionKind.Battle: {
+      const b = battleSide(h, subj, D.polity[d])
+      if (!b) return `Our army has fought ${name}.`
+      return b[0]
+        ? `Our army won ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}, and some ${roundMen(b[3])} dead on the field. The enemy is shaken.`
+        : `Our army broke at ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}, and some ${roundMen(b[3])} dead on the field. The road to ${at} lies open.`
+    }
+    case DecisionKind.Bluff: return polityIdAt(h, D.place[d], y) === D.polity[d] // (the card is told at our capital when the bluff was ours)
+      ? `${capFirst(name)} has seen through our show of strength: the musters were thinner than we let it believe.`
+      : `Our envoys and spies say ${name} is weaker than it shows: its musters and rumours were a bluff.`
+    case DecisionKind.Intelligence: return `Our agents report on ${name}: a secret pact against us has come to light, or its spies were caught in our towns.`
+    case DecisionKind.Disaster: return `${capFirst(name)} has struck ${at}. Many are dead, the fields and stores are ruined, and the survivors look to the crown.`
+    case DecisionKind.AllyCalls: return `Our ally ${name} is at war, and the treaty binds us to it. Its envoys ask whether ${us} will march.`
+    case DecisionKind.Betrayed: return `${capFirst(name)}, our ally, has made its own peace behind our back and left ${us} to fight alone.`
+    case DecisionKind.Commune: return `${capFirst(name)} has thrown off the crown of ${us}: its council rules it now as a free city.`
+    case DecisionKind.ColdWar: return `${capFirst(name)} and ${us} arm and watch each other. Neither dares the first blow, but every court must choose a side.`
+    case DecisionKind.Houses: return `${capFirst(name)} of ${at} has put its money behind a side in our civil war.`
   }
   return `In ${y}, a matter for the court.`
 }
@@ -265,6 +328,76 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
   [DecisionKind.Idea]: {
     [K.Seek]: ['{year}: {us} is said to have sent to {at} to learn {them}.', '{us} sent its cleverest to {at} to learn {them}.'],
     [K.Ignore]: ['{year}: {us} seems to have let {them} pass it by.', '{us} had no use for {them}.'],
+  },
+  // surfacing (the merged systems' cards)
+  [DecisionKind.Default]: {
+    [K.Levy]: ['{year}: after the default, {us} raised its taxes, the annals record, to grumbling.', 'The lenders were gone, so {us} turned to its own towns for coin.'],
+    [K.RepudiateDebts]: ['{year}: the crown of {us} is said to have refused the rest of its debts.', '{us} burned what bonds were left.'],
+    [K.Placate]: ['{year}: the court of {us} is said to have bought quiet with what gold it had.', 'What gold {us} had left went to keep the lords quiet.'],
+    [K.Retrench]: ['{year}: the court of {us} seems to have tightened its belt after the default.', '{us} lived within its means.'],
+  },
+  [DecisionKind.WarChest]: {
+    [K.Borrow]: ['{year}: to pay for the war with {them}, the treasury of {us} is said to have borrowed.', '{us} borrowed to pay its soldiers against {them}.'],
+    [K.Levy]: ['{year}: {us} raised its taxes for the war with {them}, the annals record.', '{us} squeezed its towns to pay for the war with {them}.'],
+    [K.SuePeace]: ['{year}: its soldiers unpaid, {us} seems to have sought terms with {them}.', 'With no coin for its soldiers, {us} sent envoys to {them}.'],
+    [K.Retrench]: ['{year}: {us} is not recorded raising money for the war with {them}.', '{us} paid for the war with {them} as it went.'],
+    [K.FightOn]: ['{year}: unpaid or not, the levies of {us} are recorded still in the field against {them}.', 'The soldiers of {us} fought on against {them} without their pay.'],
+  },
+  [DecisionKind.Battle]: {
+    [K.SuePeace]: ['{year}: after {them}, the court of {us} seems to have sought terms.', 'Beaten at {them}, {us} asked for peace.'],
+    [K.Levy]: ['{year}: after {them}, {us} is recorded raising new levies.', 'Beaten at {them}, {us} raised another army.'],
+    [K.RecallGeneral]: ['{year}: after {them}, the ruler of {us} is said to have recalled the beaten general.', 'The general who lost {them} was called home in disgrace.'],
+    [K.OfferTerms]: ['{year}: after {them}, {us} seems to have offered terms from strength.', 'Victorious at {them}, {us} offered peace.'],
+    [K.RewardArmy]: ['{year}: after {them}, the court of {us} is said to have rewarded its army.', 'The victors of {them} came home to gold.'],
+    [K.FightOn]: ['{year}: after {them}, the army of {us} is recorded still in the field.', 'After {them}, {us} fought on.'],
+  },
+  [DecisionKind.Bluff]: {
+    [K.CallBluff]: ['{year}: believing {them} weaker than it showed, {us} is said to have chosen war.', '{us} called the bluff of {them}.'],
+    [K.Defy]: ['{year}: believing {them} weaker than it showed, {us} stopped paying its tribute.', '{us} saw through {them} and stopped paying.'],
+    [K.StayOut]: ['{year}: though {them} seemed weaker than it showed, {us} kept its peace.', '{us} knew {them} was bluffing, and let it be.'],
+    [K.Levy]: ['{year}: its show of strength seen through by {them}, {us} is recorded raising real levies.', 'Caught bluffing, {us} made its musters real.'],
+    [K.Fortify]: ['{year}: its bluff seen through by {them}, {us} raised walls at its capital.', 'Caught bluffing, {us} built walls instead.'],
+    [K.SeekAlly]: ['{year}: its bluff seen through by {them}, {us} looked for allies.', 'Caught bluffing, {us} went looking for friends.'],
+    [K.Endure]: ['{year}: its bluff seen through by {them}, {us} is not recorded doing anything.', '{us} was caught bluffing, and waited.'],
+  },
+  [DecisionKind.Intelligence]: {
+    [K.SeekAlly]: ['{year}: warned of {them}, {us} is recorded seeking allies of its own.', 'Warned of {them}, {us} looked for friends.'],
+    [K.Strike]: ['{year}: its spies caught, {them} found {us} at war with it, the annals say.', '{us} answered the spies of {them} with an army.'],
+    [K.Renounce]: ['{year}: its spies caught, {us} is said to have renounced its bond with {them}.', '{us} tore up its treaty with {them}.'],
+    [K.Fortify]: ['{year}: warned of {them}, {us} raised walls at its capital.', 'Warned of {them}, {us} built walls.'],
+    [K.Ignore]: ['{year}: warned of {them}, the court of {us} seems to have done nothing.', '{us} heard the report on {them} and shrugged.'],
+  },
+  [DecisionKind.Disaster]: {
+    [K.SendRelief]: ['{year}: after {them} struck {at}, the court of {us} is said to have sent relief.', 'When {them} struck {at}, grain and silver went out from the crown of {us}.'],
+    [K.Levy]: ['{year}: after {them} struck {at}, {us} still raised its taxes, the annals record.', 'Even after {them}, {us} took its taxes.'],
+    [K.MoveCourt]: ['{year}: after {them} struck {at}, the court of {us} seems to have left the capital.', 'The court of {us} fled the ruins of {at}.'],
+    [K.Endure]: ['{year}: {them} struck {at}; the court of {us} is not recorded sending help.', '{at} buried its dead alone.'],
+  },
+  [DecisionKind.AllyCalls]: {
+    [K.JoinWar]: ['{year}: {us} is said to have marched beside its ally {them}.', '{us} kept its oath and marched with {them}.'],
+    [K.Renounce]: ['{year}: called to war by {them}, {us} renounced the alliance instead.', '{us} broke its oath to {them}.'],
+    [K.StayOut]: ['{year}: called to war by its ally {them}, {us} seems to have stayed home.', '{us} let {them} fight alone.'],
+  },
+  [DecisionKind.Betrayed]: {
+    [K.Avenge]: ['{year}: deserted by {them}, {us} is said to have turned its armies on its old ally.', '{us} paid {them} back for its treachery.'],
+    [K.SeekAlly]: ['{year}: deserted by {them}, {us} is recorded seeking new allies.', 'Betrayed by {them}, {us} found other friends.'],
+    [K.Endure]: ['{year}: deserted by {them}, {us} seems to have swallowed the wrong.', '{us} remembered what {them} did, and waited.'],
+  },
+  [DecisionKind.Commune]: {
+    [K.Strike]: ['{year}: when {them} broke free, {us} is said to have sent an army to take it back.', '{us} would not let {them} go.'],
+    [K.SeekAlly]: ['{year}: {us} seems to have made terms with the free city of {them}.', '{us} let {them} go, and made a friend of it.'],
+    [K.StayOut]: ['{year}: {them} broke free of {us}; the crown is not recorded acting.', '{them} went free, and {us} let it.'],
+  },
+  [DecisionKind.ColdWar]: {
+    [K.SeekAlly]: ['{year}: in its cold war with {them}, {us} is recorded seeking allies.', 'Against {them}, {us} gathered friends.'],
+    [K.Levy]: ['{year}: in its cold war with {them}, {us} raised its taxes for arms.', '{us} armed against {them}.'],
+    [K.Fortify]: ['{year}: in its cold war with {them}, {us} raised walls at its capital.', '{us} built walls against {them}.'],
+    [K.Endure]: ['{year}: in its cold war with {them}, {us} seems to have waited.', '{us} watched {them}, and waited.'],
+  },
+  [DecisionKind.Houses]: {
+    [K.Placate]: ['{year}: with {them} backing a side, the court of {us} is said to have bought off the magnates.', '{us} outbid {them} for the lords.'],
+    [K.Fortify]: ['{year}: with {them} backing a side, {us} raised walls at its capital.', '{us} built walls against the money of {them}.'],
+    [K.Ignore]: ['{year}: {them} backed a side in the civil war of {us}; the court seems to have let it be.', '{us} let {them} bet as it liked.'],
   },
 }
 

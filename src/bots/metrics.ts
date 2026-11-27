@@ -13,6 +13,8 @@ import type { BotRun } from './headless.ts'
 export const YEARS_PER_SECOND = 20 / 3
 export const CARD_SECONDS = 8
 const ORDER_FULFILLED = 171, ORDER_FAILED = 172, ORDER_LAPSED = 173
+/** The first DecisionKind of the surfacing lane's cards (contract.ts DecisionKind.Default); the kinds below are the legacy deck. */
+const NON_LEGACY_KIND = 102
 const AMBITION_FULFILLED = 273, SEAT_LOST = 272, GENERAL_PURGED = 276, WAR_BANKRUPT = 214
 
 const ETYPE_NAME = new Map(Object.entries(EventType).map(([k, v]) => [v as number, k]))
@@ -59,6 +61,8 @@ export interface RunMetrics {
   lost: boolean; playHours: number; wallS: number
   /** Card kinds seen (titles' labels) and option keys chosen, for the coverage report. */
   kindsSeen: number[]; keysChosen: number[]
+  /** Cards per DecisionKind, and the cards of the merged systems (surfacing lane, DecisionKind >= 102) per 50 seated years. */
+  cardsByKind: Record<string, number>; nonLegacyPer50: number
 }
 
 function seatPolities(h: History): Set<number> {
@@ -186,6 +190,8 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
     defers: shown.filter((c) => c.decision.option === DEFER_OPTIONS.defer).length, warsStarted, warsFought, ambitionsMet,
     lost: run.lost, playHours: r3(playS / 3600), wallS: r3(run.wallMs / 1000),
     kindsSeen: [...new Set(ds.map((d) => D.kind[d]))].sort((a, b) => a - b),
+    cardsByKind: ds.reduce((m: Record<string, number>, d) => { m[D.kind[d]] = (m[D.kind[d]] ?? 0) + 1; return m }, {}),
+    nonLegacyPer50: r3(ds.filter((d) => D.kind[d] >= NON_LEGACY_KIND).length / Math.max(1e-9, span / 50)),
     keysChosen: [...new Set(shown.map((c) => c.model.options.find((o) => o.option === c.decision.option)?.key ?? -1))].sort((a, b) => a - b),
   }
 }

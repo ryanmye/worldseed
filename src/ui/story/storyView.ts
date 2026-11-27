@@ -589,7 +589,22 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   deps.timeline.addControl(card.button)
   deps.timeline.addControl(card.progress)
   // ui-additions 3: the drama strip over the slider; a click jumps to the peak there (following lets go)
-  const strip = createDramaStrip((y) => jumpTo(y))
+  // (a beat's peak: its caption shows there, as the director would show it (n1, play-test 1); any other peak: the strongest
+  // story near it, framed and captioned (n4b jumpTo))
+  const strip = createDramaStrip((y, b) => {
+    if (b >= 0 && plan && b < plan.beatEntry.length) {
+      director.suspend()
+      deps.timeline.pause()
+      deps.timeline.setYear(Math.min(y, deps.timeline.years))
+      const cell = plan.beatCell[b], scale = plan.beatScale[b]
+      showCap(captionOf(plan.beatEntry[b], plan.beatYear[b], cell, scale), true)
+      if (cell >= 0) flyTo(cell, DIRECTOR.dist[scale] ?? DIRECTOR.dist[1], reducedMotion() ? 0 : 1.2)
+      deps.requestRender()
+      deps.wake()
+      return
+    }
+    jumpTo(y)
+  })
   deps.timeline.addAboveSlider(strip.root)
   director.setPacing(true)
   const syncButton = () => card.setButton(director.on, !!plan)
@@ -704,7 +719,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       plan = buildStoryPlan(drama, index.notableYear, { focus, until: history.years })
     }
     director.setPlan(plan)
-    strip.setData(drama, index ? index.notableYear : null, plan ? plan.beatYear : null)
+    strip.setData(drama, index ? index.notableYear : null, plan ? plan.beatYear : null, plan ? plan.beatScore : null, plan ? plan.beatEntry : null)
     if (director.on) deps.timeline.setBeats(plan ? plan.beatYear : null, plan ? plan.beatProminence : null, Math.min(STORY.gMin, STORY.promPerSpeed))
     resetNotes(deps.timeline.year)
     syncButton()

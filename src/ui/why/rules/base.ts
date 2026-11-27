@@ -329,7 +329,7 @@ export function eventCauses(ix: CauseIndex, i: number): Cand[] {
       }
       if (o === PolityOrigin.Partition) for (const k of ofType(ix, E.Partitioned, y, y, (x) => x.value === P[p]?.parent)) out.push(rule(evKey(k), 'R6c'))
       if (o === PolityOrigin.CivilWar) for (const k of atPlace(ix, e.settlement, [E.CivilWar], y, y)) out.push(rec(evKey(k), 'rec:CivilWar'))
-      if (o === PolityOrigin.Formed || o === PolityOrigin.League) out.push(cond('formed', i, y, e.settlement, o === PolityOrigin.League ? 'towns bound together against a threat' : 'a dominant town gathered its neighbours', 1, o === PolityOrigin.League ? 'a league of trading towns' : 'the first state of its land'))
+      if (o === PolityOrigin.Formed || o === PolityOrigin.League) out.push(cond('formed', i, y, e.settlement, o === PolityOrigin.League ? 'towns bound together against a threat' : 'a dominant town gathered its neighbours', 1, o === PolityOrigin.League ? 'a league of trading towns' : 'a state of its own'))
       break
     }
     case E.Seceded:

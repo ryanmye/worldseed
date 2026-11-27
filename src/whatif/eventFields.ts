@@ -15,6 +15,7 @@ const OTHER_IS_SETTLEMENT: readonly number[] = [
   187, // absentee: RulerTaken, the captive ruler's capital
   190, 191, 192, 193, 194, 200, 201, 203, 205, 210, 211, 212, 213, 214, 215, 216, 217, 220, 221, 223, 224, 225, 226, 227,
   230, 231, 232, 233, 234, 235, 236, 237, 238, // beliefs: the other realm's capital, or a claimed town
+  393, 394, 395, 396, 397, 398, // cold wars: the other rival's capital (surfacing lane: historyIndex lists them now)
 ]
 
 /** Flags per event type id (EVENT_FIELDS[type]). */

@@ -41,6 +41,8 @@ const GLYPH: Record<number, Glyph> = {
   [K.TakeUp]: sprout, [K.Seek]: star, [K.Grant]: seal,
   [K.Endure]: hourglass, [K.Stay]: hourglass, [K.StayOut]: hourglass, [K.Ignore]: hourglass, [K.Decline]: hourglass,
   [K.Retrench]: hourglass, [K.Refuse]: hourglass,
+  [K.SendRelief]: coins, [K.RewardArmy]: coins, [K.RecallGeneral]: dagger, [K.JoinWar]: sword, [K.Avenge]: sword, [K.CallBluff]: sword,
+  [K.OfferTerms]: branch,
 }
 
 /** The glyph of option key `key` as an inline SVG (decorative: aria-hidden), `size` CSS px. */

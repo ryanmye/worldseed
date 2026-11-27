@@ -42,8 +42,8 @@ resolved below.
 | enum | in code (main + lanes) | reserved | next |
 |---|---|---|---|
 | OrderKind | 0–20, 22 (`ORDER_KIND_COUNT` 84; 21 Charter reserved) | 23–83 §3.2; 84 Brink; 85–117 and 126–134 shadow; **118–125 throne arcs**; 135–142 battles-fiction | 143 |
-| DecisionKind | 0–17 (`DECISION_KIND_COUNT` 55) | 18–54 §3.2; 55 Brink; 56–79 and 86–93 shadow; **80–85 throne arcs**; 94–101 battles-fiction | 102 |
-| SeatOptionKey | 0–39 | **40–59 throne arcs** (were unassigned); 60–127 shadow; 128–159 battles-fiction | 160 |
+| DecisionKind | 0–17, 102–112 (n1 surfacing: the merged systems' cards) (`DECISION_KIND_COUNT` 113; 18–101 placeholder rows) | 18–54 §3.2; 55 Brink; 56–79 and 86–93 shadow; **80–85 throne arcs**; 94–101 battles-fiction | 113 |
+| SeatOptionKey | 0–39, 160–166 (n1 surfacing) | **40–59 throne arcs** (were unassigned); 60–127 shadow; 128–159 battles-fiction | 167 |
 | AmbitionKind | 0–5 | 6–15 character; 16–29 and **34–39** shadow (confirmed); **30–33 throne arcs** | 40 |
 | SeatEnd | 0–3 | 4 LineEnded (character); 5 Broken, 6 Legitimate, 7 SecretDied, 8 WentOpen (shadow) | 9 |
 | SeatKind | 0–4 | 5 Network (shadow) | 6 |

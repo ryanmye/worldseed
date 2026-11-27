@@ -3368,6 +3368,18 @@ export const DecisionKind = {
   Frontier: 15, // an expedition came home with news of new land
   Crop: 16, // a contacted people holds a crop or herd the seat's people lacks and could grow
   Idea: 17, // a contacted people took up or conceived an idea the seat's people lacks and could hold
+  // surfacing (EVALUATION §4 Lane 1; 102-112, the registry's next free values: cards for the merged systems, existing orders only)
+  Default: 102, // finance: the realm's crown defaulted on its debts or refused them (CrownDefault, Repudiation)
+  WarChest: 103, // finance: a war the realm fights must be paid for (it declared one), or its soldiers went unpaid (ArmyUnpaid)
+  Battle: 104, // battles: a great battle the realm's army fought (BattleFought), won or lost
+  Bluff: 105, // beliefs: a bluff exposed, a rival's seen through by the realm or the realm's own (BluffExposed)
+  Intelligence: 106, // beliefs: a secret alliance of rivals came to light, or a rival's spies were caught (AllianceRevealed, SpyCaught)
+  Disaster: 107, // disasters: an eruption, quake, wave or flood struck a town of the realm (or a volcanic winter its region)
+  AllyCalls: 108, // oaths: an ally of the realm is at war and the realm is not (WarDeclared): honour the alliance or break it
+  Betrayed: 109, // oaths: an ally deserted the realm in a war they fought together (Betrayal)
+  Commune: 110, // city-states: a town of the realm made itself a republic or bought its liberties (CommuneProclaimed, CharterBought)
+  ColdWar: 111, // cold wars: the realm entered a cold war with a great rival (ColdWarBegan)
+  Houses: 112, // families: a merchant house backed a side in the realm's civil war (FamilyBacked)
 } as const
 export type DecisionKind = (typeof DecisionKind)[keyof typeof DecisionKind]
 
@@ -3381,6 +3393,21 @@ export const SeatOptionKey = {
   RepudiateDebts: 38,
   /** Crisis, while the deciding body rules in all but name: take the power back (Choice option DEFER_OPTIONS.reclaim; risky). */
   Reclaim: 39,
+  // surfacing (EVALUATION §4 Lane 1; 160-166, the registry's next free values): words for existing orders on the new cards
+  /** Disaster: Placate as relief (gold for the stricken, unrest eased). */
+  SendRelief: 160,
+  /** Battle (lost): Purge, the beaten general recalled. */
+  RecallGeneral: 161,
+  /** AllyCalls: War on the ally's enemy. */
+  JoinWar: 162,
+  /** Betrayed: War on the ally who deserted. */
+  Avenge: 163,
+  /** Bluff (theirs seen through): War on the bluffer. */
+  CallBluff: 164,
+  /** Battle (won): Peace from strength. */
+  OfferTerms: 165,
+  /** Battle (won): Placate as the army's reward (the throne safer from its generals). */
+  RewardArmy: 166,
 } as const
 export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
 
@@ -3516,8 +3543,17 @@ const RESERVED_DECISION_KINDS: readonly (readonly [string, readonly string[]])[]
   ['religious-evolution', ['Doctrine']], // 54
 ]
 
-/** Rows in the decision-kind table: 0–54; 0–17 seat-mode's, the rest reserved until their owners fill them (R40). */
-export const DECISION_KIND_COUNT = 55
+/** The reserved rows 55–101 (docs/REGISTRY.md): Brink, shadow-network, throne arcs (Lane 3 fills them), battles-fiction. */
+const RESERVED_DECISION_KINDS_2: readonly (readonly [string, readonly string[]])[] = [
+  ['barriers', ['Brink']], // 55
+  ['shadow-network', Array.from({ length: 24 }, () => '')], // 56–79
+  ['throne arcs', ['', '', '', '', '', '']], // 80–85
+  ['shadow-network', ['NetConfide', 'NetKin', 'NetMarriage', 'NetBooks', 'NetGoOpen', 'NetCrown', 'NetRising', 'NetRestore']], // 86–93
+  ['battles-fiction', ['Relief', 'Recall', 'Defector', 'Companies', 'Retreat', 'Stand', 'Gate', 'EmptyWalls']], // 94–101
+]
+
+/** Rows in the decision-kind table: 0–112; 0–17 seat-mode's, 18–101 reserved until their owners fill them (R40), 102–112 the surfacing lane's. */
+export const DECISION_KIND_COUNT = 113
 
 const DECISION_KINDS: readonly DecisionKindInfo[] = [
   // seat-mode (0–17, §3.5): live rows (the watcher offers those whose order kinds exist; see seat/watch.ts)
@@ -3541,6 +3577,20 @@ const DECISION_KINDS: readonly DecisionKindInfo[] = [
   { kind: DecisionKind.Idea, key: 'idea', label: 'A new idea' },
   // (18–54: reserved placeholders, R40)
   ...reservedRows(18, RESERVED_DECISION_KINDS, (kind, reservedFor): DecisionKindInfo => ({ kind, key: '', label: '', reserved: true, reservedFor })),
+  // (55–101: reserved placeholders, docs/REGISTRY.md)
+  ...reservedRows(55, RESERVED_DECISION_KINDS_2, (kind, reservedFor): DecisionKindInfo => ({ kind, key: '', label: '', reserved: true, reservedFor })),
+  // surfacing (102–112, EVALUATION §4 Lane 1)
+  { kind: DecisionKind.Default, key: 'default', label: 'The crown defaults' },
+  { kind: DecisionKind.WarChest, key: 'warChest', label: 'The war chest' },
+  { kind: DecisionKind.Battle, key: 'battle', label: 'After the battle' },
+  { kind: DecisionKind.Bluff, key: 'bluff', label: 'A bluff exposed' },
+  { kind: DecisionKind.Intelligence, key: 'intelligence', label: 'An intelligence report' },
+  { kind: DecisionKind.Disaster, key: 'disaster', label: 'Disaster' },
+  { kind: DecisionKind.AllyCalls, key: 'allyCalls', label: 'An ally calls' },
+  { kind: DecisionKind.Betrayed, key: 'betrayed', label: 'Betrayed by an ally' },
+  { kind: DecisionKind.Commune, key: 'commune', label: 'A city breaks free' },
+  { kind: DecisionKind.ColdWar, key: 'coldWar', label: 'A cold war' },
+  { kind: DecisionKind.Houses, key: 'houses', label: 'The merchant houses take sides' },
 ]
 
 /** The seat-decision kinds (a fresh copy; reserved rows included, flagged). */

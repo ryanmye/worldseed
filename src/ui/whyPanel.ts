@@ -140,7 +140,8 @@ export function createWhyPanel(deps: WhyPanelDeps): WhyPanel {
       }
     }
     add(tree, t.root, 0)
-    if (tree.childElementCount === 0) tree.append(Object.assign(document.createElement('li'), { className: 'why-empty', textContent: 'The record does not say why.' }))
+    // (play-test 1: the prose already says "The record does not say why."; the tree does not say it again)
+    if (tree.childElementCount === 0) tree.append(Object.assign(document.createElement('li'), { className: 'why-empty', textContent: 'No earlier cause is on record.' }))
     if (t.truncated) tree.append(Object.assign(document.createElement('li'), { className: 'why-empty', textContent: 'The record goes further back: press why? on a cause to continue.' }))
     // effects
     effList.replaceChildren()

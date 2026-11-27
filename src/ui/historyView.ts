@@ -1514,9 +1514,11 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       cities.showSettlement(selected)
       sagas.showSettlement(selected)
       {
-        // the story plan's focus: the selected town's realm and the selected faction
+        // the story plan's focus: the selected town's realm and the selected faction, and (surfacing lane) the seat's realms,
+        // so a breakaway or a battle of the player's own realm is told
         const pd = politiesOf(index.history)
-        story.setFocus([selected >= 0 && pd ? polityAtYear(pd, selected, timeline.year) : -1, polities.selected])
+        const seatPols = index.history.seat ? [...new Set(Array.from(index.history.seat.polityAt).filter((q) => q >= 0))] : []
+        story.setFocus([selected >= 0 && pd ? polityAtYear(pd, selected, timeline.year) : -1, polities.selected, ...seatPols])
       }
       if (selected < 0) {
         inspector.hide()

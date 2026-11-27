@@ -9,7 +9,7 @@ import { DecisionKind, DEFER_OPTIONS, SeatOptionKey, AmbitionKind } from '../con
 import { OPTION_RISK } from '../sim/history/seat/params.ts'
 import type { CardModel } from '../ui/seat/cardModel.ts'
 
-export const PERSONA_VERSION = 1
+export const PERSONA_VERSION = 2
 
 const K = SeatOptionKey
 export type PersonaId = 'cautious' | 'aggressive' | 'always-defer' | 'random' | 'greedy'
@@ -55,6 +55,8 @@ export const AGGRESSIVE: Stance = stance({
   [K.Settle]: 2, [K.ExploreOn]: 1, [K.Levy]: 1, [K.Borrow]: 1, [K.Fortify]: 1, [K.SeekAlly]: 1, [K.Reclaim]: 2, [K.NameHeir]: 1,
   [K.SuePeace]: -2, [K.OfferTribute]: -3, [K.StayOut]: -2, [K.Pay]: -2, [K.Placate]: -1, [K.SeparatePeace]: -1, [K.Stay]: -1,
   [K.Decline]: -1, [K.Endure]: -1, [K.Retrench]: -1, [K.Ignore]: -1, [K.LawDecides]: -1,
+  // v2: the merged systems' cards
+  [K.JoinWar]: 3, [K.Avenge]: 4, [K.CallBluff]: 4, [K.RecallGeneral]: 1, [K.RewardArmy]: 1, [K.OfferTerms]: -2, [K.SendRelief]: -1,
 })
 
 /** Greedy's stance per ambition (AmbitionKind). */
@@ -64,29 +66,35 @@ export const AMBITION_STANCE: Record<number, Stance> = {
     [K.SeekAlly]: 1, [K.Retrench]: 1, [K.Endure]: 1, [K.StandBy]: 1, [K.KeepWays]: 1, [K.Arrange]: 1, [K.OfferMatch]: 1,
     [K.Strike]: -2, [K.Defy]: -3, [K.Purge]: -2, [K.RepudiateDebts]: -3, [K.Renounce]: -2, [K.CrushPretender]: -1, [K.MoveCourt]: -1,
     [K.Reclaim]: -1, [K.NameHeir]: -1, [K.Embrace]: -1,
+    [K.SendRelief]: 2, [K.RewardArmy]: 2, [K.OfferTerms]: 2, [K.RecallGeneral]: -1, [K.JoinWar]: -1, [K.Avenge]: -2, [K.CallBluff]: -2,
   }),
   [AmbitionKind.Unify]: stance({
     [K.Strike]: 4, [K.FightOn]: 3, [K.CrushPretender]: 2, [K.Crush]: 2, [K.Settle]: 3, [K.ExploreOn]: 1, [K.SeekAlly]: 1, [K.Honour]: 1,
     [K.Defy]: 2, [K.Fortify]: 1, [K.Levy]: 1, [K.Borrow]: 1, [K.Placate]: 1, [K.Arrange]: 1, [K.OfferMatch]: 1, [K.StandBy]: 1,
     [K.SuePeace]: -2, [K.OfferTribute]: -3, [K.StayOut]: -2, [K.Stay]: -2, [K.SeparatePeace]: -1, [K.Pay]: -1, [K.Renounce]: -1,
+    [K.JoinWar]: 3, [K.Avenge]: 3, [K.CallBluff]: 4, [K.RewardArmy]: 1, [K.SendRelief]: 1, [K.OfferTerms]: -1,
   }),
   [AmbitionKind.Faith]: stance({
     [K.Embrace]: 4, [K.Seek]: 1, [K.Fortify]: 1, [K.Placate]: 1, [K.LawDecides]: 1, [K.Quarantine]: 1,
     [K.KeepWays]: -3, [K.Strike]: -1, [K.Defy]: -1,
+    [K.SendRelief]: 1, [K.CallBluff]: -1, [K.Avenge]: -1,
   }),
   [AmbitionKind.Riches]: stance({
     [K.TakeUp]: 4, [K.Seek]: 3, [K.Settle]: 2, [K.ExploreOn]: 1, [K.Retrench]: 2, [K.Quarantine]: 2, [K.SuePeace]: 2, [K.StayOut]: 2,
     [K.Pay]: 1, [K.Honour]: 1, [K.Arrange]: 1, [K.OfferMatch]: 1, [K.Levy]: 1, [K.Fortify]: 1, [K.Grant]: 1,
     [K.Placate]: -1, [K.Borrow]: -1, [K.RepudiateDebts]: -2, [K.Strike]: -1, [K.FightOn]: -1, [K.Defy]: -1, [K.OfferTribute]: -2,
     [K.MoveCourt]: -1, [K.Ignore]: -1,
+    [K.OfferTerms]: 2, [K.SendRelief]: 1, [K.JoinWar]: -1, [K.Avenge]: -1, [K.CallBluff]: -1, [K.RewardArmy]: -1,
   }),
   [AmbitionKind.Union]: stance({
     [K.OfferMatch]: 4, [K.Arrange]: 4, [K.Honour]: 1, [K.NameHeir]: 1, [K.LawDecides]: 1, [K.Strike]: 1, [K.SeekAlly]: 1,
     [K.Decline]: -2, [K.Renounce]: -2, [K.Defy]: -1,
+    [K.JoinWar]: 1, [K.Avenge]: -1,
   }),
   [AmbitionKind.Monument]: stance({
     [K.Retrench]: 2, [K.SuePeace]: 2, [K.StayOut]: 2, [K.Fortify]: 2, [K.TakeUp]: 2, [K.Seek]: 2, [K.Pay]: 1, [K.Quarantine]: 1,
     [K.LawDecides]: 1, [K.Placate]: 1, [K.Strike]: -2, [K.MoveCourt]: -3, [K.Defy]: -2, [K.RepudiateDebts]: -1, [K.Borrow]: -1,
+    [K.OfferTerms]: 2, [K.SendRelief]: 1, [K.JoinWar]: -2, [K.Avenge]: -2, [K.CallBluff]: -2,
   }),
 }
 
@@ -95,6 +103,9 @@ export const HANDLED_DECISION_KINDS: ReadonlySet<number> = new Set([
   DecisionKind.WarOnUs, DecisionKind.Opening, DecisionKind.Heir, DecisionKind.Crisis, DecisionKind.AllianceMade, DecisionKind.AllianceSought,
   DecisionKind.Overlord, DecisionKind.Match, DecisionKind.General, DecisionKind.Plague, DecisionKind.Faith, DecisionKind.Revolt,
   DecisionKind.Credit, DecisionKind.Charter, DecisionKind.Betrayal, DecisionKind.Frontier, DecisionKind.Crop, DecisionKind.Idea,
+  // v2: the merged systems' cards (surfacing lane); every persona judges them by their option keys, like the others
+  DecisionKind.Default, DecisionKind.WarChest, DecisionKind.Battle, DecisionKind.Bluff, DecisionKind.Intelligence, DecisionKind.Disaster,
+  DecisionKind.AllyCalls, DecisionKind.Betrayed, DecisionKind.Commune, DecisionKind.ColdWar, DecisionKind.Houses,
 ])
 
 /** The option's risk as the card's badge and the court's table show it (OPTION_RISK; 0.5 unknown). */

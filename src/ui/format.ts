@@ -275,6 +275,10 @@ export function describePeoplesBurst(h: History, example: HistoryEvent, count: n
       return `${count} expeditions return, among them to ${name}`
     case PeoplesEvent.TechAdvance:
       return `${count} advances in technology, among them ${thePeople(h, peopleOf(h, example.settlement))} in ${TECH_FIELD_NAMES[example.value] ?? 'learning'}`
+    case EventType.Earthquake:
+      return `${count} earthquakes, among them at ${name}` // (disasters: a decade's quakes are one entry)
+    case EventType.Flood:
+      return `${count} great floods, among them at ${name}`
     default:
       return `${count} events, among them at ${name}`
   }

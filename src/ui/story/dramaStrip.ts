@@ -1,15 +1,17 @@
 // The drama strip (ui-additions 3, owner-approved): an intensity band just above the timeline's slider. Every scored
 // chronicle entry (drama.ts S0) adds its score to its year, in its kind's colour: wars red, disasters and plagues orange,
-// successions and dynasties violet, the rest gold; the director's beats are bright ticks over it. The band is smoothed
-// over a few years so peaks read as hills. A click or tap jumps to the highest peak within a few pixels of it (the
-// timeline pauses there, as a scrub would). Drawn to a canvas only when the data, the range or the size change.
+// successions and dynasties violet, the rest gold. The band is smoothed over a few years and kept low (a background);
+// the director's beats rise from it as peaks, each as tall as its score among the run's beats (surfacing lane, play-test 1:
+// the band alone read as a smooth waveform with no distinct peaks). A click or tap jumps to the beat within a few pixels
+// of it (and the caller shows its caption), else to the highest year there (the timeline pauses there, as a scrub would).
+// Drawn to a canvas only when the data, the range or the size change.
 
 import { DramaCat, type StaticDrama } from './drama.ts'
 
 export interface DramaStrip {
   readonly root: HTMLElement
   /** The scores and the years of their entries (null: nothing to show); the beats' years. */
-  setData(drama: StaticDrama | null, entryYear: ArrayLike<number> | null, beats: ArrayLike<number> | null): void
+  setData(drama: StaticDrama | null, entryYear: ArrayLike<number> | null, beats: ArrayLike<number> | null, beatScores?: ArrayLike<number> | null, beatEntries?: ArrayLike<number> | null): void
   /** The timeline's range changed (the history grew). */
   setRange(years: number): void
 }
@@ -27,10 +29,13 @@ const HEIGHT = 16
 const SMOOTH_YEARS = 6
 const SNAP_PX = 10
 
-export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
+/** The band's share of the strip's height (the beats' peaks take the rest). */
+const BAND = 0.4
+
+export function createDramaStrip(onJump: (year: number, beat: number) => void): DramaStrip {
   const root = document.createElement('div')
   root.className = 'tl-drama'
-  root.title = 'The drama of each year: wars (red), disasters (orange), successions (violet), the rest (gold). Click a peak to go there.'
+  root.title = 'The drama of each year: wars (red), disasters (orange), successions (violet), the rest (gold). The peaks are the story\'s great moments: click one to go there and read it.'
   root.setAttribute('role', 'img')
   root.setAttribute('aria-label', 'Drama over the years')
   const canvas = document.createElement('canvas')
@@ -38,6 +43,8 @@ export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
   let per: Float32Array[] = [] // per group, per year
   let total = new Float32Array(0)
   let beatYears: number[] = []
+  let beatScore: number[] = []
+  let beatGroup: number[] = []
   let years = 0
   let dirty = true
 
@@ -68,8 +75,8 @@ export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
       }
       max = Math.max(max, sum)
     }
-    // a soft square-root scale, so the quieter centuries still show
-    const scale = (v: number) => Math.sqrt(v / max) * (HEIGHT - 3)
+    // a soft square-root scale, so the quieter centuries still show (the band stays low: the beats are the peaks)
+    const scale = (v: number) => Math.sqrt(v / max) * (HEIGHT - 3) * (beatYears.length ? BAND : 1)
     for (let x = 0; x < w; x++) {
       let cum = 0, prevH = 0
       for (let k = 0; k < per.length; k++) {
@@ -83,8 +90,24 @@ export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
         prevH = hgt
       }
     }
-    g.fillStyle = 'rgba(255, 244, 214, 0.95)'
-    for (const by of beatYears) if (by <= years) g.fillRect(Math.round((by / years) * w) - 0.5, 0, 1, 3)
+    // the beats: a peak each, as tall as its score among the run's beats, in its kind's colour, with a bright tip
+    const bmax = Math.max(1e-6, ...beatScore)
+    for (let i = 0; i < beatYears.length; i++) {
+      const by = beatYears[i]
+      if (by > years) continue
+      const x = Math.round((by / years) * w)
+      const hgt = Math.max(4, Math.sqrt((beatScore[i] ?? bmax) / bmax) * (HEIGHT - 1))
+      const [r, gg, b] = GROUPS[beatGroup[i] ?? 3]
+      g.fillStyle = `rgba(${r}, ${gg}, ${b}, 0.95)`
+      g.beginPath()
+      g.moveTo(x - 2.5, HEIGHT)
+      g.lineTo(x, HEIGHT - hgt)
+      g.lineTo(x + 2.5, HEIGHT)
+      g.closePath()
+      g.fill()
+      g.fillStyle = 'rgba(255, 244, 214, 0.95)'
+      g.fillRect(x - 0.5, HEIGHT - hgt, 1, 2)
+    }
   }
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { dirty = true; schedule() }) : null
   ro?.observe(root)
@@ -102,17 +125,26 @@ export function createDramaStrip(onJump: (year: number) => void): DramaStrip {
     if (years <= 0 || total.length === 0) return
     const r = root.getBoundingClientRect()
     const x = e.clientX - r.left
+    // a beat's peak within SNAP_PX: go there, and the caller shows its caption
+    let bi = -1, bd = SNAP_PX + 1
+    for (let i = 0; i < beatYears.length; i++) {
+      const d = Math.abs((beatYears[i] / years) * r.width - x)
+      if (d < bd) { bd = d; bi = i }
+    }
+    if (bi >= 0) { onJump(beatYears[bi], bi); return }
     const ya = Math.max(0, Math.floor(((x - SNAP_PX) / r.width) * years))
     const yb = Math.min(total.length - 1, Math.ceil(((x + SNAP_PX) / r.width) * years))
     let best = Math.round((x / r.width) * years), bv = -1
     for (let y = ya; y <= yb; y++) if (total[y] > bv) { bv = total[y]; best = y }
-    onJump(Math.max(0, best - 2))
+    onJump(Math.max(0, best - 2), -1)
   })
 
   return {
     root,
-    setData(drama, entryYear, beats) {
+    setData(drama, entryYear, beats, scores, entries) {
       beatYears = beats ? Array.from(beats) : []
+      beatScore = scores ? Array.from(scores) : beatYears.map(() => 1)
+      beatGroup = entries && drama ? Array.from(entries, (n) => groupOf(drama.cat[n])) : beatYears.map(() => 3)
       if (!drama || !entryYear) {
         per = []
         total = new Float32Array(0)
