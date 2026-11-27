@@ -6,7 +6,7 @@ export const SOC = {
   /** Society off by default (HistoryOptions.society overrides it; the coordinator flips defaults, MASTER-PLAN R29). */
   enabled: false,
   /** Shadow mode (tests): false computes and snapshots everything but applies no hook (h1-h8); the history is then the one without society. */
-  effects: false,
+  effects: true,
   /** Ring length (steps) of the population and overproduction memory: 8 steps = 40 years (youth bulge, lagged o). */
   ring: 8,
   /** K̄ += step · kRate · (Σ foodBase − K̄): a 20-year memory of the land (it does not vanish when hands die). */

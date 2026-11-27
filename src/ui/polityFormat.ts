@@ -515,6 +515,7 @@ export function describePolityEvent(h: History, e: HistoryEvent): string | null 
       switch (e.value) {
         case RevoltCause.Peasant: return `Peasants rise at ${name} against ${against}`
         case RevoltCause.Taxes: return `Townsmen rise at ${name} against the tax-gatherers of ${against}` // (finance)
+        case RevoltCause.Urban: return `The townsfolk of ${name} rise against ${against}` // (society: dear bread, low wages)
         case RevoltCause.Ethnic: {
           const pp = (h.settlements[e.settlement] as { people?: number }).people
           const pn = pp !== undefined ? h.peoples?.[pp]?.name : undefined
