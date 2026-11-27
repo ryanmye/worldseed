@@ -93,6 +93,8 @@ const DAY_OFFSET = THREE.MathUtils.degToRad(35)
 const HEART_DIST = 2.05
 const HEART_AHEAD = 100
 const HEART_EVERY = 20
+/** Before this year the heartland shot frames the leading people's hearth (glowing, render/peopleWash.ts). */
+const HEART_HEARTH_YEARS = 250
 /** The top battles of a run that play their replay inline while following. */
 const TOP_BATTLES = 3
 
@@ -274,7 +276,16 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
         best = id
       }
     }
-    return best >= 0 ? h.settlements[best].cell : -1
+    if (best < 0) return -1
+    // the first centuries: the hearth (an original tribe's place) of the people the most populous place belongs to
+    if (year < HEART_HEARTH_YEARS) {
+      const people = h.settlements[best].people
+      for (let id = 0; id < N; id++) {
+        const st = h.settlements[id]
+        if (st.parent < 0 && st.people === people && !st.outpost) return st.cell
+      }
+    }
+    return h.settlements[best].cell
   }
   let heartClock = HEART_EVERY
   /** Fly to the heartland unless it is already in view (lit); `force` ignores the interval. */

@@ -76,6 +76,8 @@ import { createNudgeView } from './nudgePanel.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
+import { buildPeopleWash, type PeopleWash } from '../render/peopleWash.ts'
+import { flat } from '../render/mapProjection.ts'
 import { followByDefault, groupRightRail, markVisited } from './onboard.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
 import { createWhatIfView, type CompareAsk, type CompareResult } from './whatifPanel.ts' // what-if:
@@ -884,12 +886,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
    * and toggles. `extend`: a longer run of the history on screen (keep the chronicle rows and
    * the diorama layouts; the timeline range only grows).
    */
+  /** onboarding: the peoples' washes and hearths (render/peopleWash.ts), rebuilt with each history. */
+  let peopleWash: PeopleWash | null = null
   function commit(w: World, h: History, b: Built, extend: boolean) {
     const old: Built = { layer: layer ?? undefined, journeys, structures, trade, roads, outposts, discoveries, speciesLayer, epidemics }
     disposeBuilt(old)
     index = b.index!
     layer = b.layer!
     deps.planetGroup.add(layer.mesh)
+    // onboarding: the peoples' washes and the glowing hearths of the first centuries (render/peopleWash.ts)
+    if (peopleWash) { deps.planetGroup.remove(peopleWash.object); peopleWash.dispose(); peopleWash = null }
+    if (index.peoples) { peopleWash = buildPeopleWash(w, h, index.peoples.rgb, index.peoples.people); deps.planetGroup.add(peopleWash.object) }
     journeys = b.journeys ?? null
     if (journeys) {
       journeys.object.visible = journeysVisible
@@ -1667,6 +1674,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       const pulseYears = timeline.yearsPerSecond
       layer.setTime(year, pos.frac, pulseYears)
       layer.update(deps.camera, drawSize, pixelRatio)
+      peopleWash?.update(year, pos.s0, pos.s1, pos.frac, deps.camera, drawSize, pixelRatio, markersVisible && viewMode === ViewMode.Terrain ? flat.t : 1) // onboarding
       updateLand(year)
       deps.getGlobe()?.setYear(year)
       if (structures && structuresVisible) {
