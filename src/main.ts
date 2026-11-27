@@ -70,6 +70,9 @@ import { startPlatform } from './platform/index.ts'
 // o=<orders> (the player's nudges, contract.ts encodeOrders: `year:kind:actor[:target]` joined by `;`, e.g.
 // o=1000:explore:5:12345;1000:fortify:14): part of the world's history like the seed, so the link reproduces a nudged
 // world and its outcomes; written whenever the orders change (the Nudge panel, ui/nudgePanel.ts), cleared with a new seed
+// lang=1 (language drift, HistoryOptions.language: names that split and wear with their speakers; MASTER-PLAN R32): part of
+// the history like o=. A new world (Start on the start page, a seed typed or drawn) writes lang=1; a link without it (every
+// link made before drift) keeps the names it always had.
 // c=<cradles> (the first hearths the player planted, contract.ts encodeCradles: a cell per people in people order,
 // -1 the simulation's choice): part of the history like o=; written at Start (the start page's "Choose where peoples
 // begin") and by the Nudge panel's "Replant the hearths", cleared with a new seed
@@ -398,9 +401,18 @@ let currentOrders: Order[] = decodeOrders(params.get('o') ?? '')
 /** The first hearths the player planted (c=, ui/hearthPicker.ts), canonical: the cradles the history shown or on its way was simulated with. */
 let currentCradles: number[] = canonicalCradles(decodeCradles(params.get('c') ?? ''))
 /** The history options of the history asked for: its length, the orders and the cradles (undefined: all default). */
+/** language: drift is on for this history (lang=1; new worlds write it, R32). */
+let languageOn = params.get('lang') === '1'
+/** A new world: drift on, written to the address (lang=1). */
+function newWorldLanguage(url?: URL) {
+  languageOn = true
+  if (url) url.searchParams.set('lang', '1')
+  else setUrlParam('lang', '1')
+}
 function historyOptionsNow(years = historyYears): HistoryOptions | undefined {
   const o: HistoryOptions = {}
   if (years !== 2000) o.years = years
+  if (languageOn) o.language = true
   if (currentOrders.length > 0) o.orders = currentOrders
   if (currentCradles.length > 0) o.cradles = currentCradles
   return Object.keys(o).length > 0 ? o : undefined
@@ -585,6 +597,7 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     currentSeed = seed
     setUrlParam('seed', String(seed))
     clearHistoryParams()
+    newWorldLanguage()
     requestWorld(seed)
   },
   onRandomSeed() {
@@ -592,6 +605,7 @@ const overlay = createOverlay(app, currentSeed, { viewMode, rivers: showRivers, 
     overlay.setSeed(currentSeed)
     setUrlParam('seed', String(currentSeed))
     clearHistoryParams()
+    newWorldLanguage()
     requestWorld(currentSeed)
   },
   onViewModeChange(mode: ViewModeT) {
@@ -1785,6 +1799,7 @@ if (showLanding) {
       else url.searchParams.set('years', String(years))
       if (currentCradles.length > 0) url.searchParams.set('c', encodeCradles(currentCradles))
       else url.searchParams.delete('c')
+      newWorldLanguage(url)
       window.history.replaceState(null, '', url)
       historyYears = wholeChunks(years)
       startHistory(seed)
