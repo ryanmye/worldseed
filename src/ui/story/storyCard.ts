@@ -66,6 +66,8 @@ export interface StoryCardDeps {
 }
 
 const MAX_BODY = 220
+/** ui-additions 4: a swipe this long (CSS px) sideways goes to the next story or puts the card away. */
+const SWIPE_PX = 56
 const EYE = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M1.5 8s2.4-4.5 6.5-4.5S14.5 8 14.5 8 12.1 12.5 8 12.5 1.5 8 1.5 8z" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="2.1" fill="currentColor"/></svg>'
 
 export function createStoryCard(deps: StoryCardDeps): StoryCard {
@@ -163,6 +165,28 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
     card.classList.toggle('expanded', on)
     setBody(on)
   })
+  // ui-additions 4 (phone): a sideways swipe on the card, left for the next story, right to put it away
+  let swipe: { id: number; x: number; y: number } | null = null
+  card.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || (e.target as HTMLElement).closest('button')) return
+    swipe = { id: e.pointerId, x: e.clientX, y: e.clientY }
+  })
+  card.addEventListener('pointermove', (e) => {
+    if (!swipe || e.pointerId !== swipe.id) return
+    const dx = e.clientX - swipe.x
+    if (Math.abs(dx) > Math.abs(e.clientY - swipe.y)) card.style.transform = `translateX(${dx * 0.6}px)`
+  })
+  const endSwipe = (e: PointerEvent) => {
+    if (!swipe || e.pointerId !== swipe.id) return
+    const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y
+    swipe = null
+    card.style.transform = ''
+    if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < 1.5 * Math.abs(dy)) return
+    if (dx < 0) deps.onNext()
+    else deps.onClose()
+  }
+  card.addEventListener('pointerup', endSwipe)
+  card.addEventListener('pointercancel', endSwipe)
   card.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.stopPropagation()

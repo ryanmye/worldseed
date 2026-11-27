@@ -109,6 +109,7 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
         if (wasCollapsed.get(el) === true && !el.classList.contains('collapsed') && !isContextRoot(el)) open = true
       }
     }
+    for (const el of Array.from(right.children)) el.classList.toggle('rail-context', el === ctx?.root)
     if (ctx) ctx.root.classList.remove('rail-tucked', 'rail-empty')
     for (const el of tuckable) {
       wasCollapsed.set(el, el.classList.contains('collapsed'))

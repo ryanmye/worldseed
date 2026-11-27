@@ -122,9 +122,11 @@ export function createSheet(deps: SheetDeps): Sheet {
   }
 
   // ---------- the tabs ----------
+  const rank = (p: HTMLElement) => (keyOf(p) === 'inspector' ? 0 : p.classList.contains('rail-context') ? 1 : 2)
   const tabFor = new Map<string, HTMLButtonElement>()
   function syncTabs() {
-    const list = panels()
+    // ui-additions 2/4: the context panel's tab first (after the inspector's), empty panels' tabs hidden (ui/onboard.ts)
+    const list = panels().sort((a, b) => rank(a) - rank(b))
     const keys = new Set<string>()
     let prev: HTMLButtonElement | null = null
     for (const p of list) {
@@ -141,8 +143,8 @@ export function createSheet(deps: SheetDeps): Sheet {
         t.textContent = TAB_LABELS[key] ?? title
         tabFor.set(key, t)
       }
-      t.hidden = !shownPanel(p)
-      // (in the column's order, the inspector first)
+      t.hidden = !shownPanel(p) || p.classList.contains('rail-empty')
+      // (in the column's order, the inspector first, then the context panel)
       const want: Element | null = prev ? prev.nextElementSibling : tabs.firstElementChild
       if (want !== t) tabs.insertBefore(t, want)
       prev = t

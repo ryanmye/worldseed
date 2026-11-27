@@ -322,3 +322,7 @@ html.compact .tl-follow .tl-follow-label {
 .timeline.disabled .tl-drama {
   visibility: hidden;
 }
+
+.story-root.compact .story-card {
+  touch-action: pan-y;
+}
