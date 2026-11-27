@@ -10,9 +10,9 @@ import { generateWorld, simulateHistory } from '../../index.ts'
 import { hashBase } from '../../../hashBase.ts'
 import { logStreams } from '../../rng.ts'
 import { SOC } from './params.ts'
-import { hazardMul, wagesAt } from './system.ts'
+import { hazardMul, kappaStep, wagesAt } from './system.ts'
 import { createSociety, ensureSocPolities } from './state.ts'
-import { socCivilMul, socContest, socCrisisPlus, socEliteLead, socOverthrowMul, socRevoltMul, psi } from './api.ts'
+import { socCivilMul, socContest, socCrisisPlus, socDisorderMul, socEliteLead, socOverthrowMul, socRevoltMul, psi } from './api.ts'
 import type { HistoryState } from '../state.ts'
 
 const worlds = new Map<number, ReturnType<typeof generateWorld>>()
@@ -115,5 +115,22 @@ describe('society', () => {
     const was = SOC.effects
     SOC.effects = false
     try { expect(socRevoltMul(s, 0)).toBeUndefined(); expect(socOverthrowMul(s, 1)).toBeUndefined(); expect(psi(s, 0)).toBe(1) } finally { SOC.effects = was }
+  })
+
+  it('h7: disorder lowers a member supply, never a stateless one', () => {
+    const soc = createSociety()
+    ensureSocPolities(soc, 1)
+    soc.init[0] = 1; soc.dis[0] = 0.6
+    const s = { soc, pol: { P: 1, pEnded: Int32Array.from([-1]), polity: Int32Array.from([0, -1]) } } as unknown as HistoryState
+    expect(socDisorderMul(s, 0)).toBeCloseTo(1 - SOC.disorder * 0.6, 12)
+    expect(socDisorderMul(s, 0)!).toBeLessThanOrEqual(1)
+    expect(socDisorderMul(s, 1)).toBeUndefined()
+  })
+
+  it('coercion: scarce labour with strong lords binds it, with weak lords frees it; full land lets it decay', () => {
+    expect(kappaStep(0.2, 1, 0.9, 0.5, 5)).toBeGreaterThan(0.2)
+    expect(kappaStep(0.6, 1, 0.3, 0.7, 5)).toBeLessThan(0.6)
+    expect(kappaStep(0.6, 0, 0.9, 0.3, 5)).toBeLessThan(0.6)
+    expect(kappaStep(0, 0, 0.9, 0.3, 5)).toBe(0)
   })
 })

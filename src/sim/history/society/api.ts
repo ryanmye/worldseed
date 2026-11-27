@@ -88,7 +88,7 @@ export function socRevoltMul(s: HistoryState, p: number): number | undefined {
 export const GRIEF = { imm: 0, coerce: 0, urban: 0 }
 /**
  * h2: grievance additions of member i of p into GRIEF: immiseration immis · max(0, 1/w − 1) and failed coercion
- * coerceGrief · κ · scar · [λ < π] (added to the peasant term); townsfolk urban · (max(0, 1/wU − 1) + max(0, ĉ_town − 1)) for
+ * coerceGrief · κ · scar · [λ < π] (added to the peasant term); townsfolk urban · (max(0, urbPrem/wU − 1) + max(0, ĉ_town − 1)) for
  * a member >= TOWN_POPULATION (terms[6], RevoltCause.Urban). Returns false (all 0) when not live.
  */
 export function socGrief(s: HistoryState, i: number, p: number): boolean {
@@ -100,7 +100,7 @@ export function socGrief(s: HistoryState, i: number, p: number): boolean {
   GRIEF.imm = iw > 0 ? S.immis * iw : 0
   GRIEF.coerce = c.lam[p] < c.pi[p] ? S.coerceGrief * c.kappa[p] * c.scar[p] : 0
   if (s.pop[i] >= TOWN_POPULATION) {
-    const uw = 1 / c.wU[p] - 1
+    const uw = S.urbPrem / c.wU[p] - 1 // (townsfolk against their customary premium)
     const ct = s.pop[i] / (S.cRef * foodBase(s, i)) - 1
     GRIEF.urban = S.urban * ((uw > 0 ? uw : 0) + (ct > 0 ? ct : 0))
   }

@@ -39,13 +39,15 @@ type U8Key = (typeof SOC_U8)[number]
 
 export type SocietyState = { [K in F64Key]: Float64Array } & { [K in I32Key]: Int32Array } & { [K in U8Key]: Uint8Array } & {
   pcap: number
-  /** Ring length (SOC.ring) and its head (the slot of this step); ring[p * RING + k] population, oRing overproduction o. */
+  /** Ring length (SOC.ring) and its head (the slot of this step); ring[p * RING + k] crowding ĉ (the youth-bulge proxy: density growth, not territory), oRing overproduction o. */
   RING: number
   ringAt: number
   ring: Float64Array
   oRing: Float64Array
   /** Event log position of the yearly scan. */
   evSeen: number
+  /** Slow land capacity per settlement: EMA of its foodBase (rate SOC.kRate a year; 0 = not yet seen). K̄ of a polity is the sum over its members, so a conquest moves K̄ with the land at once. */
+  kS: Float64Array
   /** Member aggregates (polity/aggregates.ts), one pass a step. */
   agg: PolAggs
   // --- snapshots: ragged per polity like finance (row-major S · P at assembly) ---
@@ -64,7 +66,7 @@ export function createSociety(): SocietyState {
   const R = SOC.ring
   const o: Record<string, unknown> = {
     pcap: n, RING: R, ringAt: 0, ring: new Float64Array(n * R), oRing: new Float64Array(n * R), evSeen: 0,
-    agg: createAggs(),
+    agg: createAggs(), kS: new Float64Array(1024),
     snOff: [], snN: [], snUsed: 0,
     diag: { crises: 0, expansions: 0, dear: 0, serfOn: 0, serfOff: 0, factions: 0, ennobled: 0, thinned: 0, inst: 0, thinTotal: 0, steps: [] },
   }
@@ -94,4 +96,12 @@ export function ensureSocPolities(soc: SocietyState, need: number): void {
   soc.ring = grow(soc.ring, n * soc.RING)
   soc.oRing = grow(soc.oRing, n * soc.RING)
   soc.pcap = n
+}
+
+/** Grows the per-settlement arrays to hold `need` settlements. */
+export function ensureSocSettlements(soc: SocietyState, need: number): void {
+  if (need <= soc.kS.length) return
+  let n = soc.kS.length
+  while (n < need) n *= 2
+  soc.kS = grow(soc.kS, n)
 }

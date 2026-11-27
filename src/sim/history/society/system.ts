@@ -29,7 +29,8 @@ import { polityFaith } from '../religion/system.ts'
 import { finMonetised, finRevenue, finSFD } from '../finance/hooks.ts'
 import { SOC } from './params.ts'
 import type { SocietyState } from './state.ts'
-import { ensureSocPolities } from './state.ts'
+import { ensureSocPolities, ensureSocSettlements } from './state.ts'
+import { foodBase } from '../migration.ts'
 
 const clamp = (x: number, lo: number, hi: number): number => (x < lo ? lo : x > hi ? hi : x)
 const r3 = (x: number): number => Math.round(x * 1000) / 1000
@@ -67,6 +68,16 @@ export function wagesAt(chat: number, kappa: number, tau: number, iota: number):
   const wU = (S.urbPrem * w * (1 + (S.urbShare * iota) / (iota + 1))) / (1 + S.urbCrowd * (chat > 1 ? chat - 1 : 0))
   const r = (1 - S.alpha) * y + S.alpha * y * S.chi * kappa
   return { w, wU, r, y }
+}
+
+/**
+ * Coercion one step on (Brenner 1976; Domar 1970): when labour is scarce (scar > 0) lords bind it if their power λ beats the
+ * peasants' π (κ rises) and lose their grip if not; when land is full, coercion decays (the market gives rents).
+ */
+export function kappaStep(kap: number, scar: number, lam: number, pi: number, step: number): number {
+  const S = SOC
+  const kStar = scar > 0 ? clamp(kap + S.kUp * scar * (lam - pi), 0, 1) : kap * (1 - S.kDown)
+  return clamp(kap + S.kRate2 * step * (kStar - kap), 0, 1)
 }
 
 /** newPolity hook (before the rulers'): its elites and coercion from the parent; the land and the rest at its first step. */
@@ -157,6 +168,18 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
   ensureSocPolities(soc, ps.P)
   aggregatePass(s, ps, soc.agg)
   const A = soc.agg
+  // K̄: each settlement's slow capacity, summed over the members (land does not vanish when hands die).
+  ensureSocSettlements(soc, s.count)
+  const kS = soc.kS, kb = soc.kBar
+  for (const p of ps.alive) kb[p] = 0
+  const living = s.living
+  for (let t = 0; t < living.length; t++) {
+    const id = living[t]
+    const f = foodBase(s, id)
+    kS[id] = kS[id] > 0 ? kS[id] + step * S.kRate * (f - kS[id]) : f
+    const p = ps.polity[id]
+    if (p >= 0) kb[p] += kS[id]
+  }
   const R = soc.RING
   const head = soc.ringAt
   const lagSlot = (head - S.lagSteps + R) % R, y20 = (head - 4 + R) % R
@@ -164,16 +187,15 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
   for (const p of ps.alive) {
     if (ps.pEnded[p] >= 0) continue
     const L = A.pop[p]
-    if (!(L > 0) || !(A.food[p] > 0)) continue
+    if (!(L > 0) || !(soc.kBar[p] > 0)) continue
     const fresh = soc.init[p] === 0
     if (fresh) {
-      soc.kBar[p] = A.food[p]
       if (!(soc.eps[p] > 0)) soc.eps[p] = S.epsNew * S.eps0
-      for (let k = 0; k < R; k++) soc.ring[p * R + k] = L
+      for (let k = 0; k < R; k++) soc.ring[p * R + k] = L / (S.cRef * soc.kBar[p])
       soc.initYear[p] = year
       soc.ePeak[p] = 1; soc.ePeakYear[p] = year
       soc.phase[p] = SecularPhase.Expansion; soc.phaseSince[p] = year
-    } else soc.kBar[p] += step * S.kRate * (A.food[p] - soc.kBar[p])
+    }
     const age = (year - soc.initYear[p]) / step // steps of history
     // Disorder and the violence memory from last step's instability.
     const inst = soc.instY[p]
@@ -205,7 +227,11 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
     const oLag = !fresh && age >= S.lagSteps ? soc.oRing[p * R + lagSlot] : o
     const mobY = (S.mob * iota) / (iota + S.mobHalf)
     const g = S.gUp * (oLag < 1 ? 1 - oLag : 0) + S.gFloor - S.gDown * (o > 1 ? o - 1 : 0) + mobY
-    soc.eps[p] = clamp(eps * (1 + step * g), S.epsMin, S.epsMax)
+    // (in a crisis of the social order the great houses also fall by feud, attainder and ruin that no single event records)
+    const att = soc.phase[p] === SecularPhase.Crisis ? 1 - step * S.crisisAttr : 1
+    const eNew = clamp(eps * (1 + step * g) * att, S.epsMin, S.epsMax)
+    if (att < 1) D.thinTotal += eps * (1 + step * g) - eNew
+    soc.eps[p] = eNew
     soc.mobAcc[p] += step * mobY * eps
     // Coercion κ (Brenner 1976; Domar 1970).
     const A_p = ps.pAsab[p]
@@ -213,8 +239,7 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
     const lam = A_p * (1 - 0.5 * u) * (0.5 + 0.5 * (o < 1 ? o : 1))
     const wonN = soc.won[p] / 2
     const pi = 0.3 + 0.4 * (1 - kap) + 0.3 * (wonN < 1 ? wonN : 1)
-    const kStar = scar > 0 ? clamp(kap + S.kUp * scar * (lam - pi), 0, 1) : kap * (1 - S.kDown)
-    const kNew = clamp(kap + S.kRate2 * step * (kStar - kap), 0, 1)
+    const kNew = kappaStep(kap, scar, lam, pi, step)
     soc.kappa[p] = kNew
     soc.scar[p] = scar; soc.lam[p] = lam; soc.pi[p] = pi
     const cap = ps.pCapital[p]
@@ -225,7 +250,7 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
     const urbF = clamp(1 + S.mmpUrb * (u - S.uRef), 0.6, 2)
     let youth = 1
     if (!fresh && age >= R) {
-      const l20 = soc.ring[p * R + y20], l40 = soc.ring[p * R + head]
+      const l20 = soc.ring[p * R + y20], l40 = soc.ring[p * R + head] // (crowding, not people: conquest is no youth bulge)
       const gr = l40 > 0 ? l20 / l40 - 1 : 0
       youth = clamp(1 + (S.mmpYouth * (gr > 0 ? gr : 0)) / S.youthRef, 1, 2)
     }
@@ -277,11 +302,11 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
     else if (ph === SecularPhase.Stagflation && o < 0.9) nph = SecularPhase.Expansion
     if (nph !== ph) {
       soc.phase[p] = nph; soc.phaseSince[p] = year
-      if (nph === SecularPhase.Crisis) { logX(s, EventType.SocialPhase, cap, -1, p, SecularPhase.Crisis); D.crises++ }
+      if (nph === SecularPhase.Crisis && ph !== SecularPhase.Depression) { logX(s, EventType.SocialPhase, cap, -1, p, SecularPhase.Crisis); D.crises++ }
       else if (nph === SecularPhase.Expansion && ph === SecularPhase.Depression) { logX(s, EventType.SocialPhase, cap, -1, p, SecularPhase.Expansion); D.expansions++ }
     }
     // Memory rings (this step's slot; read 4 and 8 steps on).
-    soc.ring[p * R + head] = L
+    soc.ring[p * R + head] = chat
     if (fresh) for (let k = 0; k < R; k++) soc.oRing[p * R + k] = o
     else soc.oRing[p * R + head] = o
     soc.init[p] = 1
@@ -290,7 +315,6 @@ export function societyStep(s: HistoryState, ps: PolityState, soc: SocietyState)
   soc.ringAt = (head + 1) % R
   // h6: elite infighting rots asabiya (after cohesionStep's update, in s.living order).
   if (!S.effects) return
-  const living = s.living
   const asab = ps.asab
   for (let t = 0; t < living.length; t++) {
     const i = living[t]

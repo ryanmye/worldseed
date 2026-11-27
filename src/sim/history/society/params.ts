@@ -1,6 +1,10 @@
 // society: tuning constants for classes, wages and rents, elite overproduction and political stress Ψ (society-secular-cycles.md
 // §2.3). Every number is a design default [A] unless its comment says otherwise; the model forms are cited in system.ts. Wages
 // are in multiples of subsistence, incomes in loads (a person-year of grain at worth 1). Rates are a year's unless "a step".
+// Tuned (step 7, societyStats.ts on seeds 1, 42; plan defaults in brackets): mHigh 4 [3], psiHalf 1.8 [1.6], thinCivil 0.25 [0.15],
+// memDamp 0.7 [0.6], lagSteps 8 [4], gUp 0.04 [0.02], gDown 0.004 [0.01], gFloor 0.002 [0.004] (a longer, stronger delayed
+// feedback and weaker instant restoring force), crisisAttr 0.02 (new), psiLow 1.0 [0.9], psiHigh 2.2 [1.8], disorder 0.08 [0.25],
+// disGain 0.05 [0.08] (0.25 cost a fifth of the world's people by 2000), youthRef 0.25 [0.05] (crowding growth, not people).
 
 export const SOC = {
   /** Society off by default (HistoryOptions.society overrides it; the coordinator flips defaults, MASTER-PLAN R29). */
@@ -9,7 +13,7 @@ export const SOC = {
   effects: true,
   /** Ring length (steps) of the population and overproduction memory: 8 steps = 40 years (youth bulge, lagged o). */
   ring: 8,
-  /** K̄ += step · kRate · (Σ foodBase − K̄): a 20-year memory of the land (it does not vanish when hands die). */
+  /** K̄ = Σ over members of each settlement's EMA of foodBase, kS += step · kRate · (foodBase − kS): a 20-year memory of the land (it does not vanish when hands die; a conquest brings its land at once). */
   kRate: 0.05,
   /** Crowding L / K̄ at which the peasant wage is subsistence (≈ p75 of measured polity crowding 0.55-0.90, plan §1.2 [M]). */
   cRef: 0.8,
@@ -35,28 +39,30 @@ export const SOC = {
   epsMin: 0.002,
   epsMax: 0.12,
   /** Yearly ε growth γ = gUp · max(0, 1 − o_lag) + gFloor − gDown · max(0, o − 1) + mobility; o_lag lagSteps steps back (a generation). */
-  gUp: 0.02,
-  gFloor: 0.004,
-  gDown: 0.01,
-  lagSteps: 4,
+  gUp: 0.04,
+  gFloor: 0.002,
+  gDown: 0.004,
+  lagSteps: 8,
   /** Yearly upward mobility from trade: mob · ι / (ι + mobHalf) (merchants buying land and titles). */
   mob: 0.002,
   mobHalf: 2,
   /** ε *= 1 − thin per event (§2.6): a won revolt, a succession crisis, a civil war (parent), an overthrow, a partition, a lost war, a fragmentation. */
   thinRevolt: 0.03,
   thinCrisis: 0.02,
-  thinCivil: 0.15,
+  thinCivil: 0.25,
   thinOverthrow: 0.02,
   thinPartition: 0.05,
   thinLost: 0.03,
   thinFrag: 0.2,
+  /** Yearly elite attrition while in the Crisis phase (feuds, attainders, ruin no single event records; Turchin & Nefedov 2009's disintegrative-phase elite decline). */
+  crisisAttr: 0.02,
   /** A civil war's pretender polity starts at ε_parent · (1 + factionTake) (the disaffected faction left with him). */
   factionTake: 0.3,
   /** MMP urban factor clamp(1 + mmpUrb · (u − uRef), 0.6, 2). */
   uRef: 0.15,
   mmpUrb: 1.5,
-  /** Youth bulge clamp(1 + mmpYouth · max(0, L(t−20) / L(t−40) − 1) / youthRef, 1, 2). */
-  youthRef: 0.05,
+  /** Youth bulge clamp(1 + mmpYouth · max(0, ĉ(t−20) / ĉ(t−40) − 1) / youthRef, 1, 2): crowding growth (the plan's L(t−20)/L(t−40) counted conquests as births). */
+  youthRef: 0.25,
   mmpYouth: 1,
   /** EMP = o · clamp(1 + empAsab · (aRef − A), 0.5, 1.6) (cohesive elites compete less). */
   empAsab: 0.8,
@@ -67,19 +73,19 @@ export const SOC = {
   sfdOver: 0.4,
   /** Hazard multiplier m(Ψ) = mLow + (mHigh − mLow) · Ψ² / (Ψ² + psiHalf²). */
   mLow: 0.5,
-  mHigh: 3.0,
-  psiHalf: 1.6,
+  mHigh: 4,
+  psiHalf: 1.8,
   /** Violence memory M += memGain · inst a step; M *= memKeep a step (half-life ≈ 25 y); hazard × (1 − memDamp · min(1, M)) (fathers and sons). */
   memGain: 0.15,
   memKeep: 0.87,
-  memDamp: 0.6,
+  memDamp: 0.7,
   /** Disorder D = min(1, disKeep · D + disGain · inst) a step; supply × (1 − disorder · D) (h7). */
-  disGain: 0.08,
+  disGain: 0.05,
   disKeep: 0.8,
-  disorder: 0.25,
+  disorder: 0.08,
   /** Asabiya erosion a year: a −= erode · max(0, EMP − 1) · a (elite infighting; h6). */
   erode: 0.02,
-  /** Grievance terms (h2): immiseration immis · max(0, 1/w − 1); failed coercion coerceGrief · κ · scar; townsfolk urban · (max(0, 1/wU − 1) + max(0, ĉ_town − 1)). */
+  /** Grievance terms (h2): immiseration immis · max(0, 1/w − 1); failed coercion coerceGrief · κ · scar; townsfolk urban · (max(0, urbPrem/wU − 1) + max(0, ĉ_town − 1)) (against the customary urban premium). */
   immis: 0.25,
   coerceGrief: 0.3,
   urban: 0.35,
@@ -104,8 +110,8 @@ export const SOC = {
   dearGap: 50,
   wSmRate: 0.1,
   /** Phases (§2.8): Stagflation at o >= 1 and Ψ >= psiLow; Crisis at Ψ >= psiHigh or D >= dCrisis; Expansion again at Ψ < psiLow and D < dLow. */
-  psiLow: 0.9,
-  psiHigh: 1.8,
+  psiLow: 1.0,
+  psiHigh: 2.2,
   dLow: 0.1,
   dCrisis: 0.5,
   /** EliteFactions hysteresis on EMP. */
