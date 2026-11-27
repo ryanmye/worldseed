@@ -15,6 +15,7 @@
 //
 // DOM writes happen only when a shown value changes; the per-frame update compares numbers.
 
+import { peopleLanguageLines } from './languageFormat.ts' // language: a people's tongues (empty without drift)
 import * as THREE from 'three'
 import { TECH_FIELD_COUNT, type History, type World } from '../contract.ts'
 import { buildContactPulses, buildKnownWorldFog, type ContactPulses, type KnownWorldFog } from '../render/knownWorld.ts'
@@ -425,6 +426,7 @@ export function createPeoplesView(deps: PeoplesViewDeps): PeoplesView {
     {
       const lines = selection !== null && selection >= 0 ? (peopleDiseaseNote?.(selection, year, s) ?? []) : []
       if (selection !== null && selection >= 0 && peopleIdeasNote) lines.push(...peopleIdeasNote(selection, year))
+      if (selection !== null && selection >= 0) lines.push(...peopleLanguageLines(index.history, selection, Math.floor(year / 50) * 50)) // language: its tongues (by half-century, so the text changes seldom)
       const text = lines.length && selection !== null ? [`The ${data.names[selection]}:`, ...lines].join('\n') : ''
       if (text !== shownDiseaseNote) {
         shownDiseaseNote = text

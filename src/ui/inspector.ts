@@ -17,6 +17,7 @@ import { describeOutpostSite } from './expeditionsData.ts'
 import { politiesOf, wallSlighted } from './politiesData.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { namesLine } from './renamingFormat.ts'
+import { etymologyLine } from './languageFormat.ts'
 import { landmarkLines } from './landmarksFormat.ts'
 import { requestFlyIn } from './flyIn.ts'
 import { originWords } from './cradlesFormat.ts'
@@ -419,7 +420,7 @@ export function createInspector(container: HTMLElement, callbacks: InspectorCall
           trade.show(index, selected)
         }
         shownNames = ne
-        const nl = namesLine(h, selected, year)
+        const nl = [namesLine(h, selected, year), etymologyLine(h, selected, year)].filter((x) => x).join(' · ') // (language: the etymology line)
         namesEl.textContent = nl
         namesEl.classList.toggle('hidden', nl === '')
       }

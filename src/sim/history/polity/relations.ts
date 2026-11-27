@@ -17,6 +17,7 @@ import { CLAIM, POLITY, RELATION } from './params.ts'
 import { tied } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { faithRivalry } from '../religion/system.ts' // religion:
+import { whyRivalry } from '../why.ts' // causes:
 
 function key(p: number, q: number): number {
   return p < q ? p * 65536 + q : q * 65536 + p
@@ -103,17 +104,20 @@ export function relationStep(s: HistoryState, ps: PolityState, ts: TradeState): 
     if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0) continue
     let x = ps.relR[r]
     let d = -X.decay * x
+    let tc = 0, tdf = 0, th = 0, tw = 0, tt = 0, tm = 0, tf = 0 // causes: the terms (why.ts)
     if (ps.relEdges[r].length > 0) {
       const c = contested[r] + CLAIM.dispute * ps.relDispute[r] // (claims meeting: border disputes)
       const v = vol[r]
       const h = r < hunger.length && hungerN[r] > 0 ? hunger[r] / hungerN[r] : 0
-      d += X.claim * (c / (c + X.claimHalf)) + (ps.pPeople[a] !== ps.pPeople[b] ? X.differ : 0) + X.hunger * h +
-        (s.year - ps.relLastWar[r] < X.recentYears ? X.recentWar : 0) - X.trade * (v / (v + X.tradeHalf))
-      if (s.rul !== null && tied(s.rul, a, b)) d -= MARRIAGE.rivalry // rulers: a marriage tie
-      if (s.rel !== null) d += faithRivalry(s, s.rel, a, b) // religion: faiths shared or opposed
+      tc = X.claim * (c / (c + X.claimHalf)); tdf = ps.pPeople[a] !== ps.pPeople[b] ? X.differ : 0; th = X.hunger * h
+      tw = s.year - ps.relLastWar[r] < X.recentYears ? X.recentWar : 0; tt = X.trade * (v / (v + X.tradeHalf))
+      d += tc + tdf + th + tw - tt
+      if (s.rul !== null && tied(s.rul, a, b)) { tm = MARRIAGE.rivalry; d -= tm } // rulers: a marriage tie
+      if (s.rel !== null) { tf = faithRivalry(s, s.rel, a, b); d += tf } // religion: faiths shared or opposed
     }
     x += step * d
     ps.relR[r] = x < 0 ? 0 : x > 2 ? 2 : x
+    if (ps.why) whyRivalry(ps.why, r, step, X.decay, ps.relR[r], tc, contested[r], CLAIM.dispute * ps.relDispute[r], tdf, th, tw, tt, tm, tf) // causes:
   }
 }
 

@@ -19,8 +19,8 @@ describe('hashBase', () => {
     const h = simulateHistory(generateWorld(5), { years: 200 })
     const base = hashBase(h)
     // identity on the 8cabf09 shape (the fields later plans added, empty with their options off, taken out first)
-    const { disasters: _d, climate: _c, weatherRegion: _w, ...h0 } = h // disasters:
-    expect(base).toBe(hashValue(h0))
+    const { why: _why, disasters: _d, climate: _c, weatherRegion: _w, ...rest } = h // (causes: History.why; disasters: its fields)
+    expect(base).toBe(hashValue(rest))
     const widened = { ...h, plannedField: new Float32Array(4), wars: { ...h.wars, plannedColumn: new Int32Array(h.wars.count) } } as unknown as History
     expect(hashBase(widened)).toBe(base)
     expect(hashValue(widened)).not.toBe(base)

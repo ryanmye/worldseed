@@ -16,6 +16,7 @@
 // Absorption: a chiefdom whose capital would submit to a much larger neighbouring polity joins it whole.
 
 import { EventType, PolityEnd, PolityOrigin, TOWN_POPULATION } from '../../../contract.ts'
+import { whyAbsorbed } from '../why.ts' // causes:
 import type { HistoryState } from '../state.ts'
 import type { TradeState } from '../trade.ts'
 import { logEvent } from '../state.ts'
@@ -185,6 +186,7 @@ export function absorption(s: HistoryState, ps: PolityState): void {
     }
     if (best < 0) continue
     const q = best
+    if (ps.why) whyAbsorbed(ps.why, p, ps.pPop[q], ps.pPop[p], 0) // causes:
     const living = s.living
     for (let t = 0; t < living.length; t++) {
       const id = living[t]

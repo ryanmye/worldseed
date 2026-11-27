@@ -33,6 +33,7 @@ import type { RulerState } from './state.ts'
 import { marriageStep, unionEnded, unionStep, unionsOnSuccession, extinctClaim } from './marriage.ts'
 import { capitalFaith } from '../religion/system.ts' // religion:
 import { contestChanceOf, overthrowExposed, overthrowHazard, pickHeir } from './hazards.ts'
+import { crisisBits, whyCrisis, whyCrisisPending, whyCrisisRival } from '../why.ts' // causes:
 
 const H = RULERS.heirs
 
@@ -464,6 +465,7 @@ export function succession(s: HistoryState, ps: PolityState, R: RulerState, ts: 
       const chance = contestChanceOf(ps, R, p, law, dead, heir, year) // hazards.ts
       const sons = law === 1 ? adultSons(R, p, dead, heir, year) : 0
       if (ps.pCrisisUntil[p] <= year && rng.next() < chance) {
+        if (ps.why) whyCrisisPending(ps.why, chance, crisisBits(ps, R, p, law, dead, heir, year)) // causes: (before the heir accedes)
         clean = false
         // A disputed succession: the heir, or a rival of the house (or a usurper), takes the capital; the loser may rise.
         const rival = rivalIn(R, p, heir, year)
@@ -515,9 +517,11 @@ function contested(s: HistoryState, ps: PolityState, R: RulerState, ts: TradeSta
   R.diag.contested++
   ps.pCrisisUntil[p] = s.year + S.crisisMin + Math.floor(rng.next() * (S.crisisMax - S.crisisMin + 1))
   logX(s, EventType.SuccessionCrisis, ps.pCapital[p], -1, p, R.cur[p])
+  if (ps.why) whyCrisis(ps.why, s.events.length - 1) // causes:
   if (ps.pMembers[p] < CIVIL.minMembers || ps.pSub[p] >= 0) return
   const members = membersOf(s, ps, p)
   const rc = rivalCentre(s, ps, p, members)
+  if (ps.why && rc >= 0) whyCrisisRival(ps.why) // causes:
   if (rc >= 0 && rng.next() < S.civil * (1 + ps.pMembers[p] / CIVIL.sizeCrisis)) {
     R.ctx = Ctx.Civil; R.ctxDyn = rivalDyn; R.ctxBorn = rivalDyn >= 0 ? born : 0; R.ctxFemale = female; R.ctxDead = dead
     if (rivalDyn >= 0 && s.year - born < RULERS.majority) R.ctxBorn = s.year - RULERS.majority - R.rng.int(0, 20)

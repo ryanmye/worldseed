@@ -2,7 +2,8 @@
 // is ever said). One index per history (events by settlement and by type, settlements by people), built on first
 // use; the rest are small lookups over it and over the polity, ruler and faith indexes the panels already build.
 
-import { landmarkNameAt, RIVER_FLOW_THRESHOLD, settlementNameAt, type History, type HistoryEvent, type World } from '../../contract.ts'
+import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year (settlementNameAt without drift)
+import { landmarkNameAt, RIVER_FLOW_THRESHOLD, type History, type HistoryEvent, type World } from '../../contract.ts'
 import { politiesOf, statIndex, tierWord, type PolitiesData } from '../politiesData.ts'
 import { rulersOf, rulerWord, type RulersData } from '../rulersData.ts'
 import { faithName, faithsOf, type FaithsData } from '../faithsData.ts'
@@ -128,7 +129,7 @@ export class Ctx {
   }
   /** Name in use at `y`. */
   name(id: number, y = this.Y): string {
-    return id >= 0 && id < this.N ? settlementNameAt(this.h, id, y) : 'a far place'
+    return id >= 0 && id < this.N ? spokenNameAt(this.h, id, y) : 'a far place'
   }
   /** Name in use at `y`, with the name it bears at the year told the first time it differs ("Rilko (now Rilkochal)"). */
   place(id: number, y: number): string {

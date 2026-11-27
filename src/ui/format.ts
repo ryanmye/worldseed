@@ -8,7 +8,8 @@ import { describeDiseaseEvent, describeDiseaseEventFor, diseaseEventKind } from 
 import { describeTourismEvent, describeTourismEventFor, tourismEventKind } from './tourismFormat.ts'
 import { describeRulersEvent, describeRulersEventFor, rulersEventKind } from './rulersFormat.ts'
 import { describeDisasterEvent, describeDisasterEventFor, disasterEventKind } from './disastersFormat.ts' // disasters:
-import { renamedName } from './renamingData.ts'
+import { namesYear, renamedName } from './renamingData.ts'
+import { spokenName } from './languageData.ts'
 import { describeRenamingEvent, describeRenamingEventFor, isRenamingEvent } from './renamingFormat.ts'
 import { describeLandmarkEvent, describeLandmarkEventFor, isLandmarkEvent } from './landmarksFormat.ts'
 import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEvent } from './tradeDangerFormat.ts'
@@ -16,6 +17,7 @@ import { describeTradeDangerEvent, describeTradeDangerEventFor, isTradeDangerEve
 import { describeIdeasEvent, describeIdeasEventFor, ideasEventKind, isIdeasEvent, techAdvanceNote } from './ideasFormat.ts'
 import { describeOrderEvent, describeOrderEventFor, isOrderEvent } from './nudgeFormat.ts'
 import { describeCradleEvent, describeCradleEventFor, isCradleEvent } from './cradlesFormat.ts'
+import { describeLanguageEvent, describeLanguageEventFor, isLanguageEvent } from './languageFormat.ts'
 
 /**
  * Display name of a settlement (its procedural name; a numbered fallback for histories without names). renaming: the name it
@@ -23,7 +25,8 @@ import { describeCradleEvent, describeCradleEventFor, isCradleEvent } from './cr
  */
 export function settlementName(history: History, id: number): string {
   const s = history.settlements[id] as { name?: string } | undefined
-  return (s ? renamedName(history, id) : null) ?? (s?.name || `Settlement #${id}`)
+  // language: with drift, the name as said in that year (languageData.ts); null without
+  return (s ? spokenName(history, id, namesYear()) ?? renamedName(history, id) : null) ?? (s?.name || `Settlement #${id}`)
 }
 
 /** 812, 4.3k, 56k, 1.2M */
@@ -350,6 +353,7 @@ export function eventKind(e: HistoryEvent): EventKind {
     case EventType.Drain: return 'habit'
     case EventType.Panzootic: return 'plague'
     case EventType.PlaceRenamed: return 'renamed'
+    case EventType.LanguageSplit: case EventType.LanguageShift: case EventType.LoanWave: case EventType.LanguageDied: return 'renamed' // language: (the nearest kind: names and tongues)
     case EventType.LandmarkBegun: case EventType.LandmarkCompleted: case EventType.LandmarkAbandoned: case EventType.LandmarkNeglected:
     case EventType.LandmarkRuined: case EventType.LandmarkRestored: case EventType.LandmarkConverted: return 'landmark'
     case EventType.IdeaConceived: case EventType.IdeaAdopted: case EventType.IdeaLost: case EventType.IdeaResisted: return (ideasEventKind(e) ?? 'idea') as EventKind
@@ -414,6 +418,7 @@ export function describeEvent(h: History, e: HistoryEvent): string {
       if (isIdeasEvent(e.type as number)) return describeIdeasEvent(h, e) ?? `New ideas at ${name}`
       if (isOrderEvent(e.type as number)) return describeOrderEvent(h, e) ?? 'An order'
       if (isCradleEvent(e.type as number)) return describeCradleEvent(h, e) ?? 'A first hearth'
+      if (isLanguageEvent(e.type as number)) return describeLanguageEvent(h, e) ?? `The speech of ${name} changes`
       return describePeoplesEvent(h, e) ?? describeGoodsEvent(h, e) ?? describeDiseaseEvent(h, e) ?? describeTourismEvent(h, e) ?? describePolityEvent(h, e) ?? `${formatInt(e.value)} migrated from ${name} to ${settlementName(h, e.other)}`
   }
 }
@@ -494,6 +499,7 @@ export function describeEventFor(h: History, e: HistoryEvent, id: number): strin
       if (isIdeasEvent(e.type as number)) return describeIdeasEventFor(h, e, id) ?? 'New ideas'
       if (isOrderEvent(e.type as number)) return describeOrderEventFor(h, e, id) ?? 'An order'
       if (isCradleEvent(e.type as number)) return describeCradleEventFor(h, e, id) ?? 'A first hearth'
+      if (isLanguageEvent(e.type as number)) return describeLanguageEventFor(h, e, id) ?? 'Its speech changed'
       return describePeoplesEventFor(h, e, id) ?? describeGoodsEventFor(h, e, id) ?? describeDiseaseEventFor(h, e, id) ?? describeTourismEventFor(h, e, id) ?? describePolityEventFor(h, e, id) ?? (e.settlement === id
         ? `${formatInt(e.value)} left for ${settlementName(h, e.other)}`
         : `${formatInt(e.value)} arrived from ${settlementName(h, e.settlement)}`)

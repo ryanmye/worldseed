@@ -137,6 +137,21 @@ function repair(units: string[], to: Language): string | null {
   return null
 }
 
+/**
+ * language: a word taken into another language (loans and exonyms, contact.ts): its sounds into the new tongue's nearest, the
+ * word reshaped to the new tongue's onsets and finals, repaired to euphony (the first three attempts plain, the rest with the odd
+ * consonant taken as the second nearest). The word itself when no attempt gives a euphonic word. adaptName's draws are untouched.
+ */
+export function borrowWord(word: string, to: Language, rng: Rng): string {
+  const w0 = word.toLowerCase()
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const u = fitShape(soundsInto(w0, to, rng, attempt < 3 ? 0 : 0.35), to, rng)
+    const w = repair(u, to)
+    if (w !== null && letterCount(w) >= 2) return w
+  }
+  return w0
+}
+
 /** Vowel groups (syllables) of a sound sequence. */
 function syllables(units: string[]): number {
   let n = 0

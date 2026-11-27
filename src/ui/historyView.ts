@@ -35,6 +35,7 @@ import { buildJourneyLayer, type JourneyLayer } from '../render/journeys.ts'
 import { buildStructureLayer, type StructureLayer } from '../render/structures.ts'
 import { createDioramaLayer, DIORAMA_FAR, DIORAMA_NEAR, DIORAMA_YIELD_FAR, DIORAMA_YIELD_NEAR, type DioramaLayer } from '../render/dioramas/layer.ts'
 import { createChronicle } from './chronicle.ts'
+import { createWhyPanel } from './whyPanel.ts' // causes:
 import { buildHistoryIndex, HISTORY_CHUNK_YEARS, landSnapshotAt, logScaled, NORM_YEARS, snapshotAt, type HistoryIndex, type SnapshotPos } from './historyIndex.ts'
 import { createInspector } from './inspector.ts'
 import { createTimeline, More } from './timeline.ts'
@@ -366,7 +367,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       return null
     },
     southern: (id) => (world && index && id >= 0 && id < index.count ? world.grid.positions[index.history.settlements[id].cell * 3 + 1] < 0 : false),
+    onWhy: (ev, n) => why.open(`event:${ev}`, n > 1 ? `One of ${n} in this entry.` : ''), // causes: the Why panel
   })
+  // causes: the Why panel (whyPanel.ts), below the chronicle
+  const why = createWhyPanel({ host: deps.right, history: () => index?.history ?? null, seed: () => world?.seed ?? 0, select: (id) => api.select(id, true), setUrlParam: deps.setUrlParam })
   // peoples panel, known-world view, inspector people section (its Esc comes first: Esc leaves the known world before it deselects)
   const peoples = createPeoplesView({
     right: deps.right,
@@ -498,6 +502,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     cityEngaged: () => deps.cityEngaged?.() ?? false,
     legend: () => sagas.legend,
     openSaga: (subject) => sagas.open(subject),
+    openWhy: (ev) => why.open(`event:${ev}`), // causes: the caption's "Why?"
     addLayerToggle: deps.addLayerToggle,
     setUrlParam: deps.setUrlParam,
     requestRender,
@@ -927,6 +932,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     popLegend.classList.toggle('hidden', viewMode !== ViewMode.Population || !popDensity)
     chronicle.setIndex(index, extend)
     story.commit(h, w, index, extend)
+    why.historyChanged() // causes:
     // the feature regions are geography (kept); which History feature each is may have grown
     if (geo) geo = { map: geo.map, feature: featureOfRegions(geo.map, index.history) }
     shownS0 = shownS1 = -1
