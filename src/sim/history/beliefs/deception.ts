@@ -23,6 +23,7 @@ import { recordGrievance } from '../polity/grievances.ts'
 import { endBond } from '../polity/bonds.ts'
 import { finMonetised, finRevOrd, finSpend } from '../finance/hooks.ts'
 import { BELIEF } from './params.ts'
+import { cwSpyBoost } from '../polity/coldwar.ts' // cold wars:
 import type { BeliefState } from './state.ts'
 import { bluffSeen, kingdomPlus, logX } from './system.ts'
 
@@ -81,7 +82,8 @@ export function deceptionStep(s: HistoryState, ps: PolityState, bel: BeliefState
   // 2. Spy services and their cost; bluffs end (expired or unpaid); 3. bluff decisions (ps.alive ascending).
   for (const p of ps.alive) {
     const tier = tierOf(ps.pPop[p], ps.pMembers[p], ps.pMulti[p] === 1, ps.worldPop)
-    const target = (tier >= Tier.Kingdom ? smoothstep(0.3, 1.2, rivalMax[p]) : 0) + (ps.pWars[p] > 0 ? X.spyWar : 0)
+    let target = (tier >= Tier.Kingdom ? smoothstep(0.3, 1.2, rivalMax[p]) : 0) + (ps.pWars[p] > 0 ? X.spyWar : 0)
+    if (ps.cw !== null) target += cwSpyBoost(ps.cw, p) // cold wars: spies on the rival principal
     let sp = bel.spy[p] + X.spyRate * (target - bel.spy[p])
     if (sp < 1e-4) sp = 0
     if (sp > 0 && !belPay(s, ps, p, X.spyCost * sp * unitOf(s, ps, p) * step)) sp *= 0.5

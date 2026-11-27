@@ -38,6 +38,7 @@ import { PolityEnd, PolityOrigin } from '../../../contract.ts'
 import { tied, unionBond } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 import { c7Alliance } from '../compose.ts' // C7 stack
+import { cwSphere } from './coldwar.ts' // cold wars: C7 sphere
 import { BELIEF } from '../beliefs/params.ts' // beliefs:
 import { projBel } from '../beliefs/system.ts' // beliefs:
 import { beliefSecret } from '../beliefs/deception.ts' // beliefs:
@@ -279,7 +280,8 @@ function allianceStepLegacy(s: HistoryState, ps: PolityState): void {
       if (alliances(ps, x) >= 2 || alliances(ps, y) >= 2) continue
       // (realms against a rival at least as large as each)
       if (tierOf(ps.pPop[x], ps.pMembers[x], ps.pMulti[x] === 1, ps.worldPop) < Tier.Kingdom || tierOf(ps.pPop[y], ps.pMembers[y], ps.pMulti[y] === 1, ps.worldPop) < Tier.Kingdom) continue
-      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(repC7(ps.og, x, y)) : repC7(ps.og, x, y))) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
+      const rc = ps.cw !== null ? cwSphere(ps, x, y, c, repC7(ps.og, x, y)) : repC7(ps.og, x, y) // (cold wars: C7 sphere)
+      if (ps.pPop[c] < ps.pPop[x] || ps.pPop[c] < ps.pPop[y] || ps.rng.next() >= c7Alliance(X.chance, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(rc) : rc)) continue // (rulers: houses tied by marriage ally more readily; C7, compose.ts)
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
     }
   }
@@ -303,7 +305,7 @@ function repC7(og: GrudgeState | null, x: number, y: number): C7Factors | undefi
 /** seat: the C7 factors with the Ally order factor (after the clamp) added to `f` (oaths' reputation or none). */
 const C7S: C7Factors = {}
 export function seatC7(f: C7Factors | undefined): C7Factors {
-  C7S.balance = f?.balance; C7S.reputation = f?.reputation; C7S.affinity = f?.affinity; C7S.court = f?.court
+  C7S.balance = f?.balance; C7S.reputation = f?.reputation; C7S.affinity = f?.affinity; C7S.court = f?.court; C7S.talk = f?.talk; C7S.sphere = f?.sphere
   C7S.seat = SEAT.allyMul
   return C7S
 }

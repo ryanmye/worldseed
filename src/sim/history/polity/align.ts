@@ -33,6 +33,7 @@ import { atWar } from './formation.ts'
 import { repFactor } from './oaths.ts'
 import { c7Alliance } from '../compose.ts'
 import type { C7Factors } from '../compose.ts'
+import { cwSphere } from './coldwar.ts' // cold wars: C7 sphere
 import { tied } from '../rulers/marriage.ts' // rulers:
 import { MARRIAGE } from '../rulers/params.ts' // rulers:
 
@@ -138,7 +139,9 @@ export function allianceStepBalance(s: HistoryState, ps: PolityState, og: Grudge
       const f = repFactor(og, x, y)
       if (f !== undefined) C7F.reputation = f
       const ordered = s.orders !== null && s.orders.nPolity > 0 && allyOrdered(s.orders, x, y) // seat: Ally (the order factor; the threats are balance's own)
-      if (rng.next() >= c7Alliance(base, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(f !== undefined ? C7F : undefined) : f !== undefined ? C7F : undefined)) continue
+      const f7 = f !== undefined ? C7F : undefined
+      const f7c = ps.cw !== null ? cwSphere(ps, x, y, c, f7) : f7 // (cold wars: C7 sphere)
+      if (rng.next() >= c7Alliance(base, s.rul !== null && tied(s.rul, x, y) ? MARRIAGE.alliance : 1, ordered ? seatC7(f7c) : f7c)) continue
       ally(s, ps, x < y ? x : y, x < y ? y : x, c)
       og.diag.balancing++
       if (c === h) og.diag.coalitionAlliances++
