@@ -1,0 +1,133 @@
+# worldseed player primer
+
+Version: 1 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
+changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
+_LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
+
+Changelog:
+- v1 (2026-11-27, lane/bots): first version, from origin/main f20cb5f.
+
+## 1. Starting a world
+
+- **The start page** shows only at the bare URL, or with `intro=1` (main.ts `showLanding`). It has a seed field (with a dice
+  for a random seed), a years field (200 to 6000; landing.ts YEARS_MIN/MAX) and **Start**. "Choose where peoples begin" plants
+  hearths (written as `c=`). Any other URL parameter opens the app directly.
+- **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
+  timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write
+  `lang=1`, so a link without it gets the older names.
+- **Presets:** on f20cb5f there is no `preset=` parameter. Lane/setup is adding `preset=dramatic|realistic` (realistic is
+  the default). The bot harness takes `--preset` and fails loudly until the preset exists.
+- **Loading:** the bar reads "Simulating…" and then "Drawing the map…". The first ~20 years play at the intro rate of 20
+  years a second (timeline.ts INTRO_YEARS_PER_SECOND); after that, 1× is 20/3 ≈ 6.7 years a second.
+
+## 2. Looking at the world
+
+- **Rotate and zoom:** drag the globe to turn it and use the wheel or a pinch to zoom (three.js OrbitControls, main.ts).
+  `M` switches between the globe and a flat map (Equal Earth). URL: `lon=`, `lat=`, `az=` in degrees and `dist=` (camera
+  distance; the planet's radius is 1, default 3.25).
+- **Frame land, not ocean.** At the start the camera faces a default longitude, often over ocean, and the early settlements
+  are tiny dots. To frame a realm, open **Factions** (`R`), click a realm, and click its capital's name in the detail; the
+  camera flies there. Clicking a town on the globe selects it too. `select=<settlement id>` and `polity=<id>` select from the
+  URL. On a decision card, **Show me** flies to the card's place.
+- **Sun and daylight:** `S` opens "Sun and quality". Its sun modes (render/sun.ts) are:
+  - **Fixed** (default): the planet turns under a fixed sun, so the place you look at may be on the night side.
+  - **Follow**: the sun sits behind the camera, so whatever you look at is lit.
+  - **Daylight**: daylight everywhere; city lights are hidden.
+
+  Pick **Follow** to keep the realm lit: the story camera does not take the sun into account. URL: `sun=fixed|follow|full`,
+  and `sunlon=` and `sunlat=` for the fixed sun. Shift-drag or right-drag moves the sun on the globe.
+- **Views:** `V` and `Shift+V` step through the map views (terrain, factions, population and others). `L` shows the layers.
+  `view=factions` in the URL shows the realms' colours.
+
+## 3. Following the story
+
+- **Follow the story:** press `H`, use the Follow button on the timeline bar, or add `follow=1` (ui/story/storyView.ts).
+  The director flies the camera to the great events (beats), slows playback at each one and shows a caption card with
+  Read more, Why? and Next. It is off by default. With Follow on, story notices show too; without it, "Story notices" in
+  the layers toggles them.
+- The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
+- **Following one realm:** select it in Factions. The director gives the selection's stories a focus bonus (storyView
+  `focus`).
+
+## 4. Panels
+
+Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all keys):
+- `C` **Chronicle**: notable events up to the year shown, newest first. Your choices on the throne appear here in hedged
+  words ("is said to…").
+- `R` **Factions**: the realms alive in the year shown, largest first. A realm's detail shows its ruler, wars, grudges and
+  oaths (the grudges, balance and arms lines live here), and **Take this throne**.
+- **Why**: opened from a chronicle entry's or a caption's "Why?" link (`why=event:<id>`). It shows the causes, each with its
+  tier, and "What came of it?". `Esc` closes it.
+- `P` peoples, `F` faiths, `D` sickness, `G` goods and trade, `I` ideas, `N` species, `U` cities, `T` leisure travel, `A`
+  sagas, `B` the library, `O` Nudge (orders for watch mode), `W` What if (`[` / `]` move its swipe divider), `K` the unexplored world, `J` credits, `S` sun and
+  quality, `L` layers, `?` help.
+- `.` replays the latest battle (at the selected town, if it saw one); `Esc` closes the replay. `Y` or a double-click flies
+  down into a town (the city view: `Q`/`E` turn, `Z`/`X` lower or raise the view, `+`/`−` move closer or further, `Esc`
+  returns to the globe).
+
+## 5. Time and speed
+
+- `Space` plays or pauses; at the end of the history it simulates further. `←`/`→` step one snapshot, `Shift+←`/`→` ten,
+  and `Home`/`End` go to the first or last year.
+- `1`–`4` set the speed to ¼×, 1×, 4× or 16× (timeline.ts SPEEDS); the speed buttons on the bar do the same. 1× is 6.7
+  years a second. In throne mode the timeline plays up to each pause, so 16× shortens the waits between cards.
+
+## 6. Throne mode (the seat)
+
+- **Entering:** in Factions, select a living realm and click **Take this throne**. The button appears only when the realm
+  exists and is alive in the year shown (politiesPanel.ts), and you rule from that year. Or use a link:
+  `seat=<kind>:<id>:<from>[:amb=a.b]` (contract.ts encodeSeat), where `kind` is `polity`, `house` or `people`, for example
+  `?seed=42&lang=1&seat=polity:2:700`.
+- **Finding a seat alive at a year:** open `?seed=S&year=Y&play=0` and press `R`. The list is that year's living realms,
+  largest first, and the top one is a safe choice. A `seat=` id that is dead at `from` gives a seat that is lost at once.
+- **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify your landmass, 2 a faith of the realm, 3
+  the richest realm, 4 two crowns at once, 5 a great monument. They are judged only and change nothing in the run. There is
+  no picker for them in the UI; the link is the only way to set them.
+- **The loop:** "Reaching your reign…" plays the years up to `from`. The timeline then plays on and pauses at each year
+  with decisions, and the decision screen shows. Your choices go into the address as `o=`, so reloading the link replays the
+  same reign to its last pause. "The seat is lost" ends the reign; "Watch on" continues as a spectator.
+- **The decision screen** (ui/seat/decisionCard.ts, cardModel.ts):
+  - Title and year ("Revolt: Riaku", "705 · decision 1 of 2"), a short situation, and the **Authority** meter.
+  - 2–4 option cards. Each has a corner badge (what it costs or risks: War, Terms, Tribute, Heir, −15% gold, Debt, Unrest,
+    Walls, Ports, Settlers…), a name, a type tag (War, Diplomacy, Court, Coin, Faith, Works, Discovery) and a line of
+    consequence.
+  - Keys `1`–`4` pick the cards in order. **Show me** flies to the place, with a pill to come back.
+  - Watch for a **Wait** badge with "The court keeps its own counsel; events take their course". That option gives no
+    order: choosing it is the same as letting events run (it can be "Crush it" on a revolt or "Endure").
+- **Defer** ("Do nothing — let <body> decide", or `Esc`): the deciding body takes the option a cautious court would. The
+  button names it ("They would choose: …"). The body can be your court, the elders, the regent's council, the league's
+  council or the family (decider.ts). Each deferral lowers Authority by (1 − 0.7 × divisiveness) / 5 (SEAT.deferDivisive, deferFull): close to 1/5 for a routine matter and less for a divisive one,
+  whose blame then falls on the body. Each decision you take yourself restores some. At low Authority the body rules in all
+  but name: only urgent cards come, the throne is less safe and successions are more contested. A Crisis card may then
+  offer **Reclaim power**, which is risky.
+- **Card kinds** (contract.ts DecisionKind) and their options:
+  - War declared on us: Fight on / Sue for peace / Offer tribute / Seek an ally
+  - A neighbour is weak (Opening): Strike / Stay out / Offer a match
+  - Succession (Heir): Name the heir born in … / Let the law decide
+  - A crisis at court (Crisis): Placate them / Crush the pretender / Endure / Reclaim power
+  - Alliance made: Honour it / Renounce it
+  - Alliance sought: Seek an ally / Decline
+  - Overlord: Pay / Defy
+  - Match: Arrange the match / Decline
+  - General: Honour / Purge him / Ignore it
+  - Plague: Quarantine the ports / Move the court / Endure
+  - Faith: Embrace it / Keep the old ways
+  - Revolt: Placate them / Fortify the capital / Crush it
+  - Credit: Borrow / Raise taxes / Retrench / Refuse the debts
+  - Charter: Grant it / Refuse
+  - Betrayal: Make a separate peace / Stand by them
+  - Frontier: Send settlers / Explore further / Stay at home
+  - Crop: Take it up / Ignore it
+  - Idea: Seek it out / Ignore it
+- **What you can know:** cards describe what your realm's people know (the fog). A bot or play-tester must judge only from
+  the screen: the card, the meter, the chronicle and the map.
+
+## 7. Playing sensibly (for bots and play-testers)
+
+1. Before judging anything, set Sun to Follow (`S`, then Follow), turn on Follow the story (`H`), and frame land: Factions,
+   then the realm, then its capital.
+2. Take a living throne: the top realm of the Factions list in the chosen year.
+3. Use 16× (`4`) between cards and read every card in full before choosing.
+4. Note whether a later card or chronicle line shows what your last choice did. That is the "visible consequence" the
+   harness measures.

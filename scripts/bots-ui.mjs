@@ -112,10 +112,11 @@ const sunOn = await sunBtn.evaluate((b) => b.classList.contains('active') || b.g
 await page.keyboard.press('s')
 check(sunOn, 'sun set to Follow (the view is always on the lit side)')
 // factions: the top realm alive this year, framed, then its throne
-await page.keyboard.press('r')
-await page.waitForTimeout(800)
 let seatText = arg('seat')
 const row = page.locator('.fp-row').first()
+// R toggles the Factions panel (it may start open or collapsed): press until its list is visible
+for (let k = 0; k < 3 && !(await row.isVisible().catch(() => false)); k++) { await page.keyboard.press('r'); await page.waitForTimeout(800) }
+await row.scrollIntoViewIfNeeded()
 await row.click()
 await page.waitForTimeout(800)
 const realm = await page.evaluate(() => document.querySelector('.fp-detail:not(.hidden) .fp-d-title, .fp-detail:not(.hidden)')?.textContent?.slice(0, 80) ?? '')
