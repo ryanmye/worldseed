@@ -15,6 +15,12 @@ import { isLandmarkEvent } from './landmarksFormat.ts'
 import { familyOtherIsSettlement, isFamilyEvent } from './familiesFormat.ts' // families:
 import { isTradeDangerEvent } from './tradeDangerFormat.ts'
 import { isOrderEvent } from './nudgeFormat.ts'
+import { isSeatEvent } from './seat/seatFormat.ts'
+
+/** seat: the OrderFulfilled (171) of a Choice order (OrderKind 10): its OrderGiven line of the same year says it. */
+export function choiceEcho(h: History, e: { type: number; value: number }): boolean {
+  return (e.type as number) === 171 && h.orders?.[e.value]?.kind === 10
+}
 import { isCradleEvent, isShownCradleEvent } from './cradlesFormat.ts'
 
 import { ideasGroupKey, ideasHiddenInChronicle, ideasOtherIsSettlement, isIdeasEvent } from './ideasFormat.ts'
@@ -421,6 +427,7 @@ function isShownType(type: number): boolean {
   if (isLandmarkEvent(type)) return true // 140-146: landmarks (landmarksFormat.ts)
   if (isTradeDangerEvent(type)) return true // 150-151: trade routes forsaken for danger and restored (tradeDangerFormat.ts)
   if (isOrderEvent(type)) return true // 170-173: the player's orders (nudgeFormat.ts)
+  if (isSeatEvent(type)) return true // 182-184, 270-279: the player's seat and deference (seat/seatFormat.ts)
   if (type >= 190 && type <= 194) return true // 190-194: oaths, balance, arms (polityFormat.ts)
   if (type >= 210 && type <= 217) return true // 210-217: finance (polityFormat.ts)
   if (type >= 200 && type <= 205) return true // 200-205: governments (polityFormat.ts)
@@ -800,6 +807,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersDropped(h, i)) continue // rulers: a reign or a house ended with its realm (the realm's end says it)
     if (renamingHiddenInChronicle(h, e)) continue // renaming: a qualified founding name (the inspector says it)
+    if (choiceEcho(h, e)) continue // seat: a Choice is given and fulfilled in one year; the given line says it (not twice)
     // (ideas: a farming technique's stays, for the Ideas filter: the chronicle leaves it out of All, where the species lines say it)
     if (e.type === EventType.Migration && e.value < migrationThreshold) continue
     if ((e.type as number) === 38 && vassalSaidByPeace(h, e)) continue // the peace line already says it (bug: don't say it twice)
@@ -843,6 +851,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     const e = h.events[i]
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue // rulers: the accession line of the same year says it
+    if (choiceEcho(h, e)) continue
     if (ideasHiddenInChronicle(h, e)) continue // ideas: a farming technique's (the species lines say it)
     if (involves(e.settlement)) counts[e.settlement]++
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) counts[e.other]++
@@ -855,6 +864,7 @@ export function buildHistoryIndex(h: History, isWater?: (cell: number) => boolea
     const e = h.events[i]
     if (!isShownType(e.type) || hiddenCradle(e)) continue
     if (rulersHiddenInList(h, i)) continue
+    if (choiceEcho(h, e)) continue
     if (ideasHiddenInChronicle(h, e)) continue
     if (involves(e.settlement)) eventList[cursor[e.settlement]++] = i
     if (otherIsSettlement(e.type) && involves(e.other) && e.other !== e.settlement) eventList[cursor[e.other]++] = i

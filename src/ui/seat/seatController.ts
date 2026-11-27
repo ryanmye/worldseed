@@ -68,8 +68,8 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
       seat = s
       lastPause = s.from
       deps.setUrlParam('seat', encodeSeat(s))
-      card.message(`You take ${s.kind === 2 ? 'the house' : 'the throne'}`, 'The chroniclers sharpen their pens…', null)
-      deps.progress('Taking the seat…')
+      card.message('Reaching your reign…', `The years up to ${s.from} are told first; the chroniclers sharpen their pens. ${s.kind === 2 ? 'The house' : 'The throne'} is yours from then on.`, null)
+      deps.progress(`Reaching your reign (${s.from})…`)
       deps.post({ type: 'seat', seat: s, orders: deps.getOrders(), cradles })
     },
     onPause(h, ms, cards, lost) {

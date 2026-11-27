@@ -1,11 +1,12 @@
 // disasters: the stats harness (disasters-climate.md §7). Run with:
-//   node --experimental-strip-types src/sim/history/disasters/disasterStats.ts [--off] [--json] [--years N] [seed ...]   (default 1 7 42 1234)
+//   node --experimental-strip-types src/sim/history/disasters/disasterStats.ts [--off] [--feedback] [--json] [--years N] [seed ...]   (default 1 7 42 1234)
 // Each seed runs with disasters on and (unless --on-only) off, on the same world, and prints the plan's targets: eruptions by
 // VEI, volcanic winters, earthquake rows with deaths, CityDestroyed, tsunamis, megadroughts and the share of regions in drought
 // at once, epochs, harvest statistics (population-weighted mean, sd, lag-1, sd of 30-year means), famine events and starvation
 // deaths on/off, the response table to global bad years and to volcanic-winter years, the worst 10-year world population fall,
 // world population at the end on/off, peoples extinct, the largest single event's deaths over world population, and how often
-// the hard caps bound. --off prints only the off run's baseline figures.
+// the hard caps bound. --off prints only the off run's baseline figures. --feedback runs the disasters with the Phase 2
+// feedback (DX.feedback, step 10) and adds its figures: region-years bad and with the stores run out, reliefs paid / unpaid.
 
 import { DisasterKind, EventType } from '../../../contract.ts'
 import type { HistoryOptions } from '../../../contract.ts'
@@ -120,6 +121,7 @@ function disasterFigures(r: Run, Y: number) {
     maxEventShare: maxEvent, maxEventKind: maxEventRow >= 0 ? d.kind[maxEventRow] : -1,
     clampLoss: dg.clampLoss / Math.max(1, dg.regionYears), clampGain: dg.clampGain / Math.max(1, dg.regionYears), clampVolc: dg.clampVolc / Math.max(1, dg.regionYears),
     winterYears: dg.winterYears,
+    fbBad: dg.fbBad, fbExhausted: dg.fbExhausted, fbRelief: dg.fbRelief, fbUnpaid: dg.fbUnpaid, regionYears: dg.regionYears,
   }
 }
 
@@ -147,6 +149,7 @@ const f = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : 'n/a')
 const argv: string[] = ((globalThis as { process?: { argv: string[] } }).process?.argv ?? []).slice(2)
 const json = argv.includes('--json')
 const offOnly = argv.includes('--off')
+if (argv.includes('--feedback')) DX.feedback = true
 const yi = argv.indexOf('--years')
 const years = yi >= 0 ? Number(argv[yi + 1]) : 2000
 const seeds = argv.filter((a, i) => !a.startsWith('--') && (yi < 0 || i !== yi + 1)).map(Number)
@@ -172,6 +175,7 @@ for (const seed of SEEDS) {
   console.log(`worst 10-y fall ${f(mOn.worst10 * 100, 1)}% (off ${f(mOff.worst10 * 100, 1)}%) [<= 25%]; worst 50-y fall (yearly) ${f(mOn.worst50 * 100, 1)}% (off ${f(mOff.worst50 * 100, 1)}%)`)
   console.log(`world pop at end ${Math.round(mOn.popEnd)} / ${Math.round(mOff.popEnd)} = ${f(mOn.popEnd / mOff.popEnd)} [0.8-1.05]; peoples alive ${mOn.peoples} (off ${mOff.peoples}) [loss <= 1]`)
   console.log(`largest single event: ${f(dz.maxEventShare * 100, 2)}% of world pop (kind ${dz.maxEventKind}) [<= 3%]; caps bound: region loss ${f(dz.clampLoss * 100, 2)}%, gain ${f(dz.clampGain * 100, 2)}%, volcanic ${f(dz.clampVolc * 100, 2)}%${dz.clampLoss > 0.05 || dz.clampGain > 0.05 || dz.clampVolc > 0.05 ? '  WARNING: a cap binds in more than 5% of region-years' : ''}`)
+  if (DX.feedback) console.log(`feedback: bad region-years ${dz.fbBad}, stores run out ${dz.fbExhausted} (${f(dz.fbExhausted / Math.max(1, dz.regionYears) * 100, 2)}% of land region-years); reliefs paid ${dz.fbRelief}, unpaid ${dz.fbUnpaid}`)
   console.log('response (rate ratio): global bad years (n) | volcanic-winter years (n)')
   for (const [k, v] of Object.entries(rsp)) console.log(`  ${k.padEnd(18)} ${f(v[0])} (${v[1]}) | ${f(v[2])} (${v[3]})`)
 }

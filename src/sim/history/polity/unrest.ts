@@ -23,6 +23,7 @@
 import { govOf, govUnrestMul } from '../government/hooks.ts' // governments:
 import { GOV } from '../government/params.ts' // governments:
 import type { C2GrievanceFactors } from '../compose.ts'
+import { deferUnrest } from '../rulers/deference.ts' // rulers: deference
 import { CrisisBit, EventType, PolityEnd, PolityOrigin, RevoltCause, UnrestPart } from '../../../contract.ts'
 import { whyCrisisAt, whyGrievance, whyRevolt, whyUnrest } from '../why.ts' // causes:
 import { smoothstep } from '../../util.ts'
@@ -40,6 +41,7 @@ import type { PolityState } from './state.ts'
 import { faithGrievance } from '../religion/system.ts' // religion:
 import { c2Grievance, c2RevoltChance } from '../compose.ts' // C2 stack
 import { finTaxGrief } from '../finance/hooks.ts' // finance:
+import { dxGrief } from '../disasters/feedback.ts' // disasters: Phase 2 grievance
 import { GRIEF, socContest, socCrisisPlus, socEliteLead, socGrief, socRevoltMul } from '../society/api.ts' // society:
 import type { C2HazardFactors } from '../compose.ts'
 
@@ -78,22 +80,27 @@ function grievance(s: HistoryState, ps: PolityState, i: number, p: number): numb
   const since = s.year - ps.conqueredAt[i]
   const conquest = since < U.conquestYears ? U.conquest * (1 - since / U.conquestYears) : 0
   const fam = s.year - s.lastFamine[i] <= U.famineYears ? U.famine : 0, crowd = U.crowding * smoothstep(0.85, 1, s.pop[i] / foodBase(s, i)), bt = ps.badTax[i] ? U.badTax : 0
-  let peasant = fam + crowd + bt
+  const dis = s.dx !== null ? dxGrief(s, s.dx, i) : 0 // disasters feedback: a town struck by an eruption, quake, wave or flood (C2, peasant term)
+  let peasant = dis > 0 ? fam + crowd + bt + dis : fam + crowd + bt
   // society (h2): immiseration (a wage below subsistence) and a failed coercion add to the peasant term; townsfolk's dear bread is terms[6]
   let urb = 0
   const sg = s.soc !== null && socGrief(s, i, p)
   if (sg) { peasant += GRIEF.imm + GRIEF.coerce; urb = GRIEF.urban }
   // (v2: corruption where contraband pays)
   const dist = U.distance * (1 - g), exh = U.exhaustion * e, cri = inCrisis(s, ps, p) ? U.crisis : 0, cor = SMUGGLE.corruptUnrest * ps.corrupt[i]
-  const provincial = dist + exh + cri + cor
+  let provincial = dist + exh + cri + cor
+  // rulers: deference: a realm ruled without its ruler is restive; the blame for divisive matters falls on the body that decided
+  const dv = s.defer !== null ? deferUnrest(s, p) : 0
+  if (dv !== 0) provincial = provincial + dv > 0 ? provincial + dv : 0
   const foreign = U.foreign * (1 - ps.assim[i])
   const ethnic = foreign + conquest
   const T = s.terrain
   const colonial = T.landmass[s.cell[i]] !== T.landmass[s.cell[ps.pCapital[p]]] ? U.colony : 0
   terms[0] = peasant; terms[1] = provincial; terms[2] = ethnic; terms[3] = colonial
-  if (ps.why) whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial) // causes: the terms
+  if (ps.why) { whyGrievance(ps.why, fam, crowd, bt, dist, exh, cri, cor, foreign, conquest, colonial); if (dis > 0) ps.why.sub[UnrestPart.Disaster] = dis } // causes: the terms (disasters: UnrestPart.Disaster)
   if (sg && ps.why) { ps.why.sub[UnrestPart.Immiseration] = GRIEF.imm; ps.why.sub[UnrestPart.Coercion] = GRIEF.coerce; ps.why.sub[UnrestPart.Urban] = urb } // causes: (society)
   if (s.soc !== null) terms[6] = urb
+  if (dv !== 0 && ps.why) ps.why.sub[UnrestPart.Deference] = dv // causes: (rulers: deference)
   // finance: the heavy taxes of a crown in want (terms[5], RevoltCause.Taxes; 0 and skipped without finance)
   const tax = s.fin !== null ? finTaxGrief(s, p) : 0
   terms[5] = tax

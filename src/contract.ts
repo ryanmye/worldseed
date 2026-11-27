@@ -260,6 +260,10 @@ export const EventType = {
   GeneralTurned: 226, // general `value` went over to the enemy ruled from `other` with the town he held, `settlement` (Defected follows); `extra` the war id
   CommanderDismissed: 227, // commander `value` (a general) was relieved after a defeat at `settlement`; `other` the capital; logged for commanders with fame >= BATTLE.renown / 2 only
   // cradle wishes: the player planted where a people began (HistoryOptions.cradles; 180; none without a wish).
+  // seat: deference (182-183, from the unassigned 182-189; none unless the player lets matters be decided without them).
+  SeatDeclined: 182, // the seat's realm, ruled from `settlement`, came to be ruled in all but name by the body that decides without the player (seat/decider): `value` the polity id; `other` -1; `extra` the deference x 100
+  DeferBlamed: 184, // the body that decided a divisive matter for the ruler of the realm ruled from `settlement` bore the blame for it: `value` the polity id; `other` -1; `extra` the DecisionKind (seat: a matter left to it)
+  SeatReasserted: 183, // the player took the seat's power back in the realm ruled from `settlement`: `value` the polity id; `other` -1; `extra` 0 by decisions taken in a row, 1 by reclaiming it (a risky act: the throne is less safe for years)
   // seat: the player's seat (seat-mode §3.7; 270-279; none when HistoryOptions.seat is undefined).
   SeatTaken: 270, // the player took the seat (HistoryOptions.seat) at its year: `settlement` the seat polity's capital (or the people's largest town); `other` -1; `value` the seat's id; `extra` the SeatKind
   SeatPassed: 271, // the seat passed to the polity `value` ruled from `settlement`: `other` the old capital (-1); `extra` how: 0 the house's other throne, 1 a partition heir's share, 2 the pretender's realm (civil war), 3 a seceded realm of the same house
@@ -745,6 +749,8 @@ export interface History {
   why?: CauseRecords
   /** seat: the player's seat, the polity it held year by year and the decisions offered (absent when HistoryOptions.seat is undefined). */
   seat?: SeatHistory
+  /** rulers: deference, how far realms grew used to being ruled without their rulers (rulers/deference.ts); absent when nothing fed it. */
+  deference?: DeferenceHistory
 }
 
 /**
@@ -1839,6 +1845,7 @@ export const BondEnd = {
   Lapsed: 3, // the tribute's term ran out, or the common threat faded, or the allies fell out (with oaths on, allies who fight each other end Betrayed instead)
   Ended: 4, // one of the two polities ended, or the vassal passed to its overlord's overlord
   Betrayed: 5, // oaths: one ally broke faith: made a separate peace with the common enemy, turned on its ally, or attacked it (EventType.Betrayal / OathBroken extra 1); bA or bB, the one whose capital is the event's `settlement`, is the betrayer
+  Renounced: 6, // seat: renounced by order (OrderKind.Repudiate; EventType.BondRenounced): bA or bB, the one whose capital is the event's `settlement`, renounced it
 } as const
 export type BondEnd = (typeof BondEnd)[keyof typeof BondEnd]
 
@@ -2063,6 +2070,7 @@ export const GrievanceKind = {
   TownCeded: 8, // (beliefs) the offender took `settlement` from the wronged under threat, without war (EventType.Coerced; the towns of one crisis merged: `towns`)
   SpyCaught: 9, // (beliefs) the wronged caught the offender's spies (EventType.SpyCaught)
   ClaimForged: 10, // (beliefs) the offender's forged claim on the wronged was exposed (EventType.ClaimExposed)
+  GeneralTurned: 11, // (battles) a famous general of the wronged polity went over to the offender with the town `settlement` he held (GeneralTurned 226)
 } as const
 export type GrievanceKind = (typeof GrievanceKind)[keyof typeof GrievanceKind]
 
@@ -2269,6 +2277,8 @@ export interface Structure {
 }
 
 export interface HistoryOptions {
+  /** realism null ensemble only (realismStats --noise): discard `draws` draws of the migration (or structures) stream at `year`: the same model, another realisation of the trajectory. Default none: no draws. */
+  jitter?: { year: number; draws: number; stream?: 'migration' | 'structures' }
   /** Length of the run in years. Default 2000. */
   years?: number
   /** Years between snapshots. Default 5. */
@@ -2472,6 +2482,7 @@ export const UnrestPart = {
   Generations: 23, // future politics
   Disaster: 24, // disasters
   Immiseration: 25, Coercion: 26, // society
+  Deference: 28, // seat: a realm grown used to being ruled without its ruler (the player's deference; a Provincial term)
   Shock: 27, // a jump not made by grievance: the bitterness left by a crushed revolt, a realm breaking up (UNREST.crushAfter, fragment)
 } as const
 export type UnrestPart = (typeof UnrestPart)[keyof typeof UnrestPart]
@@ -3005,11 +3016,23 @@ export const OrderKind = {
   Quarantine: 9, // a port (actor: settlement id) is urged to hold incoming ships in quarantine
   // seat-mode (10-22, §3.6; the rest reserved until their steps land)
   Choice: 10, // seat: records the player's choice on a decision card (actor: the seat's people; target: decision row * 8 + option); no effect, Fulfilled at give
+  Repudiate: 11, // seat: a polity renounces its alliance (and any marriage tie) with another polity (target); target = the actor itself: with finance, the crown's debts
+  Defy: 12, // seat: a vassal or tributary throws off its bond to its overlord (target)
+  Submit: 13, // seat: a polity at war offers its enemy (target) tribute for peace
+  Ally: 14, // seat: a polity seeks an alliance with another polity (target)
+  Marry: 15, // seat: a polity's ruling house seeks a marriage tie with another polity's (target)
+  Designate: 16, // seat: a polity's ruler names an heir (target: the heir's birth year)
+  Placate: 17, // seat: a polity's court buys off its restive (magnates, a general, rebels); no target
+  Purge: 18, // seat: a polity's ruler moves against a too-popular general; no target
+  Borrow: 19, // seat (finance): a polity's crown borrows to keep a war chest even in peace; no target
+  Levy: 20, // seat: a polity's crown raises an extraordinary levy (with finance: taxes pushed to their highest); no target
+  // 21 Charter: reserved until city-states lands
+  Betray: 22, // seat (oaths): a polity makes a separate peace in an alliance war, deserting its ally (target)
 } as const
 export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind]
 /**
- * Rows in the order-kind table (describeOrderKinds), live and reserved: 0–9 live, 10–83 reserved placeholders that later
- * plans replace in place (MASTER-PLAN §3.2, R40). The table is array-indexed by kind, so it stays contiguous.
+ * Rows in the order-kind table (describeOrderKinds), live and reserved: 0–20 and 22 live (10–22 seat-mode's, given by
+ * decision cards only), 21 and 23–83 reserved placeholders that later plans replace in place (MASTER-PLAN §3.2, R40). The table is array-indexed by kind, so it stays contiguous.
  */
 export const ORDER_KIND_COUNT = 84
 
@@ -3022,7 +3045,7 @@ export interface Order {
 }
 
 /** What an actor or a target is. */
-export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7, /** seat: a decision card's option, row * 8 + option (History.seat.decisions; 8-10 are reserved: registry §3.2) */ Decision: 11 } as const
+export const OrderRole = { None: 0, People: 1, Polity: 2, Settlement: 3, Cell: 4, Species: 5, Idea: 6, Faith: 7, /** seat: a decision card's option, row * 8 + option (History.seat.decisions; 8-10 are reserved: registry §3.2) */ Decision: 11, /** seat: an heir of the actor polity's ruler, by birth year (Designate) */ Heir: 12 } as const
 export type OrderRole = (typeof OrderRole)[keyof typeof OrderRole]
 
 /** What became of an order. */
@@ -3064,6 +3087,9 @@ export const OrderReason = {
   Busy: 23, // War: already at as many wars as it can fight
   OutOfReach: 24, // Explore: its expeditions found nothing unknown within reach that way
   NoRoom: 25, // Settle: its settlers found no free land within reach that way (or joined towns instead)
+  NoBond: 26, // seat: no such bond (Repudiate: no alliance or tie, or no debts; Defy: not its overlord; Betray: not allies in a war)
+  NoHeir: 27, // seat: Designate: no such heir in the ruler's family, or the heir died first
+  NoGeneral: 28, // seat: Purge, Placate: nothing threatens the throne (a hint for the UI only: the order may still be given)
 } as const
 export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
 
@@ -3071,7 +3097,10 @@ export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
  * The outcome of History.orders[k] (orderOutcomes[k]). `product` per kind: Explore the journey id (History.journeys) of the expedition
  * that reached the target (or the last one sent that way); Settle the new settlement; Crop the settlement that took the species up;
  * Idea the settlement where it came in; War and Peace the war id (History.wars); Seat the new capital; Faith the ruler id
- * (History.rulers, -1 without rulers); Fortify the structure id of the walls; Quarantine the port. -1 when nothing was produced.
+ * (History.rulers, -1 without rulers); Fortify the structure id of the walls; Quarantine the port. seat kinds: Repudiate and Defy the
+ * bond id (History.bonds; -1 for a marriage tie alone or the crown's debts); Submit the war; Ally the alliance bond; Marry the
+ * marriage tie (History.marriages); Designate the designee's reign (History.rulers); Placate the wealth spent; Purge 0 (purged) or
+ * 1 (the general struck first); Levy the wealth raised (the proxy; -1 with finance); Betray the war it left. -1 when nothing was produced.
  */
 export interface OrderOutcome {
   status: OrderStatus
@@ -3108,9 +3137,8 @@ export interface OrderKindInfo {
   seatOnly?: true
 }
 
-/** The reserved order-kind rows 10–83 by owner and planned name (MASTER-PLAN §3.2; "" where the owner has not named it). */
+/** The reserved order-kind rows 23–83 by owner (11–22 are seat-mode's: live but 21 Charter, reserved below) and planned name (MASTER-PLAN §3.2; "" where the owner has not named it). */
 const RESERVED_ORDER_KINDS: readonly (readonly [string, readonly string[]])[] = [
-  ['seat-mode', ['Repudiate', 'Defy', 'Submit', 'Ally', 'Marry', 'Designate', 'Placate', 'Purge', 'Borrow', 'Levy', 'Charter', 'Betray']], // 11–22
   ['seat-mode (Family seat follow-ups)', ['', '', '', '', '', '', '']], // 23–29
   ['riots', ['Crackdown', 'Relief', 'Tolerate']], // 30–32
   ['court-politics', ['SummonEstates', 'Appoint', 'Dismiss', 'Favour', 'Arrest', 'Reform']], // 33–38
@@ -3142,10 +3170,24 @@ const ORDER_KINDS: readonly OrderKindInfo[] = [
   { kind: OrderKind.Faith, key: 'faith', label: 'Take up a faith', actor: OrderRole.Polity, target: OrderRole.Faith, years: 40, effect: 'The ruler leans toward a universal faith already followed in the realm.' },
   { kind: OrderKind.Fortify, key: 'fortify', label: 'Fortify', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The town raises walls even without danger, if it has the people.' },
   { kind: OrderKind.Quarantine, key: 'quarantine', label: 'Quarantine', actor: OrderRole.Settlement, target: OrderRole.None, years: 30, effect: 'The port holds incoming ships in quarantine, if its people knows how and can pay.' },
-  // seat-mode (§3.6): 10 live; 11–22 reserved until seat steps 8, 9, 13 land
+  // seat-mode (§3.6): 10–20 and 22 live (given only by decision cards); 21 Charter reserved until city-states lands
   { kind: OrderKind.Choice, key: 'choice', label: 'Choose', actor: OrderRole.People, target: OrderRole.Decision, years: 0, effect: 'Records the choice made on a decision card; the orders of the option do the rest.', seatOnly: true },
-  // (11–83: reserved placeholders, R40; a plan replaces its own rows with live ones)
-  ...reservedRows(11, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
+  { kind: OrderKind.Repudiate, key: 'renounce', label: 'Renounce', actor: OrderRole.Polity, target: OrderRole.Polity, years: 1, effect: 'The alliance and any marriage tie with them end at once; they will remember it.', seatOnly: true },
+  { kind: OrderKind.Defy, key: 'defy', label: 'Defy the overlord', actor: OrderRole.Polity, target: OrderRole.Polity, years: 1, effect: 'The tribute stops and the bond is thrown off; the overlord may come to collect.', seatOnly: true },
+  { kind: OrderKind.Submit, key: 'submit', label: 'Offer tribute', actor: OrderRole.Polity, target: OrderRole.Polity, years: 10, effect: 'Envoys offer tribute for peace: if the enemy accepts, the war ends and the tribute is paid for years.', seatOnly: true },
+  { kind: OrderKind.Ally, key: 'ally', label: 'Seek an alliance', actor: OrderRole.Polity, target: OrderRole.Polity, years: 20, effect: 'Envoys seek an alliance against a common rival: it comes far more readily, if both are realms of standing.', seatOnly: true },
+  { kind: OrderKind.Marry, key: 'marry', label: 'Seek a match', actor: OrderRole.Polity, target: OrderRole.Polity, years: 15, effect: 'A marriage between the two houses is sought, even across old rivalry; their court may still say no.', seatOnly: true },
+  { kind: OrderKind.Designate, key: 'designate', label: 'Name an heir', actor: OrderRole.Polity, target: OrderRole.Heir, years: 40, effect: 'The heir named succeeds if alive and lawful; against the law, the lords may contest it.', seatOnly: true },
+  { kind: OrderKind.Placate, key: 'placate', label: 'Placate the court', actor: OrderRole.Polity, target: OrderRole.None, years: 15, effect: 'Gold for the restive: the throne is safer for a while, an open crisis ends and the towns calm, at a price.', seatOnly: true },
+  { kind: OrderKind.Purge, key: 'purge', label: 'Purge the general', actor: OrderRole.Polity, target: OrderRole.None, years: 12, effect: 'No general will rise against the throne while the order holds, but the army is weaker, and he may strike first.', seatOnly: true },
+  { kind: OrderKind.Borrow, key: 'borrow', label: 'Borrow', actor: OrderRole.Polity, target: OrderRole.None, years: 10, effect: 'The treasury borrows to keep a war chest even in peace, if lenders will lend.', seatOnly: true },
+  { kind: OrderKind.Levy, key: 'levy', label: 'Raise a levy', actor: OrderRole.Polity, target: OrderRole.None, years: 10, effect: 'Coin is squeezed from the towns into the crown’s hands; the towns grumble.', seatOnly: true },
+  ...reservedRows(21, [['seat-mode', ['Charter']]], (kind, reservedFor): OrderKindInfo => ({
+    kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
+  })),
+  { kind: OrderKind.Betray, key: 'betray', label: 'Make a separate peace', actor: OrderRole.Polity, target: OrderRole.Polity, years: 5, effect: 'Terms are sought with the common enemy behind the ally’s back: the war ends for us, and the ally is left alone.', seatOnly: true },
+  // (23–83: reserved placeholders, R40; a plan replaces its own rows with live ones)
+  ...reservedRows(23, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
     kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
   })),
 ]
@@ -3238,6 +3280,10 @@ export const SeatOptionKey = {
   Placate: 9, CrushPretender: 10, Endure: 11, Honour: 12, Renounce: 13, Pay: 14, Defy: 15, Arrange: 16, Decline: 17, Purge: 18,
   Ignore: 19, Quarantine: 20, MoveCourt: 21, Embrace: 22, KeepWays: 23, Fortify: 24, Crush: 25, Borrow: 26, Levy: 27,
   Retrench: 28, Grant: 29, Refuse: 30, SeparatePeace: 31, StandBy: 32, Settle: 33, ExploreOn: 34, Stay: 35, TakeUp: 36, Seek: 37,
+  /** Credit (finance): refuse the crown's debts (Repudiate with the realm itself as target). */
+  RepudiateDebts: 38,
+  /** Crisis, while the deciding body rules in all but name: take the power back (Choice option DEFER_OPTIONS.reclaim; risky). */
+  Reclaim: 39,
 } as const
 export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
 
@@ -3259,6 +3305,23 @@ export interface SeatDecisions {
   orderTarget: Int32Array
   /** The option chosen (from the Choice orders given at year + 1), -1 when none was (no card answered: the court's own course). */
   chosen: Int8Array
+  /** How divisive the matter is, 0..1 (every course angers someone: a succession, a schism, a revolt, taxes; low for a new crop): a deferral of it costs less authority, and its blame falls on the deciding body. */
+  divisive: Float32Array
+  /** The option a cautious court takes when the matter is left to it (DEFER_OPTIONS.defer): the least risky. */
+  courtPick: Int8Array
+  /** 1 where the player left the matter to the deciding body (a deferral; `chosen` is then courtPick). */
+  deferred: Uint8Array
+}
+
+/** rulers: deference per polity at the end of the run (rulers/deference.ts). */
+export interface DeferenceHistory {
+  count: number
+  /** Per polity: the value (0 none; SEAT.deferDecline and over: the deciding body rules in all but name) and 1 while in decline. */
+  value: Float32Array
+  figurehead: Uint8Array
+  /** Per polity x cause (DeferenceCause: 0 Player, 1 Minor, 2 Absent, 3 Union, 4 Indolent, 5 Infirm, 6 Captive): the total fed. */
+  fed: Float32Array
+  causes: number
 }
 
 /** seat: (absent when HistoryOptions.seat is undefined). */
@@ -3275,15 +3338,29 @@ export interface SeatHistory {
   lostYear: number
 }
 
-/** The orders of option o of decision d (year d's year + 1), with the Choice record first (actor: the seat's people, target d * 8 + option). */
+/**
+ * seat: the Choice option indices with a meaning of their own (target row * 8 + index): `defer`, the matter left to the body
+ * that decides without the player (the court's own course; "Let ... decide", Esc, a timeout); `reclaim`, the Reclaim option.
+ * Both act on the seat's deference (orders/system.ts); every other index is the option's own.
+ */
+export const DEFER_OPTIONS = { reclaim: 6, defer: 7 } as const
+
+/**
+ * The orders of option o of decision d (year d's year + 1), with the Choice record first (actor: the seat's people, target
+ * d * 8 + option). `option` DEFER_OPTIONS.defer: the matter left to the deciding body, recorded as a deferral, with the
+ * orders of the option a cautious court takes (decisions.courtPick).
+ */
 export function decisionOrders(h: History, d: number, option: number): Order[] {
   const D = h.seat?.decisions
   if (!D || d < 0 || d >= D.count) return []
   const o0 = D.optStart[d], o1 = D.optStart[d + 1]
-  if (option < 0 || o0 + option >= o1) return []
   const year = D.year[d] + 1
   const people = h.seat!.peopleAt[D.year[d] - h.seat!.seat.from] ?? -1
-  const out: Order[] = [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + option }]
+  const defer = option === DEFER_OPTIONS.defer
+  if (defer) option = D.courtPick[d] // (the matter left to the deciding body: a cautious court's pick, with its orders)
+  if (option < 0 || o0 + option >= o1) return []
+  if (D.optKey[o0 + option] === SeatOptionKey.Reclaim) return [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + DEFER_OPTIONS.reclaim }]
+  const out: Order[] = [{ year, kind: OrderKind.Choice, actor: people, target: d * 8 + (defer ? DEFER_OPTIONS.defer : option) }]
   const o = o0 + option
   for (let k = D.orderStart[o]; k < D.orderStart[o + 1]; k++) {
     const x: Order = { year, kind: D.orderKind[k] as OrderKind, actor: D.orderActor[k] }
@@ -3478,6 +3555,16 @@ export function orderFeasible(h: History, order: Order, year: number): OrderReas
       const w = atWar(a, t)
       if (order.kind === OrderKind.War) return w ? OrderReason.AlreadyDone : OrderReason.None
       return w ? OrderReason.None : OrderReason.NotAtWar
+    }
+    // seat-mode's court kinds (given by decision cards, which check them on the simulation's state: orders/system.ts orderCheck)
+    case OrderKind.Repudiate: case OrderKind.Defy: case OrderKind.Submit: case OrderKind.Ally: case OrderKind.Marry: case OrderKind.Betray:
+    case OrderKind.Designate: case OrderKind.Placate: case OrderKind.Purge: case OrderKind.Borrow: case OrderKind.Levy: {
+      if (h.polities.length === 0) return OrderReason.SystemOff
+      if (!polAlive(a)) return OrderReason.NoActor
+      if (info.target !== OrderRole.Polity || (order.kind === OrderKind.Repudiate && t === a)) return OrderReason.None
+      if (t === a || !polAlive(t)) return OrderReason.NoTarget
+      if (order.kind === OrderKind.Submit || order.kind === OrderKind.Betray) return atWar(a, t) || order.kind === OrderKind.Betray ? OrderReason.None : OrderReason.NotAtWar
+      return OrderReason.None
     }
     case OrderKind.Fortify: case OrderKind.Quarantine: {
       if (!alive(a) || h.settlements[a].outpost) return OrderReason.NoActor

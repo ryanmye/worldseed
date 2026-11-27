@@ -25,6 +25,8 @@ import { relIdx } from '../polity/relations.ts'
 import { declare } from '../polity/war.ts'
 import { controlOne } from '../polity/control.ts'
 import { MARRIAGE } from './params.ts'
+import { marryOrdered } from '../orders/hooks.ts' // seat: Marry
+import { SEAT } from '../seat/params.ts' // seat:
 import type { RulerState } from './state.ts'
 import { accede, endReign, logX, newHouseAccede } from './system.ts'
 
@@ -62,12 +64,15 @@ export function marriageStep(s: HistoryState, ps: PolityState, R: RulerState): v
   }
   const rng = R.rng
   const N = ps.relA.length
+  const ox = s.orders !== null && s.orders.nPolity > 0 ? s.orders : null // seat: Marry orders in force
   for (let r = 0; r < N; r++) {
     const a = ps.relA[r], b = ps.relB[r]
-    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0 || ps.relEdges[r].length === 0 || ps.relR[r] >= MARRIAGE.maxR) continue
+    // (seat: an ordered pair is not held back by rivalry, and a refused draw may still be agreed: one orders' draw)
+    const ordered = ox !== null && marryOrdered(ox, a, b)
+    if (ps.pEnded[a] >= 0 || ps.pEnded[b] >= 0 || ps.relWar[r] >= 0 || ps.relEdges[r].length === 0 || (ps.relR[r] >= MARRIAGE.maxR && !ordered)) continue
     const da = houseOf(R, a), db = houseOf(R, b)
     if (da < 0 || db < 0 || da === db || R.union[a] >= 0 || R.union[b] >= 0 || tied(R, a, b)) continue
-    if (rng.next() >= MARRIAGE.chance) continue
+    if (rng.next() >= MARRIAGE.chance && !(ordered && ox.rng.next() < SEAT.marryConsent * (1 - (ps.relR[r] < 1 ? ps.relR[r] : 1)))) continue
     const m = R.mA.length
     R.mA.push(a); R.mB.push(b); R.mDA.push(da); R.mDB.push(db); R.mYear.push(s.year); R.mEnd.push(-1)
     R.mActive.push(m)

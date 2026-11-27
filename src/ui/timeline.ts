@@ -353,10 +353,20 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     ticks.innerHTML = ''
     if (!enabled) return
     const stepYears = years > 4000 ? 1000 : years >= 1500 ? 500 : years >= 600 ? 200 : 100
+    let last: HTMLSpanElement | null = null, lastT = 0
     for (let t = 0; t <= years; t += stepYears) {
       const s = document.createElement('span')
       s.textContent = String(t)
       s.style.left = `${(100 * t) / years}%`
+      ticks.appendChild(s)
+      last = s; lastT = t
+    }
+    // (the end of a range that is not a round number, e.g. a seat's pause at 802: labelled, the round label too close to it dropped)
+    if (years % stepYears !== 0) {
+      if (last && lastT > 0 && (years - lastT) / years < 0.08) last.remove()
+      const s = document.createElement('span')
+      s.textContent = String(Math.floor(years))
+      s.style.left = '100%'
       ticks.appendChild(s)
     }
     // marks of great epidemics (click: jump there), and the world's people behind the slider

@@ -1,34 +1,157 @@
-/* seat: the decision card (decisionCard.ts). Phone first: a bottom panel, stacked full-width options >= 48 px tall. */
-.seat-card {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
-  max-height: 62vh; overflow-y: auto; box-sizing: border-box;
-  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
-  background: rgba(14, 18, 26, 0.96); color: #e8e4da; border-top: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
-  font: 14px/1.4 system-ui, sans-serif;
+/* seat: the decision screen and messages (decisionCard.ts), in worldseed's panel language (style.css: Inter, the dark panel
+   colours, --accent). Opaque where text sits: nothing of the globe's labels, the timeline or the sheet shows through. */
+:root {
+  --seat-ink: var(--text, #e8ecf4);
+  --seat-ink-2: var(--text-2, #c4ccda);
+  --seat-dim: var(--text-dim, #a7b2c5);
+  --seat-panel: rgb(13, 17, 27);
+  --seat-card: rgb(20, 25, 37);
+  --seat-card-hi: rgb(27, 33, 48);
+  --seat-line: rgba(255, 255, 255, 0.12);
+  /* the art (scenes.ts, glyphs.ts) */
+  --seat-art-sky: rgb(18, 26, 41);
+  --seat-art-far: rgb(40, 56, 74);
+  --seat-art-land: rgb(29, 43, 50);
+  --seat-art-sea: rgb(22, 50, 74);
+  --seat-art-ink: rgb(196, 204, 218);
+  --seat-art-ink-strong: rgb(232, 236, 244);
+  --seat-art-accent: #f0d79a;
+  /* the option tints, by what an option does */
+  --seat-tint-war: #e2806a;
+  --seat-tint-diplomacy: #5fb8d9;
+  --seat-tint-court: #b9a3e3;
+  --seat-tint-coin: #f0c06a;
+  --seat-tint-faith: #e9d38a;
+  --seat-tint-works: #a8b5c8;
+  --seat-tint-discovery: #7fcf9f;
 }
-.seat-card.hidden { display: none; }
-.seat-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.seat-card-title { font-weight: 600; font-size: 16px; }
-.seat-card-sub { opacity: 0.7; font-size: 12px; white-space: nowrap; }
-.seat-card-text { margin: 0 0 10px; opacity: 0.9; }
-.seat-card-options { display: flex; flex-direction: column; gap: 8px; }
+
+.seat-screen.hidden, .seat-msg.hidden, .seat-peek-back.hidden { display: none; }
+
+/* the screen: a dimmed backdrop over the globe, the banner, the situation, the cards in a row, the court's button */
+.seat-screen {
+  position: fixed; inset: 0; z-index: 80; isolation: isolate;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding: 24px 24px calc(24px + var(--safe-b, env(safe-area-inset-bottom, 0px)));
+  background: rgba(3, 4, 8, 0.95); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); color: var(--seat-ink); overflow-y: auto; overscroll-behavior: contain;
+  font-size: 14px; line-height: 1.4;
+}
+.seat-screen.peek { display: none; }
+.seat-banner { text-align: center; max-width: 760px; }
+.seat-banner-title {
+  margin: 0; padding: 8px 28px; font-size: 22px; font-weight: 700; letter-spacing: 0.01em;
+  background: var(--seat-panel); border: 1px solid var(--seat-line); border-radius: 10px;
+}
+.seat-banner-sub { margin-top: 4px; font-size: 12px; color: var(--seat-dim); }
+.seat-situation { display: flex; align-items: center; gap: 14px; max-width: 720px; padding: 8px 12px; background: var(--seat-panel); border: 1px solid var(--seat-line); border-radius: 10px; }
+.seat-scene-frame { flex: none; width: 150px; height: 90px; border-radius: 6px; overflow: hidden; border: 1px solid var(--seat-line); }
+.seat-scene-frame svg, .seat-opt-frame svg { display: block; width: 100%; height: 100%; }
+.seat-situation-text { margin: 0; color: var(--seat-ink-2); }
+
+/* Authority (deference): a meter with what leaving this matter would cost; hover or tap explains */
+.seat-authority { position: relative; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--seat-dim); cursor: help; }
+.seat-authority-bar { position: relative; width: 140px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.seat-authority-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent, #5fb8d9); }
+.seat-authority-cost { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(45deg, #e2806a 0 3px, rgba(226, 128, 106, 0.4) 3px 6px); }
+.seat-authority-why { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); width: 300px; margin-top: 6px; padding: 8px 10px; background: var(--seat-panel); border: 1px solid var(--seat-line); border-radius: 8px; color: var(--seat-ink-2); z-index: 2; }
+.seat-authority:hover .seat-authority-why, .seat-authority:focus-visible .seat-authority-why, .seat-authority.open .seat-authority-why { display: block; }
+
+/* the option cards: portrait (3:4), a row of 2-5, centred */
+.seat-cards { display: flex; justify-content: center; gap: 16px; flex-wrap: nowrap; max-width: 100%; }
 .seat-opt {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 48px;
-  padding: 10px 12px; text-align: left; cursor: pointer; touch-action: manipulation;
-  background: rgba(255, 255, 255, 0.07); color: inherit; border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 10px; font: inherit;
+  --seat-tint: var(--seat-tint-court);
+  position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  width: 210px; aspect-ratio: 3 / 4; padding: 10px 10px 12px; box-sizing: border-box; text-align: left;
+  background: var(--seat-card); color: inherit; font: inherit; cursor: pointer; touch-action: manipulation;
+  border: 1px solid color-mix(in srgb, var(--seat-tint) 45%, transparent); border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
-.seat-opt:hover, .seat-opt:focus-visible { background: rgba(255, 255, 255, 0.14); outline: none; border-color: rgba(255, 220, 150, 0.6); }
-.seat-opt-label { font-weight: 600; }
-.seat-opt-note { font-size: 12px; opacity: 0.75; }
-.seat-showme { margin-top: 10px; min-height: 44px; padding: 0 14px; background: none; color: #f0d79a; border: 1px solid rgba(240, 215, 154, 0.4); border-radius: 10px; font: inherit; cursor: pointer; }
+.seat-opt:hover, .seat-opt:focus-visible {
+  outline: none; background: var(--seat-card-hi); transform: translateY(-6px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--seat-tint), 0 0 22px color-mix(in srgb, var(--seat-tint) 45%, transparent);
+}
+.seat-tint-war { --seat-tint: var(--seat-tint-war); }
+.seat-tint-diplomacy { --seat-tint: var(--seat-tint-diplomacy); }
+.seat-tint-court { --seat-tint: var(--seat-tint-court); }
+.seat-tint-coin { --seat-tint: var(--seat-tint-coin); }
+.seat-tint-faith { --seat-tint: var(--seat-tint-faith); }
+.seat-tint-works { --seat-tint: var(--seat-tint-works); }
+.seat-tint-discovery { --seat-tint: var(--seat-tint-discovery); }
+.seat-opt-badge {
+  position: absolute; top: -9px; right: -9px; display: flex; align-items: center; gap: 3px; padding: 2px 7px 2px 5px;
+  background: var(--seat-panel); color: var(--seat-tint); border: 1px solid var(--seat-tint); border-radius: 999px; font-size: 11px; font-weight: 600;
+}
+.seat-opt-badge-glyph { display: flex; }
+.seat-opt-head { display: flex; align-items: baseline; gap: 6px; min-height: 2.6em; }
+.seat-opt-num { flex: none; font-size: 11px; color: var(--seat-dim); }
+.seat-opt-label { font-weight: 700; font-size: 14px; line-height: 1.25; }
+.seat-opt-frame { display: block; flex: none; height: 38%; border-radius: 6px; overflow: hidden; border: 2px solid color-mix(in srgb, var(--seat-tint) 70%, transparent); }
+.seat-opt-tag { align-self: flex-start; padding: 1px 7px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--seat-tint); border: 1px solid color-mix(in srgb, var(--seat-tint) 50%, transparent); border-radius: 4px; }
+.seat-opt-note { font-size: 12px; line-height: 1.35; color: var(--seat-ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+
+/* below the cards: the matter left to the deciding body (Esc), and Show me */
+.seat-actions { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.seat-skip {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 44px; padding: 8px 18px; max-width: 560px;
+  background: var(--seat-panel); color: var(--seat-ink); border: 1px solid var(--seat-line); border-radius: 10px; font: inherit; cursor: pointer;
+}
+.seat-skip:hover, .seat-skip:focus-visible { outline: none; border-color: var(--accent, #5fb8d9); background: var(--seat-card-hi); }
+.seat-skip-label { font-weight: 600; }
+.seat-skip-note { font-size: 12px; color: var(--seat-dim); text-align: center; }
+.seat-showme { min-height: 32px; padding: 0 10px; background: none; color: var(--seat-art-accent); border: none; font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+.seat-peek-back {
+  position: fixed; z-index: 80; left: 50%; top: 76px; transform: translateX(-50%); min-height: 44px; padding: 0 18px;
+  background: var(--seat-panel); color: var(--seat-ink); border: 1px solid var(--accent, #5fb8d9); border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer;
+}
+.seat-nav { display: flex; align-items: center; gap: 12px; }
+.seat-nav-btn { min-width: 64px; min-height: 40px; background: var(--seat-panel); color: var(--seat-ink); border: 1px solid var(--seat-line); border-radius: 8px; font: inherit; cursor: pointer; }
+.seat-nav-pager { font-size: 12px; color: var(--seat-dim); }
+
+/* the message panel (reaching the reign, the seat lost): no backdrop, the timeline stays in view */
+.seat-msg {
+  position: fixed; z-index: 80; left: 16px; top: 76px; width: 380px; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 14px 16px;
+  background: var(--seat-panel); color: var(--seat-ink); border: 1px solid var(--seat-line); border-radius: 12px; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  font-size: 14px; line-height: 1.4;
+}
+.seat-msg-title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+.seat-msg-text { margin: 0 0 8px; color: var(--seat-ink-2); }
+.seat-msg-buttons { display: flex; gap: 8px; }
 .seat-take { margin: 6px 0; min-height: 44px; padding: 0 12px; background: rgba(240, 215, 154, 0.14); color: #f0d79a; border: 1px solid rgba(240, 215, 154, 0.45); border-radius: 8px; font: inherit; cursor: pointer; }
 .seat-amb { display: flex; align-items: center; gap: 8px; min-height: 44px; }
 .seat-amb input { width: 22px; height: 22px; }
-/* wider screens: a card at the top centre */
-@media (min-width: 700px) {
-  .seat-card:not(.seat-card-compact) {
-    left: 50%; right: auto; bottom: auto; top: 64px; width: 420px; transform: translateX(-50%);
-    border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.16); max-height: calc(100vh - 140px);
-  }
+
+/* phone: banner and situation on top, the cards a scroll-snap carousel (one ~75% wide, the next peeking), Prev / Next, and the
+   court's button pinned at the bottom above the home indicator */
+.seat-screen.seat-compact { justify-content: flex-start; gap: 10px; padding: calc(var(--safe-t, 0px) + 14px) 0 0; }
+.seat-compact .seat-banner, .seat-compact .seat-situation, .seat-compact .seat-authority { margin: 0 14px; }
+.seat-compact .seat-banner-title { font-size: 17px; padding: 8px 14px; }
+.seat-compact .seat-situation { flex-direction: row; align-items: flex-start; }
+.seat-compact .seat-scene-frame { width: 96px; height: 58px; }
+.seat-compact .seat-situation-text { font-size: 13px; }
+.seat-compact .seat-cards {
+  justify-content: flex-start; width: 100%; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 12.5%;
+  padding: 12px 12.5% 8px; box-sizing: border-box; scrollbar-width: none; overscroll-behavior-x: contain;
+}
+.seat-compact .seat-cards::-webkit-scrollbar { display: none; }
+.seat-compact .seat-opt { flex: 0 0 75%; width: auto; max-width: 300px; scroll-snap-align: center; aspect-ratio: auto; min-height: 300px; }
+.seat-compact .seat-opt:hover, .seat-compact .seat-opt:focus-visible { transform: none; }
+.seat-compact .seat-actions {
+  position: sticky; bottom: 0; margin-top: auto; width: 100%; box-sizing: border-box;
+  padding: 10px 14px calc(14px + var(--safe-b, env(safe-area-inset-bottom, 0px))); background: var(--seat-panel); border-top: 1px solid var(--seat-line);
+}
+.seat-compact .seat-skip { width: 100%; max-width: none; min-height: 52px; }
+.seat-msg.seat-compact { left: 0; right: 0; top: auto; bottom: 0; width: auto; max-width: none; border-radius: 14px 14px 0 0; padding-bottom: calc(18px + var(--safe-b, env(safe-area-inset-bottom, 0px))); }
+.seat-peek-back { top: calc(var(--safe-t, 0px) + 72px); }
+
+/* reduced motion: no lift, no glow animation, an outline instead */
+@media (prefers-reduced-motion: reduce) {
+  .seat-opt { transition: none; }
+  .seat-opt:hover, .seat-opt:focus-visible { transform: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); outline: 2px solid var(--seat-tint); outline-offset: 2px; }
+  .seat-compact .seat-cards { scroll-behavior: auto; }
+}
+/* short desktop windows: smaller cards */
+@media (max-height: 760px) and (min-width: 700px) {
+  .seat-opt { width: 180px; }
+  .seat-scene-frame { width: 120px; height: 72px; }
 }

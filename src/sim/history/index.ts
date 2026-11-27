@@ -255,6 +255,7 @@ import { appendOrders } from './orders/state.ts'
 import { createSeatState } from './seat/state.ts'
 import type { SeatState } from './seat/state.ts'
 import { seatYear } from './seat/system.ts'
+import { assembleDeference, deferenceYear } from './rulers/deference.ts' // rulers: deference
 import { seatWatch } from './seat/watch.ts'
 import { assembleSeat } from './seat/assemble.ts'
 
@@ -697,7 +698,9 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   const step = (year: number): void => {
     s.year = year
     s.landYear = year % LAND.step === 0
+    if (s.defer !== null) deferenceYear(s) // rulers: deference fades (none until something feeds it)
     if (ox) ordersBegin(s, ox) // orders: the orders of the year given and put in force
+    if (options?.jitter && year === options.jitter.year) { const r = options.jitter.stream === 'structures' ? s.rngStructures : s.rngMigration; for (let k = 0; k < options.jitter.draws; k++) r.u32() } // realism null ensemble
     if (dx) climateYear(s, dx) // disasters: the year's shock schedule and climate (world-only), before the weather
     weatherSystem(s, weather)
     if (dx) shockYear(s, dx, weather) // disasters: eruptions, quakes, waves and floods where people live
@@ -740,7 +743,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
     if (fx) familiesYear(s, fx, lm) // families: shares of the year's merchant capital, heads, shocks, branches, marriages, patronage (reads only while FAMILY.feedback is off)
     if (dx) disasterYearEnd(s, dx) // disasters: droughts, epochs, the climate series
     if (ox) ordersEnd(s, ox) // orders: the year's events matched against the orders in force; lapses
-    if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
+    if (seat) { seatYear(s, seat); seatWatch(s, seat) } // seat: the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions; the choices' deference); the decisions offered (pure reads) the polity the seat holds (SeatTaken, SeatPassed, SeatLost; ambitions); the decisions offered (pure reads)
     if (year % interval === 0) snapshot()
     if (year % landInterval === 0) landSnapshot()
     if (year % tradeInterval === 0) tradeSnapshot()
@@ -871,6 +874,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         ...(ox ? assembleOrders(ox, years) : {}), // orders: (absent without orders)
         why: whyHist, // causes:
         ...(seat ? { seat: assembleSeat(seat, ox ? ox.given : [], years) } : {}), // seat: (absent without a seat)
+        ...(s.defer !== null ? { deference: assembleDeference(s) } : {}), // rulers: deference (absent when nothing fed it)
         ...(cradles.wish ? { cradleWish: cradles.wish.wish.slice(), cradleCell: cradles.wish.cell.slice(), cradlePlaced: cradles.wish.placed.slice(), cradleCrowded: cradles.wish.crowded.slice() } : {}), // cradle wishes: (absent without a wish)
       },
       terrain,
@@ -892,7 +896,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
         rulers: rul ? { ...rul.diag } : undefined, // rulers:
         governments: gov ? { ...gov.diag } : undefined, // governments:
         grudges: pol && pol.og ? { ...pol.og.diag } : undefined, // oaths, balance, arms:
-        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice() } : undefined, // battles:
+        battles: bat ? { ...bat.diag, byKind: bat.diag.byKind.slice(), byWeather: bat.diag.byWeather.slice(), factors: bat.diag.factors.slice() } : undefined, // battles:
         finance: fin ? { ...fin.diag, rates: fin.diag.rates.slice(), defaultLog: fin.diag.defaultLog.slice() } : undefined, // finance:
         society: soc ? { ...soc.diag, steps: soc.diag.steps.slice() } : undefined, // society:
         beliefs: bel ? { ...bel.diag, byMotive: bel.diag.byMotive.slice() } : undefined, // beliefs:
