@@ -152,7 +152,11 @@ for (let i = 0; i <= N; i++) {
     // stop here: the address and the History shown at this decision screen
     const u = new URL(page.url())
     seatText = u.searchParams.get('seat')
-    const h = await page.evaluate(PAGE_HASH)
+    // the History shown must be the pause's (its last year is the card's year); note how long the swap lags the card
+    let h = await page.evaluate(PAGE_HASH)
+    const lag0 = Date.now()
+    while (h && h.years !== c.year && Date.now() - lag0 < 120000) { await page.waitForTimeout(500); h = await page.evaluate(PAGE_HASH) }
+    log(`the History shown reached the pause ${((Date.now() - lag0) / 1000).toFixed(1)} s after the card (years ${h?.years}, card ${c.year})`)
     seen.push({ title: c.title, options: c.options.map((o) => o.label), stop: true })
     await page.screenshot({ path: out + `stop-${seed}.png` })
     var stopUrl = u, stopHash = h
@@ -179,7 +183,8 @@ if (stopUrl && stopHash) {
   fresh.searchParams.delete('year'); fresh.searchParams.delete('play') // (a seat link: seed, lang, seat, o)
   await p2.goto(fresh.href)
   const c2 = await waitCard(p2)
-  const h2 = c2 && c2 !== 'lost' ? await p2.evaluate(PAGE_HASH) : null
+  let h2 = c2 && c2 !== 'lost' ? await p2.evaluate(PAGE_HASH) : null
+  for (let k = 0; k < 240 && h2 && c2 && h2.years !== c2.year; k++) { await p2.waitForTimeout(500); h2 = await p2.evaluate(PAGE_HASH) }
   check(!!h2 && h2.hash === stopHash.hash && h2.years === stopHash.years, `fresh replay of the bot's address equals its run (bot ${stopHash.hash} @${stopHash.years}, replay ${h2?.hash} @${h2?.years}; card "${c2?.title}")`)
   await ctx2.close()
   // ---------- the headless driver on the same seat: same cards, same History ----------

@@ -120,7 +120,7 @@ async function main() {
   }
   console.log(`\nruntime ${((performance.now() - t0) / 1000).toFixed(0)} s`)
   const w = arg('write')
-  if (w) { mkdirSync(dirname(w), { recursive: true }); for (const m of rows) appendFileSync(w, JSON.stringify({ ...stamp, ...m }) + '\n') }
+  if (w) { mkdirSync(dirname(w), { recursive: true }); writeFileSync(w, rows.map((m) => JSON.stringify({ ...stamp, ...m })).join('\n') + '\n') } // (the whole table, rewritten: reruns never duplicate)
   const snap = arg('snapshot')
   if (snap) { mkdirSync(dirname(snap), { recursive: true }); writeFileSync(snap, JSON.stringify({ ...stamp, rows }, null, 1) + '\n') }
   proc.exit(0)
