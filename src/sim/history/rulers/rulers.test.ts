@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { AccessionHow, BondKind, EventType, PolityOrigin, ReignEnd, UnionEnd } from '../../../contract.ts'
 import type { History, World } from '../../../contract.ts'
 import { createHistoryRun, generateWorld, simulateHistory } from '../../index.ts'
+import { withoutLater } from '../laterFields.ts'
 
 // --- A hash of every History field of the history without rulers and religion ----------------------------------
 
@@ -27,8 +28,8 @@ export function hashBaseFields(h: History): string {
   for (const k of BASE_KEYS) {
     x = hv(x, k)
     // (tourism, later than rulers and religion and off in the golden runs: settlements without their resort flag)
-    // (oaths, arms: the wars' later columns cause, ally and race are left out)
-    x = hv(x, k === 'settlements' ? h.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : k === 'wars' ? (({ cause, ally, race, ...rest }) => { void cause; void ally; void race; return rest })(h.wars) : (h as unknown as Record<string, unknown>)[k])
+    // (oaths, arms: the wars' later columns cause, ally and race are left out; beliefs: wars.believed / actual / motive and bonds.known too)
+    x = hv(x, k === 'settlements' ? h.settlements.map((s) => { const o: Record<string, unknown> = { ...s }; delete o.resort; return o }) : k === 'wars' || k === 'bonds' ? withoutLater(h)[k] : (h as unknown as Record<string, unknown>)[k])
   }
   return (x >>> 0).toString(16)
 }
