@@ -27,9 +27,9 @@ Worktree /home/claude/wsx-onboard, branch lane/onboard (from origin/main 363c570
   vitest src/ui/story + battle tests 34/34 (runs/onboard/vitest.log)
 
 ## Current / next
-- final dist built (index 872 KB); /home/claude/eval/onboard/runfinal.sh (nohup) waits for runall.sh then measures
-  final-desktop / final-phone on :4912
-- then: re-run G0 + vitest on final, merge origin/main, push, report (lane/setup landing conflict: see report)
+- DONE: merged origin/main 17ae06d (4f52986); G0 OK x3; vitest onboard + story 33/33; tsc; build (landing 872 KB).
+- Final measurements: runs/onboard/measure.jsonl (final-desktop, final-phone vs before61343-*), pacing.jsonl.
+- Open: lane/setup landing conflict (see report); owner real-phone P50 load.
 
 ## Note for docs/PLAYER_PRIMER.md (lane/bots not merged yet: add when it is)
 - Start page: three play paths: "Watch history unfold" (primary, Enter; Follow on), "Rule a kingdom" (seat link
