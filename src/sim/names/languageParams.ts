@@ -41,7 +41,7 @@ export const LANG = {
   /** Years of unbroken foreign rule before a town can take up its rulers' tongue. */
   shiftMin: 150,
   /** Shift hazard per 5-year snapshot, times share² (share: the rulers' own people in the realm's population). */
-  shiftRate: 0.02,
+  shiftRate: 0.006,
   /** Hazard factor for a town its rulers renamed (Adapted, Ruler, House), and for a capital. */
   shiftRenamed: 1.5,
   shiftCapital: 1.3,
