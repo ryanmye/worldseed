@@ -36,7 +36,18 @@
 // [], [-1, -1] and undefined give the same run and the same cache key; part of the cache key like every history
 // option (cacheKeys serialises them all but `years`). New cradles change the history from year 0: a new run.
 
-import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, Order, World, WorldOptions } from './contract.ts'
+//
+// Seat mode (seat-mode §5; HistoryOptions.seat): a `seat` request starts a live run of the kept world with the seat and the
+// orders given (a URL's, on a reload), steps it to the replay point (the seat's year, or the year before the last order) with
+// progress posts, then plays on (HistoryRun.playSeat) to the first year the seat's watcher records a decision, the seat is
+// lost, or SEAT_MAX_RUN years pass, and posts that History as `seatPause` with the decision rows of its last year (`cards`).
+// A `seatChoose` request appends the orders of the options chosen to the same run (HistoryRun.addOrders: nothing is
+// re-simulated, and the result is exactly the run with those orders from the start) and plays on to the next pause.
+// `seatStop` leaves seat mode: the seat run becomes the kept run (with its seat and orders as its options) and is extended
+// to `years` without pausing, posted as a replace history. Pause histories are not cached (the stopped run is).
+// (Take-back, `seatBack`, needs the checkpoints of perf-efficiency P6: seat steps 10-11.)
+
+import type { CreateHistoryRun, History, HistoryOptions, HistoryRun, Order, SeatOptions, World, WorldOptions } from './contract.ts'
 import { canonicalCradles, decodeOrders, encodeOrders } from './contract.ts'
 import * as sim from './sim/index.ts'
 import { buffersOf, cacheKeys, hashValue, openHistoryCache, snapshot, type CacheKeys } from './historyCache.ts'
@@ -89,6 +100,12 @@ export type WorkerRequest =
       /** The planted cradles to simulate with (HistoryOptions.cradles); absent: those of the run kept. */
       cradles?: number[]
     }
+  /** seat: start (or, from a URL, resume) seat mode on the kept world: a live run with this seat and these orders, played to the next pause. */
+  | { type: 'seat'; requestId: number; seat: SeatOptions; orders: Order[]; cradles?: number[] }
+  /** seat: the orders of the options chosen at the last pause (year + 1; maybe none), appended to the live run; play on. */
+  | { type: 'seatChoose'; requestId: number; orders: Order[] }
+  /** seat: leave seat mode, extending the seat's run to `years` without pausing (answered with a replace history). */
+  | { type: 'seatStop'; requestId: number; years: number }
   /** The page was hidden or shown: background extensions run at a reduced duty cycle while hidden. */
   | { type: 'throttle'; hidden: boolean }
 
@@ -98,6 +115,8 @@ export type WorkerResponse =
   | { type: 'error'; requestId: number; stage: 'world' | 'history' | 'extend'; message: string }
   /** Progress of a run in chunks (resumable runs only, see `simulate`): `years` simulated so far of `target`. */
   | { type: 'progress'; requestId: number; years: number; target: number }
+  /** seat: the History up to a pause (its last year), the decision rows of that year (History.seat.decisions), whether the seat is lost. */
+  | { type: 'seatPause'; requestId: number; history: History; ms: number; cards: number[]; lost: boolean }
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer)
 const errorMessage = (err: unknown) => (err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
@@ -149,11 +168,8 @@ async function simulate(k: Kept, years: number | undefined, requestId: number, b
   }
 }
 
-async function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean, background = false, replace = false) {
-  const t0 = performance.now()
-  const history = await simulate(k, years, requestId, background)
-  const ms = performance.now() - t0
-  const stored = k.keys ? snapshot(history) : null // (before its arrays are transferred away)
+/** The buffers of a History to transfer with it (zero-copy; detached in the worker). */
+function transferList(history: History): Transferable[] {
   // A Set: the sim may pack several arrays into one buffer, and listing a buffer twice throws.
   const transfer = new Set<Transferable>([history.population.buffer, history.food.buffer, history.capacity.buffer] as ArrayBuffer[])
   const partial = history as Partial<History>
@@ -188,7 +204,16 @@ async function simulateAndPost(requestId: number, k: Kept, years: number | undef
   // ideas: the adoptions table (its typed columns, fresh per run)
   if (partial.ideaAdoptions) for (const v of Object.values(partial.ideaAdoptions)) if (ArrayBuffer.isView(v) && v.byteLength > 0) extra.push(v)
   for (const a of extra) if (a && ArrayBuffer.isView(a) && a.buffer instanceof ArrayBuffer && a.buffer.byteLength > 0) transfer.add(a.buffer)
-  post({ type: 'history', requestId, history, ms, extend, replace: replace || undefined }, [...transfer])
+  return [...transfer]
+}
+
+async function simulateAndPost(requestId: number, k: Kept, years: number | undefined, extend: boolean, background = false, replace = false) {
+  const t0 = performance.now()
+  const history = await simulate(k, years, requestId, background)
+  const ms = performance.now() - t0
+  const stored = k.keys ? snapshot(history) : null // (before its arrays are transferred away)
+  const transfer = transferList(history)
+  post({ type: 'history', requestId, history, ms, extend, replace: replace || undefined }, transfer)
   if (stored && k.keys) void cacheWrite(k.keys.history(stored.years), k.keys.group, stored.years, stored)
 }
 
@@ -339,12 +364,101 @@ async function extend(req: Extract<WorkerRequest, { type: 'extend' }>) {
   }
 }
 
+// ---------- seat mode (see the header) ----------
+
+/** The seat's live run (null outside seat mode). */
+let seatRun: { requestId: number; run: HistoryRun; historyOptions: HistoryOptions; lastPause: number } | null = null
+/** Years played at most between two pauses without a decision (seat/params.ts SEAT.maxRun). */
+const SEAT_MAX_RUN = 50
+const SEAT_MAX_YEARS = 6000
+
+async function seatStart(req: Extract<WorkerRequest, { type: 'seat' }>) {
+  if (req.requestId !== latestRequestId) return
+  if (!kept || !keptSeed || !createHistoryRun) {
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: 'no world (or no resumable run) for seat mode' })
+    return
+  }
+  const base: HistoryOptions = { ...(kept.historyOptions ?? {}) }
+  delete base.orders
+  delete base.seat
+  delete base.years
+  if (req.cradles !== undefined) base.cradles = req.cradles
+  const historyOptions = canonicalOptions({ ...base, orders: req.orders }) ?? {}
+  historyOptions.seat = { kind: req.seat.kind, id: Math.floor(req.seat.id), from: Math.max(0, Math.floor(req.seat.from)), ...(req.seat.ambitions && req.seat.ambitions.length > 0 ? { ambitions: req.seat.ambitions.slice() } : {}) }
+  try {
+    const run = createHistoryRun(kept.world, historyOptions)
+    const orders = historyOptions.orders ?? []
+    let replay = historyOptions.seat.from
+    for (const o of orders) replay = Math.max(replay, Math.floor(o.year) - 1)
+    replay = Math.min(SEAT_MAX_YEARS, replay)
+    seatRun = { requestId: req.requestId, run, historyOptions, lastPause: replay }
+    while (run.year < replay) {
+      if (req.requestId !== latestRequestId) return
+      const t0 = performance.now()
+      run.simulateTo!(Math.min(replay, run.year + PROGRESS_CHUNK_YEARS))
+      lastChunkMs = performance.now() - t0
+      post({ type: 'progress', requestId: req.requestId, years: run.year, target: replay })
+      await breathe()
+    }
+    seatPlay(req.requestId)
+  } catch (err) {
+    seatRun = null
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: errorMessage(err) })
+  }
+}
+
+/** Plays the seat's run to the next pause and posts it. */
+function seatPlay(requestId: number) {
+  const sr = seatRun!
+  const t0 = performance.now()
+  const y = sr.run.playSeat!(Math.min(SEAT_MAX_YEARS, sr.run.year + SEAT_MAX_RUN))
+  const history = sr.run.advanceTo(y)
+  const ms = performance.now() - t0
+  const S = history.seat
+  const cards: number[] = []
+  if (S) for (let d = 0; d < S.decisions.count; d++) if (S.decisions.year[d] === y) cards.push(d)
+  const lost = S ? S.lostYear >= 0 : true
+  sr.lastPause = y
+  post({ type: 'seatPause', requestId, history, ms, cards, lost: lost || y >= SEAT_MAX_YEARS }, transferList(history))
+}
+
+function seatChoose(req: Extract<WorkerRequest, { type: 'seatChoose' }>) {
+  const sr = seatRun
+  if (!sr || req.requestId !== latestRequestId) return
+  try {
+    const add = decodeOrders(encodeOrders(req.orders))
+    if (add.length > 0) {
+      sr.run.addOrders!(add)
+      sr.historyOptions = { ...sr.historyOptions, orders: [...(sr.historyOptions.orders ?? []), ...add] }
+    }
+    sr.requestId = req.requestId
+    seatPlay(req.requestId)
+  } catch (err) {
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: errorMessage(err) })
+  }
+}
+
+async function seatStop(req: Extract<WorkerRequest, { type: 'seatStop' }>) {
+  const sr = seatRun
+  if (!sr || !kept || !keptSeed || req.requestId !== latestRequestId) return
+  seatRun = null
+  const cache = await cacheReady
+  const keys = cache ? cacheKeys(cache.version, keptSeed.seed, keptSeed.options, sr.historyOptions) : null
+  kept = { requestId: req.requestId, world: kept.world, historyOptions: sr.historyOptions, run: sr.run, keys }
+  try {
+    await simulateAndPost(req.requestId, kept, Math.max(req.years, sr.run.year), false, false, true)
+  } catch (err) {
+    post({ type: 'error', requestId: req.requestId, stage: 'history', message: errorMessage(err) })
+  }
+}
+
 let queue: Promise<void> = Promise.resolve()
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const req = ev.data
   if (req.type === 'throttle') hidden = req.hidden
   else {
     if (req.type !== 'extend' && req.type !== 'history') latestRequestId = req.requestId
-    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : req.type === 'history' ? historyFor(req) : generate(req)))
+    if (req.type === 'generate' || req.type === 'history' || req.type === 'orders') seatRun = null // (a new world or run leaves seat mode)
+    queue = queue.then(() => (req.type === 'extend' ? extend(req) : req.type === 'orders' ? reorder(req) : req.type === 'history' ? historyFor(req) : req.type === 'seat' ? seatStart(req) : req.type === 'seatChoose' ? seatChoose(req) : req.type === 'seatStop' ? seatStop(req) : generate(req)))
   }
 }
