@@ -29,3 +29,7 @@ Worktree /home/claude/wsx-setup, branch lane/setup. Runs are in /home/claude/run
 - Realism re-baseline DONE (runs complete, 70 rows): baseline 0.371197 48/104; sweep22 0.371930 246/572; null ensemble k=13 mean 0.3483 sd 0.0300, in range 46.5 sd 3.8. Commit b662140.
 - G0 new (1 086a0ba67ed15ca6, 42 b81096d393b32e50, 1234 8b177fd80d554a37); G0-off unchanged. presets/registry/hashBase tests OK; 15 golden/battles/disasters/history test files OK (91 tests); build OK; Playwright smoke OK (runs/setup/smoke.log, shots/).
 - Merged origin/main 17ae06d (absentee) → Dramatic adds absentee. Pending: G0 after merge (runs/setup/g0-after-absentee.log), dramatic sanity rerun (runs/setup/dramatic.jsonl), vt-realism.log, realism-check-noise-new.log. If G0 realistic changed after the merge, the realism rows must be rerun (delete runs/setup/realism/*.jsonl, rerun realism-runner.sh).
+
+## DONE (lane complete)
+- G0 after merging 17ae06d: unchanged; both identities OK. Final tests: realismStats, presets, registry, hashBase all pass (36 tests). Build OK. Dramatic sanity with absentee: in bounds.
+- Null ensemble on the realistic default: under the old rule 11/12 null perturbations fail (12/12 on 8cabf09); under the noise rule, leave-one-out, 3/12 (≤2 on 8cabf09). The test bounds were set to these measured values.
