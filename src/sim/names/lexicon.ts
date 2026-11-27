@@ -22,6 +22,7 @@ import { LANG } from './languageParams.ts'
 import type { Language } from './phonology.ts'
 import { MEANING_CLASSES } from './phonology.ts'
 import { buildMorph, buildRoot } from './words.ts'
+import { typoCoinWord } from './typology/words.ts'
 
 /** Meaning ids of the visible words. */
 export const MEANING = { affix: 0, geo: 8, derive: 18, city: 19 } as const
@@ -61,6 +62,7 @@ export function protoWords(world: World, lang: Language, tribe: number): string[
 
 /** A new native word for meaning m, shaped like the word it replaces. */
 export function coinWord(lang: Language, m: number, rng: Rng): string {
+  if (lang.typo) return typoCoinWord(lang, m, rng, MEANING.geo, MEANING.derive, MEANING.city, GEO_CLASSES.indexOf('land'))
   if (m < MEANING.geo) {
     const cls = MEANING_CLASSES[m]
     return lang.affixes[cls].map((o) => buildMorph(lang, rng, o.attach === 'space' ? 3 : 2, o.kind === 'suffix' && o.attach === 'fuse')).join('|')

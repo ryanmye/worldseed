@@ -16,6 +16,7 @@
 
 import type { Rng } from '../rng.ts'
 import { buildMorph, CODA_OK, DIPHTHONGS_OK, FINAL_OK, ONSET_CLUSTERS_OK } from './words.ts'
+import type { TypoProfile } from './typology/types.ts'
 
 export type MeaningClass = 'river' | 'coast' | 'hill' | 'forest' | 'plain' | 'lake' | 'ford' | 'new'
 export const MEANING_CLASSES: readonly MeaningClass[] = ['river', 'coast', 'hill', 'forest', 'plain', 'lake', 'ford', 'new']
@@ -51,6 +52,12 @@ export interface Language {
   /** Coast and colony names may be two words. */
   twoWord: boolean
   affixes: Record<MeaningClass, AffixOption[]>
+  /**
+   * typology: the sound system of a typology language (HistoryOptions.typology; typology/words.ts typoLanguage). With it the
+   * fields above hold phoneme symbols (typology/phoneme.ts) and the word builders of words.ts dispatch to typology/words.ts;
+   * absent for every letter language, which nothing here changes.
+   */
+  typo?: TypoProfile
 }
 
 const CONSONANTS_MASTER = ['p', 't', 'k', 'b', 'd', 'g', 'm', 'n', 'ng', 'f', 'v', 's', 'z', 'sh', 'th', 'r', 'l', 'w', 'y', 'h', 'ch']
