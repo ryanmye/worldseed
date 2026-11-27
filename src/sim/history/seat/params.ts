@@ -109,10 +109,20 @@ export const SEAT = {
   reclaimRisk: 2.5,
   // Ambitions: Endure years; Unify share and towns for unifyYears running; Riches years running
   endureYears: 300,
-  unifyShare: 0.8,
+  unifyShare: 0.6, // (lane N3: was 0.8; the bots found it unreachable: seed 61343's realm peaks near 0.5 of its landmass unaided)
   unifyTowns: 5,
   unifyYears: 10,
   richesYears: 25,
+  // ---- lane N3 (the throne slice; design defaults, tuned with the bots harness) ----
+  // Heir: an heir younger than heirMinAge is never offered by name (the law may still pick the infant: "Let the law decide")
+  heirMinAge: 3,
+  // the same matter (kind, subject, detail) is not put again within repeatYears; a Crisis of the same cause within crisisRepeat
+  repeatYears: 15,
+  crisisRepeat: 12,
+  // Opening as a state lever: a neighbour at peace that we overmatch at the border by openAdvState (checked every 5 years);
+  // with Unify as the first ambition, Opening's cooldown is openCoolUnify instead of cool[Opening]
+  openAdvState: 1.6,
+  openCoolUnify: 10,
 } as const
 
 /** Urgent kinds come whatever the gap since the last card. */

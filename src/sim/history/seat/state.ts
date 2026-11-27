@@ -31,6 +31,17 @@ export interface SeatState {
   /** Per decision: how divisive (0..1), and the option a cautious court takes (seat/watch.ts). */
   dDiv: number[]
   dCourt: number[]
+  /** lane N3: per decision a kind's detail (Crisis: the event type behind it; Revolt: 1 put down; Opening: 1 a plain weakness,
+   * 0 turmoil; Heir: the law's heir's birth year), the HUD row (seat/hud.ts, HUD_N each) and the heirs of the house then
+   * (heirStart ragged: birth year, flags bit 0 woman, 1 legitimate, 2 the ruler's child). */
+  dInfo: number[]
+  hud: number[]
+  heirStart: number[]
+  heirBorn: number[]
+  heirFlags: number[]
+  /** lane N3: the reign an Heir card was last given for and the law's heir it named (re-offered only when that changes). */
+  heirReign: number
+  heirLaw: number
   /** Events looked at for the year's Choice records (the deference pass, seat/system.ts). */
   chSeen: number
   /** Decision rows recorded this year (the pause test of HistoryRunner.playSeat). */
@@ -52,7 +63,7 @@ export function createSeatState(opts: SeatOptions): SeatState {
   return {
     opts: copySeat(opts),
     taken: false, lostYear: -1, polity: -1, people: -1, house: -1, polityAt: [], peopleAt: [],
-    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [], dDiv: [], dCourt: [], chSeen: 0,
+    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [], dDiv: [], dCourt: [], dInfo: [], hud: [], heirStart: [0], heirBorn: [], heirFlags: [], heirReign: -1, heirLaw: -1, chSeen: 0,
     newRows: 0, lastCard: -1000000, lastKind: new Int32Array(DECISION_KIND_COUNT).fill(-1000000), epidemics: new Set(), evSeen: 0,
     ambitionYear: amb.map(() => -1), ambitionRun: amb.map(() => 0),
   }

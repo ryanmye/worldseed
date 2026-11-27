@@ -1,6 +1,6 @@
 // seat: the player's ambitions (SeatOptions.ambitions; seat-mode §3.8), judged yearly while the seat is held (pure reads).
-// AmbitionFulfilled 273 is logged once per ambition. Monument is not judged yet (the landmarks keep their own events; a later
-// step reads them): it stays -1.
+// AmbitionFulfilled 273 is logged once per ambition. Lane N3: Unify's share is 60% (SEAT.unifyShare), and Monument is judged: a great landmark finished at a town of the realm while the seat is
+// held (LandmarkCompleted 141).
 import { AmbitionKind, EventType, FaithKind } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
@@ -51,6 +51,14 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         for (const q of ps.alive) if (q !== p && sum[q] > sum[p]) { top = false; break }
         st.ambitionRun[i] = top ? st.ambitionRun[i] + 1 : 0
         ok = st.ambitionRun[i] >= SEAT.richesYears
+        break
+      }
+      case AmbitionKind.Monument: {
+        if (ps === null || p < 0) break
+        for (let e = s.events.length - 1; e >= 0 && s.events[e].year === s.year && !ok; e--) {
+          const x = s.events[e]
+          if (x.type === EventType.LandmarkCompleted && x.settlement >= 0 && x.settlement < ps.polity.length && ps.polity[x.settlement] === p) ok = true
+        }
         break
       }
       case AmbitionKind.Union: {
