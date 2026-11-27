@@ -8,11 +8,12 @@
 //   ... --json                 one JSON row per seed
 //   ... --out rows.jsonl       append each seed's row as it finishes; seeds already in the file are read back, not rerun
 //
-// Measured 2026-11-27 (lane/setup on main f20cb5f; 2000 y; seeds 1 / 7 / 42 / 1234; rows in /home/claude/runs/setup/*.jsonl):
+// Measured 2026-11-27 (lane/setup on main f20cb5f, dramatic on 17ae06d with absentee; 2000 y; seeds 1 / 7 / 42 / 1234; rows in /home/claude/runs/setup/*.jsonl):
 //   preset      events                     warless c.  reign median  short (<3y)        accessions/realm-c.  familyHead/c.         battles
 //   off         12251 13149 13683 15470    0 1 1 5     20 12 15 11   .079 .074 .068 .058  4.57 5.55 5.29 5.81  0                     0
 //   realistic   14004 17078 14123 16618    1 2 3 3     17 13 15 12   .089 .067 .060 .079  4.78 5.38 5.11 5.74  0                     282 314 427 309
-//   dramatic    17478 17635 15000 18923    3 2 3 5     16 12 18 13   .064 .061 .073 .067  5.16 5.75 4.81 5.47  70.7 52.5 29.4 37.3   347 378 384 403
+//   dramatic    14715 19367 15841 21771    3 3 2 3     19 16 15 12   .073 .081 .062 .062  4.59 5.17 4.97 5.80  30.6 63.3 52.3 46.0   350 570 216 597
+//   (dramatic before absentee merged: 17478 17635 15000 18923 events; familyHead 70.7 52.5 29.4 37.3)
 // No non-finite value and no realm above 80% of the world's people in any run. Successions are not a churn: the median reign
 // (12-18 y) is the off world's; the "every ~20 years" of the evaluation is the normal reign length. FamilyHead is 29-71 a
 // century (600-1400 a run): volume for the director to filter, not a flood. The bounds below are loose (about 2x the worst
@@ -58,7 +59,7 @@ export const SANITY_BOUNDS = {
   reignShortMax: 0.2,
   accessionsPerRealmCenturyMax: 9,
   familyHeadPerCenturyMax: 150,
-  /** Events at most this multiple of the off world's on the same seed (only checked when both are measured; measured <= 1.43). */
+  /** Events at most this multiple of the off world's on the same seed (only checked when both are measured; measured <= 1.47). */
   eventsRatioMax: 2,
 }
 
