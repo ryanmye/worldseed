@@ -221,4 +221,63 @@ describe('story director', () => {
     r.d.setOn(false)
     expect(r.d.state).toBe(DirectorState.Off)
   })
+
+  it('pacing: fast-forwards through a quiet stretch and is back to normal before the beat', () => {
+    const r = rig()
+    r.d.setPlan(plan([600, 640]))
+    r.d.setPacing(true)
+    r.d.setOn(true)
+    r.run(0.1)
+    expect(r.d.fastForward).toBe(true)
+    expect(r.tl.slow).toBe(DIRECTOR.ffFactor)
+    // 600 years: 90 s at 1×, about a quarter of that fast-forwarded
+    let t = 0
+    while (r.d.state === DirectorState.Idle && t < 60) {
+      r.run(0.1)
+      t += 0.1
+    }
+    expect(t).toBeLessThan(30)
+    expect(r.d.state).toBe(DirectorState.Lead)
+    expect(r.d.fastForward).toBe(false)
+    expect(r.tl.slow).toBe(1)
+    // the flight starts at normal speed: the lead is LEAD_SECONDS of 1× playback
+    expect(600 - r.tl.year).toBeLessThanOrEqual(DIRECTOR.leadSeconds * YPS + 1e-6)
+    r.run(DIRECTOR.leadSeconds + DIRECTOR.dwellSeconds + DIRECTOR.slowOut + 0.5)
+    // 40 years to the next beat: not a quiet stretch
+    expect(r.d.fastForward).toBe(false)
+  })
+
+  it('pacing: input and Follow off end a fast-forward; off by default', () => {
+    const r = rig()
+    r.d.setPlan(plan([900]))
+    r.d.setOn(true)
+    r.run(1)
+    expect(r.d.fastForward).toBe(false)
+    r.d.setPacing(true)
+    r.run(0.1)
+    expect(r.d.fastForward).toBe(true)
+    r.d.suspend()
+    expect(r.d.fastForward).toBe(false)
+    expect(r.tl.slow).toBe(1)
+    r.d.resume()
+    r.run(0.1)
+    expect(r.d.fastForward).toBe(true)
+    r.d.setOn(false)
+    expect(r.d.fastForward).toBe(false)
+    expect(r.tl.slow).toBe(1)
+  })
+
+  it('pacing: capped at FF_MAX_YPS (none at 16×)', () => {
+    const r = rig()
+    r.tl.speed = 16
+    r.d.setPlan(plan([5000]))
+    r.d.setPacing(true)
+    r.d.setOn(true)
+    r.run(0.1)
+    expect(r.d.fastForward).toBe(false)
+    r.tl.speed = 4
+    r.run(0.1)
+    expect(r.d.fastForward).toBe(true)
+    expect(r.tl.slow * 4 * YPS).toBeLessThanOrEqual(DIRECTOR.ffMaxYps + 1e-6)
+  })
 })

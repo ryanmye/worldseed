@@ -3,8 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Order, PresetName, World, WorldOptions } from './contract.ts'
 import { SeatKind, canonicalCradles, decodeCradles, decodeOrders, decodeSeat, encodeCradles, encodeOrders, type HistoryOptions } from './contract.ts'
-import { createSeatController, type SeatController } from './ui/seat/seatController.ts'
-import { createDecisionCard } from './ui/seat/decisionCard.ts'
+import type { SeatController } from './ui/seat/seatController.ts'
 import type { WorkerRequest, WorkerResponse } from './worker.ts'
 import { buildGlobeMesh, type GlobeMesh } from './render/globe.ts'
 import { buildRiverLines, type RiverLines } from './render/rivers.ts'
@@ -12,13 +11,13 @@ import { buildAtmosphere, buildClouds, buildStarfield, CLOUD_DECK_RADIUS, type C
 import { buildSunDisc } from './render/sunDisc.ts'
 import { buildCitySky } from './render/citySky.ts'
 import { createOverlay, getFreeViewportInset, loadLayerPrefs, onFreeViewportChange } from './ui/overlay.ts'
-import { goodsInUse } from './ui/tradePanel.ts'
+import { goodsInUse } from './ui/goodsInUse.ts'
 import { attachPointer, TOUCH_PICK_SLOP_PX } from './ui/pointer.ts'
 import { createDoubleTap } from './ui/doubleTap.ts'
 import { ViewMode, isViewMode, type ViewMode as ViewModeT } from './render/palette.ts'
 import { createCameraFly } from './render/cameraFly.ts'
-import { createHistoryView, MAX_YEARS, nextHistoryLength } from './ui/historyView.ts'
-import { HISTORY_CHUNK_YEARS } from './ui/historyIndex.ts'
+import { HISTORY_CHUNK_YEARS, MAX_YEARS, nextHistoryLength } from './ui/historyYears.ts'
+import { lazyHistoryView } from './ui/lazyHistoryView.ts' // onboarding: the history view loads after the start page
 import { installCameraTilt } from './render/dioramas/cameraTilt.ts'
 import { consumeRenderRequest, requestRender } from './render/invalidate.ts'
 import { isSunMode, setSunLonLat, setSunMode, setSunToward, SUN_LAT_LIMIT, sunIsDefault, SunMode, sunState, updateSun } from './render/sun.ts'
@@ -39,11 +38,13 @@ import { createGpuTimer } from './render/gpuTimer.ts'
 import { loadPref, savePref } from './ui/panels.ts'
 import { isCompact } from './ui/compact.ts'
 import { CityState, createCityView } from './render/cityView.ts'
-import { createCityCard } from './ui/cityCard.ts'
+import type { CityCard } from './ui/cityCard.ts'
+import { lazyObject } from './ui/lazy.ts'
 import { setFlyInHandler } from './ui/flyIn.ts'
 import { landmarkNameAt } from './contract.ts'
-import { activeDioramaLayer } from './render/dioramas/layer.ts'
+import { activeDioramaLayer } from './render/dioramas/active.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
+import { PLAY_PATHS, PlayPath } from './ui/onboard.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
@@ -457,6 +458,17 @@ function landingPreset(): PresetName {
 }
 /** The landing's throne link: a seat= link into a curated world (seed, seat). */
 const THRONE_LINK = { seed: 61343, seat: 'polity:0:700' } as const
+/** The landing's throne link for a preset: a curated seat link (EVALUATION.md §1c: seed 61343, its first realm from 700); onboarding's Rule a kingdom path goes here too. */
+function throneHrefFor(p: PresetName): string {
+  const u = new URL(window.location.href)
+  u.search = ''
+  u.searchParams.set('seed', String(THRONE_LINK.seed))
+  u.searchParams.set('seat', THRONE_LINK.seat)
+  if (p !== 'realistic') u.searchParams.set('preset', p)
+  u.searchParams.set('lang', typologyOn ? '2' : '1') // (a new world: drift on, as Start writes it)
+  u.searchParams.set('v', String(LINK_VERSION))
+  return u.pathname + u.search
+}
 /** The landing's Realistic / Dramatic toggle: the preset of the world about to start (written at Start). */
 function setPreset(p: PresetName) {
   const { preset: _old, ...rest } = presetOpts
@@ -763,7 +775,18 @@ const intParam = (name: string): number | null => {
   return Number.isFinite(v) ? v : null
 }
 
-const historyView = createHistoryView(
+/** The start page: Start fetches the app's later chunks now if they have not come yet. */
+let historyViewGo: (() => void) | null = null
+/** onboarding (bundle split): the app's later chunks (history view, seat, city card) are fetched once this resolves: at
+ * once, or on the start page once it has drawn (an idle moment after 1.5 s, or Start, whichever comes first). */
+const appChunks: Promise<void> = showLanding
+  ? new Promise<void>((resolve) => {
+      historyViewGo = resolve
+      const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o: { timeout: number }) => number }).requestIdleCallback
+      window.setTimeout(() => (ric ? ric(() => resolve(), { timeout: 4000 }) : resolve()), 1500)
+    })
+  : Promise.resolve()
+const historyView = lazyHistoryView(
   {
     bottom: overlay.bottom,
     left: overlay.left,
@@ -806,11 +829,14 @@ const historyView = createHistoryView(
     cityEngaged: () => cityView.engaged,
   },
   { year: intParam('year'), play: params.get('play') !== '0', select: intParam('select'), people: intParam('people'), knownAll: params.get('known') === 'all', species: intParam('species'), polity: intParam('polity'), factions: showFactions },
-)
+  appChunks,
+).value
 
 // seat mode (ui/seat): decision cards over the timeline; the worker plays the seat's run from pause to pause.
+// (a later chunk, onboarding bundle split: a seat= link whose world came first starts its seat once it is in)
+appChunks.then(() => Promise.all([import('./ui/seat/seatController.ts'), import('./ui/seat/decisionCard.ts')])).then(([{ createSeatController }, { createDecisionCard }]) => {
 seatCtl = createSeatController({
-  card: createDecisionCard(app),
+  card: createDecisionCard(app), // (bots: the card is made here, the controller takes it; both in the seat chunk)
   post: (req) => {
     extending = 0
     worker.postMessage({ ...req, requestId: ++requestId } as WorkerRequest)
@@ -827,6 +853,13 @@ seatCtl = createSeatController({
   watchYears: (y) => nextHistoryLength(y),
   progress: (label) => historyView.setSimProgress(0, 0, label),
 })
+if (pendingSeat && currentWorld && worldOnlyId === requestId) {
+  const s = pendingSeat
+  pendingSeat = null
+  worldOnlyId = -1
+  seatCtl.start(s, currentCradles)
+}
+}).catch((err) => console.error('seat mode failed to load', err))
 // the Crops and Herds views need the history's crop and herd layers (offered once they arrive)
 overlay.setViewModeAvailable(ViewMode.Crops, false)
 overlay.setViewModeAvailable(ViewMode.Herds, false)
@@ -1024,12 +1057,13 @@ const pointerInput = attachPointer({
 
 // ---------- city view (render/cityView.ts): fly down into a town, orbit it, fly back ----------
 
-const cityCard = createCityCard(app, {
+// (a later chunk, onboarding bundle split: hidden until a town is flown into)
+const cityCard = lazyObject<CityCard>(() => appChunks.then(() => import('./ui/cityCard.ts')).then((m) => m.createCityCard(app, {
   onBack: () => cityView.flyOut(),
   onTurn: (rad) => cityView.turn(rad),
   onRaise: (k) => cityView.raise(k),
   onZoom: (k) => cityView.zoom(k),
-})
+})), {}, 'city card').value
 const cityView = createCityView({
   camera,
   canvas,
@@ -1895,16 +1929,13 @@ if (showLanding) {
     years: Math.min(YEARS_MAX, Math.max(YEARS_MIN, numParam('years', 2000))),
     preset: landingPreset(), // (the start page starts new worlds: v=2)
     onPreset: setPreset,
-    throneHref(p) {
-      // a curated seat link (EVALUATION.md §1c: seed 61343, its first realm from 700); Lane 3 owns the full "Rule a kingdom" slice
-      const u = new URL(window.location.href)
-      u.search = ''
-      u.searchParams.set('seed', String(THRONE_LINK.seed))
-      u.searchParams.set('seat', THRONE_LINK.seat)
-      if (p !== 'realistic') u.searchParams.set('preset', p)
-      u.searchParams.set('lang', typologyOn ? '2' : '1') // (a new world: drift on, as Start writes it)
-      u.searchParams.set('v', String(LINK_VERSION))
-      return u.pathname + u.search
+    throneHref: (p) => throneHrefFor(p),
+    paths: PLAY_PATHS, // onboarding: watch, rule, explore (ui/onboard.ts)
+    onPath(path) {
+      if (path !== PlayPath.Rule) return false
+      // (Rule a kingdom: the throne link of the preset chosen on the page)
+      window.location.assign(throneHrefFor(presetOpts.preset === 'dramatic' ? 'dramatic' : 'realistic'))
+      return true
     },
     onSeed(seed) {
       currentSeed = seed
@@ -1916,10 +1947,14 @@ if (showLanding) {
       landing?.setLoading(true)
       requestWorld(seed, true)
     },
-    onStart(seed, years) {
+    onStart(seed, years, path) {
       // the address: what the app wrote meanwhile, with the seed and the years chosen
       const url = heldUrl ?? new URL(window.location.href)
       heldUrl = null
+      // onboarding: watching follows the story; exploring does not
+      historyView.setFollowOnShow(path !== PlayPath.Explore)
+      if (path === PlayPath.Watch) url.searchParams.set('follow', '1')
+      else url.searchParams.delete('follow')
       url.searchParams.delete('intro')
       url.searchParams.set('seed', String(seed))
       if (years === 2000) url.searchParams.delete('years')
@@ -1931,6 +1966,7 @@ if (showLanding) {
       newWorldLanguage(url)
       window.history.replaceState(null, '', url)
       historyYears = wholeChunks(years)
+      historyViewGo?.()
       startHistory(seed)
       landingIdle = false
       spinning = turnByDefault()
