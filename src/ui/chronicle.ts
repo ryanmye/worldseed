@@ -180,6 +180,16 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
     if (row && row.entry >= 0 && row.target >= 0) callbacks.onSelect(row.target)
   }
   list.addEventListener('click', activate)
+  // n4b: while the pointer is over the list (a mouse or pen) or a row has the focus, the rows hold still, so a click
+  // lands on the line that was aimed at; the year's rows come in when the pointer leaves or the focus goes
+  let hover = false
+  let focused = false
+  const held = () => hover || focused
+  const release = () => { if (!held()) { shownMembers = -1; api.update(lastYear) } }
+  list.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'touch') { hover = true; root.classList.add('chr-held') } })
+  list.addEventListener('pointerleave', () => { hover = false; root.classList.toggle('chr-held', focused); release() })
+  list.addEventListener('focusin', () => { focused = true; root.classList.add('chr-held') })
+  list.addEventListener('focusout', (e) => { if (list.contains(e.relatedTarget as Node | null)) return; focused = false; root.classList.toggle('chr-held', hover); release() })
   list.addEventListener('keydown', (e) => {
     if (e.key === '?' && callbacks.onWhy) { const li = (e.target as HTMLElement).closest('li'); const row = rows.find((r) => r.li === li); const w = row ? whyOf(row) : null; if (w) { e.preventDefault(); e.stopPropagation(); callbacks.onWhy(w.event, w.members) } return } // causes:
     if (e.key !== 'Enter' && e.key !== ' ') return
@@ -503,6 +513,7 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       // every new entry or new member of an aggregated entry reveals one more member year
       const members = countUpTo(index.memberYearsSorted, year)
       if (members === shownMembers) return
+      if (held() && shownMembers >= 0 && !collapsed) return // n4b: held still under the pointer (release() catches up)
       shownMembers = members
       // (without the filter row, every entry: there is no Rulers filter to find the chiefdoms under)
       const f = filterRow.classList.contains('hidden') ? -1 : filter
