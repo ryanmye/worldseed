@@ -1,11 +1,12 @@
 // seat: the player's ambitions (SeatOptions.ambitions; seat-mode §3.8), judged yearly while the seat is held (pure reads).
-// AmbitionFulfilled 273 is logged once per ambition. Monument is not judged yet (the landmarks keep their own events; a later
-// step reads them): it stays -1.
-import { AmbitionKind, EventType, FaithKind } from '../../../contract.ts'
+// AmbitionFulfilled 273 is logged once per ambition. Lane N3: Unify's share is 60% (SEAT.unifyShare), and Monument is judged: a great landmark, or a town's great temple, finished by the realm while the
+// seat is held (the landmarks' state, SeatState.lm).
+import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
 import { houseOf } from './system.ts'
+import { overlordOf } from '../polity/bonds.ts'
 
 /** Ambitions of the year (after the seat is resolved; the seat is held). */
 export function seatAmbitions(s: HistoryState, st: SeatState): void {
@@ -26,7 +27,9 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         for (const id of s.living) {
           if (s.outpost[id] || s.terrain.landmass[s.cell[id]] !== L) continue
           all += s.pop[id]
-          if (id < ps.polity.length && ps.polity[id] === p) { ours += s.pop[id]; towns++ }
+          const q = id < ps.polity.length ? ps.polity[id] : -1
+          if (q === p) { ours += s.pop[id]; towns++ }
+          else if (q >= 0 && overlordOf(ps, q) === p) ours += s.pop[id] // (lane N3: a vassal's or tributary's land is unified under us too)
         }
         const now = towns >= SEAT.unifyTowns && ours >= SEAT.unifyShare * all
         st.ambitionRun[i] = now ? st.ambitionRun[i] + 1 : 0
@@ -51,6 +54,14 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         for (const q of ps.alive) if (q !== p && sum[q] > sum[p]) { top = false; break }
         st.ambitionRun[i] = top ? st.ambitionRun[i] + 1 : 0
         ok = st.ambitionRun[i] >= SEAT.richesYears
+        break
+      }
+      case AmbitionKind.Monument: {
+        // a great landmark, or a town's great temple (LandmarkKind.Temple, of the lesser rank), finished this year by the realm
+        // (lane N3: great landmarks alone are rare before ~1200: one in the world in 600-1000 on seed 61343)
+        const lm = st.lm
+        if (ps === null || p < 0 || !lm) break
+        for (let i = 0; i < lm.lDone.length && !ok; i++) if (lm.lDone[i] === s.year && lm.lPol[i] === p && (lm.lRank[i] === LandmarkRank.Great || lm.lKind[i] === LandmarkKind.Temple)) ok = true
         break
       }
       case AmbitionKind.Union: {

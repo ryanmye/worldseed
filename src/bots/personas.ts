@@ -9,7 +9,7 @@ import { DecisionKind, DEFER_OPTIONS, SeatOptionKey, AmbitionKind } from '../con
 import { OPTION_RISK } from '../sim/history/seat/params.ts'
 import type { CardModel } from '../ui/seat/cardModel.ts'
 
-export const PERSONA_VERSION = 2
+export const PERSONA_VERSION = 3
 
 const K = SeatOptionKey
 export type PersonaId = 'cautious' | 'aggressive' | 'always-defer' | 'random' | 'greedy'
@@ -51,7 +51,7 @@ function stance(partial: Stance): Stance {
 
 /** Aggressive: wars, expansion, a strong hand at home. */
 export const AGGRESSIVE: Stance = stance({
-  [K.FightOn]: 3, [K.Strike]: 4, [K.Defy]: 3, [K.Crush]: 3, [K.CrushPretender]: 3, [K.Purge]: 2, [K.Renounce]: 1, [K.RepudiateDebts]: 2,
+  [K.FightOn]: 3, [K.Strike]: 4, [K.Defy]: 3, [K.Crush]: 3,  [K.CrushPretender]: 3, [K.Purge]: 2, [K.Renounce]: 1, [K.RepudiateDebts]: 2,
   [K.Settle]: 2, [K.ExploreOn]: 1, [K.Levy]: 1, [K.Borrow]: 1, [K.Fortify]: 1, [K.SeekAlly]: 1, [K.Reclaim]: 2, [K.NameHeir]: 1,
   [K.SuePeace]: -2, [K.OfferTribute]: -3, [K.StayOut]: -2, [K.Pay]: -2, [K.Placate]: -1, [K.SeparatePeace]: -1, [K.Stay]: -1,
   [K.Decline]: -1, [K.Endure]: -1, [K.Retrench]: -1, [K.Ignore]: -1, [K.LawDecides]: -1,
@@ -108,6 +108,9 @@ export const HANDLED_DECISION_KINDS: ReadonlySet<number> = new Set([
   DecisionKind.AllyCalls, DecisionKind.Betrayed, DecisionKind.Commune, DecisionKind.ColdWar, DecisionKind.Houses,
 ])
 
+/** Aggressive reports "no lever" when this many cards in a row offered nothing warlike (v2). */
+export const NO_LEVER_AFTER = 5
+
 /** The option's risk as the card's badge and the court's table show it (OPTION_RISK; 0.5 unknown). */
 const risk = (key: number) => OPTION_RISK[key] ?? 0.5
 /** The card says the option does nothing ("The court keeps its own counsel"; the Wait badge). */
@@ -151,11 +154,15 @@ export const PERSONAS: Record<PersonaId, (ambition?: number) => Persona> = {
     }),
   aggressive: () => make('aggressive',
     'Seek war and expansion with the cards actually offered: Strike, Fight on, Defy, Crush, send settlers. Never defers. Where no option is warlike, takes the boldest (highest risk) non-waiting option.',
-    (card) => {
+    (card, mem) => {
       const b = best(card, (o) => AGGRESSIVE[o.key] * 10 + risk(o.key) - (isWait(o) ? 5 : 0))
       const pick = card.options.find((o) => o.option === b.i)!
       const lever = card.options.some((o) => AGGRESSIVE[o.key] > 0)
-      return { option: b.i, why: lever ? `bold: ${pick.label}` : `no warlike option; boldest: ${pick.label}`, blind: noInfo(card) || !lever, lever }
+      // (v2, play-test #1: report a drought of levers: the cards since the last warlike one)
+      let dry = 0
+      for (let i = mem.seen.length - 1; i >= 0 && !/^(Strike|Fight on|Defy|Garrison the town|Crush)/.test(mem.seen[i].label); i--) dry++
+      const note = !lever && dry >= NO_LEVER_AFTER ? ` (no lever for ${dry} cards)` : ''
+      return { option: b.i, why: lever ? `bold: ${pick.label}` : `no warlike option; boldest: ${pick.label}${note}`, blind: noInfo(card) || !lever, lever }
     }),
   'always-defer': () => make('always-defer',
     'Leaves every matter to the court (the Do nothing button), whatever it costs in authority. Measures what the game does without a player.',

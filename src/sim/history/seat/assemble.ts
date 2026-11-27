@@ -32,6 +32,7 @@ export function assembleSeat(st: SeatState, orders: readonly Order[], years: num
       optStart: Uint32Array.from(st.optStart), optKey: Uint8Array.from(st.optKey),
       orderStart: Uint32Array.from(st.orderStart), orderKind: Uint8Array.from(st.orderKind), orderActor: Int32Array.from(st.orderActor), orderTarget: Int32Array.from(st.orderTarget),
       chosen, divisive: Float32Array.from(st.dDiv), courtPick: Int8Array.from(st.dCourt), deferred,
+      info: Int32Array.from(st.dInfo), hud: Float32Array.from(st.hud), heirStart: Uint32Array.from(st.heirStart), heirBorn: Int32Array.from(st.heirBorn), heirFlags: Uint8Array.from(st.heirFlags),
     },
     ambitionYear: Int32Array.from(st.ambitionYear),
     lostYear: st.lostYear,

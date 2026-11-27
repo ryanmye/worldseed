@@ -4,7 +4,8 @@ An expensive smoke and review tool. A Claude subagent plays through Playwright f
 qualitative observations next to the scripted bots' metrics. Version 1, used with PLAYER_PRIMER v1 and PERSONAS v1.
 
 ## How to run
-1. Start the app: `npx vite --port 5199 --strictPort` in the worktree.
+1. Start the app in the worktree on a free port, e.g. `npx vite --port <PORT> --strictPort` (or `npm run build` then
+   `npx vite preview --port <PORT> --strictPort`). Use that port below; there is no fixed one (5199 was a past lane's).
 2. Give the subagent:
    - the full text of `docs/PLAYER_PRIMER.md`;
    - one persona prompt from `docs/bots/PERSONAS.md`;
@@ -15,8 +16,12 @@ qualitative observations next to the scripted bots' metrics. Version 1, used wit
 
 ## Brief for the subagent
 > You are play-testing worldseed, a history simulator with a throne mode. Read the primer and play as the persona below.
-> 1. Open `http://localhost:5199/?seed=<S>&year=<Y>&play=0&lang=1`. Set Sun to Follow, turn on Follow the story, open
->    Factions, frame the top realm's capital and take its throne.
+> 1. Open `http://localhost:<PORT>/` and click **Rule a kingdom** on the start page (the curated throne: seed 61343,
+>    Kelurair/Tidu from 700, Dramatic). Or, for another world, `http://localhost:<PORT>/?seed=<S>&year=<Y>&play=0&lang=1`,
+>    open Factions and take the top realm's throne. To play an ambition, pick it in the "Your throne" panel's
+>    **Change ambition…** list before the first card (it restarts the reign), or add `:amb=<k>` to `seat=`.
+>    Do the shared setup (Sun to Follow, frame the capital) **after the first card** or with `play=0`: the first card comes
+>    within seconds of the history showing.
 > 2. Play about 15 decision cards at 16× between cards. Before each choice, write one line: what the card says, what you
 >    choose and why, as the persona would.
 > 3. After each choice, watch for any sign of what it did: a later card that refers to it, a chronicle line, a change on
@@ -34,6 +39,13 @@ qualitative observations next to the scripted bots' metrics. Version 1, used wit
 >
 > What counts as interesting: a hard choice with visible stakes, a callback to an earlier choice, a named person, a
 > reversal, a war or disaster framed on screen in daylight.
+
+## Timings (for planning a run)
+- Headless bots (src/bots/headless.ts, Node, 2-vCPU shared VM): a 300-year reign from 700 takes 10–35 s wall time per
+  persona, the first card about 2–8 s after the world (most of it simulating years 0–700).
+- Browser (system Chrome on SwiftShader, same VM): the first card 60–90 s after load; each later card 5–70 s depending on
+  the years between pauses. Real hardware is much faster (the evaluator measured 14.5 s to the first card on a phone
+  viewport with a lighter load).
 
 ## Closing the loop
 - Every play-test pack (Lane 6) and every LLM run ends with "primer/persona improvements suggested".

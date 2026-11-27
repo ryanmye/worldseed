@@ -18,7 +18,7 @@ export interface CardLog {
   model: CardModel
   decision: Decision
 }
-export interface MessageLog { t: number; title: string; text: string }
+export interface MessageLog { t: number; title: string; text: string; /** lane N3: decisions a message's "Because you…" lines name. */ callbacks?: number[] }
 
 export interface BotRun {
   seed: number
@@ -110,9 +110,11 @@ export async function runBot(cfg: RunConfig): Promise<BotRun> {
         mem.seen.push({ year: model.year, title: model.title, situation: model.situation, picked: decision.option, deferred: decision.option === model.defer.option, label: opt?.label ?? model.defer.words })
         queueMicrotask(() => pick(decision.option))
       },
-      message(title, text) {
-        messages.push({ t: now(), title, text })
-        if (title === 'The seat is lost' && current) finish(current, true)
+      message(title, text, buttons, callbacks) {
+        messages.push({ t: now(), title, text, callbacks })
+        if (title === 'The seat is lost' && current) { finish(current, true); return }
+        // (lane N3: a message that waits for a click, the reign's summary, is read and continued, as a player would)
+        if (buttons && buttons.length > 0) queueMicrotask(() => buttons[buttons.length - 1].run())
       },
       hide() {},
     }

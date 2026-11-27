@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 2 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 3 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -16,9 +16,14 @@ Changelog:
 - v2 (2026-11-27, lane/n1): stances on the merged systems' option keys (Send relief, Recall the general, Join the war,
   Avenge it, Call the bluff, Offer terms, Reward the army) and the eleven new card kinds. Aggressive takes Call the bluff,
   Avenge it and Join the war; cautious takes them by the risk table as before (Send relief, Offer terms lowest).
+- v3 (2026-11-27, lane/n3, after LLM play-test #1; written as v2 in the lane, folded onto n1's v2 at the merge): aggressive reports "no lever for N cards" after 5 cards in a row with
+  nothing warlike (NO_LEVER_AFTER); the shared setup is done after the first card or with `play=0`; "Crush it" is now
+  "Garrison the town" (a real order, primer v6). Greedy's first ambition now also drives a card's cadence (Unify: the
+  "neighbour is weak" card every 10 years), so `greedy:1` is the Unify player the others are not.
 
 ## Shared setup (every persona, every driver)
-Act like a sensible player before judging anything:
+Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with
+`play=0`, since the first card can come within seconds):
 - In the browser, set Sun to Follow, turn on Follow the story, and frame the realm's capital on land.
 - Take the throne of the top realm of the Factions list (most people) alive in the chosen year, so no persona starts on a
   dead seat.
@@ -38,7 +43,8 @@ Act like a sensible player before judging anything:
 ## aggressive
 - **Goal:** war and expansion through the cards actually offered.
 - **Risk appetite:** high. It prefers Strike, Fight on, Defy, Crush, Crush the pretender, Purge, Send settlers, Explore
-  further, Refuse the debts, Call the bluff, Avenge it and Join the war. Where nothing is warlike, it takes the boldest option that is not a Wait.
+  further, Refuse the debts, Call the bluff, Avenge it and Join the war (Garrison the town for a revolt). Where nothing is
+  warlike, it takes the boldest option that is not a Wait, and after 5 such cards in a row it says "no lever for N cards".
 - **Defers:** never.
 - **Watches:** wars started and won, towns taken, realms ended.
 - **Prompt:** "You are a conqueror. Grow the realm by war and settlement. Whenever a card offers a war or a strike, take it.

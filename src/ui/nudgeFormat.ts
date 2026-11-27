@@ -49,7 +49,14 @@ export function reasonWords(reason: number, kind: number): string {
     case OrderReason.TooWeak: return kind === OrderKind.War ? 'never strong enough at the border to dare it' : 'too small a town'
     case OrderReason.NotAtWar: return 'already at peace'
     case OrderReason.NotMember: return 'the town is not in the realm'
-    case OrderReason.Refused: return kind === OrderKind.Idea ? 'its faithful or its guilds would not have it' : 'the ruler would not'
+    case OrderReason.Refused:
+      // (lane N3: by kind; "the ruler would not" was read as a truncated line)
+      if (kind === OrderKind.Idea) return 'its faithful or its guilds would not have it'
+      if (kind === OrderKind.Placate || kind === OrderKind.Borrow || kind === OrderKind.Levy) return 'the treasury could not pay for it'
+      if (kind === OrderKind.Marry || kind === OrderKind.Ally || kind === OrderKind.Submit) return 'the other court said no'
+      if (kind === OrderKind.Seat) return 'the ruler would not leave the old capital'
+      if (kind === OrderKind.Faith) return 'the ruler would not turn from the old faith'
+      return 'the ruler would not have it'
     case OrderReason.NotPort: return 'no port there'
     case OrderReason.Unskilled: return 'its people lack the craft of quarantine'
     case OrderReason.Absent: return 'too few of the realm follow it'
@@ -59,6 +66,10 @@ export function reasonWords(reason: number, kind: number): string {
     case OrderReason.Busy: return 'already fighting as many wars as it can'
     case OrderReason.OutOfReach: return 'its expeditions found nothing unknown within reach that way'
     case OrderReason.NoRoom: return 'its settlers found no free land within reach that way'
+    // (lane N3: the seat's reasons had no words, so the lines read "failed in 703," with nothing after the comma)
+    case OrderReason.NoBond: return kind === OrderKind.Repudiate ? 'there was no such bond, or no debt, to renounce' : kind === OrderKind.Defy ? 'it was not their overlord' : 'they were not allies in a war'
+    case OrderReason.NoHeir: return 'the heir named died first, or was no longer of the house'
+    case OrderReason.NoGeneral: return 'nothing threatened the throne'
   }
   return ''
 }
@@ -185,6 +196,18 @@ function doneWords(h: History, o: Order, r: OrderOutcome): string {
     case OrderKind.Faith: return 'converts'
     case OrderKind.Fortify: return 'raises walls'
     case OrderKind.Quarantine: return 'begins a quarantine'
+    // (lane N3: the seat's kinds in words; "does it" read as nonsense after a choice)
+    case OrderKind.Marry: return 'makes the match'
+    case OrderKind.Ally: return 'gains an ally'
+    case OrderKind.Submit: return 'buys peace with tribute'
+    case OrderKind.Designate: return 'sees the named heir crowned'
+    case OrderKind.Placate: return 'pays off the restive lords'
+    case OrderKind.Purge: return 'breaks the general'
+    case OrderKind.Borrow: return 'borrows'
+    case OrderKind.Levy: return 'raises the levy'
+    case OrderKind.Repudiate: return o.target === o.actor ? 'refuses its debts' : 'breaks the bond'
+    case OrderKind.Defy: return 'stops the tribute'
+    case OrderKind.Betray: return 'makes its own peace'
   }
   return 'does it'
 }

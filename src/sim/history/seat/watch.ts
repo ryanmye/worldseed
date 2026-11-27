@@ -43,11 +43,15 @@ import { polityFaith } from '../religion/system.ts'
 import { chordCells } from '../orders/hooks.ts'
 import type { SeatState } from './state.ts'
 import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
+import { AmbitionKind } from '../../../contract.ts'
+import { RULERS as RP } from '../rulers/params.ts'
+import { HUD_N, hudRow } from './hud.ts'
 
 /** An order of an option: kind, actor, target (-1 none). */
 type O = [number, number, number]
 interface Option { key: number; orders: O[] }
-interface Card { kind: number; subject: number; place: number; options: Option[] }
+/** info: a kind's detail (lane N3: SeatState.dInfo). */
+interface Card { kind: number; subject: number; place: number; options: Option[]; info?: number }
 
 const RANK = new Int32Array(DECISION_KIND_COUNT).fill(99)
 PRIORITY.forEach((k, i) => { RANK[k] = i })
@@ -122,7 +126,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         const q = x.type === EventType.SuccessionCrisis ? x.value : x.type === EventType.CivilWar ? (x.other >= 0 && x.other < ps.polity.length ? ps.polity[x.other] : -1) : (x.settlement >= 0 && x.settlement < ps.polity.length ? ps.polity[x.settlement] : -1)
         if (q === p && x.type !== EventType.CivilWar) {
           // Crisis: a succession crisis or a regency at home
-          cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, options: [
+          cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, info: x.type, options: [
             { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
             { key: SeatOptionKey.Endure, orders: [] },
             ...(figureheadOf(s, p) ? [{ key: SeatOptionKey.Reclaim, orders: [] as O[] }] : []), // (rulers: deference: take the power back, at a risk)
@@ -157,10 +161,13 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
       }
       case EventType.Revolt: {
         if (ps === null || p < 0 || !memberOf(ps, x.settlement, p) || !knownTown(s, k, x.settlement) || cap < 0) break
-        cards.push({ kind: DecisionKind.Revolt, subject: x.settlement, place: x.settlement, options: [
+        // (lane N3: Crush is a real order now, a garrison: the risen town walled and held; the court's own course is Ignore)
+        const crushed = e + 1 < E && ev[e + 1].type === EventType.RevoltCrushed && ev[e + 1].settlement === x.settlement ? 1 : 0
+        cards.push({ kind: DecisionKind.Revolt, subject: x.settlement, place: x.settlement, info: crushed, options: [
           { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
           { key: SeatOptionKey.Fortify, orders: [[OrderKind.Fortify, cap, -1]] },
-          { key: SeatOptionKey.Crush, orders: [] },
+          { key: SeatOptionKey.Crush, orders: [[OrderKind.Fortify, x.settlement, -1]] },
+          { key: SeatOptionKey.Ignore, orders: [] },
         ] })
         break
       }
@@ -489,6 +496,13 @@ function overlordCard(s: HistoryState, ps: PolityState, p: number, o: number): C
 
 const HEIRS: number[] = []
 const off = (st: SeatState, s: HistoryState, kind: number): boolean => s.year - st.lastKind[kind] < SEAT.cool[kind]
+/** lane N3: a kind's cooldown for this seat (the first ambition declared drives the cadence: Unify, Opening every openCoolUnify years). */
+export function coolOf(st: SeatState, kind: number): number {
+  const a = st.opts.ambitions?.[0]
+  if (kind === DecisionKind.Opening && a === AmbitionKind.Unify) return SEAT.openCoolUnify
+  return SEAT.cool[kind]
+}
+const offFor = (st: SeatState, s: HistoryState, kind: number): boolean => s.year - st.lastKind[kind] < coolOf(st, kind)
 
 /**
  * The court's state conditions (seat steps 8, 9, 13), each checked only when its cooldown has passed: Heir, General, Match,
@@ -500,25 +514,31 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
   const year = s.year
   if (R !== null && p < R.pcap && R.cur[p] >= 0 && R.rDyn[R.cur[p]] >= 0 && R.union[p] < 0) {
     const r = R.cur[p]
-    // Heir: an old ruler, or a succession that may well be contested, with at least two heirs to choose from
+    // Heir: an old ruler, or a succession that may well be contested, with an heir of an age to be named (lane N3: no infant is
+    // offered by name, SEAT.heirMinAge; once a reign unless the law's heir has changed since: no "grows old" card every 20 years)
     if (!off(st, s, DecisionKind.Heir) && (year - R.rBorn[r] >= SEAT.oldAge || contestChance(s, ps, R, p) >= SEAT.heirContest)) {
       const people = ps.pPeople[p]
       const cog = R.cognatic[people] === 1
       const n = eligibleHeirs(R, p, year, HEIRS, cog)
-      if (n >= 2) {
-        const law = pickHeir(R, p, R.law[people], cog, year)
-        const o = p * RULERS.heirs
+      const law = n >= 1 ? pickHeir(R, p, R.law[people], cog, year) : -1
+      const o = p * RULERS.heirs
+      const lawBorn = law >= 0 ? R.hBorn[o + law] : -1
+      // (the same reign again only when the heir the last card named as the law's has died since: no "grows old" every 20 years)
+      let lastAlive = false
+      for (let j = 0; j < R.hN[p]; j++) if (R.hBorn[o + j] === st.heirLaw && R.hDeath[o + j] > year) lastAlive = true
+      if (law >= 0 && !(st.heirReign === r && (st.heirLaw === lawBorn || lastAlive))) {
+        const named = (i: number) => year - R.hBorn[o + i] >= SEAT.heirMinAge
         let other = -1
         for (let j = 0; j < n; j++) {
           const i = HEIRS[j]
-          if (i === law || R.hBorn[o + i] === R.hBorn[o + law]) continue
+          if (i === law || R.hBorn[o + i] === lawBorn || !named(i)) continue
           if (other < 0 || R.hLegit[o + i] > R.hLegit[o + other] || (R.hLegit[o + i] === R.hLegit[o + other] && R.hBorn[o + i] < R.hBorn[o + other])) other = i
         }
-        if (law >= 0 && other >= 0) cards.push({ kind: DecisionKind.Heir, subject: r, place: cap, options: [
-          { key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, R.hBorn[o + law]]] },
-          { key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, R.hBorn[o + other]]] },
-          { key: SeatOptionKey.LawDecides, orders: [] },
-        ] })
+        const opts: Option[] = []
+        if (named(law)) opts.push({ key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, lawBorn]] })
+        if (other >= 0) opts.push({ key: SeatOptionKey.NameHeir, orders: [[OrderKind.Designate, p, R.hBorn[o + other]]] })
+        opts.push({ key: SeatOptionKey.LawDecides, orders: [] })
+        if (other >= 0) cards.push({ kind: DecisionKind.Heir, subject: r, place: cap, info: lawBorn, options: opts })
       }
     }
     // General: a throne in danger of a coup, at war or after a lost war
@@ -551,6 +571,24 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
         ] })
       }
     }
+  }
+  // Opening (lane N3, a lever for the Unify ambition): every 5 years, a contacted neighbour at peace with us that we overmatch at
+  // the border (SEAT.openAdvState) even without turmoil; with Unify as the first ambition the card comes more often
+  if (!offFor(st, s, DecisionKind.Opening) && year % 5 === 0 && ps.pWars[p] < WAR.maxWars) {
+    let best = -1, ba = 0
+    for (let x = 0; x < ps.relA.length; x++) {
+      const a = ps.relA[x], b = ps.relB[x]
+      if (a !== p && b !== p) continue
+      const q = a === p ? b : a
+      if (ps.pEnded[q] >= 0 || ps.relEdges[x].length === 0 || year < ps.relTruce[x] || bound(ps, p, q) || atWar(ps, p, q) || allied(ps, p, q) || !contacted(s, ps, k, q)) continue
+      const adv = borderAdvantage(ps, p, q)
+      if (adv >= SEAT.openAdvState && adv > ba) { ba = adv; best = q }
+    }
+    if (best >= 0) cards.push({ kind: DecisionKind.Opening, subject: best, place: ps.pCapital[best], info: 1, options: [
+      { key: SeatOptionKey.Strike, orders: [[OrderKind.War, p, best]] },
+      { key: SeatOptionKey.StayOut, orders: [] },
+      ...(R !== null ? [{ key: SeatOptionKey.OfferMatch, orders: [[OrderKind.Marry, p, best] as O] }] : []),
+    ] })
   }
   // AllianceSought: a rival at least our size threatens us and a contacted neighbour too, who is calm with us (every 5 years)
   if (!off(st, s, DecisionKind.AllianceSought) && year % 5 === 0) {
@@ -649,20 +687,50 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     const c = cards[i]
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
     if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
-    if (s.year - st.lastKind[c.kind] < SEAT.cool[c.kind]) continue
+    if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind)) continue
+    if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
     if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
     if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
     seenKind.add(c.kind)
-    record(st, s.year, c, opts)
+    record(s, st, s.year, c, opts)
     st.newRows++
   }
   if (st.newRows > 0) st.lastCard = s.year
 }
 
-function record(st: SeatState, year: number, c: Card, opts: Option[]): void {
+/**
+ * lane N3: the same matter again (same kind, subject and detail) within SEAT.repeatYears is not put to the player again (a
+ * Crisis: within SEAT.crisisRepeat, same cause): "A crisis at court" four times in 30 years with the same words was the
+ * evaluator's loop.
+ */
+function repeats(st: SeatState, year: number, c: Card): boolean {
+  const span = c.kind === DecisionKind.Crisis ? SEAT.crisisRepeat : SEAT.repeatYears
+  for (let d = st.dYear.length - 1; d >= 0 && year - st.dYear[d] <= span; d--) {
+    if (st.dKind[d] !== c.kind || st.dSubject[d] !== c.subject) continue
+    if (c.kind === DecisionKind.Crisis || c.kind === DecisionKind.Heir || (st.dInfo[d] ?? -1) === (c.info ?? -1)) return true
+  }
+  return false
+}
+
+function record(s: HistoryState, st: SeatState, year: number, c: Card, opts: Option[]): void {
   st.dYear.push(year); st.dKind.push(c.kind); st.dPolity.push(st.polity); st.dSubject.push(c.subject); st.dPlace.push(c.place)
+  st.dInfo.push(c.info ?? -1)
+  // lane N3: the HUD row and the heirs of the house now (what the dashboard and the card's stakes read)
+  const at = st.hud.length
+  for (let i = 0; i < HUD_N; i++) st.hud.push(NaN)
+  hudRow(s, st.polity, st.hud, at)
+  const R = s.rul, p = st.polity
+  if (R !== null && p >= 0 && p < R.pcap) {
+    for (let j = 0; j < R.hN[p]; j++) {
+      const i = p * RP.heirs + j
+      if (R.hDeath[i] <= year) continue // (alive now: the court knows who lives, not who will die)
+      st.heirBorn.push(R.hBorn[i]); st.heirFlags.push((R.hFemale[i] ? 1 : 0) | (R.hLegit[i] ? 2 : 0) | (R.hChild[i] ? 4 : 0))
+    }
+  }
+  st.heirStart.push(st.heirBorn.length)
+  if (c.kind === DecisionKind.Heir && R !== null && p >= 0) { st.heirReign = R.cur[p]; st.heirLaw = c.info ?? -1 }
   // how divisive (the kind's, a little more with more roads to choose from), and a cautious court's pick (the least risky option)
   const div = DIVISIVE[c.kind] + (opts.length >= 3 ? 0.05 : 0)
   st.dDiv.push(div > 1 ? 1 : div)

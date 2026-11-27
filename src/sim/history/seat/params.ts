@@ -15,7 +15,7 @@ cool[DecisionKind.Match] = 25
 cool[DecisionKind.General] = 15
 cool[DecisionKind.Plague] = 0 // (once per epidemic instead)
 cool[DecisionKind.Faith] = 40
-cool[DecisionKind.Revolt] = 25
+cool[DecisionKind.Revolt] = 40 // (lane N3: was 25; revolts were a fifth of all cards)
 cool[DecisionKind.Credit] = 20
 cool[DecisionKind.Charter] = 30
 cool[DecisionKind.Betrayal] = 20
@@ -53,8 +53,8 @@ export const SEAT = {
   // Plague: quarantine at most plagueQuarantine ports (largest first); move the court to a town of >= seatShare of the capital
   plagueQuarantine: 3,
   // Heir: the ruler is old (age from the birth year only), or the succession may well be contested
-  oldAge: 58,
-  heirContest: 0.25,
+  oldAge: 60, // (lane N3: was 58)
+  heirContest: 0.35, // (lane N3: was 0.25; with short reigns the Heir card was 40% of all cards)
   // General: a throne whose yearly overthrow chance is at least riseX, at war or with a war lost in the last generalLost years
   riseX: 0.015,
   generalLost: 10,
@@ -127,10 +127,20 @@ export const SEAT = {
   reclaimRisk: 2.5,
   // Ambitions: Endure years; Unify share and towns for unifyYears running; Riches years running
   endureYears: 300,
-  unifyShare: 0.8,
+  unifyShare: 0.6, // (lane N3: was 0.8; the bots found it unreachable: seed 61343's realm peaks near 0.5 of its landmass unaided)
   unifyTowns: 5,
   unifyYears: 10,
   richesYears: 25,
+  // ---- lane N3 (the throne slice; design defaults, tuned with the bots harness) ----
+  // Heir: an heir younger than heirMinAge is never offered by name (the law may still pick the infant: "Let the law decide")
+  heirMinAge: 3,
+  // the same matter (kind, subject, detail) is not put again within repeatYears; a Crisis of the same cause within crisisRepeat
+  repeatYears: 15,
+  crisisRepeat: 20,
+  // Opening as a state lever: a neighbour at peace that we overmatch at the border by openAdvState (checked every 5 years);
+  // with Unify as the first ambition, Opening's cooldown is openCoolUnify instead of cool[Opening]
+  openAdvState: 1.25,
+  openCoolUnify: 10,
 } as const
 
 /** Urgent kinds come whatever the gap since the last card. */

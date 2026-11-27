@@ -6,6 +6,9 @@
 import { PolityOrigin, SeatKind } from '../../contract.ts'
 import type { History, SeatOptions } from '../../contract.ts'
 import { tierOf } from '../politiesData.ts'
+import { RULERS } from '../../sim/history/rulers/params.ts'
+
+const MAJORITY = RULERS.majority
 
 /** The bodies (the button's and the Chronicle's words). */
 export const DECIDER = {
@@ -78,7 +81,9 @@ export function deciderNameOf(h: History, p: number, year: number): string {
   let cur: (typeof R)[number] | null = null
   for (const r of R) if (r.polity === p && r.acceded <= year && (r.ended < 0 || r.ended > year)) cur = r
   if (cur && cur.dynasty < 0) return DECIDER.league // (an elected head of a league)
-  if (cur) for (const e of h.events) if ((e.type as number) === 84 && e.value === cur.id && e.year <= year && year < e.year + (e.extra ?? 0)) return DECIDER.regency
+  // (lane N3: a regency only while the ruler is a minor: the evaluator saw "the regent's council" for an adult ruler)
+  if (cur && year - cur.born < MAJORITY) for (const e of h.events) if ((e.type as number) === 84 && e.value === cur.id && e.year <= year && year < e.year + Math.max(1, e.extra ?? 0)) return DECIDER.regency
+  if (cur && year - cur.born < MAJORITY && cur.acceded <= year && year - cur.acceded < MAJORITY) return DECIDER.regency
   return tierAtYear(h, p, year) === 0 ? DECIDER.elders : DECIDER.court
 }
 

@@ -32,7 +32,7 @@ const flag = (k: string) => argv.includes(`--${k}`)
 function table(rows: RunMetrics[]): string {
   const cols: [string, (m: RunMetrics) => string | number][] = [
     ['persona', (m) => m.persona], ['seed', (m) => m.seed], ['cards', (m) => m.cards], ['ttfc s', (m) => m.ttfcS], ['visible', (m) => m.visibleConsequence],
-    ['rep k+s', (m) => m.repeatKindSubject], ['rep text', (m) => m.repeatText], ['kinds/reign', (m) => m.distinctKindsPerReign], ['rare/h', (m) => m.rarePerHour],
+    ['rep k+s', (m) => m.repeatKindSubject], ['rep text', (m) => m.repeatText], ['kinds/reign', (m) => m.distinctKindsPerReign], ['kinds', (m) => m.distinctKinds], ['arcs done', (m) => `${m.arcsDone}/${m.arcs}`], ['rare/h', (m) => m.rarePerHour],
     ['dead air s', (m) => m.deadAirS], ['beats', (m) => m.beats], ['unsurf', (m) => m.unsurfaced], ['unsurf merged', (m) => m.unsurfacedMerged],
     ['blind', (m) => m.blind], ['levers', (m) => m.levers], ['defers', (m) => m.defers], ['wars (ours)', (m) => `${m.warsFought} (${m.warsStarted})`],
     ['amb met', (m) => m.ambitionsMet.join('.') || '-'], ['lost', (m) => (m.lost ? 'y' : '')], ['wall s', (m) => m.wallS],
@@ -83,7 +83,7 @@ async function main() {
         ;(m as RunMetrics & { replay?: string }).replay = replays[replays.length - 1]
       }
       appendFileSync(outFile, JSON.stringify({ date: new Date().toISOString().slice(0, 10), personaVersion: PERSONA_VERSION, primerVersion: PRIMER_VERSION, seat: r.seatParam, o: r.o, ...m }) + '\n')
-      if (flag('json')) writeFileSync(arg('json')!.replace('.json', `-${seed}-${m.persona.replace(/[:#]/g, '_')}.json`), JSON.stringify({ seat: r.seatParam, o: r.o, years: r.history.years, hash: hashAll(r.history), cards: r.cards.map((c) => ({ year: c.model.year, title: c.model.title, options: c.model.options.map((o) => o.label), picked: c.decision.option, why: c.decision.why })) }, null, 1))
+      if (flag('json')) writeFileSync(arg('json')!.replace('.json', `-${seed}-${m.persona.replace(/[:#]/g, '_')}.json`), JSON.stringify({ seat: r.seatParam, o: r.o, years: r.history.years, hash: hashAll(r.history), cards: r.cards.map((c) => ({ year: c.model.year, title: c.model.title, situation: c.model.situation, news: c.model.news, callbacks: c.model.callbacks.map((x) => x.text), odds: c.model.hud?.oddsText, options: c.model.options.map((o) => o.label), notes: c.model.options.map((o) => o.note + ' [' + o.stakes.risk + (o.stakes.odds ? '; ' + o.stakes.odds : '') + ']'), picked: c.decision.option, why: c.decision.why })) }, null, 1))
     }
   }
   const stamp = { date: new Date().toISOString().slice(0, 10), personaVersion: PERSONA_VERSION, primerVersion: PRIMER_VERSION, preset, from, span }

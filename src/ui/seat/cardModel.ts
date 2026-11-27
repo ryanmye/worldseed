@@ -8,6 +8,11 @@ import { SEAT } from '../../sim/history/seat/params.ts'
 import { deciderButton, deciderName } from './decider.ts'
 import { decisionSituation, decisionTitle, optionExpects, optionLabel, optionMeta } from './seatFormat.ts'
 import type { OptionTint } from './seatFormat.ts'
+// lane N3 (throne slice): stakes, callbacks, news and the HUD (src/ui/seat/throne/*; N1's new-system cards keep their own modules)
+import { stakesOf, type Stakes } from './throne/stakes.ts'
+import { callbacksAt, realmNews } from './throne/callbacks.ts'
+import { hudModel, type HudModel } from './throne/hudModel.ts'
+import { ambitionLine } from './throne/ambition.ts'
 
 export interface CardOptionModel {
   /** The option index the card's button sends (pick(option)). */
@@ -23,6 +28,8 @@ export interface CardOptionModel {
   /** The option is the court's own course (no orders: the "Wait" badge). */
   court: boolean
   aria: string
+  /** lane N3: plain words of what likely follows, the risk word, and the 50-year odds move where known. */
+  stakes: Stakes
 }
 
 export interface CardModel {
@@ -40,6 +47,14 @@ export interface CardModel {
   defer: { option: number; words: string; pickLabel: string; hint: string; note: string }
   /** The place "Show me" flies to (-1: no Show me button). */
   place: number
+  /** lane N3: "Because you…" lines (outcomes of earlier choices resolved since the previous card), each with its decision. */
+  callbacks: { d: number; text: string }[]
+  /** lane N3: the realm's news since the previous card (successions, reigns ended, wars ended). */
+  news: string[]
+  /** lane N3: the throne HUD at this decision (meters, hazards, 50-year odds). */
+  hud: HudModel | null
+  /** lane N3: the declared ambition and how it stands ('' none). */
+  ambition: string
 }
 
 /** The Authority meter of decision d (1 - deference / SEAT.deferFull, and the cost of a deferral, less for a divisive matter). */
@@ -61,13 +76,23 @@ export function decisionCardModel(h: History, d: number, n: number, total: numbe
   const options: CardOptionModel[] = []
   for (let i = 0; i < count; i++) {
     const m = optionMeta(h, d, i)
-    const label = optionLabel(h, d, i), note = optionExpects(h, d, i)
-    options.push({ option: i, key: m.key, label, tag: m.tag, tint: m.tint, badge: m.badge, note, court: m.court, aria: `${options.length + 1}. ${label}. ${m.tag}. ${note}${m.badge ? ` (${m.badge})` : ''}` })
+    const label = optionLabel(h, d, i)
+    const stakes = stakesOf(h, d, i)
+    // (lane N3: an option without orders says what happens, not "the court keeps its own counsel"; one with orders adds the likely outcome)
+    const note = m.court ? stakes.likely : [optionExpects(h, d, i), stakes.likely].filter(Boolean).join(' ')
+    options.push({ option: i, key: m.key, label, tag: m.tag, tint: m.tint, badge: m.badge, note, court: m.court, stakes, aria: `${options.length + 1}. ${label}. ${m.tag}. ${note} Risk: ${stakes.risk}.${stakes.odds ? ` ${stakes.odds}.` : ''}${m.badge ? ` (${m.badge})` : ''}` })
   }
   const words = deciderButton(h, h.seat!.seat, D.year[d])
   const pickLabel = optionLabel(h, d, D.courtPick[d])
   const hint = D.divisive[d] >= 0.5 ? 'A divisive matter: the blame will fall on them.' : 'Routine business: the court grows used to ruling without you.'
+  // lane N3: what came of earlier choices, and the realm's news, since the previous card
+  let prev = -1
+  for (let x = d - 1; x >= 0; x--) if (D.year[x] < D.year[d]) { prev = D.year[x]; break }
+  const since = prev >= 0 ? prev : h.seat!.seat.from
+  const callbacks = callbacksAt(h, D.year[d], since).map((c) => ({ d: c.d, text: c.text }))
+  const news = D.polity[d] >= 0 ? realmNews(h, D.polity[d], since, D.year[d]).map((n) => n.text) : []
   return {
+    callbacks, news, hud: hudModel(h, d, D.year[d]), ambition: ambitionLine(h, D.year[d]),
     d,
     title: decisionTitle(h, d),
     sub: `${D.year[d]}${total > 1 ? ` · decision ${n} of ${total}` : ''}`,

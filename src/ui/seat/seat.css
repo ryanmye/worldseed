@@ -155,3 +155,51 @@
   .seat-opt { width: 180px; }
   .seat-scene-frame { width: 120px; height: 72px; }
 }
+
+/* lane N3: since the last card (news, "Because you…"), the ambition, the odds; the options' risk and odds */
+.seat-since { max-width: 760px; margin: 0 auto 6px; padding: 6px 10px; border-left: 3px solid rgba(255, 214, 140, 0.6); background: rgba(20, 16, 10, 0.55); border-radius: 4px; font-size: 13px; line-height: 1.35; }
+.seat-since p { margin: 2px 0; }
+.seat-news { color: #e9dcc4; }
+.seat-callback { color: #ffd98c; font-style: italic; }
+.seat-ambition { color: #b9d3ff; }
+.seat-odds { color: #e9dcc4; }
+.trend-1 { color: #8fe08f; } .trend--1 { color: #ff8f80; }
+.seat-opt-risk { display: block; font-size: 11px; opacity: 0.85; margin-top: 3px; }
+.seat-opt-risk.risk-high, .seat-opt-risk.risk-grave { color: #ff9f8f; }
+.seat-opt-risk.risk-low { color: #a8e0a8; }
+.seat-opt-odds { display: block; font-size: 11px; color: #ffd98c; margin-top: 2px; }
+.seat-compact .seat-since { font-size: 12px; max-height: 22vh; overflow-y: auto; margin: 0 8px 6px; }
+
+/* lane N3: the seat dashboard (context panel 'seat') */
+body.seat-active .seat-take { display: none; }
+.seat-dash { font-size: 12.5px; line-height: 1.35; }
+.seat-dash-head { display: flex; gap: 10px; align-items: center; margin: 4px 0 6px; }
+.seat-dash-realm { font-size: 15px; font-weight: 600; }
+.seat-dash-age { opacity: 0.75; font-size: 11.5px; }
+.seat-dash-ruler { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.seat-dash-portrait { display: inline-flex; flex: none; }
+.seat-dash-heirs { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 4px 0; }
+.seat-dash-heir { display: inline-flex; align-items: center; gap: 4px; }
+.seat-dash-label { opacity: 0.8; min-width: 7.5em; display: inline-block; }
+.seat-dash-ambition { margin: 6px 0; color: #b9d3ff; display: flex; flex-direction: column; gap: 4px; }
+.seat-dash-ambition-pick { max-width: 100%; font-size: 12px; }
+.seat-dash-odds { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: baseline; padding: 6px 8px; margin: 6px 0; background: rgba(255, 214, 140, 0.08); border-radius: 6px; }
+.seat-dash-odds-num { font-size: 22px; font-weight: 700; color: #ffd98c; grid-row: span 2; }
+.seat-dash-odds-label { opacity: 0.85; }
+.seat-dash-meter, .seat-dash-hazard { display: flex; flex-wrap: wrap; gap: 0 6px; padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.seat-dash-val { font-variant-numeric: tabular-nums; }
+.seat-dash-change { font-size: 11px; }
+.seat-dash-why { margin-left: auto; font-size: 11px; padding: 0 6px; background: none; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 9px; color: inherit; cursor: pointer; }
+.seat-dash-whytext { flex-basis: 100%; font-size: 11.5px; opacity: 0.85; padding: 2px 0 4px; }
+.seat-dash-sub { font-weight: 600; margin: 8px 0 2px; opacity: 0.9; }
+.seat-dash-note { font-size: 11px; opacity: 0.7; margin-top: 3px; font-style: italic; }
+.seat-dash-feedlist { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow-y: auto; }
+.seat-dash-feedlist li { padding: 2px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.seat-dash-feedlist li.new { color: #fff4d6; }
+.seat-feed-callback { color: #ffd98c; font-style: italic; }
+.seat-feed-loss { color: #ff9f8f; }
+.seat-feed-milestone { color: #b9d3ff; }
+.seat-dash-reign summary { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.seat-dash-reign p { margin: 3px 0 3px 28px; font-size: 12px; }
+.seat-dash-share, .seat-share { display: inline-block; margin: 2px 0 4px 28px; color: #9fc6ff; }
+.seat-msg .seat-share { margin: 4px 0; }

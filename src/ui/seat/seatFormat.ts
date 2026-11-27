@@ -1,11 +1,13 @@
 // seat: words for the decision cards (decisionCard.ts) and for the seat in the Chronicle and Legend (seat-mode §6.3-6.4).
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
-import { DEFER_OPTIONS, DecisionKind, DisasterKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
+import { DEFER_OPTIONS, DecisionKind, DisasterKind, EventType, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
 import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
 import { disasterTitle, volcanoName } from '../disastersFormat.ts'
+import { heirOptionLabel, heirsLine } from './throne/stakes.ts' // lane N3: named heirs
+import { SEAT } from '../../sim/history/seat/params.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -36,7 +38,7 @@ export const OPTION_LABEL: Record<number, string> = {
   [SeatOptionKey.Defy]: 'Defy', [SeatOptionKey.Arrange]: 'Arrange the match', [SeatOptionKey.Decline]: 'Decline', [SeatOptionKey.Purge]: 'Purge him',
   [SeatOptionKey.Ignore]: 'Ignore it', [SeatOptionKey.Quarantine]: 'Quarantine the ports', [SeatOptionKey.MoveCourt]: 'Move the court',
   [SeatOptionKey.Embrace]: 'Embrace it', [SeatOptionKey.KeepWays]: 'Keep the old ways', [SeatOptionKey.Fortify]: 'Fortify the capital',
-  [SeatOptionKey.Crush]: 'Crush it', [SeatOptionKey.Borrow]: 'Borrow', [SeatOptionKey.Levy]: 'Raise taxes', [SeatOptionKey.Retrench]: 'Retrench',
+  [SeatOptionKey.Crush]: 'Garrison the town', [SeatOptionKey.Borrow]: 'Borrow', [SeatOptionKey.Levy]: 'Raise taxes', [SeatOptionKey.Retrench]: 'Retrench',
   [SeatOptionKey.Grant]: 'Grant it', [SeatOptionKey.Refuse]: 'Refuse', [SeatOptionKey.SeparatePeace]: 'Make a separate peace', [SeatOptionKey.StandBy]: 'Stand by them',
   [SeatOptionKey.Settle]: 'Send settlers', [SeatOptionKey.ExploreOn]: 'Explore further', [SeatOptionKey.Stay]: 'Stay at home',
   [SeatOptionKey.TakeUp]: 'Take it up', [SeatOptionKey.Seek]: 'Seek it out', [SeatOptionKey.RepudiateDebts]: 'Refuse the debts', [SeatOptionKey.Reclaim]: 'Reclaim power',
@@ -137,8 +139,18 @@ export function decisionSituation(h: History, d: number): string {
   const us = D.polity[d] >= 0 ? polityWord(h, D.polity[d]) : 'our people'
   const name = subjectWord(h, k, subj, y, D.polity[d])
   switch (k) {
-    case DecisionKind.Heir: return `${capFirst(name)} grows old, or the succession is uncertain. The lords ask whom the crown will name.`
-    case DecisionKind.Crisis: return `The succession of ${us} is disputed: magnates take sides and the provinces wait to see who wins.`
+    case DecisionKind.Heir: {
+      // (lane N3: "grows old" only when the ruler is old: the evaluator saw it 9 years after a child took the throne)
+      const age = y - (h.rulers?.[subj]?.born ?? y)
+      const lead = age >= SEAT.oldAge ? `${capFirst(name)} grows old (${age}).` : `${capFirst(name)} is ${age}, but the succession is uncertain: the lords doubt the heir.`
+      return `${lead} The lords ask whom the crown will name.${heirsLine(h, d) ? ' ' + heirsLine(h, d) : ''}`
+    }
+    case DecisionKind.Crisis: {
+      // (lane N3: the cause told; the same words no longer come back: seat/watch.ts repeats)
+      const why = D.info?.[d]
+      if (why === EventType.Regency) return `A child sits on the throne of ${us}, and a regency rules in the child's name. The magnates jostle for the regent's ear.`
+      return `The succession of ${us} is disputed: magnates take sides and the provinces wait to see who wins.`
+    }
     case DecisionKind.General: return `The army is restless after the wars, and its general is spoken of as a better ruler than ${name}.`
     case DecisionKind.Match: return `The house ruling ${name} has a child to marry, and so has ours. A match would bind the two courts.`
     case DecisionKind.AllianceMade: return `${capFirst(name)} and ${us} are now allies against a common rival. The treaty binds us both.`
@@ -147,10 +159,10 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Credit: return `The treasury of ${us} is short: debts are heavy, or pay falls behind, or a war must be paid for.`
     case DecisionKind.Betrayal: return `${us} fights beside ${name} in its war, and our levies are worn out. The enemy would take our own peace.`
     case DecisionKind.WarOnUs: return `In ${y} ${name} declared war on ${us}. Its armies gather at the border.`
-    case DecisionKind.Opening: return `${name} is in turmoil: its court is divided and its levies uncertain. Our forces at the border are the stronger.`
+    case DecisionKind.Opening: return D.info?.[d] === 1 ? `${capFirst(name)} is weaker than we are along the border, and at peace with us. The war party says it will never be weaker.` : `${name} is in turmoil: its court is divided and its levies uncertain. Our forces at the border are the stronger.`
     case DecisionKind.Plague: return `${capFirst(name)} has reached ${at}. The sick fill the streets; the ships still come in.`
     case DecisionKind.Faith: return `Many in ${us} now follow ${name}, but the ruler keeps the old faith.`
-    case DecisionKind.Revolt: return `${name} has risen against the crown. The garrison holds for now.`
+    case DecisionKind.Revolt: return D.info?.[d] === 1 ? `${name} rose against the crown and was put down. Its people are sullen; it may rise again.` : `${name} has risen against the crown. The garrison holds for now.`
     case DecisionKind.Frontier: return `Explorers came home to ${at} with tales of lands no one of ours has seen.`
     case DecisionKind.Crop: return `Traders tell of ${name}, grown by the people of ${at}. Our fields have never known it.`
     case DecisionKind.Idea: return `At ${at} they have ${name}. Our scholars know of it only by report.`
@@ -194,9 +206,12 @@ export function optionLabel(h: History, d: number, option: number): string {
   const D = h.seat!.decisions
   const o = D.optStart[d] + option
   if (D.optKey[o] === SeatOptionKey.NameHeir && D.orderStart[o + 1] > D.orderStart[o]) {
+    const named = heirOptionLabel(h, d, option) // (lane N3: the heir by name)
+    if (named) return named
     const born = D.orderTarget[D.orderStart[o]]
     return `Name the heir born in ${born} (aged ${D.year[d] - born})${option === 0 ? ', the law’s choice' : ''}`
   }
+  if (D.kind[d] === DecisionKind.General && D.optKey[o] === SeatOptionKey.Honour) return 'Honour him' // (lane N3: a general, not a treaty)
   return OPTION_LABEL[D.optKey[o]] ?? 'Choose'
 }
 
@@ -280,7 +295,7 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
     [K.Defy]: ['{year}: {us} stopped paying {them} its tribute; war, as the chroniclers expected, was not far behind.', '{us} sent {them} an empty chest.'],
   },
   [DecisionKind.Match]: {
-    [K.Arrange]: ['{year}: a match with {them} was arranged, the annals say, at the wish of the court of {us}.', 'A bride went from {us} to {them}, and the two houses were one family.'],
+    [K.Arrange]: ['{year}: the court of {us} is said to have sought a match with {them}.', '{us} sent envoys to {them} to seek a bride.'], // (lane N3: sought, not made: their court may still say no)
     [K.Decline]: ['{year}: {us} seems to have declined a match with {them}.', '{us} would not marry into {them}.'],
   },
   [DecisionKind.General]: {
@@ -300,7 +315,8 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
   [DecisionKind.Revolt]: {
     [K.Placate]: ['{year}: when {them} rose, the court of {us} is said to have offered terms.', '{them} rose, and {us} answered with gifts.'],
     [K.Fortify]: ['{year}: when {them} rose, {us} is recorded raising walls at its capital.', '{them} rose, and {us} raised its walls high.'],
-    [K.Crush]: ['{year}: {them} rose against the crown of {us}; the annals record the garrison marching.', '{them} rose, and {us} sent the soldiers.'],
+    [K.Crush]: ['{year}: after {them} rose against the crown of {us}, the annals record a garrison sent and walls raised there.', '{them} rose, and {us} walled the town and left soldiers in it.'],
+    [K.Ignore]: ['{year}: {them} rose against the crown of {us}; the court is not recorded doing anything more.', '{them} rose, and {us} shrugged.'],
   },
   [DecisionKind.Credit]: {
     [K.Borrow]: ['{year}: the treasury of {us} is said to have borrowed.', '{us} borrowed against the future.'],
@@ -411,7 +427,8 @@ export function choiceWords(h: History, d: number, option: number, legend: boole
   const y = D.year[d]
   const us = D.polity[d] >= 0 ? polityWord(h, D.polity[d]) : `the ${h.peoples?.[h.seat!.peopleAt[y - h.seat!.seat.from]]?.name ?? 'people'}`
   const vars: Record<string, string> = { year: String(y + 1), us, them: subjectWord(h, D.kind[d], D.subject[d], y, D.polity[d]), at: townWord(h, D.place[d], y) }
-  let line = (legend ? t[1] : t[0]).replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '')
+  // (lane N3: the chronicle dates its own lines: no "702 · 702:"; the year is said only in the legend's prose)
+  let line = (legend ? t[1] : t[0].replace(/^\{year\}: /, '')).replace(/\{(\w+)\}/g, (_, k: string) => vars[k] ?? '')
   if (deferred) {
     // (a matter left to the deciding body: who decided, and on a divisive one who bore the blame)
     const body = deciderChronicle(h, h.seat!.seat, y)

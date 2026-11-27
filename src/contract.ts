@@ -3328,11 +3328,11 @@ export type SeatEnd = (typeof SeatEnd)[keyof typeof SeatEnd]
 /** Ambitions the player may set (SeatOptions.ambitions), judged yearly while the seat is held; they change nothing in the run. */
 export const AmbitionKind = {
   Endure: 0, // hold the seat for SEAT.endureYears (300) years from its year
-  Unify: 1, // rule >= 80% of the settled people of the capital's landmass, with >= 5 member towns, for 10 years running
+  Unify: 1, // rule >= 60% (lane N3; was 80%) of the settled people of the capital's landmass, with >= 5 member towns, for 10 years running
   Faith: 2, // a universal faith founded in a member town, or the state faith's holy city in the realm
   Riches: 3, // the richest realm (the sum of member wealth) for 25 years running
   Union: 4, // the house holds two thrones at once (a personal union, or two realms ruled by it)
-  Monument: 5, // a great landmark completed in the capital while the seat is held
+  Monument: 5, // a great landmark, or a town's great temple, finished by the realm while the seat is held (lane N3: judged; was never judged)
 } as const
 export type AmbitionKind = (typeof AmbitionKind)[keyof typeof AmbitionKind]
 /** AmbitionKind rows 0-5 (seat); 6-15 character-mode (registry §3.2). */
@@ -3435,6 +3435,15 @@ export interface SeatDecisions {
   courtPick: Int8Array
   /** 1 where the player left the matter to the deciding body (a deferral; `chosen` is then courtPick). */
   deferred: Uint8Array
+  /** lane N3 (throne slice): a kind's detail (Crisis: the event type behind it; Revolt: 1 put down; Opening: 1 a plain weakness;
+   * Heir: the law's heir's birth year; -1), the throne HUD row at the decision (count * SEAT_HUD_N floats, sim/history/seat/hud.ts
+   * HUD columns; NaN where a system is off), and the house's living heirs then (heirStart ragged: birth year; flags bit 0 a
+   * woman, 1 legitimate, 2 the ruler's child). */
+  info?: Int32Array
+  hud?: Float32Array
+  heirStart?: Uint32Array
+  heirBorn?: Int32Array
+  heirFlags?: Uint8Array
 }
 
 /** rulers: deference per polity at the end of the run (rulers/deference.ts). */

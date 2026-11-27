@@ -8,6 +8,7 @@ import type { History } from '../contract.ts'
 import { buildHistoryIndex } from '../ui/historyIndex.ts'
 import { buildStaticDrama } from '../ui/story/drama.ts'
 import { buildStoryPlan } from '../ui/story/plan.ts'
+import { arcEntries, findArcs } from '../ui/story/arcs.ts'
 import type { BotRun } from './headless.ts'
 
 export const YEARS_PER_SECOND = 20 / 3
@@ -49,8 +50,8 @@ export interface RunMetrics {
   /** Share of cards repeating one seen within 15 years: same kind and subject / identical title and text. */
   repeatKindSubject: number; repeatText: number
   distinctKindsPerReign: number
-  /** Arc completion: null until arcs exist (Lane 3). */
-  arcCompletion: number | null
+  /** Arc completion (lane N3): completed / opened arcs of the seat's realms in the span (null: none opened); the counts; distinct card kinds in the run. */
+  arcCompletion: number | null; arcs: number; arcsDone: number; distinctKinds: number
   rarePerHour: number; rare: Record<string, number>
   /** Longest stretch at 1x with no beat, card or caption (seconds), and the beats in the seated span. */
   deadAirS: number; beats: number
@@ -107,9 +108,13 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
   const resolvedAt = new Map<number, number>()
   for (const e of h.events) if (e.type === ORDER_FULFILLED || e.type === ORDER_FAILED || e.type === ORDER_LAPSED) resolvedAt.set(e.value, e.year)
   let visible = 0
+  // (lane N3: a choice is visible when a later card's "Because you…" line names it within 20 years: CardModel.callbacks)
+  const referenced = new Set<number>()
+  for (const c of shown) for (const cb of c.model.callbacks ?? []) if (c.model.year - D.year[cb.d] <= 20) referenced.add(cb.d)
+  for (const m of run.messages) for (const d of m.callbacks ?? []) referenced.add(d)
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i]
-    const callback = /Because you/i.test(shown[i].model.situation)
+    const callback = referenced.has(d) || /Because you/i.test(shown[i].model.situation)
     const ks = ordersOf.get(d) ?? []
     const chron = ks.some((k) => { const y = resolvedAt.get(k) ?? R[k]?.year ?? -1; return y >= 0 && y <= D.year[d] + 20 })
     if (callback || chron) visible++
@@ -145,7 +150,11 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
   // --- beats (the director, focus on the seat) ---
   const ix = buildHistoryIndex(h)
   const sd = buildStaticDrama(ix)
-  const plan = buildStoryPlan(sd, ix.notableYear, { focus: mine, until: Y })
+  // lane N3: arcs (ui/story/arcs.ts) in the plan as the app has them; arc completion: arcs of the seat's realms opened in the span, completed
+  const arcs = findArcs(h, Y)
+  const plan = buildStoryPlan(sd, ix.notableYear, { focus: mine, until: Y, arcs: arcEntries(arcs, sd.rep) })
+  const myArcs = arcs.filter((a) => (mine.has(a.polity) || mine.has(a.other)) && a.start >= from && a.start <= Y) // (a war arc on either side)
+  const arcsDone = myArcs.filter((a) => a.complete).length
   const beatYears: number[] = []
   let minBeat = Infinity
   const isBeat = new Set<number>()
@@ -183,7 +192,7 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
     seed: run.seed, persona: run.persona, preset, from, years: span, cards: ds.length, decisionsPerReign: r3(ds.length / Math.max(1, reigns.length)),
     ttfcSimS: r3(run.firstCardMs / 1000), ttfcPlayS: r3(firstPlay), ttfcS: r3(run.firstCardMs / 1000 + firstPlay),
     visibleConsequence: r3(visible / n), repeatKindSubject: r3(repKS / n), repeatText: r3(repText / n),
-    distinctKindsPerReign: r3(perReign.length ? perReign.reduce((a, b) => a + b, 0) / perReign.length : 0), arcCompletion: null,
+    distinctKindsPerReign: r3(perReign.length ? perReign.reduce((a, b) => a + b, 0) / perReign.length : 0), arcCompletion: myArcs.length ? r3(arcsDone / myArcs.length) : null, arcs: myArcs.length, arcsDone, distinctKinds: new Set(ds.map((d) => D.kind[d])).size,
     rarePerHour: r3(rareCount / (playS / 3600)), rare, deadAirS: r3(dead / YEARS_PER_SECOND), beats: beatYears.length,
     unsurfaced, unsurfacedMerged: um, unsurfacedMergedByType: byType,
     blind: shown.filter((c) => c.decision.blind).length, levers: shown.filter((c) => c.decision.lever).length,
