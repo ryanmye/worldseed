@@ -1,7 +1,7 @@
 # Registry: values used in code against values reserved in plans
 
-Reconciled 2026-11-27 (lane/setup, after the outside evaluation). It covers `src/contract.ts` on main @ 363c570 and the
-unmerged lanes lane/coldwar, lane/citystates and lane/absentee. It also covers MASTER-PLAN §3 and every addendum, including
+Reconciled 2026-11-27 (lane/setup, after the outside evaluation). It covers `src/contract.ts` on main @ f20cb5f (coldwar merged) and the
+unmerged lanes lane/citystates and lane/absentee. It also covers MASTER-PLAN §3 and every addendum, including
 the shadow-network, throne-stories-arcs and battles-fiction addenda.
 
 The plan freeze is in force (EVALUATION.md §3 P8). **Nothing new is reserved.** The reservations below stay so that parked
@@ -30,7 +30,7 @@ resolved below.
 | 260–268 | disasters | main (269 locusts) |
 | 270–279 | seat | main |
 | 280–389 | riots, court, tech-tree, MIR, future-tech, future-politics, migration, infrastructure, character, scenarios, divine | reserved (§3.1) |
-| 390–392 / 393–398 | barriers / cold war | reserved / lane/coldwar (399 spare) |
+| 390–392 / 393–398 | barriers / cold war | reserved / main (coldwar merged, f20cb5f; 399 spare) |
 | 400–404 | typology scripts | main (405–409 spare) |
 | 410–419 | religious-evolution | reserved |
 | 420–449 | shadow-network (449 SecretPassed) | reserved, **parked** |
@@ -49,9 +49,9 @@ resolved below.
 | SeatKind | 0–4 | 5 Network (shadow) | 6 |
 | ReignEnd | 0–8 | 9–15 §3.2; 16 Abdicated (throne arcs) | 17 |
 | AccessionHow | 0–6 | 7–10 §3.2; 11 Restored (throne arcs) | 12 |
-| GrievanceKind | 0–11 | 12–16 §3.2; 17 ProxyAid (lane/coldwar); 18 Covert (shadow); 19 Abandoned, 20 Massacre (battles-fiction) | 21 |
+| GrievanceKind | 0–11 | 12–16 §3.2; 17 ProxyAid (coldwar, main); 18 Covert (shadow); 19 Abandoned, 20 Massacre (battles-fiction) | 21 |
 | UnrestPart | 0–13, 22–26, **27 Shock (causal; was missing from §3.2)**, 28 Deference (`UNREST_PARTS` 32) | 14–21 riots and court; 29 Incited, 30 Purge, 31 Denounced (shadow) | full: the next part must raise `UNREST_PARTS` |
-| RivalryPart | 0–14 (13 Secession, 14 Alarm: causal), 15 ColdWar (lane/coldwar) | — | full (`RIVALRY_PARTS` 16) |
+| RivalryPart | 0–14 (13 Secession, 14 Alarm: causal), 15 ColdWar (coldwar, main) | — | full (`RIVALRY_PARTS` 16) |
 | DeferenceCause (`rulers/deference.ts`) | 0–6 | 7 Puppet, 8 Captured, 9 Scandal (shadow) | 10 |
 | CommanderFate | 0–8 | 9 Murdered (shadow); 10 (battles-fiction) | 11 |
 | BattleKind / BattleWeather | 0–5 / 0–4 | 6–7 / 5–6 (battles-fiction) | 8 / 7 |
@@ -65,8 +65,8 @@ resolved below.
 
 ## HistoryOptions (§3.3 additions)
 On main: `oaths`, `balance`, `arms`, `families`, `finance`, `society`, `beliefs`, `barriers`, `disasters`, `battles`,
-`language`, `typology`, `causes`, `seat` and **`preset`** (lane/setup; `src/sim/history/presets.ts`). In lanes:
-`governments` (citystates), `absentee` (absentee), `coldWars` and `warRestraint` (coldwar).
+`language`, `typology`, `causes`, `seat`, `coldWars`, `warRestraint` and **`preset`** (lane/setup; `src/sim/history/presets.ts`). In lanes:
+`governments` (citystates) and `absentee` (absentee).
 
 ## Plan collisions resolved (these supersede the plan text)
 1. **Shadow-network "A16 framework" line** (EventType 454–456, OrderKind 121–126, DecisionKind 84–87, AmbitionKind 26–35) is
@@ -81,4 +81,4 @@ On main: `oaths`, `balance`, `arms`, `families`, `finance`, `society`, `beliefs`
    spare.
 5. **UnrestPart 27 Shock** (causal-explorer, on main) was in code but in no registry. It is registered here.
 6. The barriers addendum text "RivalryPart 13 ColdWar" was already corrected by the coordinator to **15**, which is the value
-   lane/coldwar uses.
+   coldwar uses on main.

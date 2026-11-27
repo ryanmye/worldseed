@@ -273,11 +273,12 @@ turns on every merged system:
 - beliefs and barriers;
 - disasters, with the Phase-2 feedback;
 - battles, non-neutral;
+- cold wars, with great-power war restraint;
 - causes.
 
 Any switch can be set per link, and an explicit switch wins over the preset. The
 switches are `oaths= balance= arms= families= finance= society= beliefs= barriers=
-disasters= battles= causes=`, each `1` or `0`. For example,
+disasters= battles= coldWars= warRestraint= causes=`, each `1` or `0`. For example,
 `?seed=7&preset=dramatic&battles=0` is the dramatic world without battles. The keys
 stay in the address, so share links and seat links (`seat=polity:0:700`) carry them.
 The start page has a Realistic / Dramatic toggle and an "Or take a throne" link.

@@ -6,6 +6,7 @@
 //   ... --years N              run length (default 2000)
 //   ... --check                exit 1 if any Dramatic row breaks SANITY_BOUNDS
 //   ... --json                 one JSON row per seed
+//   ... --out rows.jsonl       append each seed's row as it finishes; seeds already in the file are read back, not rerun
 //
 // Measured (2026-11-27, lane/setup on main @ 363c570; 2000 y; seeds 1 / 7 / 42 / 1234). See docs/presets.md for the table.
 // The bounds are set loosely around these (about 2x headroom); they are a guard against a broken system, not a target.
@@ -140,12 +141,19 @@ if (PROC && import.meta.url === `file://${PROC.argv[1]}`) {
   const val = (k: string) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : undefined }
   const preset = (val('--preset') ?? 'dramatic') as PresetName
   const years = Number(val('--years') ?? 2000)
-  const skip = new Set([val('--preset'), val('--years')])
+  const out = val('--out')
+  // node:fs only on the CLI path (as realismStats.ts: the module stays browser-safe)
+  const { appendFileSync, existsSync, readFileSync } = (await import('node:' + 'fs')) as {
+    appendFileSync(p: string, s: string): void; existsSync(p: string): boolean; readFileSync(p: string, e: string): string
+  }
+  const skip = new Set([val('--preset'), val('--years'), out])
   const seeds = argv.filter((a: string) => /^\d+$/.test(a) && !skip.has(a)).map(Number)
   const check = argv.includes('--check'), json = argv.includes('--json')
   let bad = 0
   for (const seed of seeds.length ? seeds : [1, 7, 42, 1234]) {
-    const r = runSanity(seed, preset, years)
+    const done = out && existsSync(out) ? readFileSync(out, 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l) as SanityRow) : []
+    const r = done.find((x) => x.seed === seed && x.preset === preset && x.years === years) ?? runSanity(seed, preset, years)
+    if (out && !done.includes(r)) appendFileSync(out, JSON.stringify(r) + '\n')
     const v = preset === 'dramatic' ? sanityViolations(r) : []
     if (json) console.log(JSON.stringify(r))
     else console.log(Object.entries(r).map(([k, x]) => `${k}=${x}`).join(' ') + (v.length ? `  VIOLATES: ${v.join('; ')}` : ''))

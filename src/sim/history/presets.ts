@@ -14,7 +14,8 @@ export const PRESET_NAMES: readonly PresetName[] = ['realistic', 'dramatic']
 
 /** The boolean HistoryOptions switches a preset may set, in URL order (each is also a URL key: `<key>=1` / `<key>=0`). */
 export const PRESET_SWITCHES = [
-  'oaths', 'balance', 'arms', 'families', 'finance', 'society', 'beliefs', 'barriers', 'disasters', 'battles', 'causes',
+  'oaths', 'balance', 'arms', 'families', 'finance', 'society', 'beliefs', 'barriers', 'disasters', 'battles', 'coldWars',
+  'warRestraint', 'causes',
 ] as const satisfies readonly (keyof HistoryOptions)[]
 export type PresetSwitch = (typeof PRESET_SWITCHES)[number]
 
@@ -29,6 +30,7 @@ export const PRESETS: Record<PresetName, Partial<Record<PresetSwitch, boolean>>>
     beliefs: true, barriers: true, // beliefs-and-deception, barriers (communication)
     disasters: true, // disasters (with DX.feedback below)
     battles: true, // battles (non-neutral below)
+    coldWars: true, warRestraint: true, // cold wars and great-power war restraint (barriers-coldwar §3, D-CW1)
     causes: true, // the Why panel's records (recording only)
   },
 }
