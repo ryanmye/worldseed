@@ -110,3 +110,8 @@ html:not(.compact) .side-column.right.rail-grouped.rail-open > .factions:not(.co
   flex-shrink: 0 !important;
   min-height: min(176px, 30vh);
 }
+/* n4b: the battle context panel keeps the column's width (its long summary otherwise widened the whole right column
+   across the top of the screen, over the inline replay) */
+.side-column.right > .context-battle {
+  width: var(--right-w);
+}
