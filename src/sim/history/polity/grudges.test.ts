@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest'
 import { EventType, GrievanceKind } from '../../../contract.ts'
 import type { History, HistoryOptions } from '../../../contract.ts'
 import { generateWorld, simulateHistory } from '../../index.ts'
-import { hashBase } from '../../../hashBase.ts'
 import { logStreams } from '../../rng.ts'
 import { ARMS, OATH, POLITY } from './params.ts'
 
@@ -41,7 +40,7 @@ function checkGrievances(h: History): void {
       expect(j).toBeLessThan(i)
       // An heir row takes up at most OATH.inherit of the parent row's weight (which only fades).
       expect(g.weight[i]).toBeLessThanOrEqual(OATH.inherit * g.weight[j] + 1e-4)
-      expect(h.polities[g.wronged[i]].parent).toBeGreaterThanOrEqual(0)
+      expect(g.year[i]).toBeGreaterThanOrEqual(g.year[j])
     }
   }
   // Every sack of a town held by another polity's people has its row (wars of the polities).
@@ -79,18 +78,20 @@ describe('grudges and oaths', () => {
     expect(log.filter((x) => x === 'history-align').length).toBe(1)
   }, 300_000)
 
-  // Step 2 (recording without effects): oaths on equals oaths off on every 8cabf09 field but the new events. Removed at step 4,
-  // when grudges begin to move rivalry and war.
-  it('recording grievances alone changes nothing else', () => {
-    const off = run(42, { years: 1100 }), on = run(42, { years: 1100, oaths: true })
-    expect(on.grievances.count).toBeGreaterThan(0)
-    const strip = (h: History): History => ({ ...h, events: h.events.filter((e) => e.type < 190 || e.type > 199) })
-    expect(hashBase(strip(on))).toBe(hashBase(strip(off)))
-  }, 300_000)
-
   it('grievances are valid rows: wronged and offender polities, weights, wars, inheritance, sacks', () => {
     const h = run(42, { years: 2000, oaths: true })
     expect(h.grievances.count).toBeGreaterThan(50)
     checkGrievances(h)
+    // Revenge wars: the cause is a grievance of the attacker against the defender, recorded before the war.
+    let revenge = 0
+    for (let w = 0; w < h.wars.count; w++) {
+      const c = h.wars.cause[w]
+      if (c < 0) continue
+      revenge++
+      expect(h.grievances.wronged[c]).toBe(h.wars.attacker[w])
+      expect(h.grievances.offender[c]).toBe(h.wars.defender[w])
+      expect(h.grievances.year[c]).toBeLessThanOrEqual(h.wars.startYear[w])
+    }
+    expect(revenge).toBeGreaterThan(0)
   }, 600_000)
 })

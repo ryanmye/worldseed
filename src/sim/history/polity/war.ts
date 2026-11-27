@@ -5,6 +5,8 @@
 //   drive = smoothstep(0.6, 1.2, R) * smoothstep(1, 2, adv) * (q in crisis ? 2 : 1) * (1 - E_p)
 //   chance = step * WAR.declare * drive
 // Wars are opportunistic: the stronger attack the weak, the exhausted and the leaderless.
+// oaths (grievances.ts): the C1 grudge factor 1 + OATH.drive * g(p, q); a declaration with g >= OATH.revengeMin is a revenge
+// war (Wars.cause = p's strongest grievance against q), and a won revenge war repays those wrongs (* OATH.avenged).
 //
 // Campaign (yearly per war): one front a year, the target v on the border that the attacker can
 // strike hardest relative to its defence:
@@ -45,8 +47,10 @@ import { rulerCapitalFell, rulerWar } from '../rulers/system.ts' // rulers:
 import { holyDrive, holyWarDeclared } from '../religion/system.ts' // religion:
 import { peaceUrged, warOrders, warRivalry } from '../orders/hooks.ts' // orders:
 import { c1WarDeclare, c6Peace } from '../compose.ts' // C1, C6 stacks
+import type { C1Factors } from '../compose.ts'
 import { ORDERS } from '../orders/params.ts' // orders:
-import { grievConquered, recordGrievance } from './grievances.ts' // oaths:
+import { grievConquered, grudge, grudgeWarEnded, recordGrievance, strongestGrievance } from './grievances.ts' // oaths:
+import { put } from './grudgeState.ts' // oaths:
 
 // --- Declarations ------------------------------------------------------------------------------------
 
@@ -66,9 +70,13 @@ function exposedFront(s: HistoryState, ps: PolityState, edges: readonly number[]
   return best
 }
 
+/** C1 factors (reused scratch; oaths: the grudge). */
+const C1F: C1Factors = {}
+
 /** System part (every step): rivals declare war. */
 export function declarations(s: HistoryState, ps: PolityState): void {
   const rng = ps.rngWar
+  const og = ps.og !== null && ps.og.oaths ? ps.og : null // oaths:
   const R = ps.relA.length
   for (let r = 0; r < R; r++) {
     const a = ps.relA[r], b = ps.relB[r]
@@ -87,11 +95,14 @@ export function declarations(s: HistoryState, ps: PolityState): void {
       if (e > 1) e = 1
       const drive = rv * smoothstep(WAR.advLow, WAR.advHigh, adv) * (inCrisis(s, ps, q) ? WAR.crisisMul : 1) * (1 - e)
       if (drive <= 0) continue
-      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:
+      const g = og !== null ? grudge(og, p, q) : 0
+      if (og !== null) C1F.grudge = 1 + OATH.drive * g // oaths: p's grudge against q
+      const mul = c1WarDeclare(s.rul !== null ? rulerWar(s.rul, p) : 1, s.rel !== null ? holyDrive(s, s.rel, p, q) : 1, (wo & (1 << dir)) !== 0 ? ORDERS.warMul : 1, og !== null ? C1F : undefined) // C1 (compose.ts): rulers: a warlike ruler; religion: holy war; orders:; oaths: the grudge
       if (rng.next() >= POLITY.slowStep * WAR.declare * drive * mul) continue
       const w0 = ps.wKind.length
       declare(s, ps, r, p, q)
       if (s.rel !== null) holyWarDeclared(s, s.rel, p, q, w0) // religion:
+      if (og !== null && g >= OATH.revengeMin) { put(og.wCause, w0, strongestGrievance(og, p, q), -1); og.diag.revengeWars++ } // oaths: a revenge war
     }
   }
 }
@@ -137,6 +148,7 @@ function closeWar(s: HistoryState, ps: PolityState, w: number, outcome: number):
   else if (ps.wKind[w] === WarKind.Conquest && outcome !== WarOutcome.Conquest && outcome !== WarOutcome.DefenderGains && outcome !== WarOutcome.Vassalage)
     outcome = peaceTerms(s, ps, p, q, outcome, WarOutcome.Vassalage, WarOutcome.Tribute)
   ps.wOutcome[w] = outcome
+  if (ps.og !== null) grudgeWarEnded(s, ps, ps.og, w, (outcome === WarOutcome.AttackerGains || outcome === WarOutcome.Conquest || outcome === WarOutcome.Vassalage || outcome === WarOutcome.Tribute) && overlordOf(ps, p) !== q) // oaths: a won revenge war repays the wrongs
   if (ps.pBlockade[q] === w) ps.pBlockade[q] = -1
   if (ps.pBlockade[p] === w) ps.pBlockade[p] = -1
   const i = ps.activeWars.indexOf(w)
