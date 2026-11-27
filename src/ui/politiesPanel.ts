@@ -41,6 +41,7 @@ import { requestRender } from '../render/invalidate.ts'
 import { formatInt, formatPopulation, peopleName, settlementName } from './format.ts'
 import { namesEpoch, withEventNames } from './renamingData.ts'
 import { crownAt } from './politiesData.ts' // finance:
+import { factorsAt, hasSociety, PHASE_NAME, phaseSpans, psiWord, sharesAt, wagesAt as socWagesAt } from './societyData.ts' // society:
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
@@ -700,6 +701,24 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         if (cr.debt > 0) parts.push(`debts ${formatPopulation(cr.debt)}`)
         parts.push(cr.rate === null ? 'no credit' : `borrows at ${Math.round(cr.rate * 100)}%`)
         line(parts.join(' · ')).classList.add('fp-tariff')
+      }
+      // society: classes, wages and rents, political stress and the secular phase (History.soc*)
+      if (hasSociety(pd)) {
+        const sh = sharesAt(pd, selected, s0), wg = socWagesAt(pd, selected, s0), fx = factorsAt(pd, selected, s0)
+        if (sh && wg && fx) {
+          const pc = (x: number) => (x >= 0.1 ? `${Math.round(x * 100)}%` : `${(x * 100).toFixed(1)}%`)
+          const t = line(`Peasants ${pc(sh.peasants)} (wage ${wg.wage.toFixed(1)}× bread) · townsfolk ${pc(sh.townsfolk)} · clergy ${pc(sh.clergy)} · nobility ${pc(sh.elites)}`)
+          t.classList.add('fp-tariff')
+          const prev = s0 > 0 ? socWagesAt(pd, selected, s0 - 1) : null
+          const trend = (a: number, b: number | undefined) => (b === undefined ? '' : a > b * 1.03 ? ' and rising' : a < b * 0.97 ? ' and falling' : '')
+          const span = phaseSpans(pd, selected).find(([a, b]) => s0 >= a && s0 <= b)
+          const since = span ? Math.max(pd.list[selected].foundedYear, span[0] * pd.interval) : year
+          const parts = [`Wages ${wg.wage >= 1.15 ? 'high' : wg.wage >= 0.9 ? 'middling' : 'low'}${trend(wg.wage, prev?.wage)}`, `rents ${wg.rent >= 1.15 ? 'high' : wg.rent >= 0.9 ? 'middling' : 'low'}${trend(wg.rent, prev?.rent)}`, `stress Ψ ${fx.psi.toFixed(1)} (${psiWord(fx.psi)})`]
+          const ph = span ? PHASE_NAME[span[2]] : ''
+          const l2 = line(parts.join(' · ') + (ph ? ` — ${ph} since ${since}` : '') + (sh.coercion >= 0.5 ? ' · serfs bound to the land' : ''))
+          l2.classList.add('fp-tariff')
+          l2.title = `Ψ = mass ${fx.mmp.toFixed(2)} × elites ${fx.emp.toFixed(2)} × state ${fx.sfd.toFixed(2)} (1 = an ordinary realm; Goldstone's political stress indicator)`
+        }
       }
       // embargoes in force (History.embargoes): drawn as a dashed amber border where the two meet
       for (const em of embargoesOn(pd, selected, year)) line('Under embargo with ', polityLink(em.other, pd.names[em.other]), ` since ${em.since}`).classList.add('fp-embargo')
