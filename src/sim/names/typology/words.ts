@@ -211,7 +211,7 @@ function drawPatterns(t: TypoProfile, rng: Rng, count: number): string[] {
     (): string => ch(t.cons.indexOf(SEG.m) >= 0 ? SEG.m : t.cons[3]) + V() + C1 + C2 + V() + C3,
   ]
   const out: string[] = []
-  for (let k = 0; out.length < count && k < 40; k++) {
+  for (let k = 0; out.length < count && k < 160; k++) {
     const p = shapes[rng.int(0, shapes.length - 1)]()
     if (out.indexOf(p) < 0) out.push(p)
   }
@@ -351,7 +351,7 @@ export function typoLanguage(draw: TypoDraw, rng: Rng, ortho: number): Language 
     // (only patterns the template allows: tried on the language's first consonants)
     const T = templateOf(t)
     const probe = [t.cons[0], t.cons[3] ?? t.cons[1], t.cons[1]]
-    t.patterns = drawPatterns(t, rng, 12).filter((p) => typoEuphonic(interdigitate(probe, p), T)).slice(0, 3 + rng.int(0, 2))
+    t.patterns = drawPatterns(t, rng, 30).filter((p) => typoEuphonic(interdigitate(probe, p), T)).slice(0, 3 + rng.int(0, 2))
     if (!t.patterns.length) t.patterns = [ch(SLOT_BASE) + ch(t.vowels[0]) + ch(SLOT_BASE + 1) + ch(t.vowels[1] ?? t.vowels[0]) + ch(SLOT_BASE + 2) + ch(t.vowels[0])]
   }
   if (draw.style === Style.Prefixing) {
