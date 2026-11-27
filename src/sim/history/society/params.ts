@@ -5,6 +5,7 @@
 // memDamp 0.7 [0.6], lagSteps 8 [4], gUp 0.04 [0.02], gDown 0.004 [0.01], gFloor 0.002 [0.004] (a longer, stronger delayed
 // feedback and weaker instant restoring force), crisisAttr 0.02 (new), psiLow 1.0 [0.9], psiHigh 2.2 [1.8], disorder 0.08 [0.25],
 // disGain 0.05 [0.08] (0.25 cost a fifth of the world's people by 2000), youthRef 0.25 [0.05] (crowding growth, not people).
+// erode 0.008 [0.02] (0.02 left realism at 0.450 vs 0.400; 0.008 gives 0.404 on seeds 1, 7, 42, 1234).
 
 export const SOC = {
   /** Society off by default (HistoryOptions.society overrides it; the coordinator flips defaults, MASTER-PLAN R29). */
@@ -84,7 +85,7 @@ export const SOC = {
   disKeep: 0.8,
   disorder: 0.08,
   /** Asabiya erosion a year: a −= erode · max(0, EMP − 1) · a (elite infighting; h6). */
-  erode: 0.02,
+  erode: 0.008,
   /** Grievance terms (h2): immiseration immis · max(0, 1/w − 1); failed coercion coerceGrief · κ · scar; townsfolk urban · (max(0, urbPrem/wU − 1) + max(0, ĉ_town − 1)) (against the customary urban premium). */
   immis: 0.25,
   coerceGrief: 0.3,
