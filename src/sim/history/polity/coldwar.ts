@@ -25,6 +25,17 @@
 // b, active wars ascending: one draw per (cold war, principal, war) with an eligible side, while it does not already aid one),
 // defections (cold war, principal a then b, its clients in bond order: one draw each where the chance > 0), crises (one draw
 // per cold war; a second for the resolution on a hit; a third for escalation when it comes to that).
+// Restraint (owner ruling D-CW1, a bounded exception to CW-R1: "public welfare should limit great powers from wars, unless a
+// country has an ideology of total conquest"). A stylised audience-cost / democratic-peace model, NOT calibrated: between two
+// great powers (each >= CW.great of the mass in contact with it), the declaring polity's C1 product gains factor 7
+//   restraint = clamp(1 - CW.restraintK * welfare * voice, 0.3, 1)
+// welfare = x / (1 + x), x = its per-capita prosperity over the median of the Kingdom+ realms (society's real wage when society
+// is on, else capital wealth per head); voice = CW.voiceBase + (1 - voiceBase) * urban share (society's urbanisation, else the
+// share of its people in towns of TOWN_POPULATION), * (1 - 0.5 coercion) with society: regimeVoice, the hook MIR's regime
+// families and city-states' governments replace. A conquest power (conquestIdeology: MIR's expansionist ideology when it lands;
+// meanwhile a ruler with warlike >= CW.conquestWar) is not restrained, nor is anyone toward it, and its crises escalate
+// CW.conquestEsc times as often (otherwise a crisis escalates * the would-be declarer's rho). Sustained mutual restraint (both < CW.calmRho) lowers the pair's rivalry by
+// CW.calm * (1 - rho_a * rho_b) a year, so cold wars can thaw. RNG-free.
 // Phase 4 hook: ideological blocs (MIR) set the ideological flag and add CW.ideo to kappa (ideoOf; always 0 for now).
 
 import { BondEnd, BondKind, ColdWarEnd, CrisisOutcome, EventType, GrievanceKind, PolityEnd, RivalryPart, WarKind, WarMotive } from '../../../contract.ts'
@@ -34,6 +45,7 @@ import { createRng } from '../../rng.ts'
 import { smoothstep } from '../../util.ts'
 import type { HistoryState } from '../state.ts'
 import type { CBFactors, C7Factors } from '../compose.ts'
+import { C1_RESTRAINT } from '../compose.ts'
 import { ALIGN, POLITY, WAR } from './params.ts'
 import type { PolityState } from './state.ts'
 import { Tier, inContact, tierOf } from './state.ts'
@@ -44,6 +56,8 @@ import { relIdx } from './relations.ts'
 import { atWar } from './formation.ts'
 import { bound } from './policy.ts'
 import { rulerWar } from '../rulers/system.ts' // rulers:
+import { socCoercion, socUrban, socWage } from '../society/api.ts' // society:
+import { TOWN_POPULATION } from '../../../contract.ts'
 import { finDefaulted, finCredit, finMonetised, finRevOrd, finSpend } from '../finance/hooks.ts' // finance:
 import { BELIEF } from '../beliefs/params.ts' // beliefs:
 import { whyPending, whyRelSet } from '../why.ts' // causes:
@@ -98,6 +112,13 @@ export const CW = {
   /** Detente: kappa below detente * peak (extra 0); back above refreeze * peak (extra 1). */
   detente: 0.5,
   refreeze: 0.7,
+  /** Restraint (ruling D-CW1; stylised, not calibrated): strength, the voice floor, the conquest stand-in (ruler warlike), conquest's escalation multiplier, and the calming of mutual restraint (a year, below calmRho). */
+  restraintK: 3,
+  voiceBase: 0.25,
+  conquestWar: 0.85,
+  conquestEsc: 2,
+  calm: 0.04,
+  calmRho: 0.9,
   /** News lag proxy (barriers §2.3) when barriers is off: km/day on foot, couriers (Empire tier), sail; path factor. */
   vFoot: 25,
   vCourier: 67,
@@ -123,6 +144,12 @@ export interface ColdWarDiag {
   sphereN: number
   /** CB aid factors applied. */
   aidBattles: number
+  /** Restraint factors applied (count, sum), polity-steps of great powers, of conquest powers; rivalry shed by mutual restraint. */
+  restraintN: number
+  restraintSum: number
+  greatSteps: number
+  conquestSteps: number
+  calmed: number
   /** Detection checks that passed each condition (tuning). */
   gate: number[]
 }
@@ -154,11 +181,15 @@ export interface ColdWarState {
   wAidA: number[]; wAidD: number[]
   /** Per polity: the spy boost (CW.spy * the highest kappa of its cold wars). */
   pSpy: number[]
+  /** Restraint on (HistoryOptions.warRestraint, default: with coldWars); per polity this slow step: great power (1), conquest power (1), restraint rho. */
+  rs: boolean
+  pGreat: number[]; pConq: number[]; pRho: number[]
   diag: ColdWarDiag
 }
 
-export function createColdWars(seed: number): ColdWarState {
+export function createColdWars(seed: number, restraint = true): ColdWarState {
   return {
+    rs: restraint, pGreat: [], pConq: [], pRho: [],
     rng: createRng(seed, 'history-coldwar'),
     relRival: [], relCounted: [], relBecame: [], relCw: [], relCwEnd: [],
     a: [], b: [], rel: [], start: [], end: [], cause: [], war: [], ideo: [], proxies: [], crises: [], defections: [], peak: [], peakY: [], kappa: [],
@@ -166,7 +197,7 @@ export function createColdWars(seed: number): ColdWarState {
     active: [],
     aP: [], aS: [], aW: [], aCw: [], aStart: [], aEnd: [], aO: [], aAtt: [], activeAid: [],
     wAidA: [], wAidD: [], pSpy: [],
-    diag: { longRivalries: 0, longBecame: 0, proxies: 0, proxyEligible: 0, proxyLooked: 0, aidPaid: 0, aidUnpaid: 0, aidSpent: 0, defections: 0, crises: 0, escalated: 0, sphereN: 0, aidBattles: 0, gate: [0, 0, 0, 0, 0] },
+    diag: { longRivalries: 0, longBecame: 0, proxies: 0, proxyEligible: 0, proxyLooked: 0, aidPaid: 0, aidUnpaid: 0, aidSpent: 0, defections: 0, crises: 0, escalated: 0, sphereN: 0, aidBattles: 0, restraintN: 0, restraintSum: 0, greatSteps: 0, conquestSteps: 0, calmed: 0, gate: [0, 0, 0, 0, 0] },
   }
 }
 
@@ -341,6 +372,76 @@ export function cwSphere(ps: PolityState, x: number, y: number, c: number, f: C7
   return C7S
 }
 
+/** Hook (MIR, Phase 4): p holds an ideology of total conquest. No ideologies on main yet: false. */
+export function conquestIdeology(_s: HistoryState, _p: number): boolean {
+  return false
+}
+
+/** A conquest power: conquestIdeology, or (stand-in) a strongly warlike ruler. */
+function conquestPower(s: HistoryState, p: number): boolean {
+  if (conquestIdeology(s, p)) return true
+  const R = s.rul
+  if (R === null || p >= R.pcap) return false
+  const r = R.cur[p]
+  return r >= 0 && R.rWar[r] >= CW.conquestWar
+}
+
+/** Hook (MIR regime families, city-states' governments replace it): how much p's rule rests on its people, 0..1. */
+function regimeVoice(s: HistoryState, ps: PolityState, p: number): number {
+  let u: number, co = 0
+  if (s.soc !== null && socWage(s, p) > 0) { u = socUrban(s, p); co = socCoercion(s, p) }
+  else {
+    let tot = 0, town = 0
+    if (p + 1 < ps.memOff.length) for (let k = ps.memOff[p]; k < ps.memOff[p + 1]; k++) { const id = ps.memList[k]; const n = s.pop[id]; tot += n; if (n >= TOWN_POPULATION) town += n }
+    u = tot > 0 ? town / tot : 0
+  }
+  const v = (CW.voiceBase + (1 - CW.voiceBase) * (u > 1 ? 1 : u < 0 ? 0 : u)) * (1 - 0.5 * co)
+  return v
+}
+
+/** Per slow step (first in coldWarStep, before declarations): great powers, conquest powers and their restraint rho. */
+function restraintStep(s: HistoryState, ps: PolityState, cw: ColdWarState): void {
+  const P = ps.P
+  while (cw.pGreat.length < P) { cw.pGreat.push(0); cw.pConq.push(0); cw.pRho.push(1) }
+  const alive = ps.alive
+  const vals: number[] = []
+  const pros = new Float64Array(P)
+  for (const p of alive) {
+    if (!kingdom(ps, p)) continue
+    const w = s.soc !== null && socWage(s, p) > 0 ? socWage(s, p) : s.wealth[ps.pCapital[p]] / (ps.pPop[p] > 1 ? ps.pPop[p] : 1)
+    pros[p] = w
+    vals.push(w)
+  }
+  vals.sort((a, b) => a - b)
+  const med = vals.length > 0 ? vals[vals.length >> 1] : 0
+  for (let p = 0; p < P; p++) { cw.pGreat[p] = 0; cw.pConq[p] = 0; cw.pRho[p] = 1 }
+  for (const p of alive) {
+    if (!kingdom(ps, p)) continue
+    const pp = ps.pPeople[p]
+    let tot = 0
+    for (const x of alive) if (inContact(s, pp, ps.pPeople[x])) tot += ps.pMass[x]
+    if (!(tot > 0) || ps.pMass[p] < CW.great * tot) continue
+    cw.pGreat[p] = 1
+    cw.diag.greatSteps++
+    if (conquestPower(s, p)) { cw.pConq[p] = 1; cw.diag.conquestSteps++; continue }
+    const x = med > 0 ? pros[p] / med : 1
+    const rho = 1 - CW.restraintK * (x / (1 + x)) * regimeVoice(s, ps, p)
+    cw.pRho[p] = rho < C1_RESTRAINT[0] ? C1_RESTRAINT[0] : rho > C1_RESTRAINT[1] ? C1_RESTRAINT[1] : rho
+  }
+}
+
+/** C1 factor 7 for p declaring on q: rho_p when both are great powers and neither is a conquest power, else undefined (skipped). */
+export function cwRestraint(ps: PolityState, p: number, q: number): number | undefined {
+  const cw = ps.cw
+  if (cw === null || !cw.rs || p >= cw.pGreat.length || q >= cw.pGreat.length) return undefined
+  if (cw.pGreat[p] !== 1 || cw.pGreat[q] !== 1 || cw.pConq[p] === 1 || cw.pConq[q] === 1) return undefined
+  const v = cw.pRho[p]
+  if (!(v < 1)) return undefined
+  cw.diag.restraintN++
+  cw.diag.restraintSum += v
+  return v
+}
+
 /** beliefs hook (spy service target): CW.spy * the highest kappa of p's cold wars (as of the last cold-war step). */
 export function cwSpyBoost(cw: ColdWarState, p: number): number {
   return at(cw.pSpy, p, 0)
@@ -351,6 +452,7 @@ export function coldWarStep(s: HistoryState, ps: PolityState, cw: ColdWarState, 
   const X = CW
   const R = ps.relA.length
   const y = s.year
+  if (cw.rs) restraintStep(s, ps, cw) // (ruling D-CW1)
   // 1. Endings of the open cold wars (no draws): a side ended, bowed, collapsed or was eclipsed; or the rivalry thawed.
   for (const i of cw.active.slice()) {
     const a = cw.a[i], b = cw.b[i], r = cw.rel[i]
@@ -373,6 +475,14 @@ export function coldWarStep(s: HistoryState, ps: PolityState, cw: ColdWarState, 
       if (pk > 0 && ps.pMass[x] <= (1 - X.collapseLoss) * pk && inTrouble(s, ps, x)) collapsed = true
     }
     if (collapsed) { endColdWar(s, ps, cw, i, ColdWarEnd.Collapsed, -1); continue }
+    if (cw.rs && cw.pGreat[a] === 1 && cw.pGreat[b] === 1 && cw.pRho[a] < X.calmRho && cw.pRho[b] < X.calmRho) {
+      // sustained mutual restraint calms the quarrel (so the cold war can thaw)
+      const dR = POLITY.slowStep * X.calm * (1 - cw.pRho[a] * cw.pRho[b])
+      const v = ps.relR[r] - dR > 0 ? ps.relR[r] - dR : 0
+      if (ps.why) whyRelSet(ps.why, r, RivalryPart.ColdWar, ps.relR[r], v) // causes:
+      cw.diag.calmed += ps.relR[r] - v
+      ps.relR[r] = v
+    }
     const k = kappaOf(s, ps, r, a, b, cw.ideo[i])
     const pi = parityOf()
     if (pi < X.eclipse) { if (cw.eclSince[i] < 0) cw.eclSince[i] = y } else cw.eclSince[i] = -1
@@ -533,7 +643,8 @@ export function coldWarStep(s: HistoryState, ps: PolityState, cw: ColdWarState, 
       const lagMul = 0.2 + (0.8 * l) / (l + X.lagHalf)
       const stander = ra >= rb ? a : b, other = stander === a ? b : a
       const can = ps.relWar[r] < 0 && ps.pWars[stander] < WAR.maxWars && !bound(ps, a, b)
-      if (rng.next() < X.esc * lagMul * (deterred(s, a, b) ? X.deterEsc : 1) && can) {
+      const conq = !cw.rs ? 1 : at(cw.pConq, a, 0) === 1 || at(cw.pConq, b, 0) === 1 ? X.conquestEsc : at(cw.pRho, stander, 1) // (ruling D-CW1: a conquest power's crises go hot more often; else the stander's restraint)
+      if (rng.next() < X.esc * lagMul * conq * (deterred(s, a, b) ? X.deterEsc : 1) && can) {
         out = CrisisOutcome.Escalated
         cw.diag.escalated++
         logX(s, EventType.Crisis, ps.pCapital[a], ps.pCapital[b], i, out)

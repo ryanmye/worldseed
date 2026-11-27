@@ -2338,6 +2338,12 @@ export interface HistoryOptions {
    */
   coldWars?: boolean
   /**
+   * warRestraint (owner ruling D-CW1; only with coldWars, which it defaults to): great powers' public welfare and the weight of
+   * their people's voice restrain their wars on each other (C1 factor 7, clamped to [0.3, 1]; a stylised audience-cost model),
+   * unless one holds an ideology of total conquest; mutual restraint slowly calms their rivalry. Default: as coldWars.
+   */
+  warRestraint?: boolean
+  /**
    * disasters: volcanic eruptions and volcanic winters, slow climate epochs (warm ages, little ice ages), megadroughts,
    * earthquakes, tsunamis and great river floods, drawn from the world alone (the same seed has the same shocks, whatever the
    * orders or cradle wishes) and felt through the harvest, deaths and ruin. Default false (DX.enabled); false gives the history

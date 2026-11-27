@@ -533,7 +533,7 @@ export function createRunner(world: World, options?: HistoryOptions, probe?: (s:
   if (pol) {
     const oaths = options?.oaths ?? OATH.enabled, balance = options?.balance ?? ALIGN.enabled, arms = options?.arms ?? ARMS.enabled
     if (oaths || balance || arms) pol.og = createGrudgeState(seed, oaths, balance, arms)
-    if (options?.coldWars ?? CW.enabled) pol.cw = createColdWars(seed) // cold wars (grudges; barriers-coldwar §3)
+    if (options?.coldWars ?? CW.enabled) pol.cw = createColdWars(seed, options?.warRestraint ?? true) // cold wars (grudges; barriers-coldwar §3)
   }
   const polSnaps = pol ? createSnaps(pol) : null
   // goods: the goods system, unless switched off.

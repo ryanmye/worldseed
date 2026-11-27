@@ -34,7 +34,7 @@ function rivalShare(h: History): number {
   return n > 0 ? k / n : NaN
 }
 
-interface Row { seed: number; ms: number; n: number; long: number; became: number; dur: number[]; proxies: number[]; ends: number[]; crises: number; escalated: number; cwYears: number; directDuring: number; directBefore: number; partDuring: number; partBefore: number; spanYears: number; rivalOn: number; rivalOff: number; maxProxies: number; defections: number; gate: number[]; sphereN: number; aidBattles: number; aidPaid: number; aidUnpaid: number; wars: number; looked: number; eligible: number }
+interface Row { seed: number; ms: number; n: number; long: number; became: number; dur: number[]; proxies: number[]; ends: number[]; crises: number; escalated: number; cwYears: number; directDuring: number; directBefore: number; partDuring: number; partBefore: number; spanYears: number; rivalOn: number; rivalOff: number; maxProxies: number; defections: number; gate: number[]; sphereN: number; aidBattles: number; aidPaid: number; aidUnpaid: number; restraintMean: number; restraintN: number; conquestShare: number; calmed: number; wars: number; looked: number; eligible: number }
 
 function stats(seed: number): Row {
   const opts: HistoryOptions = { years, ...extra, coldWars: true, causes: true }
@@ -71,7 +71,7 @@ function stats(seed: number): Row {
   for (const e of h.events) if (e.type === EventType.Crisis) { crises++; if (e.extra === CrisisOutcome.Escalated) escalated++ }
   let rivalOff = NaN
   if (flag('--ab')) { const { history: h0 } = runHistory(generateWorld(seed), { ...opts, coldWars: false }); rivalOff = rivalShare(h0) }
-  return { seed, ms, n: C.count, long: d.longRivalries, became: d.longBecame, dur, proxies, ends, crises, escalated, cwYears, directDuring, directBefore, partDuring, partBefore, spanYears, rivalOn: rivalShare(h), rivalOff, maxProxies, defections, gate: d.gate, sphereN: d.sphereN, aidBattles: d.aidBattles, aidPaid: d.aidPaid, aidUnpaid: d.aidUnpaid, wars: W.count, looked: d.proxyLooked, eligible: d.proxyEligible }
+  return { seed, ms, n: C.count, long: d.longRivalries, became: d.longBecame, dur, proxies, ends, crises, escalated, cwYears, directDuring, directBefore, partDuring, partBefore, spanYears, rivalOn: rivalShare(h), rivalOff, maxProxies, defections, gate: d.gate, sphereN: d.sphereN, aidBattles: d.aidBattles, aidPaid: d.aidPaid, aidUnpaid: d.aidUnpaid, restraintMean: d.restraintN > 0 ? d.restraintSum / d.restraintN : 1, restraintN: d.restraintN, conquestShare: d.conquestSteps / Math.max(1, d.greatSteps), calmed: d.calmed, wars: W.count, looked: d.proxyLooked, eligible: d.proxyEligible }
 }
 
 const rows: Row[] = []

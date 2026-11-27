@@ -38,6 +38,8 @@ function clamp(x: number, lo: number, hi: number): number {
 
 /** Clamp of the non-order product (ruler · form · grudge · money · dyad · ideology). */
 export const C1_CLAMP = [0.1, 5] as const
+/** Clamp of factor 7 (restraint) itself. */
+export const C1_RESTRAINT = [0.3, 1] as const
 export interface C1Factors {
   /** 1. court's winning-faction war(q): replaces `ruler` (never both; court §6.4). */
   courtWar?: number
@@ -51,6 +53,8 @@ export interface C1Factors {
   dyad?: number
   /** 6. ideology: 1 + IDEO.intervene · relR (MIR §4.6). */
   ideology?: number
+  /** 7. restraint (owner ruling D-CW1, cold-wars lane): between great powers, clamp(1 − RS.k · welfare · voice, 0.3, 1); 1 for a conquest power. */
+  restraint?: number
 }
 /**
  * The declaration multiplier: clamp(ruler · form · grudge · money · dyad · ideology) · holy · order. 8cabf09:
@@ -61,7 +65,7 @@ export interface C1Factors {
 export function c1WarDeclare(ruler: number, holy: number, order: number, f?: C1Factors): number {
   if (f === undefined) return ruler * holy * order
   const r = f.courtWar !== undefined ? f.courtWar : ruler
-  const m = prod(r, f.form, f.grudge, f.money, f.dyad, f.ideology)
+  const m = prod(r, f.form, f.grudge, f.money, f.dyad, f.ideology, f.restraint)
   const v = m.any || f.courtWar !== undefined ? clamp(m.v, C1_CLAMP[0], C1_CLAMP[1]) : m.v
   return v * holy * order
 }
