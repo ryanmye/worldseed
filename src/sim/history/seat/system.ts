@@ -11,6 +11,35 @@ import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import type { SeatState } from './state.ts'
 import { seatAmbitions } from './ambitions.ts'
+import { DEFER_OPTIONS, OrderKind } from '../../../contract.ts'
+import { DeferenceCause, addDeference, deferBlame, deferenceTaken, reclaimPower } from '../rulers/deference.ts'
+import { SEAT } from './params.ts'
+
+/**
+ * The year's Choice records (given this year): a deferral feeds the decision polity's deference (less for a divisive matter,
+ * whose blame the deciding body bears); a decision taken lowers it; Reclaim takes the power back (rulers/deference.ts).
+ */
+export function seatChoices(s: HistoryState, st: SeatState): void {
+  const ox = s.orders
+  const ev = s.events
+  const E = ev.length
+  const from = st.chSeen
+  st.chSeen = E
+  if (ox === null) return
+  for (let e = from; e < E; e++) {
+    const x = ev[e]
+    if ((x.type as number) !== EventType.OrderGiven || x.extra !== OrderKind.Choice || x.value < 0 || x.value >= ox.n) continue
+    const t = ox.target[x.value]
+    const d = t >= 0 ? t >> 3 : -1
+    if (d < 0 || d >= st.dYear.length) continue
+    const p = st.dPolity[d], o = t & 7
+    if (o === DEFER_OPTIONS.defer) {
+      addDeference(s, p, 1 - SEAT.deferDivisive * st.dDiv[d], DeferenceCause.Player)
+      if (st.dDiv[d] >= 0.5) deferBlame(s, p, st.dDiv[d], st.dKind[d])
+    } else if (o === DEFER_OPTIONS.reclaim) reclaimPower(s, p)
+    else deferenceTaken(s, p)
+  }
+}
 
 function push(s: HistoryState, type: number, settlement: number, other: number, value: number, extra: number): void {
   s.events.push({ year: s.year, type: type as EventType, settlement, other, value, extra })
@@ -68,6 +97,7 @@ function resolve(s: HistoryState, st: SeatState): { polity: number; passed: numb
 
 /** The year's seat: resolution, SeatTaken / SeatPassed / SeatLost, the year's polity and people, ambitions. */
 export function seatYear(s: HistoryState, st: SeatState): void {
+  seatChoices(s, st)
   if (s.year < st.opts.from || st.lostYear >= 0) {
     if (st.lostYear >= 0) { st.polityAt.push(-1); st.peopleAt.push(-1) }
     return

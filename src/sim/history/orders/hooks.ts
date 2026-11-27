@@ -5,6 +5,7 @@
 import { OrderKind } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import { ORDERS } from './params.ts'
+import { SEAT } from '../seat/params.ts' // seat: the court kinds' tunables
 import type { OrdersState } from './state.ts'
 
 /** Chord between cells a and b on the unit sphere. */
@@ -136,4 +137,68 @@ export function townUrged(ox: OrdersState, kind: number, id: number): boolean {
   if (ox.nTown === 0) return false
   for (const k of ox.active) if (ox.kind[k] === kind && ox.actor[k] === id) return true
   return false
+}
+
+// ---------- seat-mode's court kinds (seat-mode §3.6; orders/seatOrders.ts) ----------
+
+/** The order of `kind` in force with actor a (and target t when t >= 0; either way round when `either`), or -1. */
+export function polityOrder(ox: OrdersState, kind: number, a: number, t = -1, either = false): number {
+  if (ox.nPolity === 0) return -1
+  for (const k of ox.active) {
+    if (ox.kind[k] !== kind || ox.status[k] !== 1) continue
+    const x = ox.actor[k], y = ox.target[k]
+    if ((x === a && (t < 0 || y === t)) || (either && x === t && y === a)) return k
+  }
+  return -1
+}
+
+/** Placate, Purge: the C3 order factor on p's overthrow chance (SEAT.placateMul; 0 while a purge holds), undefined when neither is in force. */
+export function seatOverthrow(ox: OrdersState, p: number): number | undefined {
+  if (ox.nPolity === 0) return undefined
+  if (polityOrder(ox, OrderKind.Purge, p) >= 0) return 0
+  return polityOrder(ox, OrderKind.Placate, p) >= 0 ? SEAT.placateMul : undefined
+}
+
+/** Purge: the factor on p's mass while a purge holds (the army's best men gone), else 1. */
+export function seatMass(ox: OrdersState, p: number): number {
+  return ox.nPolity > 0 && polityOrder(ox, OrderKind.Purge, p) >= 0 ? SEAT.purgeMass : 1
+}
+
+/** Ally: true when x or y is ordered to seek an alliance with the other. */
+export function allyOrdered(ox: OrdersState, x: number, y: number): boolean {
+  return ox.nPolity > 0 && polityOrder(ox, OrderKind.Ally, x, y, true) >= 0
+}
+
+/** Ally: true when p is the actor or the target of an Ally order in force (its relations count as hosts at the lower threat). */
+export function allyParty(ox: OrdersState, p: number): boolean {
+  if (ox.nPolity === 0) return false
+  for (const k of ox.active) if (ox.kind[k] === OrderKind.Ally && ox.status[k] === 1 && (ox.actor[k] === p || ox.target[k] === p)) return true
+  return false
+}
+
+/** Marry: true when a or b is ordered to seek a match with the other. */
+export function marryOrdered(ox: OrdersState, a: number, b: number): boolean {
+  return ox.nPolity > 0 && polityOrder(ox, OrderKind.Marry, a, b, true) >= 0
+}
+
+/** Designate: the birth year of the heir p's ruler named (an order in force), or -1. */
+export function designated(ox: OrdersState, p: number): number {
+  const k = ox.nPolity > 0 ? polityOrder(ox, OrderKind.Designate, p) : -1
+  return k >= 0 ? ox.target[k] : -1
+}
+
+/** Submit: true when p's tribute for peace with q is accepted this year (a draw from the orders' stream, once the war's first year is past). */
+export function submitAccepted(s: HistoryState, ox: OrdersState, p: number, q: number, start: number): boolean {
+  if (ox.nPolity === 0 || s.year - start < ORDERS.peaceAfter) return false
+  return polityOrder(ox, OrderKind.Submit, p, q) >= 0 && ox.rng.next() < SEAT.submitChance
+}
+
+/** Betray: true when ally x is ordered to make a separate peace, deserting q. */
+export function betrayOrdered(ox: OrdersState, x: number, q: number): boolean {
+  return ox.nPolity > 0 && polityOrder(ox, OrderKind.Betray, x, q) >= 0
+}
+
+/** Borrow, Levy, Repudiate (of the crown's debts): an order of `kind` in force for p's crown (finance/system.ts). */
+export function crownOrdered(ox: OrdersState, kind: number, p: number): boolean {
+  return ox.nPolity > 0 && polityOrder(ox, kind, p, kind === OrderKind.Repudiate ? p : -1) >= 0
 }

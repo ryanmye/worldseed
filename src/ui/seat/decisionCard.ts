@@ -1,16 +1,25 @@
-// seat: the decision card (seat-mode §6.3). Touch-first: designed at 360×640 first. On a phone (isCompact) the card is a
-// panel along the bottom with full-width option buttons at least 48 px tall in thumb reach (no swipe chooses anything); on
-// a wider screen it is a 420 px card at the top centre, keys 1-4 pick and Esc lets the court decide. Two cards of one year
-// come one after the other ("1 of 2"). The map above stays live; "Show me" flies to the place.
+// seat: the decision screen (seat-mode §6.3). A dimmed backdrop over the globe; a title banner with the situation and its
+// header illustration (procedural, art/scenes.ts); 2-4 portrait option cards in a row (on a phone, a scroll-snap carousel
+// with the next card peeking and Prev / Next); below them "Let the court decide" (the court's own course: Esc) and a small
+// "Show me" that lifts the screen to look at the place, with a pill to come back. Each card is one labelled button: a
+// corner badge (what it costs or risks), the option's name, a framed illustration (its glyph over a small landscape in the
+// card's tint), a type tag and a line of consequence. Keys 1-4 pick the cards in order. The art is decorative (aria-hidden).
+// Reduced motion: no lift or scroll animation (seat.css). Plain messages (reaching the reign, the seat lost) are a small
+// panel without the backdrop, so the timeline can be watched.
 import type { History } from '../../contract.ts'
 import { isCompact } from '../compact.ts'
-import { decisionSituation, decisionTitle, optionExpects, optionLabel } from './seatFormat.ts'
+import { decisionSituation, decisionTitle, optionExpects, optionLabel, optionMeta } from './seatFormat.ts'
+import { glyphInner, optionGlyph } from './art/glyphs.ts'
+import { decisionScene, optionArt } from './art/scenes.ts'
+import { deciderButton, deciderName } from './decider.ts'
+import { DEFER_OPTIONS } from '../../contract.ts'
+import { SEAT } from '../../sim/history/seat/params.ts'
 import './seat.css'
 
 export interface DecisionCard {
   /** Show decision d of h (`n` of `total` this year); `pick(option)` once chosen; `showMe()` for the place. */
   show(h: History, d: number, n: number, total: number, pick: (option: number) => void, showMe: (() => void) | null): void
-  /** A plain message card (the seat lost, waiting) with buttons; null buttons: a status line only. */
+  /** A plain message (the seat lost, waiting) with buttons; null buttons: a status line only. */
   message(title: string, text: string, buttons: { label: string; run: () => void }[] | null): void
   hide(): void
   readonly open: boolean
@@ -22,76 +31,172 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   if (text !== undefined) e.textContent = text
   return e
 }
+/** An element holding trusted, generated SVG markup (our own art strings, no user text). */
+function svgHost(cls: string, svg: string): HTMLElement {
+  const e = el('span', cls)
+  e.setAttribute('aria-hidden', 'true')
+  e.innerHTML = svg
+  return e
+}
+
+/**
+ * The Authority meter: how far the seat's realm still waits on the ruler (1 - deference / SEAT.deferFull), and what leaving this
+ * matter would cost (less for a divisive one). Hover or tap for the explanation.
+ */
+function authorityMeter(h: History, d: number): HTMLElement {
+  const D = h.seat!.decisions
+  const p = D.polity[d]
+  const dv = h.deference && p >= 0 && p < h.deference.count ? h.deference.value[p] : 0
+  const auth = Math.max(0, 1 - dv / SEAT.deferFull)
+  const cost = (1 - SEAT.deferDivisive * D.divisive[d]) / SEAT.deferFull
+  const box = el('div', 'seat-authority')
+  const body = deciderName(h, h.seat!.seat, D.year[d])
+  const why = `Authority: how far the realm still waits on you. Each matter you leave to ${body} lowers it (less for a divisive one, whose blame they bear); each decision you take restores it. Low, ${body} rule in all but name, and the throne is less safe. Your court grows used to ruling without you.`
+  box.title = why
+  box.tabIndex = 0
+  box.setAttribute('role', 'meter')
+  box.setAttribute('aria-valuemin', '0'); box.setAttribute('aria-valuemax', '100'); box.setAttribute('aria-valuenow', String(Math.round(auth * 100)))
+  box.setAttribute('aria-label', `Authority ${Math.round(auth * 100)} of 100. ${why}`)
+  const bar = el('span', 'seat-authority-bar')
+  const fill = el('span', 'seat-authority-fill')
+  fill.style.width = `${(auth * 100).toFixed(0)}%`
+  const after = el('span', 'seat-authority-cost')
+  after.style.left = `${(Math.max(0, auth - cost) * 100).toFixed(0)}%`
+  after.style.width = `${(Math.min(auth, cost) * 100).toFixed(0)}%`
+  bar.append(fill, after)
+  box.append(el('span', 'seat-authority-label', 'Authority'), bar, el('span', 'seat-authority-note', `leaving it: −${Math.round(Math.min(auth, cost) * 100)}`))
+  box.addEventListener('click', () => box.classList.toggle('open'))
+  box.append(el('span', 'seat-authority-why', why))
+  return box
+}
 
 export function createDecisionCard(parent: HTMLElement): DecisionCard {
-  const root = el('div', 'seat-card hidden')
-  root.setAttribute('role', 'dialog')
-  root.setAttribute('aria-live', 'polite')
-  parent.appendChild(root)
+  // the decision screen
+  const screen = el('div', 'seat-screen hidden')
+  screen.setAttribute('role', 'dialog')
+  screen.setAttribute('aria-modal', 'true')
+  const peekPill = el('button', 'seat-peek-back hidden', 'Back to the decision')
+  peekPill.type = 'button'
+  // the message panel
+  const msg = el('div', 'seat-msg hidden')
+  msg.setAttribute('role', 'status')
+  msg.setAttribute('aria-live', 'polite')
+  parent.append(screen, peekPill, msg)
   let keys: ((e: KeyboardEvent) => void) | null = null
   const clearKeys = () => { if (keys) window.removeEventListener('keydown', keys); keys = null }
-  const frame = (title: string, sub: string) => {
-    clearKeys()
-    root.replaceChildren()
-    root.classList.remove('hidden')
-    root.classList.toggle('seat-card-compact', isCompact())
-    const head = el('div', 'seat-card-head')
-    head.append(el('div', 'seat-card-title', title))
-    if (sub) head.append(el('div', 'seat-card-sub', sub))
-    root.append(head)
-  }
+  const setPeek = (on: boolean) => { screen.classList.toggle('peek', on); peekPill.classList.toggle('hidden', !on) }
+  peekPill.addEventListener('click', () => setPeek(false))
+
   const api: DecisionCard = {
-    get open() { return !root.classList.contains('hidden') },
+    get open() { return !screen.classList.contains('hidden') || !msg.classList.contains('hidden') },
     show(h, d, n, total, pick, showMe) {
+      clearKeys()
+      msg.classList.add('hidden')
+      setPeek(false)
+      screen.replaceChildren()
+      screen.classList.remove('hidden')
+      const compact = isCompact()
+      screen.classList.toggle('seat-compact', compact)
       const D = h.seat!.decisions
-      frame(decisionTitle(h, d), `${D.year[d]}${total > 1 ? ` · ${n} of ${total}` : ''}`)
-      root.append(el('p', 'seat-card-text', decisionSituation(h, d)))
-      const opts = el('div', 'seat-card-options')
+      const title = decisionTitle(h, d)
+      screen.setAttribute('aria-label', title)
+      // banner and situation
+      const banner = el('div', 'seat-banner')
+      banner.append(el('h2', 'seat-banner-title', title), el('div', 'seat-banner-sub', `${D.year[d]}${total > 1 ? ` · decision ${n} of ${total}` : ''}`))
+      const sit = el('div', 'seat-situation')
+      sit.append(svgHost('seat-scene-frame', decisionScene(D.kind[d], d)), el('p', 'seat-situation-text', decisionSituation(h, d)))
+      // cards
       const count = D.optStart[d + 1] - D.optStart[d]
       let court = -1
       let done = false
       const choose = (i: number) => { if (done) return; done = true; clearKeys(); pick(i) }
+      const row = el('div', 'seat-cards')
+      const order: number[] = []
+      const DEFER = DEFER_OPTIONS.defer
+      court = DEFER
       for (let i = 0; i < count; i++) {
-        const o = D.optStart[d] + i
-        if (D.orderStart[o] === D.orderStart[o + 1]) court = i
-        const b = el('button', 'seat-opt')
+        const m = optionMeta(h, d, i)
+        order.push(i)
+        const label = optionLabel(h, d, i), note = optionExpects(h, d, i)
+        const b = el('button', `seat-opt seat-tint-${m.tint}`)
         b.type = 'button'
-        b.append(el('span', 'seat-opt-label', `${isCompact() ? '' : `${i + 1}. `}${optionLabel(h, d, i)}`), el('span', 'seat-opt-note', optionExpects(h, d, i)))
+        b.setAttribute('aria-label', `${order.length}. ${label}. ${m.tag}. ${note}${m.badge ? ` (${m.badge})` : ''}`)
+        const badge = el('span', 'seat-opt-badge')
+        badge.append(svgHost('seat-opt-badge-glyph', optionGlyph(m.key, 14)), el('span', '', m.badge))
+        const head = el('span', 'seat-opt-head')
+        head.append(el('span', 'seat-opt-num', String(order.length)), el('span', 'seat-opt-label', label))
+        b.append(badge, head, svgHost('seat-opt-frame', optionArt(glyphInner(m.key), d * 8 + i)), el('span', 'seat-opt-tag', m.tag), el('span', 'seat-opt-note', note))
         b.addEventListener('click', () => choose(i))
-        opts.append(b)
+        row.append(b)
       }
-      root.append(opts)
+      screen.append(banner, sit, authorityMeter(h, d), row)
+      // phone: Prev / Next under the carousel
+      if (compact && order.length > 1) {
+        const nav = el('div', 'seat-nav')
+        const prev = el('button', 'seat-nav-btn', 'Prev'), next = el('button', 'seat-nav-btn', 'Next')
+        prev.type = next.type = 'button'
+        const pager = el('span', 'seat-nav-pager', `1 / ${order.length}`)
+        const at = () => Math.round(row.scrollLeft / Math.max(1, (row.firstElementChild as HTMLElement | null)?.offsetWidth ?? 1))
+        const go = (k: number) => { const c = row.children[Math.max(0, Math.min(order.length - 1, k))] as HTMLElement | undefined; c?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }) }
+        prev.addEventListener('click', () => go(at() - 1))
+        next.addEventListener('click', () => go(at() + 1))
+        row.addEventListener('scroll', () => { pager.textContent = `${Math.min(order.length, at() + 1)} / ${order.length}` }, { passive: true })
+        nav.append(prev, pager, next)
+        screen.append(nav)
+      }
+      // the court's own course, Show me
+      const actions = el('div', 'seat-actions')
+      {
+        // the matter left to the body that decides without the player: a cautious court's pick, at a cost in authority
+        const words = deciderButton(h, h.seat!.seat, D.year[d])
+        const pickWords = optionLabel(h, d, D.courtPick[d])
+        const div = D.divisive[d]
+        const hint = div >= 0.5 ? 'A divisive matter: the blame will fall on them.' : 'Routine business: the court grows used to ruling without you.'
+        const skip = el('button', 'seat-skip')
+        skip.type = 'button'
+        skip.append(el('span', 'seat-skip-label', words), el('span', 'seat-skip-note', `They would choose: ${pickWords}. ${hint}`))
+        skip.title = `${words}: ${pickWords}. ${hint} (Esc)`
+        skip.setAttribute('aria-label', `${words}. They would choose ${pickWords}. ${hint} (Escape)`)
+        skip.addEventListener('click', () => choose(DEFER))
+        actions.append(skip)
+      }
       if (showMe) {
         const m = el('button', 'seat-showme', 'Show me')
         m.type = 'button'
-        m.addEventListener('click', showMe)
-        root.append(m)
+        m.addEventListener('click', () => { setPeek(true); showMe() })
+        actions.append(m)
       }
+      screen.append(actions)
       keys = (e: KeyboardEvent) => {
         if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return
+        if (screen.classList.contains('peek')) { if (e.key === 'Escape') { e.preventDefault(); setPeek(false) } return }
         const k = Number(e.key)
-        if (k >= 1 && k <= count) { e.preventDefault(); choose(k - 1) }
+        if (k >= 1 && k <= order.length) { e.preventDefault(); choose(order[k - 1]) }
         else if (e.key === 'Escape' && court >= 0) { e.preventDefault(); choose(court) }
       }
       window.addEventListener('keydown', keys)
-      ;(opts.firstElementChild as HTMLElement | null)?.focus({ preventScroll: true })
+      ;(row.firstElementChild as HTMLElement | null)?.focus({ preventScroll: true })
     },
     message(title, text, buttons) {
-      frame(title, '')
-      root.append(el('p', 'seat-card-text', text))
+      clearKeys()
+      screen.classList.add('hidden')
+      setPeek(false)
+      msg.replaceChildren()
+      msg.classList.remove('hidden')
+      msg.classList.toggle('seat-compact', isCompact())
+      msg.append(el('div', 'seat-msg-title', title), el('p', 'seat-msg-text', text))
       if (buttons) {
-        const opts = el('div', 'seat-card-options')
+        const opts = el('div', 'seat-msg-buttons')
         for (const x of buttons) {
-          const b = el('button', 'seat-opt')
+          const b = el('button', 'seat-skip', x.label)
           b.type = 'button'
-          b.append(el('span', 'seat-opt-label', x.label))
           b.addEventListener('click', x.run)
           opts.append(b)
         }
-        root.append(opts)
+        msg.append(opts)
       }
     },
-    hide() { clearKeys(); root.classList.add('hidden') },
+    hide() { clearKeys(); screen.classList.add('hidden'); msg.classList.add('hidden'); setPeek(false) },
   }
   return api
 }

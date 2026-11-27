@@ -1,6 +1,7 @@
 // seat: the state of the player's seat in a run (HistoryOptions.seat; seat-mode §3.4): which polity it holds year by year, and
 // the decisions the watcher (watch.ts) recorded, struct-of-arrays as History.seat.decisions. Kept by the runner (index.ts), not
 // in HistoryState: no system reads it.
+import { DECISION_KIND_COUNT } from '../../../contract.ts'
 import type { SeatOptions } from '../../../contract.ts'
 
 export interface SeatState {
@@ -27,6 +28,11 @@ export interface SeatState {
   orderKind: number[]
   orderActor: number[]
   orderTarget: number[]
+  /** Per decision: how divisive (0..1), and the option a cautious court takes (seat/watch.ts). */
+  dDiv: number[]
+  dCourt: number[]
+  /** Events looked at for the year's Choice records (the deference pass, seat/system.ts). */
+  chSeen: number
   /** Decision rows recorded this year (the pause test of HistoryRunner.playSeat). */
   newRows: number
   /** Year of the last decision; per DecisionKind the year of its last decision. */
@@ -46,8 +52,8 @@ export function createSeatState(opts: SeatOptions): SeatState {
   return {
     opts: copySeat(opts),
     taken: false, lostYear: -1, polity: -1, people: -1, house: -1, polityAt: [], peopleAt: [],
-    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [],
-    newRows: 0, lastCard: -1000000, lastKind: new Int32Array(18).fill(-1000000), epidemics: new Set(), evSeen: 0,
+    dYear: [], dKind: [], dPolity: [], dSubject: [], dPlace: [], optStart: [0], optKey: [], orderStart: [0], orderKind: [], orderActor: [], orderTarget: [], dDiv: [], dCourt: [], chSeen: 0,
+    newRows: 0, lastCard: -1000000, lastKind: new Int32Array(DECISION_KIND_COUNT).fill(-1000000), epidemics: new Set(), evSeen: 0,
     ambitionYear: amb.map(() => -1), ambitionRun: amb.map(() => 0),
   }
 }

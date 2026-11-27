@@ -486,3 +486,25 @@
 .fp-d-line.fp-goods {
   color: var(--text-2);
 }
+
+/* a faction selected: the panel may grow to show its detail (it gives way with the other panels as before) */
+.factions:has(.fp-detail:not(.hidden)) {
+  max-height: max(110px, min(640px, 70vh));
+}
+/* the detail's title: a long realm name wraps whole, the ruler line goes below it (never cut mid-name) */
+.fp-d-title {
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 0;
+}
+.fp-d-title > .fp-d-close {
+  order: 2;
+  align-self: center;
+}
+.fp-d-title > .fp-under {
+  order: 3;
+  flex: 1 1 100%;
+  margin-left: 14px;
+  white-space: normal;
+  overflow: visible;
+}

@@ -28,6 +28,7 @@ import { QUARANTINE } from '../disease/params.ts'
 import { ORDERS } from './params.ts'
 import { chordCells } from './hooks.ts'
 import { createOrdersState } from './state.ts'
+import { isSeatKind, seatCheck, seatSystemOff, seatGive, seatInForce, seatMatch, seatPolityTarget, seatState } from './seatOrders.ts' // seat: the court kinds
 import type { OrdersState } from './state.ts'
 
 const YEARS = describeOrderKinds().map((k) => k.years)
@@ -54,7 +55,9 @@ function seatOfPeople(s: HistoryState, p: number): number {
 }
 
 const isPeopleKind = (k: number): boolean => k === OrderKind.Choice || k === OrderKind.Explore || k === OrderKind.Settle || k === OrderKind.Crop || k === OrderKind.Idea
-const isPolityKind = (k: number): boolean => k === OrderKind.War || k === OrderKind.Peace || k === OrderKind.Seat || k === OrderKind.Faith
+const isPolityKind = (k: number): boolean => k === OrderKind.War || k === OrderKind.Peace || k === OrderKind.Seat || k === OrderKind.Faith || isSeatKind(k)
+/** The polity an order names as its target (War, Peace and the seat kinds that take one), else -1. */
+const targetPolity = (kd: number, a: number, t: number): number => kd === OrderKind.War || kd === OrderKind.Peace || (seatPolityTarget(kd) && t !== a) ? t : -1
 const liveTown = (s: HistoryState, id: number): boolean => id >= 0 && id < s.count && s.abandoned[id] < 0
 const livePolity = (ps: PolityState, p: number): boolean => p >= 0 && p < ps.pCapital.length && ps.pEnded[p] < 0
 
@@ -113,7 +116,9 @@ export function orderCheck(s: HistoryState, kd: number, a: number, t: number): n
   }
   if (ps === null) return R.SystemOff
   if (isPolityKind(kd)) {
+    if (isSeatKind(kd) && seatSystemOff(s, kd, a, t)) return R.SystemOff // (seat: the system the kind needs is off)
     if (!livePolity(ps, a)) return R.NoActor
+    if (isSeatKind(kd)) return seatCheck(s, ps, kd, a, t) // seat: the court kinds
     if (kd === OrderKind.War || kd === OrderKind.Peace) {
       if (t === a || !livePolity(ps, t)) return R.NoTarget
       const w = atWar(ps, a, t)
@@ -173,8 +178,8 @@ function resolve(s: HistoryState, ox: OrdersState, k: number, status: number, re
 
 /** The related settlement of a fulfilled order (for the chronicle): the sender, the defender's capital, the old capital... */
 function otherOf(s: HistoryState, ox: OrdersState, k: number): number {
-  const kd = ox.kind[k], t = ox.target[k]
-  if ((kd === OrderKind.War || kd === OrderKind.Peace) && s.pol !== null && t >= 0 && t < s.pol.pCapital.length) return s.pol.pCapital[t]
+  const kd = ox.kind[k], t = targetPolity(ox.kind[k], ox.actor[k], ox.target[k])
+  if (kd !== OrderKind.Seat && s.pol !== null && t >= 0 && t < s.pol.pCapital.length) return s.pol.pCapital[t]
   return -1
 }
 
@@ -188,13 +193,19 @@ export function ordersBegin(s: HistoryState, ox: OrdersState): void {
     const seat = seatOf(s, ox, k)
     const kd = ox.kind[k]
     const t = ox.target[k]
-    push(s, EventType.OrderGiven, seat, kd === OrderKind.Seat ? t : (kd === OrderKind.War || kd === OrderKind.Peace) && s.pol !== null && t >= 0 && t < s.pol.pCapital.length ? s.pol.pCapital[t] : -1, k, kd)
+    const tp = targetPolity(kd, ox.actor[k], t)
+    push(s, EventType.OrderGiven, seat, kd === OrderKind.Seat ? t : tp >= 0 && s.pol !== null && tp < s.pol.pCapital.length ? s.pol.pCapital[tp] : -1, k, kd)
     ox.place[k] = seat
     if (kd === OrderKind.Choice) { ox.product[k] = t; ox.acted[k] = s.year; resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, seat); continue } // seat: a record of the player's choice, done at once
     const why = kd >= 0 && kd < YEARS.length ? (RESERVED[kd] ? OrderReason.SystemOff : check(s, ox, k)) : OrderReason.NoTarget // (reserved kinds, R40: never act)
     if (why !== OrderReason.None) { resolve(s, ox, k, OrderStatus.Failed, why, seat); continue }
     ox.status[k] = OrderStatus.Active
     ox.until[k] = s.year + YEARS[kd]
+    if (isSeatKind(kd)) {
+      // seat: the court kinds' effects at give (seatOrders.ts); some are done (or fail) at once
+      const st = seatGive(s, ox, s.pol!, k)
+      if (st !== OrderStatus.Active) { resolve(s, ox, k, st, st === OrderStatus.Fulfilled ? OrderReason.Done : ox.reason[k], seat); continue }
+    }
     if (kd === OrderKind.Settle || kd === OrderKind.Explore) {
       // (the nearest settlement of the people to the target so far: progress; the nearest able one: which towns the order moves)
       let d = Infinity
@@ -288,6 +299,8 @@ export function ordersEnd(s: HistoryState, ox: OrdersState): void {
         case OrderKind.Quarantine:
           if (ty === EventType.Quarantine && x.settlement === a) { ox.product[k] = a; hit = a }
           break
+        default:
+          if (isSeatKind(kd)) hit = seatMatch(ox, ps, k, x) // seat: TributeOffered, Alliance, Betrayal, Repudiation
       }
       if (hit >= 0) {
         if (ox.acted[k] < 0) ox.acted[k] = s.year
@@ -300,6 +313,13 @@ export function ordersEnd(s: HistoryState, ox: OrdersState): void {
     if (ox.status[k] !== OrderStatus.Active || ox.kind[k] !== OrderKind.Explore) continue
     if (s.know.known[ox.actor[k] * N + ox.target[k]] >= 0) resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, seatOf(s, ox, k))
   }
+  // seat: states that fulfil a court order (a tie made, the designee on the throne, debt taken on) or fail it (the designee dead).
+  if (ox.nPolity > 0) for (const k of ox.active) {
+    if (ox.status[k] !== OrderStatus.Active || !isSeatKind(ox.kind[k])) continue
+    const at = seatState(s, ox, ps, k)
+    if (at >= 0) { if (ox.acted[k] < 0) ox.acted[k] = s.year; resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, at) }
+    else if (at === -2) resolve(s, ox, k, OrderStatus.Failed, OrderReason.NoHeir, seatOf(s, ox, k))
+  }
   // Actors and targets gone; time run out.
   for (const k of ox.active) {
     if (ox.status[k] !== OrderStatus.Active) continue
@@ -307,6 +327,7 @@ export function ordersEnd(s: HistoryState, ox: OrdersState): void {
     if (gone !== OrderReason.None) { resolve(s, ox, k, OrderStatus.Failed, gone, seatOf(s, ox, k)); continue }
     if (s.year < ox.until[k]) continue
     const partly = ox.acted[k] >= 0
+    if (partly && seatInForce(ox.kind[k])) { resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, seatOf(s, ox, k)); continue } // seat: it acted for its term
     resolve(s, ox, k, partly ? OrderStatus.Partly : OrderStatus.Expired, partly ? (ox.kind[k] === OrderKind.Explore ? OrderReason.Reached : OrderReason.Done) : blocker(s, ox, k), seatOf(s, ox, k))
   }
   let w = 0
@@ -343,7 +364,8 @@ function goneReason(s: HistoryState, ox: OrdersState, k: number): number {
   if (isPeopleKind(kd)) return seatOfPeople(s, a) < 0 ? OrderReason.ActorGone : OrderReason.None
   if (isPolityKind(kd)) {
     if (ps === null || !livePolity(ps, a)) return OrderReason.ActorGone
-    if ((kd === OrderKind.War || kd === OrderKind.Peace) && !livePolity(ps, t)) return OrderReason.TargetGone
+    const tp = targetPolity(kd, a, t)
+    if (tp >= 0 && !livePolity(ps, tp)) return OrderReason.TargetGone
     if (kd === OrderKind.Seat && !liveTown(s, t)) return OrderReason.TargetGone
     return OrderReason.None
   }
@@ -384,6 +406,8 @@ function blocker(s: HistoryState, ox: OrdersState, k: number): number {
       return R.Absent
     }
     case OrderKind.Fortify: return R.TooWeak
+    case OrderKind.Repudiate: case OrderKind.Submit: case OrderKind.Ally: case OrderKind.Marry: case OrderKind.Designate: case OrderKind.Borrow: case OrderKind.Betray:
+      return R.Refused // seat: the other side, the lenders or the lords would not (or the moment never came)
     case OrderKind.Quarantine: {
       if (ps === null || s.port[a] < 0 || a >= ps.polity.length || ps.polity[a] < 0) return R.NotPort
       const p = s.people[a]

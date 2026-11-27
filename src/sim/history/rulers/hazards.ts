@@ -13,6 +13,8 @@ import { c3Overthrow } from '../compose.ts'
 import type { C3Factors } from '../compose.ts'
 import { finOverthrow } from '../finance/hooks.ts' // finance:
 import { socContest, socOverthrowMul } from '../society/api.ts' // society:
+import { seatOverthrow } from '../orders/hooks.ts' // seat:
+import { deferContestMul, deferOverthrowMul } from './deference.ts' // rulers: deference
 
 const H = RULERS.heirs
 
@@ -86,9 +88,13 @@ export function overthrowHazard(s: HistoryState, ps: PolityState, R: RulerState,
   const x = RULERS.overthrow * weak * (1 + e + (ps.pCrisisUntil[p] > year ? 1 : 0) + (year - R.lost[p] <= 10 ? RULERS.overthrowLost : 0))
   const f = s.fin !== null ? finOverthrow(s, p) : undefined // finance: an unpaid army (C3 factor 1)
   const m = s.soc !== null ? socOverthrowMul(s, p) : undefined // society (h5): ambitious magnates (C3 factor 2)
-  if (f === undefined && m === undefined) return c3Overthrow(x)
+  let o = s.orders !== null ? seatOverthrow(s.orders, p) : undefined // seat: Placate, Purge (C3 order factor, after the clamp)
+  const dm = s.defer !== null ? deferOverthrowMul(s, p) : undefined // rulers: deference (a throne ruled without its ruler; a reclaim's risk)
+  if (dm !== undefined) o = o === undefined ? dm : o * dm
+  if (f === undefined && m === undefined && o === undefined) return c3Overthrow(x)
   C3F.fin = f
   C3F.emp = m
+  C3F.seat = o
   return c3Overthrow(x, C3F)
 }
 const C3F: C3Factors = {}
@@ -123,5 +129,6 @@ export function contestChance(s: HistoryState, ps: PolityState, R: RulerState, p
   const heir = pickHeir(R, p, law, R.cognatic[people] === 1, s.year)
   if (heir < 0) return 0
   const c = contestChanceOf(ps, R, p, law, dead, heir, s.year)
-  return s.soc !== null ? c + socContest(s, p) : c // (society h4, as succession adds it)
+  const cs = s.soc !== null ? c + socContest(s, p) : c // (society h4, as succession adds it)
+  return s.defer !== null ? cs * deferContestMul(s, p) : cs // (rulers: deference strengthens the rival centres)
 }

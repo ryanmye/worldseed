@@ -1418,7 +1418,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       timeline.setProgress(label ?? (index ? `Extending to year ${target}…` : `Simulating ${formatInt(target)} years…`), frac)
     },
     replaceHistory(h: History, ms: number, keepYear = -1) {
-      if (!world || !index) return api.setHistory(h)
+      if (!world) return
+      if (!index && keepYear < 0) return api.setHistory(h)
       staging?.cancel()
       staging = null
       deferred = null
