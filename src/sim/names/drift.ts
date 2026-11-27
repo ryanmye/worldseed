@@ -101,7 +101,8 @@ export function buildDrift(world: World, settlements: readonly TreeSettlement[],
       const t = tree.seat[n]
       const c = Math.max(0, Math.min(C - 1, typoIn.cradle[settlements[t].people] ?? 0))
       const a = unit(settlements[t].cell), b = C ? unit(typoIn.centres[c]) : a
-      return { tribe: t, cradle: c, fromCentre: (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2 }
+      const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2]
+      return { tribe: t, cradle: c, fromCentre: dx * dx + dy * dy + dz * dz }
     })
     const prof = drawProfiles(seed, inputs, C, (c) => unit(typoIn.centres[c]))
     ortho = new Uint32Array(N)

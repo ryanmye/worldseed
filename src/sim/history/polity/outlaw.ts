@@ -27,6 +27,7 @@ import { logEvent } from '../state.ts'
 import { prosperity } from '../migration.ts'
 import type { TradeState } from '../trade.ts'
 import { distTo } from './control.ts'
+import { powD } from '../../detMath.ts'
 import { BANDIT, DANGER, PIRACY, POLITY, SMUGGLE, TARIFF, WAYRISK } from './params.ts'
 import type { PairPolicy } from './policy.ts'
 import { enforcement, navyOf, routeSea, watch } from './policy.ts'
@@ -125,7 +126,7 @@ export function flushAccounts(s: HistoryState, ps: PolityState, ts: TradeState):
     ps.rLoss[r] = lostP // (pirates', privateers', a blockade's and bandits' share, and the danger on the way: WAYRISK.loss)
   }
   // Revenue smoothed (per year), and the stats' sums over the years since the last flush.
-  const k = 1 - Math.pow(1 - TARIFF.smooth, years)
+  const k = 1 - powD(1 - TARIFF.smooth, years) // (powD, not Math.pow: Math.pow differs across engines; detMath.ts)
   let rev = 0, inc = 0
   for (const p of ps.alive) {
     ps.pRevSm[p] += k * (ps.pRevYear[p] / years - ps.pRevSm[p]); ps.pRevYear[p] = 0
