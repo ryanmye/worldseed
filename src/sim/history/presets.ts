@@ -3,7 +3,7 @@
 //              "all-on + DX.feedback" minus cold wars: 0.371, z -0.03): grudges (oaths, balance, arms), finance, beliefs and
 //              barriers, battles with their modifiers, society, disasters with DX.feedback. Families stay at their default (off:
 //              families + FAMILY.feedback is MARGINAL); cold wars, absentee and governments stay off. G0 = the new goldens.
-//   dramatic   every merged system on: realistic plus families, cold wars with war restraint, and causes. Not realism-ratcheted:
+//   dramatic   every merged system on: realistic plus families, cold wars with war restraint, absentee rulers, and causes. Not realism-ratcheted:
 //              guarded by the sanity bounds of presetStats.ts (EVALUATION.md §3 P1b). Known caveat: with coldWars on,
 //              zipf1500.zeta fails the noise-aware ratchet on one of 4 seeds (1234; REJUDGE.md), pending a 22-seed sweep.
 //   off        every post-8cabf09 system off: the history before the presets. G0-off (G0_OFF_GOLDENS) is its identity; links
@@ -27,7 +27,7 @@ export const LINK_VERSION = 2
 /** The boolean HistoryOptions switches a preset sets, in URL order (each is also a URL key: `<key>=1` / `<key>=0`). */
 export const PRESET_SWITCHES = [
   'oaths', 'balance', 'arms', 'families', 'finance', 'society', 'beliefs', 'barriers', 'disasters', 'battles', 'coldWars',
-  'warRestraint', 'causes',
+  'warRestraint', 'absentee', 'causes',
 ] as const satisfies readonly (keyof HistoryOptions)[]
 export type PresetSwitch = (typeof PRESET_SWITCHES)[number]
 
@@ -48,6 +48,7 @@ export const PRESETS: Record<PresetName, Partial<Record<PresetSwitch, boolean>>>
     ...REALISTIC,
     families: true, // merchant-families
     coldWars: true, warRestraint: true, // cold wars and great-power war restraint (barriers-coldwar §3, D-CW1)
+    absentee: true, // absentee and do-nothing AI rulers (absentee-rulers; merged 17ae06d)
     causes: true, // the Why panel's records (recording only)
   },
 }

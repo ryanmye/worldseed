@@ -24,7 +24,7 @@ describe('presets', () => {
   it('realistic: the switches that pass the ratchet (REJUDGE.md), DX.feedback on, battles non-neutral; families, cold wars, causes left to their defaults', () => {
     const e = expandPreset({ preset: 'realistic' })
     for (const k of REALISTIC_ON) expect(e[k], k).toBe(true)
-    for (const k of ['families', 'coldWars', 'warRestraint', 'causes'] as const) expect(e[k], k).toBeUndefined()
+    for (const k of ['families', 'coldWars', 'warRestraint', 'absentee', 'causes'] as const) expect(e[k], k).toBeUndefined()
     expect(presetParams({ preset: 'realistic' })).toEqual({ dxFeedback: true, battleNeutral: false })
   })
 

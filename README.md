@@ -276,13 +276,13 @@ There are three presets, and **Realistic is the default** (owner decision, 2026-
 
   Families, cold wars, absentee rulers and city-states stay off.
 - **`preset=dramatic`** turns on every merged system: Realistic plus `families`,
-  `coldWars` with `warRestraint`, and `causes`.
+  `coldWars` with `warRestraint`, `absentee`, and `causes`.
 - **`preset=off`** turns off every post-8cabf09 system. This is the history from
   before the presets.
 
 Any switch can be set per link, and an explicit switch wins over the preset. The
 switches are `oaths= balance= arms= families= finance= society= beliefs= barriers=
-disasters= battles= coldWars= warRestraint= causes=`, each `1` or `0`. For example,
+disasters= battles= coldWars= warRestraint= absentee= causes=`, each `1` or `0`. For example,
 `?seed=7&v=2&preset=dramatic&battles=0` is the dramatic world without battles.
 The keys stay in the address, so share links and seat links (`seat=polity:0:700`)
 carry them. The start page has a Realistic / Dramatic toggle and an "Or take a

@@ -68,11 +68,11 @@ On main: `oaths`, `balance`, `arms`, `families`, `finance`, `society`, `beliefs`
 `language`, `typology`, `causes`, `seat`, `coldWars`, `warRestraint` and **`preset`** (lane/setup; `src/sim/history/presets.ts`).
 `preset` is `'off' | 'realistic' | 'dramatic'`, and the default is **realistic** (owner decision (b)). Realistic turns on
 oaths, balance, arms, finance, beliefs, barriers, battles, society, and disasters with DX.feedback. Dramatic adds
-families, coldWars, warRestraint and causes. Off turns them all off.
+families, coldWars, warRestraint, absentee and causes. Off turns them all off.
 
 The URL link version is **`v=2`**. A link without `v` replays with preset off, so old links keep their history. G0 has two
 identities: `G0_GOLDENS` for realistic and `G0_OFF_GOLDENS` for off (the 8cabf09 values). In lanes:
-`governments` (citystates) and `absentee` (absentee).
+`governments` (citystates). `absentee` is on main (17ae06d).
 
 ## Plan collisions resolved (these supersede the plan text)
 1. **Shadow-network "A16 framework" line** (EventType 454–456, OrderKind 121–126, DecisionKind 84–87, AmbitionKind 26–35) is

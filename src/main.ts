@@ -79,7 +79,7 @@ import { LINK_VERSION, presetOptionsFromParams } from './sim/history/presets.ts'
 // a new seed. The other world is simulated whole on desktops and kept as a skeleton on phones and weak devices (memory).
 // v=2 (link version, written by new worlds; a link without it, made before the presets, replays with every post-8cabf09
 // system off), preset=dramatic|off (src/sim/history/presets.ts; realistic, the default for v=2, is no preset) and oaths= balance= arms= families= finance= society= beliefs= barriers= disasters= battles= coldWars=
-// warRestraint= causes= (1 on, 0 off, over the preset): part of the history like o=, kept in the address (share and seat links carry them).
+// warRestraint= absentee= causes= (1 on, 0 off, over the preset): part of the history like o=, kept in the address (share and seat links carry them).
 // lang=1 (language drift, HistoryOptions.language: names that split and wear with their speakers; MASTER-PLAN R32): part of
 // the history like o=. A new world (Start on the start page, a seed typed or drawn) writes lang=1; a link without it (every
 // link made before drift) keeps the names it always had. lang=2 is drift + typology (HistoryOptions.typology: typological
@@ -445,7 +445,7 @@ function newWorldVersion(url?: URL) {
  * presets (src/sim/history/presets.ts): v= (link version: absent, a link made before the presets, replays with preset 'off',
  * every post-8cabf09 system off; v=2, new worlds, the realistic default), preset=dramatic|off (realistic is written as no
  * preset: the default) and the
- * per-switch overrides oaths= balance= arms= families= finance= society= beliefs= barriers= disasters= battles= coldWars= warRestraint= causes= (1 on, 0
+ * per-switch overrides oaths= balance= arms= families= finance= society= beliefs= barriers= disasters= battles= coldWars= warRestraint= absentee= causes= (1 on, 0
  * off; an explicit switch wins over the preset). They stay in the address, so share and seat links carry them.
  */
 let presetOpts = presetOptionsFromParams(params)
