@@ -74,9 +74,8 @@ export interface StoryView {
   commit(h: History | null, w: World | null, ix: HistoryIndex | null, extend: boolean): void
   /** n4b: a decision card's Show me flew away: following resumes once `stillOpen` says the card has closed. */
   resumeAfter(stillOpen: () => boolean): void
-  /** Polities whose stories get the focus factor (the selection); rebuilds the plan when it changes. lane N3d: `seat`, the seated
-   * realm(s), get the stronger seat factor (plan.ts STORY.seatFocus). */
-  setFocus(polities: readonly number[], seat?: readonly number[]): void
+  /** Polities whose stories get the focus factor (the selection); rebuilds the plan when it changes. */
+  setFocus(polities: readonly number[]): void
   /** A camera move the director did not make (a panel's fly-to, a pick): suspend following. */
   userMoved(): void
   tick(dt: number, year: number): void
@@ -120,7 +119,6 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   let plan: StoryPlan | null = null
   let focusKey = ''
   let focus = new Set<number>()
-  let seatFocus = new Set<number>()
   const reduceQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
   const reducedMotion = () => reduceQuery?.matches ?? false
 
@@ -737,8 +735,9 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       plan = null
     } else {
       // lane N3: story arcs keep their chapters together (arcs.ts; plan.ts continuity and the payoff guarantee)
-      // (lane N3d: the seat's realms straight from the history too, so the plan favours them with nothing selected)
-      const seat = new Set(seatFocus)
+      // (lane N3d: the seat's realms, from the history, get plan.ts STORY.seatFocus: Follow favours the player's own realm.
+      // Kept minimal: lane N4d's follow-a-realm mode may take this over through the focus API)
+      const seat = new Set<number>()
       if (history.seat) for (const q of history.seat.polityAt) if (q >= 0) seat.add(q)
       plan = buildStoryPlan(drama, index.notableYear, { focus, seat, until: history.years, arcs: arcEntries(findArcs(history), drama.rep) })
     }
@@ -770,14 +769,12 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       rebuildPlan()
       if (!h && director.on) setFollow(false)
     },
-    setFocus(polities, seatPols) {
+    setFocus(polities) {
       const next = new Set(polities.filter((p) => p >= 0))
-      const nextSeat = new Set((seatPols ?? []).filter((p) => p >= 0))
-      const key = `${[...next].sort((a, b) => a - b).join(',')}|${[...nextSeat].sort((a, b) => a - b).join(',')}`
+      const key = [...next].sort((a, b) => a - b).join(',')
       if (key === focusKey) return
       focusKey = key
       focus = next
-      seatFocus = nextSeat
       if (drama) rebuildPlan()
     },
     resumeAfter(stillOpen) {
