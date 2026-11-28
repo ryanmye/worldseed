@@ -208,6 +208,8 @@ export interface Overlay {
   setViewMode(mode: ViewMode): void
   /** Add a layer toggle to a group of the Layers panel; returns its checkbox. */
   addLayerToggle(t: LayerToggle): HTMLInputElement
+  /** n4c: the history's layers are still to come (their toggles are added with it): the count waits (play-test 2: 11 of 13, then 16 of 18). */
+  setLayersPending(on: boolean): void
   /** Offer a view mode in the menu (and to V / Shift+V) or not (views that need data the history lacks). */
   setViewModeAvailable(mode: ViewMode, available: boolean): void
   /** Re-measure what the columns must keep clear of (after a panel changes size). */
@@ -524,7 +526,9 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
   mapPanel.append(viewRow, layersHead, layersBody)
 
   const toggles: HTMLInputElement[] = []
+  let layersPending = false
   const syncCount = () => {
+    if (layersPending) { layersCount.textContent = '…'; return }
     // (toggles of the other projection are hidden: not counted)
     const shown = toggles.filter((t) => !t.closest('.layer-toggle')?.classList.contains('hidden'))
     const on = shown.filter((t) => t.checked).length
@@ -838,6 +842,10 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       viewSelect.value = mode
     },
     addLayerToggle,
+    setLayersPending(on: boolean) {
+      layersPending = on
+      syncCount()
+    },
     setViewModeAvailable(mode: ViewMode, available: boolean) {
       if (available) unavailable.delete(mode)
       else unavailable.add(mode)

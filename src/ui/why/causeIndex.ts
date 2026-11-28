@@ -156,8 +156,9 @@ export function ofType(ix: CauseIndex, type: number, y0: number, y1: number, f?:
 
 /** Name of settlement `id` at `y`. */
 export function placeName(ix: CauseIndex, id: number, y: number): string {
-  // (play-test 1: with language drift the chronicle says the spoken name of the shown year; the Why said the written one)
-  return id >= 0 && id < ix.h.settlements.length ? spokenName(ix.h, id, namesYear()) ?? settlementNameAt(ix.h, id, y) : 'a far place'
+  // (play-test 1: with language drift the chronicle says the spoken name; the Why said the written one. n4c, play-test 2:
+  // at the event's year, as the chronicle says it: withEventNames)
+  return id >= 0 && id < ix.h.settlements.length ? spokenName(ix.h, id, Number.isFinite(y) ? y : namesYear()) ?? settlementNameAt(ix.h, id, y) : 'a far place'
 }
 
 /** Short name of polity p ("North Vashtar"). */

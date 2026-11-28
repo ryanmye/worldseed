@@ -6,12 +6,13 @@
 // Trees are cached per History (an LRU); the CauseIndex is built on the first call.
 
 import { EventType as E } from '../../contract.ts'
+import { battleName } from '../battlesData.ts' // n4c
 import type { History } from '../../contract.ts'
 import { WhyTier, evKey, parseKey, warKey } from './graph.ts'
 import type { WhyLink, WhyNode, WhyTree } from './graph.ts'
 import { causeIndexOf, ev, placeName, polName } from './causeIndex.ts'
 import type { CauseIndex } from './causeIndex.ts'
-import { baseRules } from './rules/base.ts'
+import { baseRules, commanderBattle } from './rules/base.ts'
 import type { Cand } from './rules/base.ts'
 import { dramaRule } from '../story/drama.ts'
 
@@ -71,7 +72,14 @@ export function eventLabel(ix: CauseIndex, i: number): string {
   const at = placeName(ix, e.settlement, e.year)
   if ((e.type === E.WarDeclared || e.type === E.CivilWar) && h.wars && e.value >= 0) return `${t}: ${polName(ix, h.wars.attacker[e.value])} on ${polName(ix, h.wars.defender[e.value])} (${e.year})`
   if (e.type === E.PolityEnded || e.type === E.PolityFounded) return `${t}: ${polName(ix, e.value)} (${e.year})`
-  if (e.type === E.BattleFought && h.battles && e.value >= 0 && e.value < h.battles.count && h.battles.name[e.value]) return `${h.battles.name[e.value][0].toUpperCase()}${h.battles.name[e.value].slice(1)} (${e.year})`
+  if (e.type === E.BattleFought && h.battles && e.value >= 0 && e.value < h.battles.count && h.battles.name[e.value]) { const n = battleName(h, e.value); return `${n[0].toUpperCase()}${n.slice(1)} (${e.year})` }
+  // n4c (play-test 2: "A commander fell at Eme"): the commander and the battle by name
+  if ((e.type === E.CommanderFell || e.type === E.CommanderRenowned || e.type === E.CommanderDismissed) && h.commanders && e.value >= 0 && e.value < h.commanders.count) {
+    const who = h.commanders.name[e.value] || 'A commander'
+    const b = commanderBattle(ix, i)
+    const where = b >= 0 ? battleName(h, b) : `the battle for ${at}`
+    return e.type === E.CommanderFell ? `${who} ${(e.extra ?? 0) === 1 ? 'taken' : 'fell'} at ${where} (${e.year})` : e.type === E.CommanderRenowned ? `${who} won renown at ${where} (${e.year})` : `${who} relieved after ${where} (${e.year})`
+  }
   if (e.type === E.ReignEnded || e.type === E.RulerAcceded) { const r = h.rulers?.[e.value]; return `${t}: ${r ? r.name + (r.regnal > 1 ? ' ' + roman(r.regnal) : '') : 'a ruler'} at ${at} (${e.year})` }
   return `${t} at ${at} (${e.year})`
 }

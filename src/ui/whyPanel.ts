@@ -12,6 +12,7 @@ import { explain, WHY_LIMITS } from './why/explain.ts'
 import { hasWhy } from './why/causeIndex.ts'
 import { whyProse } from './why/prose.ts'
 import { addShortcut } from './shortcuts.ts'
+import { openPanel } from './panels.ts' // n4c
 
 export interface WhyPanelDeps {
   host: HTMLElement
@@ -215,7 +216,7 @@ export function createWhyPanel(deps: WhyPanelDeps): WhyPanel {
   backBtn.addEventListener('click', () => { const k = back.pop(); if (k) { key = k; deps.setUrlParam('why', k); render() } })
   addShortcut({ keys: ['Escape'], label: 'Esc', description: 'Close the Why panel', group: 'Panels', first: true, run: () => { if (!key) return false; api.close(); return true } })
   // n4b: the Why panel holds the context slot while open, so R (Factions) closes it and the Factions panel is back
-  addShortcut({ keys: ['r', 'R'], label: 'R', description: 'Close the Why panel (back to the factions)', group: 'Panels', first: true, run: () => { if (!key) return false; api.close(); return true } })
+  addShortcut({ keys: ['r', 'R'], label: 'R', description: 'Close the Why panel (back to the factions)', group: 'Panels', first: true, run: () => { if (!key) return false; api.close(); openPanel('factions'); return true } }) // n4c: back to the factions, open (play-test 2: R showed nothing)
 
   const api: WhyPanel = {
     open(k, n = '') {

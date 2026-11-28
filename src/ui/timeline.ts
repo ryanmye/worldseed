@@ -631,6 +631,9 @@ export function createTimeline(container: HTMLElement, callbacks: TimelineCallba
     setYear(y: number) {
       setYear(y)
       syncPlay()
+      // n4c (play-test 2: year=365 in the address while 1872 showed): a year set from outside (a strip jump, a replay, a
+      // fly-to) settles there like a scrub, so the address follows; while playing, year= stays out of it (onSettled)
+      if (!playing) settle()
     },
     play() {
       start()

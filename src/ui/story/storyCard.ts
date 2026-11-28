@@ -7,6 +7,7 @@
 import './story.css'
 import { isCompact } from '../compact.ts'
 import { getFreeViewportInset, onFreeViewportChange } from '../overlay.ts'
+import { withoutShown } from './captionText.ts' // n4c
 
 export interface Caption {
   /** "War · 1590" */
@@ -186,7 +187,8 @@ export function createStoryCard(deps: StoryCardDeps): StoryCard {
     const m = caption?.more?.()
     moreBox.replaceChildren()
     setBody(true)
-    for (const t of m?.paragraphs ?? []) {
+    // n4c (play-test 2: the expansion repeated the caption's paragraph verbatim): what the caption already says is left out
+    for (const t of withoutShown(m?.paragraphs ?? [], [title.textContent ?? '', full])) {
       const p = document.createElement('p')
       p.textContent = t
       moreBox.appendChild(p)

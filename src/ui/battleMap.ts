@@ -7,11 +7,11 @@
 // if it saw one).
 
 import './battleMap.css'
-import { BattleFlag, BattleKind, BattleWeather, Biome, RIVER_FLOW_THRESHOLD, settlementNameAt } from '../contract.ts'
+import { BattleFlag, BattleKind, BattleWeather, Biome, RIVER_FLOW_THRESHOLD } from '../contract.ts'
 import type { History, World } from '../contract.ts'
 import { terrainColor } from '../render/palette.ts'
-import { battleTitle, decidingFactors, factorClause, groundWords, roundMen } from './battleFormat.ts'
-import { battlesOf } from './battlesData.ts'
+import { battleTitle, decidingRows, groundOf, roundMen, sideColours, standingWords } from './battleFormat.ts'
+import { battlesOf, townAt } from './battlesData.ts'
 import { blockAt, buildTimeline, jitter, phaseAt, sidesAt } from './battleTimeline.ts'
 import type { BlockPose, Timeline } from './battleTimeline.ts'
 import { politiesOf } from './politiesData.ts'
@@ -153,10 +153,16 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       }
     }
     if (tl.mud) {
-      g.fillStyle = 'rgba(92,64,36,0.28)'
-      g.beginPath(); g.ellipse(SIZE / 2, SIZE / 2, px * 1.1, px * 1.3, 0, 0, 2 * Math.PI); g.fill()
-      g.fillStyle = 'rgba(110,130,150,0.35)'
-      for (let i = 0; i < 9; i++) { g.beginPath(); g.ellipse(SIZE / 2 + px * jitter(b, 40 + i), SIZE / 2 + px * 1.1 * jitter(b, 60 + i), px * 0.08, px * 0.035, 0, 0, 2 * Math.PI); g.fill() }
+      // n4c (play-test 2: drawn faintly): a dark churned field, standing water and ruts across the line of advance
+      g.fillStyle = 'rgba(74,50,26,0.55)'
+      g.beginPath(); g.ellipse(SIZE / 2, SIZE / 2, px * 1.2, px * 1.4, 0, 0, 2 * Math.PI); g.fill()
+      g.strokeStyle = 'rgba(40,26,12,0.6)'; g.lineWidth = 2
+      for (let i = 0; i < 7; i++) { const yy = SIZE / 2 + px * 1.1 * jitter(b, 80 + i); g.beginPath(); g.moveTo(SIZE / 2 - px * 0.9, yy); g.quadraticCurveTo(SIZE / 2, yy + px * 0.08 * jitter(b, 90 + i), SIZE / 2 + px * 0.9, yy + px * 0.05); g.stroke() }
+      g.fillStyle = 'rgba(140,165,190,0.7)'
+      for (let i = 0; i < 14; i++) { g.beginPath(); g.ellipse(SIZE / 2 + px * 0.9 * jitter(b, 40 + i), SIZE / 2 + px * 1.15 * jitter(b, 60 + i), px * 0.11, px * 0.045, 0, 0, 2 * Math.PI); g.fill() }
+      g.fillStyle = '#f1e6d2'; g.font = 'italic 11px system-ui, sans-serif'; g.textAlign = 'center'
+      g.strokeStyle = 'rgba(20,14,8,0.85)'; g.lineWidth = 3
+      g.strokeText('mud', SIZE / 2 - px * 0.75, SIZE / 2 + px * 1.3); g.fillText('mud', SIZE / 2 - px * 0.75, SIZE / 2 + px * 1.3)
     }
     // rivers (pale ice when frozen)
     g.strokeStyle = tl.frozen ? '#d9eef8' : '#5d9fd0'
@@ -176,11 +182,19 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       for (let i = -3; i <= 3; i++) { g.beginPath(); g.moveTo(toX(0.2), toY(i * 0.25)); g.lineTo(toX(0.3), toY(i * 0.25)); g.stroke() }
     }
     if (fl & BattleFlag.Ford) {
-      g.strokeStyle = tl.frozen ? 'rgba(235,248,255,0.95)' : 'rgba(110,175,225,0.95)'
-      g.lineWidth = Math.max(4, px * 0.1)
-      g.beginPath(); g.moveTo(toX(0.05), toY(-1.2)); g.bezierCurveTo(toX(0.15), toY(-0.4), toX(-0.05), toY(0.4), toX(0.05), toY(1.2)); g.stroke()
-      g.fillStyle = '#eaf4fb'; g.font = 'italic 11px system-ui, sans-serif'; g.textAlign = 'center'
-      g.fillText(tl.frozen ? 'the river, frozen' : 'the ford', toX(0.05), toY(-1.3))
+      // n4c (play-test 2: drawn faintly): a broad river with its banks, the shallows of the ford across the line of advance
+      const river = () => { g.beginPath(); g.moveTo(toX(0.05), toY(-1.6)); g.bezierCurveTo(toX(0.18), toY(-0.5), toX(-0.08), toY(0.5), toX(0.05), toY(1.6)) }
+      g.lineCap = 'round'
+      g.strokeStyle = 'rgba(30,45,60,0.8)'; g.lineWidth = Math.max(10, px * 0.26); river(); g.stroke()
+      g.strokeStyle = tl.frozen ? 'rgba(235,248,255,0.98)' : 'rgba(80,150,215,1)'; g.lineWidth = Math.max(7, px * 0.2); river(); g.stroke()
+      // the shallows: pale stones across the crossing
+      g.fillStyle = tl.frozen ? 'rgba(200,220,235,0.9)' : 'rgba(225,215,180,0.9)'
+      for (let i = -2; i <= 2; i++) { g.beginPath(); g.ellipse(toX(0.06 + 0.035 * i), toY(0.05 * i), px * 0.035, px * 0.025, 0, 0, 2 * Math.PI); g.fill() }
+      g.lineCap = 'butt'
+      g.font = 'italic bold 12px system-ui, sans-serif'; g.textAlign = 'center'
+      const lab = tl.frozen ? 'the river, frozen' : 'the ford'
+      g.strokeStyle = 'rgba(10,20,30,0.9)'; g.lineWidth = 3; g.strokeText(lab, toX(0.05), toY(-1.7))
+      g.fillStyle = '#eaf4fb'; g.fillText(lab, toX(0.05), toY(-1.7))
     }
     if (tl.siege) {
       // the walls: a crenellated ring at the defenders' line
@@ -199,9 +213,10 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
       g.fillStyle = '#f4ecd8'; g.strokeStyle = '#2a2116'; g.lineWidth = 1.5
       g.beginPath(); g.rect(toX(x) - 4, toY(y) - 4, 8, 8); g.fill(); g.stroke()
       g.fillStyle = 'rgba(20,16,10,0.85)'
-      g.fillText(settlementNameAt(h, id, year), toX(x) + 1, toY(y) - 7)
+      const nm = townAt(h, id, year) // n4c: the name as said that year (the chronicle's)
+      g.fillText(nm, toX(x) + 1, toY(y) - 7)
       g.fillStyle = '#fbf6ea'
-      g.fillText(settlementNameAt(h, id, year), toX(x), toY(y) - 8)
+      g.fillText(nm, toX(x), toY(y) - 8)
     }
   }
 
@@ -211,14 +226,15 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
     const b = tl.battle
     switch (tl.weather) {
       case BattleWeather.Rain: {
-        ctx.strokeStyle = 'rgba(180,200,230,0.55)'; ctx.lineWidth = 1
+        // n4c (play-test 2: faint): a grey pall and dense, long streaks
+        ctx.fillStyle = 'rgba(40,50,70,0.22)'; ctx.fillRect(0, 0, SIZE, SIZE)
+        ctx.strokeStyle = 'rgba(205,220,245,0.8)'; ctx.lineWidth = 1.6
         ctx.beginPath()
-        for (let i = 0; i < 90; i++) {
+        for (let i = 0; i < 170; i++) {
           const x0 = ((jitter(b, i) + 1) / 2) * (SIZE + 60) - 30, y0 = ((((jitter(i, b) + 1) / 2) * SIZE + t * 420 * (0.8 + 0.2 * jitter(i, 7))) % (SIZE + 30)) - 15
-          ctx.moveTo(x0, y0); ctx.lineTo(x0 - 5, y0 + 13)
+          ctx.moveTo(x0, y0); ctx.lineTo(x0 - 7, y0 + 19)
         }
         ctx.stroke()
-        ctx.fillStyle = 'rgba(40,50,70,0.12)'; ctx.fillRect(0, 0, SIZE, SIZE)
         break
       }
       case BattleWeather.Snow: {
@@ -261,7 +277,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
     ctx.drawImage(ground, 0, 0)
     const pd = politiesOf(h)
     const B = h.battles
-    const colA = pd?.css[B.attacker[battle]] ?? '#d9534f', colD = pd?.css[B.defender[battle]] ?? '#4a7fd6'
+    const [colA, colD] = sideColours(pd?.css[B.attacker[battle]], pd?.css[B.defender[battle]])
     const ph = phaseAt(tl, t)
     // dust in the clash
     if (ph.kind === 'clash' || ph.kind === 'flank') {
@@ -290,7 +306,7 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
     }
     const [a, d] = sidesAt(h, tl, t)
     const label: Record<string, string> = { deploy: tl.weather === BattleWeather.Fog ? 'The armies grope through the fog' : 'The armies deploy', advance: tl.ford ? (tl.frozen ? 'The attackers cross the ice' : 'The attackers force the crossing') : tl.siege ? 'The assault on the walls' : tl.mud ? 'The attackers slog through the mud' : 'The attackers advance', clash: 'The lines clash', flank: 'A flank is turned', break: (tl.winner === 0 ? 'The defenders' : 'The attackers') + ' break', rout: 'The rout', end: tl.winner === 0 ? 'The attackers hold the field' : 'The defenders hold the field' }
-    phase.textContent = `${label[ph.kind]} · ${roundMen(B.menA[battle] * a)} against ${roundMen(B.menD[battle] * d)} still standing`
+    phase.textContent = `${label[ph.kind]} · ${standingWords(B.menA[battle], a)} against ${standingWords(B.menD[battle], d)} still standing`
     scrub.value = String(Math.round((t / tl.seconds) * 1000))
   }
 
@@ -373,25 +389,24 @@ export function createBattleMap(deps: BattleMapDeps): BattleMap {
         : `Some ${roundMen(B.menA[b])} of ${nameOf(B.attacker[b])} against perhaps ${roundMen(B.menD[b])} of ${nameOf(B.defender[b])}`
       // n4b: the side legend (attackers first), in the colours the figures are drawn in
       sides.replaceChildren()
-      for (const [p, role] of [[B.attacker[b], 'attacking'], [B.defender[b], 'defending']] as const) {
+      const cols = sideColours(pd?.css[B.attacker[b]], pd?.css[B.defender[b]])
+      for (const [p, role, col] of [[B.attacker[b], 'attacking', cols[0]], [B.defender[b], 'defending', cols[1]]] as const) {
         const chip = document.createElement('span')
         chip.className = 'bm-side'
         const sw = document.createElement('i')
-        sw.style.background = pd?.css[p] ?? (role === 'attacking' ? '#d9534f' : '#4a7fd6')
+        sw.style.background = col
         chip.append(sw, `${nameOf(p)} (${role})`)
         sides.appendChild(chip)
       }
       // n5: the legend: ground, weather, what decided it
       legend.replaceChildren()
       const chip = (k: string, v: string, cls: string) => { const e = document.createElement('span'); e.className = `bm-chip ${cls}`; const s = document.createElement('b'); s.textContent = k; e.append(s, ' ' + v); legend.appendChild(e) }
-      if (B.kind[b] !== BattleKind.Naval) chip('Ground', groundWords(B.flags[b], B.kind[b]), 'bm-chip-ground')
+      if (B.kind[b] !== BattleKind.Naval) chip('Ground', groundOf(h, b), 'bm-chip-ground')
       const tlx = tl
       const wx = ['clear', 'rain', 'fog', 'snow', 'heat'][tlx.weather] ?? 'clear'
       chip('Weather', wx + (tlx.winter ? ', winter' : '') + (tlx.mud ? ', mud' : '') + (tlx.frozen ? ', the river frozen' : ''), 'bm-chip-weather')
-      const fs = decidingFactors(h, b)
-      const pro = fs.filter((f) => f.forWinner), con = fs.filter((f) => !f.forWinner)
-      if (pro.length) chip('Decided by', pro.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-why')
-      if (con.length) chip(pro.length ? 'Though' : 'Won though', con.map((f) => factorClause(h, b, f)).join('; '), 'bm-chip-con')
+      // n4c: ranked by their share of the odds, the numbers included (decidingRows)
+      for (const [k, v] of decidingRows(h, b)) chip(k, v, k === 'Decided by' ? 'bm-chip-why' : k === 'Also' ? 'bm-chip-also' : 'bm-chip-con')
       root.classList.remove('hidden')
       t = 0
       frame()

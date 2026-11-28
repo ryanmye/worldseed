@@ -789,6 +789,7 @@ const appChunks: Promise<void> = showLanding
       window.setTimeout(() => (ric ? ric(() => resolve(), { timeout: 4000 }) : resolve()), 1500)
     })
   : Promise.resolve()
+overlay.setLayersPending(true) // n4c: until the first history's layers are in (onHistoryShown)
 const historyView = lazyHistoryView(
   {
     bottom: overlay.bottom,
@@ -821,6 +822,7 @@ const historyView = lazyHistoryView(
     precompile: (objects) => Promise.all(objects.map((o) => renderer.compileAsync(o, camera, scene))),
     addLayerToggle: (t) => overlay.addLayerToggle(t),
     onTakeSeat: (p, y) => seatCtl?.start({ kind: SeatKind.Polity, id: p, from: y }, currentCradles), // seat mode (ui/seat)
+    onHistoryShown: () => overlay.setLayersPending(false), // n4c: the layer count waits for the history's toggles
     // what-if (whatifPanel.ts): the other world simulated beside the one shown; phones and weak devices get a skeleton (memory)
     requestCompare: (orders) => {
       const years = historyView.years || historyYears

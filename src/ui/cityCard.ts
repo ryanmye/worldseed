@@ -8,7 +8,7 @@ import { spokenNameAt } from '../sim/names/spoken.ts' // language: the name as s
 import { landmarkNameAt, type History } from '../contract.ts'
 import { formatInt, peopleName, peopleOf } from './format.ts'
 import { polityAtYear, politiesOf } from './politiesData.ts'
-import { battlesOf } from './battlesData.ts' // battles:
+import { battleName, battlesOf } from './battlesData.ts' // battles:
 import { nameRunSvg } from './scriptView.ts' // typology: native scripts
 import { labelGlyphProbe } from './glyphProbe.ts'
 import './cityCard.css'
@@ -120,7 +120,7 @@ export function createCityCard(container: HTMLElement, cb: CityCardCallbacks): C
       let nFought = 0
       if (bd) for (const b of bd.byTarget.get(id) ?? []) {
         if (bd.B.year[b] > y) break
-        const name = bd.B.name[b] || 'a battle'
+        const name = battleName(h, b) || 'a battle'
         if (fought.includes(name)) continue
         nFought++
         fought.push(name)

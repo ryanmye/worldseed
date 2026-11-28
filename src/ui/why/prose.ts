@@ -14,6 +14,8 @@ import type { WhyLink, WhyTree } from './graph.ts'
 import { causeIndexOf, ev, placeName, polAt, polName } from './causeIndex.ts'
 import type { CauseIndex } from './causeIndex.ts'
 import { roman } from './explain.ts'
+import { commanderBattle } from './rules/base.ts'
+import { battleName } from '../battlesData.ts' // n4c
 
 /** A piece of the text: plain, or a named node (a link in the panel). */
 export type WhySeg = string | { text: string; key: string }
@@ -126,6 +128,8 @@ function takerOf(ix: CauseIndex, e: { settlement: number; other: number; value: 
   return ix.h.wars && e.value >= 0 ? attOf(ix, e.value) : 'its enemies'
 }
 const defOf = (ix: CauseIndex, w: number) => polName(ix, ix.h.wars.defender[w])
+/** n4c: a commander by name ("Tizame"), or "a commander". */
+const commanderWho = (ix: CauseIndex, c: number) => (ix.h.commanders && c >= 0 && c < ix.h.commanders.count && ix.h.commanders.name[c] ? ix.h.commanders.name[c] : 'a commander')
 
 /** A noun phrase for a node ("the fall of Oruma to Vashtar in 1204"). */
 export function np(ix: CauseIndex, key: string): string {
@@ -139,7 +143,7 @@ export function np(ix: CauseIndex, key: string): string {
   const at = town(ix, e.settlement, y)
   switch (e.type) {
     case E.Conquered: return `the fall of ${at} to ${takerOf(ix, e)} in ${y}`
-    case E.BattleFought: return `${h.battles && e.value >= 0 && e.value < h.battles.count ? h.battles.name[e.value] : `the battle for ${at}`} in ${y}`
+    case E.BattleFought: return `${h.battles && e.value >= 0 && e.value < h.battles.count ? battleName(h, e.value) : `the battle for ${at}`} in ${y}`
     case E.Sacked: return `the sack of ${at} in ${y}`
     case E.WarDeclared: return `the war ${attOf(ix, e.value)} made on ${defOf(ix, e.value)} in ${y}`
     case E.CivilWar: return `the civil war that broke out at ${at} in ${y}`
@@ -175,6 +179,14 @@ export function np(ix: CauseIndex, key: string): string {
     case E.HolyWar: return `the holy war proclaimed in ${y}`
     case E.RulerConverted: return `the conversion of the ruler at ${at} in ${y}`
     case E.ResortAbandoned: return `the end of ${at} as a resort in ${y}`
+    // n4c (play-test 2: "The event at Eme in 1872"): the commanders' events and a siege laid, by name
+    case E.SiegeLaid: return `the siege of ${at}, laid in ${y}`
+    case E.CommanderFell: case E.CommanderRenowned: case E.CommanderDismissed: {
+      const who = commanderWho(ix, e.value)
+      const b = commanderBattle(ix, k.id)
+      const where = b >= 0 ? battleName(h, b) : `the battle for ${at}`
+      return e.type === E.CommanderFell ? `the ${(e.extra ?? 0) === 1 ? 'capture' : 'fall'} of ${who} at ${where} in ${y}` : e.type === E.CommanderRenowned ? `the renown ${who} won at ${where} in ${y}` : `the dismissal of ${who} after ${where} in ${y}`
+    }
     default: return `the ${eventWord(e.type)} at ${at} in ${y}`
   }
 }
@@ -200,6 +212,7 @@ function subjOf(ix: CauseIndex, key: string): string {
     case E.BorderDispute: return 'The quarrel'
     case E.PeaceMade: return 'The peace'
     case E.PolityEnded: return 'Its end'
+    case E.BattleFought: return 'The battle'
     default: return 'That'
   }
 }
@@ -225,8 +238,16 @@ function rootSentence(ix: CauseIndex, key: string): string {
     case E.ReignEnded: return `The reign of ${ruler(ix, e.value)} ended in ${y}.`
     case E.SuccessionCrisis: return `The succession at ${at} was contested in ${y}.`
     case E.PeaceMade: return `${cap(attOf(ix, e.value))} and ${defOf(ix, e.value)} made peace in ${y}.`
-    default: return `${cap(np(ix, key))}.`
+    case E.BattleFought: {
+      // n4c: the battle, who fought it and who held the field
+      const B = h.battles
+      if (!B || e.value < 0 || e.value >= B.count) break
+      const b = e.value
+      const att = polName(ix, B.attacker[b]), def = polName(ix, B.defender[b])
+      return `${cap(battleName(h, b))} was fought in ${y}: ${att} attacked ${def}, and ${B.winner[b] === 0 ? `${att} won the day` : `${def} held`}.`
+    }
   }
+  return `${cap(np(ix, key))}.`
 }
 
 function shareOf(f: number): string {

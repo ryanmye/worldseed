@@ -120,6 +120,8 @@ export interface HistoryViewDeps {
   cityEngaged?(): boolean
   /** seat mode: the Factions panel's "Take this throne" (ui/seat). */
   onTakeSeat?(polity: number, year: number): void
+  /** n4c: a history was swapped in (its panels' layer toggles are added by then). */
+  onHistoryShown?(): void
   /** what-if: simulate the world with `orders` beside the history shown (answered by compareResult); returns the compare id. */
   requestCompare?(orders: Order[]): number
   cancelCompare?(): void
@@ -346,6 +348,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
 
   const timeline = createTimeline(deps.bottom, {
     onSettled(year: number, playing: boolean) {
+      // n4c (play-test 2, the stall at 1015): playback started from code (the story's inline replay ending, Resume, the end of
+      // a reading) found the frame loop asleep and nothing woke it: the timeline read "playing" and never moved. A settled
+      // playback state always wakes the loop.
+      deps.wake()
       if (!index) return
       deps.setUrlParam('year', playing ? null : String(Math.floor(year + 1e-6)))
       deps.setUrlParam('play', playing ? null : '0')
@@ -563,7 +569,21 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     return { orders, label: `Another world, with ${orders.length} ${orders.length === 1 ? 'order' : 'orders'}`, focus: null }
   }
   // the story director: drama scores, the story plan, Follow the story (H), captions and notices (ui/story)
+  /** n4c: the moving layers stepped back for a strip jump's caption (the user's toggles are kept: shown again after). */
+  let quiet = false
+  const setQuiet = (on: boolean) => {
+    if (on === quiet) return
+    quiet = on
+    if (journeys) journeys.object.visible = journeysVisible && !on
+    if (trade) trade.object.visible = tradeVisible && !on
+    polities.setTradeVisible(tradeVisible && !on)
+    journeys?.setExpeditionsVisible(expeditionsVisible && !on)
+    if (roads) roads.object.visible = roadsVisible && !on
+    if (discoveries) discoveries.mesh.visible = expeditionsVisible && !on
+    requestRender()
+  }
   const story: StoryView = createStoryView({
+    quiet: setQuiet,
     host: deps.bottom.parentElement ?? document.body,
     canvas: deps.canvas,
     camera: deps.camera,
@@ -583,7 +603,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     initialOn: followByDefault(new URLSearchParams(window.location.search), isFirstVisit()), // onboarding: a first visit follows
     openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
     battleOpen: () => battleMap.isOpen(),
-    play: () => timeline.play(),
+    play: () => { timeline.play(); requestRender(); deps.wake() }, // n4c: wake the frame loop (it sleeps while paused)
     contextHost: deps.right, // ui-additions 2: the story's battle as the context panel
     // lane N4d: following one realm: the chronicle lists its entries, the Factions card (the context panel's realm) shows it
     initialRealm: parseFollowRealm(new URLSearchParams(window.location.search).get('follow')),
@@ -1158,6 +1178,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
           Object.entries(times).map(([n, t]) => `${n} ${t.toFixed(1)}`).join(', ') +
           `); ${h.settlements.length} settlements, ${h.events.length} events`,
       )
+      deps.onHistoryShown?.()
       if (keep) applyKept(h, keep)
       else if (first) applyInitial(h, target)
       if (first) markVisited() // onboarding: the next visit is not a first (Follow then starts off)
@@ -1710,7 +1731,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         structures.setTime(year, pulseYears)
         structures.update(deps.camera, drawSize, pixelRatio)
       }
-      if (journeys && journeysVisible) {
+      if (journeys && journeysVisible && !quiet) {
         // a trail's bright head decays like the pulse (but stays local at high speed); its thread lingers longer
         journeys.setTime(year, Math.min(HEAD_MAX_YEARS, pulseYears), Math.min(THREAD_MAX_YEARS, Math.max(THREAD_MIN_YEARS, 2 * pulseYears)))
         journeys.update(deps.camera, drawSize, pixelRatio)
@@ -1719,7 +1740,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         roads.setTime(year)
         roads.update(deps.camera, drawSize, pixelRatio)
       }
-      if (trade && tradeVisible) {
+      if (trade && tradeVisible && !quiet) {
         trade.setRoadsShown(roads !== null && roadsVisible)
         trade.update(deps.camera, drawSize, pixelRatio)
         trade.setTime(year, timeline.playing, timeline.speed)
@@ -1748,8 +1769,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesView.tick(year)
       if (dioramas) {
         dioramas.setStructuresVisible(structuresVisible)
-        dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible)
-        dioramas.setTraders(trade ? trade.merchants : null, tradeVisible)
+        dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible && !quiet)
+        dioramas.setTraders(trade ? trade.merchants : null, tradeVisible && !quiet)
         dioramas.setBridges(roads ? roads.placements : null, roadsVisible)
         dioramas.setTime(year, pulseYears * 0.6)
         dioramas.update(deps.camera)

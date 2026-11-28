@@ -5,13 +5,23 @@
 // Conditions may themselves have causes: a rivalry part is backed by the event that made it (a border dispute, an earlier
 // war, a crisis), found by the same rules (R4b–R4g, R10a backing).
 
-import { AbandonCause, AccessionHow, CrisisBit, EventType as E, PolityEnd, PolityOrigin, RIVALRY_PARTS, ReignEnd, RevoltCause, RivalryPart, UnrestPart, WarWhyFlag, decodeLog2 } from '../../../contract.ts'
+import { AbandonCause, AccessionHow, BattleKind, CrisisBit, EventType as E, PolityEnd, PolityOrigin, RIVALRY_PARTS, ReignEnd, RevoltCause, RivalryPart, UnrestPart, WarWhyFlag, decodeLog2 } from '../../../contract.ts'
 import { smoothstep } from '../../../sim/util.ts'
 import { RELATION, UNREST, WAR } from '../../../sim/history/polity/params.ts'
 import { WhyTier, condKey, evKey, warKey } from '../graph.ts'
 import type { WhyNode } from '../graph.ts'
 import type { CauseIndex } from '../causeIndex.ts'
 import { atPlace, ev, ofType, pairKey, placeName, polAt, polName } from '../causeIndex.ts'
+import { decidingSplit, factorClause } from '../../battleFormat.ts' // n4c: a battle's deciding factor
+import type { History } from '../../../contract.ts'
+
+/** n4c: what decided battle b, as a clause ("the defenders' numbers told, some 11,000 against 4,600 (about 2.4 to 1)"), or ''. */
+function decidingCause(h: History, b: number): string {
+  const { top, con } = decidingSplit(h, b)
+  if (top) return factorClause(h, b, top)
+  if (con[0]) return `the day went to ${h.battles.winner[b] === 0 ? 'the attackers' : 'the defenders'}, though ${factorClause(h, b, con[0], false)}`
+  return ''
+}
 
 /** One candidate cause of a node. `node` describes a condition (synthetic); events and entities are described by the explainer. */
 export interface Cand {
@@ -419,12 +429,63 @@ export function eventCauses(ix: CauseIndex, i: number): Cand[] {
     case E.Founded:
       if (e.other >= 0) for (const k of atPlace(ix, e.other, [E.Founded], 0, y).filter((k) => k < i).slice(0, 1)) out.push(rec(evKey(k), 'R22'))
       break
+    // n4c (play-test 2: "The record does not say why" for a battle): a battle comes of its war, the march that brought the
+    // armies together and what decided it (all recorded: History.battles); a commander's fall, renown or dismissal of the battle
+    case E.BattleFought: return battleCauses(ix, i)
+    case E.SiegeLaid:
+      if (e.value >= 0 && e.value < (h.wars?.count ?? 0)) out.push(rec(warKey(e.value), 'R2'))
+      break
+    case E.CommanderFell: case E.CommanderRenowned: case E.CommanderDismissed: {
+      const b = commanderBattle(ix, i)
+      if (b < 0) break
+      const be = ofType(ix, E.BattleFought, y, y, (x, k) => k <= i && x.value === b)
+      if (be.length) out.push(rec(evKey(be[be.length - 1]), 'rec:battle'))
+      else if (h.battles.war[b] >= 0 && h.battles.war[b] < (h.wars?.count ?? 0)) out.push(rec(warKey(h.battles.war[b]), 'R2'))
+      break
+    }
     case E.OrderFulfilled: case E.OrderFailed: case E.OrderLapsed: {
       const g = ix.orderGiven.get(e.value)
       if (g !== undefined && g < i) out.push(rec(evKey(g), 'R23'))
       break
     }
   }
+  return out
+}
+
+/** n4c: the battle a commanders event (CommanderFell, Renowned, Dismissed) at event i was about, or -1. */
+export function commanderBattle(ix: CauseIndex, i: number): number {
+  const h = ix.h, e = ev(ix, i)
+  const B = h.battles, C = h.commanders
+  if (!B || !C || e.value < 0 || e.value >= C.count) return -1
+  if (e.type === E.CommanderFell && C.fateBattle[e.value] >= 0) return C.fateBattle[e.value]
+  for (let b = B.count - 1; b >= 0; b--) {
+    if (B.year[b] > e.year) continue
+    if (B.year[b] < e.year) break
+    if (B.target[b] === e.settlement && (B.cmdA[b] === e.value || B.cmdD[b] === e.value)) return b
+  }
+  return -1
+}
+
+/** n4c: a battle's causes: its war (recorded), what decided it, and the march that brought the armies together. */
+function battleCauses(ix: CauseIndex, i: number): Cand[] {
+  const h = ix.h, e = ev(ix, i)
+  const B = h.battles
+  const out: Cand[] = []
+  const b = e.value
+  if (!B || b < 0 || b >= B.count) return out
+  const y = e.year
+  const w = B.war[b]
+  if (w >= 0 && w < (h.wars?.count ?? 0)) out.push(rec(warKey(w), 'R2'))
+  const d = decidingCause(h, b)
+  if (d) out.push(cond('battle.decided', i, y, B.target[b], d, 1, '', 'rec:battles.course', WhyTier.Recorded))
+  const att = polName(ix, B.attacker[b]), def = polName(ix, B.defender[b])
+  const to = placeName(ix, B.target[b], y)
+  const march = B.kind[b] === BattleKind.Siege ? `${att} laid siege to ${to}`
+    : B.kind[b] === BattleKind.Relief ? `${att} marched to relieve ${to}, besieged by ${def}`
+    : B.kind[b] === BattleKind.Naval ? `the fleet of ${att} sailed against ${def}'s port of ${to}`
+    : B.kind[b] === BattleKind.Landing ? `${att} came over the sea against ${to}`
+    : `${att} marched${B.from[b] >= 0 ? ` from ${placeName(ix, B.from[b], y)}` : ''} on ${def}'s town of ${to}${B.counter[b] ? ', striking back' : ''}`
+  out.push(cond('battle.march', i, y, B.from[b] >= 0 ? B.from[b] : B.target[b], march, 0.6, '', 'rec:battles.from', WhyTier.Recorded))
   return out
 }
 

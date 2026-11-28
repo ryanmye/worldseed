@@ -10,7 +10,7 @@
 // replay inline as their year comes; the timeline shows the time left; a caption's Share links to the moment.
 
 import * as THREE from 'three'
-import { EventType, settlementNameAt, type History, type World } from '../../contract.ts'
+import { EventType, type History, type World } from '../../contract.ts'
 import { surfaceRadius } from '../../render/globe.ts'
 import type { CameraFly } from '../../render/cameraFly.ts'
 import type { Chronicle } from '../chronicle.ts'
@@ -26,10 +26,10 @@ import { addShortcut } from '../shortcuts.ts'
 import { loadFlag, saveFlag } from '../panels.ts'
 import { buildStaticDrama, createDramaCtx, DRAMA_CAT_NAMES, type StaticDrama } from './drama.ts'
 import { beatKept, buildStoryPlan, type StoryPlan } from './plan.ts'
-import { createDirector, DIRECTOR, DirectorState, type Director } from './director.ts'
+import { createDirector, DIRECTOR, DirectorState, dwellSlowAt, type Director } from './director.ts'
 import { SUN_DIRECTION, SunMode, sunState } from '../../render/sun.ts'
 import { flat } from '../../render/mapProjection.ts'
-import { battlesOf, battleWeight } from '../battlesData.ts'
+import { battlesOf, battleWeight, townAt } from '../battlesData.ts'
 import type { BattleOpenOptions } from '../battleMap.ts'
 import { battleSummary, battleTitle, decidingShort, describeBattle } from '../battleFormat.ts'
 import { contextChanged, registerContext } from '../contextPanel.ts'
@@ -71,6 +71,8 @@ export interface StoryViewDeps {
   battleOpen?(): boolean
   /** The timeline's playback, paused by a replay, goes on after it (Follow still on). */
   play?(): void
+  /** n4c: quiet the map's moving layers (travellers, trade, expeditions) while a strip jump's caption shows (play-test 2: a busy map). */
+  quiet?(on: boolean): void
   /** ui-additions 2: the right column, where the story's battle is the context panel while it is told (absent: none). */
   contextHost?: HTMLElement
   /** lane N4d: the realm followed changed (-1: the whole world): the chronicle's realm filter (its entries), the context
@@ -122,6 +124,8 @@ const HEART_AHEAD = 100
 const HEART_EVERY = 20
 /** Before this year the heartland shot frames the leading people's hearth (glowing, render/peopleWash.ts). */
 const HEART_HEARTH_YEARS = 250
+/** n4c: a caption goes once the year shown is this far from its own. */
+const CAPTION_LAG_YEARS = 8
 /** The top battles of a run that play their replay inline while following. */
 const TOP_BATTLES = 3
 
@@ -320,7 +324,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     let pinId = line && line.target >= 0 && line.target < h.settlements.length ? line.target : -1
     if (pinId < 0 && cell >= 0) pinId = h.settlements.findIndex((st) => st.cell === cell && st.foundedYear <= year)
     const pinCell = pinId >= 0 ? h.settlements[pinId].cell : cell
-    const pinLabel = pinId >= 0 ? settlementNameAt(h, pinId, Math.floor(year)) : ''
+    const pinLabel = pinId >= 0 ? townAt(h, pinId, Math.floor(year)) : '' // n4c: as the chronicle says it that year
     // battles: a beat told by a battle offers its replay
     const be = rep >= 0 ? h.events[rep] : null
     const battle = be && (be.type as number) === EventType.BattleFought && deps.openBattle && h.battles && be.value >= 0 && be.value < h.battles.count ? be.value : -1
@@ -336,6 +340,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       battle: battle >= 0 ? () => replay(battle, false) : null,
       battleId: battle,
       share: () => shareMoment(year),
+      year, // n4c: the caption's year (it is cleared once the view runs CAPTION_LAG_YEARS past it)
     }
   }
 
@@ -497,7 +502,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       const y = p.beatYear[b]
       if (y < at || y > h.years || !beatKept(p, b, speed)) continue
       t += gapTime(y - at) + DIRECTOR.dwellSeconds + DIRECTOR.slowOut
-      at = y + DIRECTOR.dwellSeconds * DIRECTOR.dwellSlow * base
+      at = y + DIRECTOR.dwellSeconds * dwellSlowAt(speed) * base
     }
     if (endY > at) t += gapTime(endY - at)
     return t
@@ -594,14 +599,20 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   let pinCell = -1
   let pinLabel = ''
   let looseCaption = false
+  /** n4c: the year of the caption shown (NaN none). */
+  let capYear = NaN
   function showCap(c: ReturnType<typeof captionOf>, loose: boolean) {
     card.showCaption(c)
+    capYear = c.year
+    deps.quiet?.(loose) // n4c: a jump's caption: the moving layers step back while it shows
     pinCell = c.pinCell
     pinLabel = c.pinLabel
     looseCaption = loose
     syncPin()
   }
   function hideCap() {
+    capYear = NaN
+    deps.quiet?.(false)
     card.hideCaption()
     pinCell = -1
     looseCaption = false
@@ -976,6 +987,11 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       realmChip.tick(dt)
       if (realm && director.on) realmEnded(year)
       if (pinCell >= 0) syncPin()
+      // n4c (play-test 2: "WAR · 1890" still up at 1900): a caption the view has run well past goes (the director's, as Next)
+      if (Number.isFinite(capYear) && Math.abs(year - capYear) > CAPTION_LAG_YEARS) {
+        if (director.state === DirectorState.Dwell) director.next()
+        else hideCap()
+      }
       if (peekOpen && !peekOpen()) {
         peekOpen = null
         if (director.state === DirectorState.Suspended) director.resume()

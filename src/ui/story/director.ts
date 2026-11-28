@@ -28,6 +28,9 @@ export const DIRECTOR = {
   slowOut: 0.8,
   /** Seconds a caption shows. */
   dwellSeconds: 6,
+  /** n4c: the most years playback moves on while a caption shows (play-test 2: "WAR · 1890" read at 1900): the dwell
+   * slows further at higher speeds (dwellSlowAt). */
+  dwellYears: 4,
   /** Seconds without input before a suspended director follows again. */
   suspendSeconds: 12,
   /** A jump of more than this many years forward (or any backward) resets the director to the new year. */
@@ -43,6 +46,12 @@ export const DIRECTOR = {
   ffEase: 1,
   /** Years per second at 1× (timeline.ts YEARS_PER_SECOND; kept here so the director stays DOM-free). */
   yps1x: 20 / 3,
+}
+
+/** n4c: the playback factor while a caption shows at `speed`: dwellSlow, or less so the dwell covers at most dwellYears. */
+export function dwellSlowAt(speed: number): number {
+  const yrs = DIRECTOR.dwellSeconds * Math.max(1e-6, speed) * DIRECTOR.yps1x
+  return Math.max(0.01, Math.min(DIRECTOR.dwellSlow, DIRECTOR.dwellYears / yrs))
 }
 
 export const DirectorState = { Off: 0, Idle: 1, Lead: 2, Dwell: 3, Release: 4, Suspended: 5 } as const
@@ -294,7 +303,7 @@ export function createDirector(deps: DirectorDeps): Director {
         case DirectorState.Lead: {
           if (year + 1e-6 < plan.beatYear[beat]) return
           // (a speed change since the lead may have dropped it: shown anyway, it was already flown to)
-          T.setSlow(DIRECTOR.dwellSlow, DIRECTOR.slowIn)
+          T.setSlow(dwellSlowAt(T.speed), DIRECTOR.slowIn)
           deps.showCaption(beat)
           timer = 0
           set(DirectorState.Dwell)

@@ -3,7 +3,7 @@
 // flights, a beat in view gets a pulse instead, a jump backward resets, the city view suspends.
 
 import { describe, expect, it } from 'vitest'
-import { createDirector, DIRECTOR, DirectorState, type DirectorDeps } from './director.ts'
+import { createDirector, DIRECTOR, DirectorState, dwellSlowAt, type DirectorDeps } from './director.ts'
 import type { StoryPlan } from './plan.ts'
 
 const YPS = 20 / 3
@@ -77,7 +77,7 @@ describe('story director', () => {
     r.run(2)
     expect(r.d.state).toBe(DirectorState.Dwell)
     expect(r.log).toContain('show 0')
-    expect(r.log).toContain(`slow ${DIRECTOR.dwellSlow} ${DIRECTOR.slowIn}`)
+    expect(r.log).toContain(`slow ${dwellSlowAt(r.tl.speed)} ${DIRECTOR.slowIn}`)
     r.run(DIRECTOR.dwellSeconds + 0.1)
     expect(r.log).toContain('hide')
     expect(r.log).toContain(`slow 1 ${DIRECTOR.slowOut}`)
