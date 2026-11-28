@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 4 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 5 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -24,10 +24,18 @@ Changelog:
   avoids Keep paying (the realm's end) and Endure, Unify and aggressive take Defy, with an ally; cautious takes it by the
   risk table (0.5, below Defy's 0.9 and Keep paying's 0.95). Greedy Unify now placates a town that rose (Placate 2, as its
   new hint says: towns lost to risings undo the towns won in war).
+- v5 (2026-11-28, lane/n3d, after LLM play-test #2; primer v8): greedy reports "no lever for N cards" as aggressive does
+  (after NO_LEVER_AFTER cards in a row with nothing for its ambition; the play-tester's Unify reign had none in 127 years);
+  greedy Endure seeks allies against a stronger neighbour (Seek an ally 2, was 1) and pays a war chest with taxes, not
+  debt (Raise taxes 1, Borrow -1); every persona picks its ambition **before the first card** (the picker restarts the
+  reign). The new cards of primer v8 (A new house seizes the throne, Fallen in battle, A town breaks away) use existing
+  option keys, so every persona already has a stance on them (Endure sues for peace after its king falls; Unify fights on).
 
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with
 `play=0`, since the first card can come within seconds):
+- Declare the persona's ambition **before the first card**: `:amb=<k>` in `seat=`, or the dashboard's "Change ambition…"
+  list while the first card is still coming (choosing it later restarts the reign and drops your choices).
 - In the browser, set Sun to Follow, turn on Follow the story, and frame the realm's capital on land.
 - Take the throne of the top realm of the Factions list (most people) alive in the chosen year, so no persona starts on a
   dead seat.
@@ -73,9 +81,10 @@ Act like a sensible player before judging anything (in the browser: **after the 
   Authority is below 60.
 - **Watches:** for Unify, realm size and towns gained; for Riches, crops, ideas, settlers and peace; for Endure, safety and
   succession; for Union, matches.
-- **Prompt:** "You have one ambition: <ambition>. Judge every card only by whether it moves you toward it. Note every card
-  where no option could help ('no lever'). At the end, report whether you achieved it and whether the game ever gave you a
-  real way to."
+- **Prompt:** "You have one ambition: <ambition>. Declare it before the first card. Judge every card only by whether it
+  moves you toward it. Note every card where no option could help ('no lever'), and say so when five cards in a row had
+  none. For Endure: allies against a stronger neighbour and a war paid for by taxes rather than debt keep the realm alive.
+  At the end, report whether you achieved it and whether the game ever gave you a real way to."
 
 ## Self-scored competence (reported per run)
 - **blind:** the persona's choice was made without information. Either every option said the same thing, or no option

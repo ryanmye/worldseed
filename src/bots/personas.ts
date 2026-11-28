@@ -9,7 +9,7 @@ import { DecisionKind, DEFER_OPTIONS, SeatOptionKey, AmbitionKind } from '../con
 import { OPTION_RISK } from '../sim/history/seat/params.ts'
 import type { CardModel } from '../ui/seat/cardModel.ts'
 
-export const PERSONA_VERSION = 4
+export const PERSONA_VERSION = 5
 
 const K = SeatOptionKey
 export type PersonaId = 'cautious' | 'aggressive' | 'always-defer' | 'random' | 'greedy'
@@ -17,7 +17,7 @@ export const PERSONA_IDS: readonly PersonaId[] = ['cautious', 'aggressive', 'alw
 
 /** What a persona remembers: the cards it saw and what it did (a human player's memory of the reign). */
 export interface PersonaMemory {
-  seen: { year: number; title: string; situation: string; picked: number; deferred: boolean; label: string }[]
+  seen: { year: number; title: string; situation: string; picked: number; deferred: boolean; label: string; /** v5: the card offered a lever for the persona's goal. */ lever?: boolean }[]
 }
 
 export interface Decision {
@@ -65,11 +65,13 @@ export const AGGRESSIVE: Stance = stance({
 export const AMBITION_STANCE: Record<number, Stance> = {
   [AmbitionKind.Endure]: stance({
     [K.LawDecides]: 2, [K.Placate]: 2, [K.Fortify]: 2, [K.Honour]: 1, [K.Quarantine]: 2, [K.SuePeace]: 2, [K.Pay]: 1, [K.StayOut]: 1,
-    [K.SeekAlly]: 1, [K.Retrench]: 1, [K.Endure]: 1, [K.StandBy]: 1, [K.KeepWays]: 1, [K.Arrange]: 1, [K.OfferMatch]: 1,
+    [K.SeekAlly]: 2, [K.Levy]: 1, [K.Borrow]: -1, [K.Retrench]: 1, [K.Endure]: 1, [K.StandBy]: 1, [K.KeepWays]: 1, [K.Arrange]: 1, [K.OfferMatch]: 1,
     [K.Strike]: -2, [K.Defy]: -3, [K.Purge]: -2, [K.RepudiateDebts]: -3, [K.Renounce]: -2, [K.CrushPretender]: -1, [K.MoveCourt]: -1,
     [K.Reclaim]: -1, [K.NameHeir]: -1, [K.Embrace]: -1,
     [K.SendRelief]: 2, [K.RewardArmy]: 2, [K.OfferTerms]: 2, [K.RecallGeneral]: -1, [K.JoinWar]: -1, [K.Avenge]: -2, [K.CallBluff]: -2,
     [K.DefyWithAlly]: 2, [K.KeepPaying]: -3, // (v4)
+    // v5 (LLM play-test #2): allies against a stronger neighbour are survival (Seek an ally 2, was 1); a war chest is paid by
+    // taxes, not debt (Raise taxes 1, Borrow -1: a debt can end in a default)
   }),
   [AmbitionKind.Unify]: stance({
     [K.Strike]: 4, [K.FightOn]: 3, [K.CrushPretender]: 2, [K.Crush]: 2, [K.Settle]: 3, [K.ExploreOn]: 1, [K.SeekAlly]: 1, [K.Honour]: 1,
@@ -182,13 +184,17 @@ export const PERSONAS: Record<PersonaId, (ambition?: number) => Persona> = {
     }),
   greedy: (ambition = AmbitionKind.Unify) => make('greedy',
     `Maximises one declared ambition (${['Endure', 'Unify', 'Faith', 'Riches', 'Union', 'Monument'][ambition] ?? ambition}) from what the cards show. Takes the option that moves it most (ties: lower risk). Defers a card only when no option moves the ambition, the matter is routine and authority stays above 70; never defers when authority is below 60.`,
-    (card) => {
+    (card, mem) => {
       const st = AMBITION_STANCE[ambition] ?? AMBITION_STANCE[AmbitionKind.Unify]
       const b = best(card, (o) => st[o.key] * 10 - risk(o.key) - (isWait(o) ? 0.5 : 0))
       const pick = card.options.find((o) => o.option === b.i)!
       const lever = card.options.some((o) => st[o.key] > 0)
-      if (!lever && routine(card) && authorityLeft(card) >= 0.7) return { option: DEFER_OPTIONS.defer, why: 'nothing here for the ambition; defer', blind: true, lever }
-      return { option: b.i, why: lever ? `for the ambition: ${pick.label}` : `nothing for the ambition; safest: ${pick.label}`, blind: noInfo(card) || !lever, lever }
+      // (v5, LLM play-test #2: greedy Unify reports a drought of levers as aggressive does: the cards since the last that moved it)
+      let dry = 0
+      for (let i = mem.seen.length - 1; i >= 0 && !mem.seen[i].lever; i--) dry++
+      const note = !lever && dry >= NO_LEVER_AFTER ? ` (no lever for ${dry} cards)` : ''
+      if (!lever && routine(card) && authorityLeft(card) >= 0.7) return { option: DEFER_OPTIONS.defer, why: `nothing here for the ambition; defer${note}`, blind: true, lever }
+      return { option: b.i, why: lever ? `for the ambition: ${pick.label}` : `nothing for the ambition; safest: ${pick.label}${note}`, blind: noInfo(card) || !lever, lever }
     }),
 }
 

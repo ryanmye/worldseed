@@ -164,7 +164,7 @@ for (let i = 0; i <= N; i++) {
   }
   const dec = persona.choose(c, mem, rng)
   seen.push({ title: c.title, options: c.options.map((o) => o.label), picked: dec.option, why: dec.why })
-  mem.seen.push({ year: c.year, title: c.title, situation: c.situation, picked: dec.option, deferred: dec.option === 7, label: c.options.find((o) => o.option === dec.option)?.label ?? c.defer.words })
+  mem.seen.push({ year: c.year, title: c.title, situation: c.situation, picked: dec.option, deferred: dec.option === 7, label: c.options.find((o) => o.option === dec.option)?.label ?? c.defer.words, lever: dec.lever })
   log(`card ${i + 1} ${c.sub}: ${c.title} [${c.options.map((o) => o.label).join(' / ')}] -> ${dec.why}`)
   if (i === 0) await page.screenshot({ path: out + `card-${seed}.png` })
   if (dec.option === 7) await page.locator('.seat-screen:not(.hidden) .seat-skip').click()
