@@ -3,11 +3,12 @@
 // seat is held (the landmarks' state, SeatState.lm).
 // Lane N3b (throne balance r2): the bots found a landmass share barely moves with play (seed 61343's realm peaks at 0.52 under
 // every persona; seed 7's from 700 starts at 0.64 Dramatic, met by all, even the one that never decides): Unify is now won by the
-// sword: SEAT.unifyTaken towns taken in the realm's wars since the seat was taken, wars declared on the seat's own order (SeatState.townsTaken), and the realm's share of its
+// sword: SEAT.unifyTaken towns taken in wars the realm declared since the seat was taken (SeatState.townsTaken), the player having
+// led it to war at least once (a war option of its own choosing: SeatState.warChoice), and the realm's share of its
 // landmass (vassals count) kept at least min(unifyShare, its share at the seat's year) - unifyKeep, unifyYears running. Monument is
 // a great work raised in the seat's time and of its doing: a great landmark begun and finished by the realm while the seat is
 // held, following an order of the seat's that leads to it (drivenBy); a town's temple, met by every realm, no longer counts.
-import { AmbitionKind, DEFER_OPTIONS, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind } from '../../../contract.ts'
+import { AmbitionKind, DEFER_OPTIONS, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
@@ -48,6 +49,9 @@ export function drivenBy(s: HistoryState, st: SeatState, kind: number, begun: nu
   return false
 }
 
+/** lane N3b: the options that lead the realm to war (Unify asks for one chosen by the player). */
+const WAR_KEYS: readonly number[] = [SeatOptionKey.Strike, SeatOptionKey.FightOn, SeatOptionKey.JoinWar, SeatOptionKey.Avenge, SeatOptionKey.CallBluff]
+
 /** Ambitions of the year (after the seat is resolved; the seat is held). */
 export function seatAmbitions(s: HistoryState, st: SeatState): void {
   const amb = st.opts.ambitions
@@ -56,11 +60,22 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
   const p = st.polity
   const cap = ps !== null && p >= 0 ? ps.pCapital[p] : -1
   // (lane N3b: towns the realm took in war this year: Conquered events whose town is now the realm's)
-  // (only in a war the realm declared on the seat's own order: the player's wars, not the court's or the neighbours')
+  // (in wars the realm declared; and the seat must have led it to war itself at least once: a war option chosen on a card, not
+  // left to the court, SeatState.warChoice)
   if (ps !== null && p >= 0) for (let e = st.ambSeen; e < s.events.length; e++) {
     const x = s.events[e], w = x.value
     if (x.type !== EventType.Conquered || s.year <= st.opts.from || x.settlement < 0 || x.settlement >= ps.polity.length || ps.polity[x.settlement] !== p) continue
-    if (w >= 0 && w < ps.wAtt.length && ps.wAtt[w] === p && seatOrdered(s, OrderKind.War, p, ps.wDef[w], ps.wStart[w] - SEAT.unifyOrderLead, ps.wStart[w])) st.townsTaken++
+    if (w >= 0 && w < ps.wAtt.length && ps.wAtt[w] === p) st.townsTaken++
+  }
+  if (!st.warChoice && s.orders !== null) {
+    const ox = s.orders
+    for (let i = 0; i < ox.n && !st.warChoice; i++) {
+      if (ox.kind[i] !== OrderKind.Choice || ox.year[i] > s.year || ox.year[i] <= st.opts.from) continue
+      const d = Math.floor(ox.target[i] / 8), o = ox.target[i] % 8
+      if (d < 0 || d + 1 >= st.optStart.length || o === DEFER_OPTIONS.defer) continue
+      const at = st.optStart[d] + o
+      if (at < st.optStart[d + 1] && WAR_KEYS.indexOf(st.optKey[at]) >= 0) st.warChoice = true
+    }
   }
   st.ambSeen = s.events.length
   for (let i = 0; i < amb.length; i++) {
@@ -82,7 +97,7 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         const share = all > 0 ? ours / all : 0
         if (st.share0 < 0) st.share0 = share
         const keep = (st.share0 < SEAT.unifyShare ? st.share0 : SEAT.unifyShare) - SEAT.unifyKeep
-        const now = towns >= SEAT.unifyTowns && st.townsTaken >= SEAT.unifyTaken && share >= keep
+        const now = towns >= SEAT.unifyTowns && st.warChoice && st.townsTaken >= SEAT.unifyTaken && share >= keep
         st.ambitionRun[i] = now ? st.ambitionRun[i] + 1 : 0
         ok = st.ambitionRun[i] >= SEAT.unifyYears
         break

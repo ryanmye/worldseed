@@ -18,8 +18,8 @@ Changelog:
   bringing the General card, Credit coming at a lower need, and the story director telling battles, eruptions, defaults,
   betrayals and bluffs.
 - v6 (2026-11-27, lane/n3 throne slice; written as v4 in the lane, renumbered at the merge after n4b v4 and n1 v5): Rule a kingdom opens Dramatic; the seat dashboard ("Your throne": arms, medallions, ambition picker, 50-year odds, hazards with Why?, the realm's feed, reigns with share links); cards show the news since the last card, "Because you…" lines, named heirs, each option's risk and odds move; Crush is now "Garrison the town" (a real order); card keys are exclusive while a card is shown; reign-end summaries; Authority shows its number.
-- v7 (2026-11-28, lane/n3b throne balance r2): Unify is won by war (10 towns taken in wars you declared, your share of the land held); Monument
-  is a great work of your doing (begun within 40 years of the order that leads to it: a war, a faith, an idea or a crop you
+- v7 (2026-11-28, lane/n3b throne balance r2): Unify is won by war (you lead the realm to war, 8 towns taken in wars it declared, your share of the land held); Monument
+  is a great work of your doing (begun within 60 years of the order that leads to it: a war, a faith, an idea or a crop you
   sought; not the capital's castle or palace, not a town's temple); the Overlord
   card warns when the overlord is about to take the realm whole (Keep paying / Defy / Defy, with an ally); the surfacing
   lane's options (Send relief, Reward the army, Recall the general, Offer terms…) say what follows and move the odds; a
@@ -143,12 +143,12 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   `?seed=42&lang=1&seat=polity:2:700`.
 - **Finding a seat alive at a year:** open `?seed=S&year=Y&play=0` and press `R`. The list is that year's living realms,
   largest first, and the top one is a safe choice. A `seat=` id that is dead at `from` gives a seat that is lost at once.
-- **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify the land by war (lane N3b: take 10 towns
-  in wars you declared yourself since the seat's year (an order you chose on a card, not one left to the court: Strike,
-  Join the war, Avenge it, Call the bluff) and hold your share of the landmass's people, vassals' and tributaries' counting, at
+- **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify the land by war (lane N3b: lead the realm to
+  war yourself at least once (Strike, Fight on, Join the war, Avenge it or Call the bluff chosen on a card, not left to the
+  court), take 8 towns in wars the realm declared since the seat's year, and hold your share of the landmass's people, vassals' and tributaries' counting, at
   most 10 points below your share at the start (or below 60%), 10 years running, with 5 towns of your own), 2 a faith of the
   realm, 3 the richest realm for 25 years, 4 two crowns at once, 5 a great monument of your doing (lane N3b: a great landmark begun and finished by the realm while
-  you hold the seat, within 40 years of your order that leads to it (chosen by you, not left to the court): a victory monument after a war you ordered (Strike,
+  you hold the seat, within 60 years of your order that leads to it (chosen by you, not left to the court): a victory monument after a war you ordered (Strike,
   Join the war, Avenge it, Call the bluff), a great temple or monastery after you embraced a faith, a library, market hall
   or guildhall after you sought an idea or took up a crop; the castle, palace, a mausoleum or a town's temple do not
   count, they come whatever you do). The **first** ambition is

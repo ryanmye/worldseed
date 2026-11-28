@@ -130,15 +130,14 @@ export const SEAT = {
   unifyShare: 0.6, // (lane N3: was 0.8; the bots found it unreachable: seed 61343's realm peaks near 0.5 of its landmass unaided)
   unifyTowns: 5,
   unifyYears: 10,
-  // lane N3b: Unify is won by war: unifyTaken towns taken in the realm's wars since the seat was taken, and the share kept at
-  // least min(unifyShare, the share at the seat's year) - unifyKeep (the bots: shares moved <= 0.08 with any play; 10 towns
-  // and a 10-point margin are met by a warlike persona on 5 of the 6 curated setups and by no passive one)
-  unifyTaken: 10,
+  // lane N3b: Unify is won by war: unifyTaken towns taken in wars the realm declared since the seat was taken, the player
+  // having chosen a war option at least once, and the share kept at least min(unifyShare, the share at the seat's year) -
+  // unifyKeep (the bots, runs/n3b/probe/tune.py: shares moved <= 0.08 with any play; 8 towns are met by 1-2 of 13 runs on
+  // each of the 6 curated setups, never by the cautious or the deferring persona)
+  unifyTaken: 8,
   unifyKeep: 0.1,
-  // lane N3b: a war counts for Unify when the seat ordered it (not deferred) within unifyOrderLead years before it began
-  unifyOrderLead: 10,
-  // lane N3b: Monument: the great work begun within monumentAfter years of the seat's order that leads to it (ambitions.ts drivenBy)
-  monumentAfter: 40,
+  // lane N3b: Monument: the great work begun within monumentAfter years (a lifetime) of the seat's order that leads to it (ambitions.ts drivenBy)
+  monumentAfter: 60,
   richesYears: 25,
   // ---- lane N3 (the throne slice; design defaults, tuned with the bots harness) ----
   // Heir: an heir younger than heirMinAge is never offered by name (the law may still pick the infant: "Let the law decide")

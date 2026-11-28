@@ -3360,11 +3360,11 @@ export type SeatEnd = (typeof SeatEnd)[keyof typeof SeatEnd]
 /** Ambitions the player may set (SeatOptions.ambitions), judged yearly while the seat is held; they change nothing in the run. */
 export const AmbitionKind = {
   Endure: 0, // hold the seat for SEAT.endureYears (300) years from its year
-  Unify: 1, // lane N3b: >= 10 towns taken in the realm's wars since the seat's year, and its share of the capital's landmass's settled people (vassals count) >= min(60%, its share at the seat's year) - 10 points, with >= 5 member towns, for 10 years running
+  Unify: 1, // lane N3b: a war option chosen by the player (not deferred), >= 8 towns taken in wars the realm declared since the seat's year, and its share of the capital's landmass's settled people (vassals count) >= min(60%, its share at the seat's year) - 10 points, with >= 5 member towns, for 10 years running
   Faith: 2, // a universal faith founded in a member town, or the state faith's holy city in the realm
   Riches: 3, // the richest realm (the sum of member wealth) for 25 years running
   Union: 4, // the house holds two thrones at once (a personal union, or two realms ruled by it)
-  Monument: 5, // a great landmark begun and finished by the realm while the seat is held, within 40 years of the seat's order that leads to it (a war: a victory monument; a faith: a great temple or monastery; an idea or crop: a library, market hall or guildhall; lane N3b, seat/ambitions.ts drivenBy)
+  Monument: 5, // a great landmark begun and finished by the realm while the seat is held, within 60 years of the seat's order that leads to it (a war: a victory monument; a faith: a great temple or monastery; an idea or crop: a library, market hall or guildhall; lane N3b, seat/ambitions.ts drivenBy)
 } as const
 export type AmbitionKind = (typeof AmbitionKind)[keyof typeof AmbitionKind]
 /** AmbitionKind rows 0-5 (seat); 6-15 character-mode (registry §3.2). */

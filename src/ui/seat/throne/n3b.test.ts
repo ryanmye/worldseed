@@ -36,7 +36,7 @@ describe('throne balance r2 (lane N3b)', () => {
   })
 
   it('the ambitions say what they need (Unify by war, Monument raised in the seat\'s time)', () => {
-    expect(AMBITIONS.find((a) => a.label === 'Unify the land')!.goal).toMatch(/towns in wars you declare/)
+    expect(AMBITIONS.find((a) => a.label === 'Unify the land')!.goal).toMatch(/towns in wars it declares/)
     expect(AMBITIONS.find((a) => a.label === 'A great monument')!.goal).toMatch(/in your time/)
   })
 
