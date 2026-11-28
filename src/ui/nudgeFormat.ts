@@ -219,12 +219,24 @@ export const orderYears = (o: Order) => ORDER_KINDS[o.kind]?.years ?? 0
  * The one-line story of order k of `h` (final, as the run ends): "The Krakinoth, urged to explore toward the Chakan Nain,
  * send an expedition from Songailsak that reaches it in 1010".
  */
+/**
+ * lane N3d: order k is a throne's command (it follows a seat Choice record of the same year in h.orders, as the seat controller
+ * writes them: contract decisionOrders), not a nudge: the inspector said "Nudge: Kidezi, urged to raise walls" for a garrison.
+ */
+export function isSeatOrder(h: History, k: number): boolean {
+  const O = h.orders
+  if (!O || !h.seat || k < 0 || k >= O.length || O[k].kind === OrderKind.Choice) return false
+  for (let j = k - 1; j >= 0 && O[j].year === O[k].year; j--) if (O[j].kind === OrderKind.Choice) return true
+  return false
+}
+const urged = (h: History, k: number) => (isSeatOrder(h, k) ? 'ordered' : 'urged')
+
 export function orderStory(h: History, k: number): string {
   const o = h.orders?.[k]
   if (!o) return ''
   if (o.kind === OrderKind.Choice) return choiceStory(h, o.target ?? -1) // seat: a record of the player's choice
   const r = h.orderOutcomes?.[k]
-  const ask = `${cap(actorWords(h, o))}, urged to ${urgePhrase(h, o)}`
+  const ask = `${cap(actorWords(h, o))}, ${urged(h, k)} to ${urgePhrase(h, o)}`
   if (!r) return `${ask} in ${o.year}`
   const yr = r.year
   switch (r.status) {
@@ -258,7 +270,7 @@ export function describeOrderEvent(h: History, e: HistoryEvent): string | null {
   const o = h.orders?.[e.value]
   if (!o) return 'An order'
   if (o.kind === OrderKind.Choice) return choiceStory(h, o.target ?? -1) // seat: the choice, phrased by its decision
-  if (t === ORDER_GIVEN) return `${cap(actorWords(h, o))} ${plural(o) ? 'are' : 'is'} urged to ${urgePhrase(h, o)}`
+  if (t === ORDER_GIVEN) return `${cap(actorWords(h, o))} ${plural(o) ? 'are' : 'is'} ${urged(h, e.value)} to ${urgePhrase(h, o)}`
   return orderStory(h, e.value)
 }
 
@@ -270,7 +282,7 @@ export function describeOrderEventFor(h: History, e: HistoryEvent, id: number): 
   if (!o) return 'An order'
   const line = describeOrderEvent(h, e) ?? ''
   if (t === ORDER_FULFILLED && e.settlement !== id && e.other === id) return `Played its part: ${line}`
-  return `Nudge: ${line}`
+  return `${o.kind === OrderKind.Choice || isSeatOrder(h, e.value) ? 'By the throne’s order' : 'Nudge'}: ${line}`
 }
 
 /** Chronicle category of an order event: Politics and war for the state's and the town's orders, Trade and exploration for the people's. */

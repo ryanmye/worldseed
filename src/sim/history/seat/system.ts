@@ -13,7 +13,7 @@ import type { SeatState } from './state.ts'
 import { seatAmbitions } from './ambitions.ts'
 import { DEFER_OPTIONS, OrderKind } from '../../../contract.ts'
 import { DeferenceCause, addDeference, deferBlame, deferenceTaken, reclaimPower } from '../rulers/deference.ts'
-import { SEAT } from './params.ts'
+import { deferCost } from './params.ts'
 
 /**
  * The year's Choice records (given this year): a deferral feeds the decision polity's deference (less for a divisive matter,
@@ -34,7 +34,7 @@ export function seatChoices(s: HistoryState, st: SeatState): void {
     if (d < 0 || d >= st.dYear.length) continue
     const p = st.dPolity[d], o = t & 7
     if (o === DEFER_OPTIONS.defer) {
-      addDeference(s, p, 1 - SEAT.deferDivisive * st.dDiv[d], DeferenceCause.Player)
+      addDeference(s, p, deferCost(st.dDiv[d]), DeferenceCause.Player)
       if (st.dDiv[d] >= 0.5) deferBlame(s, p, st.dDiv[d], st.dKind[d])
     } else if (o === DEFER_OPTIONS.reclaim) reclaimPower(s, p)
     else deferenceTaken(s, p)

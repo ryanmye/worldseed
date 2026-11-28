@@ -12,6 +12,7 @@ import type { History } from '../../../contract.ts'
 import { HUD, HUD_N } from '../../../sim/history/seat/hud.ts'
 import { SEAT } from '../../../sim/history/seat/params.ts'
 import { reignAt } from './heirs.ts'
+import { spokenNameAt } from '../../../sim/names/spoken.ts'
 
 export { HUD, HUD_N }
 
@@ -57,6 +58,37 @@ export interface HudModel {
   oddsTrend: -1 | 0 | 1
   /** "Age is not a risk": the explicit note. */
   ageNote: string
+  /** lane N3d: why the odds moved by ODDS_WHY or more since the decision before ('' otherwise). */
+  oddsWhy: string
+}
+
+/** lane N3d: a move of the 50-year odds this large (0..1) between two decisions is explained (play-test #2: ±30 with no word). */
+export const ODDS_WHY = 0.1
+
+/**
+ * "Why the odds fell (75% → 42%): mostly the chance of a contested succession (the ruler is 61)": the hazard whose value at the
+ * decision before would undo most of the move (each part put back alone, the rest as now).
+ */
+export function oddsWhy(r: ArrayLike<number>, p0: ArrayLike<number>, age: number): string {
+  const now = oddsOfRow(r), was = oddsOfRow(p0)
+  if (!(Math.abs(now - was) >= ODDS_WHY)) return ''
+  const parts: [string, number[]][] = [
+    ['the overthrow hazard', [HUD.Overthrow]],
+    [`the chance of a contested succession${age >= 0 ? ` (the ruler is ${age})` : ''}`, [HUD.Contest, HUD.DeathYear]],
+    ['towns that may break away', [HUD.Breakaway, HUD.LostShare]],
+    ['the war', [HUD.WarLoss]],
+    ['the crown’s debts', [HUD.Default]],
+    [r.length > HUD.Crisis && r[HUD.Crisis] > 0 ? 'an open crisis at court' : 'the crisis at court, now over', [HUD.Crisis]],
+  ]
+  let best = '', gain = 0
+  for (const [label, idx] of parts) {
+    const x = Array.from(r)
+    for (const i of idx) if (i < x.length && i < p0.length) x[i] = p0[i]
+    const g = Math.abs(oddsOfRow(x) - now)
+    if (g > gain) { gain = g; best = label }
+  }
+  if (!best) return ''
+  return `Why the odds ${now < was ? 'fell' : 'rose'} (${pct(was)} → ${pct(now)}): mostly ${best}.`
 }
 
 const pct = (x: number) => `${x < 0.01 && x > 0 ? '<1' : Math.round(x * 100)}%`
@@ -170,7 +202,15 @@ export function hudModel(h: History, d: number, year: number): HudModel | null {
   }
   if (r.length > HUD.Crisis && r[HUD.Crisis] > 0) hazards.push({ key: 'crisis', label: 'An open crisis', yearly: 0, text: `${pct(CRISIS_RISK)} it ends in civil war`, trend: -1, change: '', why: 'A succession crisis or a regency is open: it may end in civil war or a partition (a rough figure, counted once in the odds). Placating the court ends it.' })
   if (Number.isFinite(r[HUD.Default])) hazards.push(hz('default', 'Crown default', r[HUD.Default], before(HUD.Default), `The crown defaults when the interest due passes what it can bear or the army goes unpaid for years: the interest is now ${pct(r[HUD.DebtService])} of that.`))
-  hazards.push(hz('revolt', 'A town breaks away', r[HUD.Breakaway] || 0, before(HUD.Breakaway), `Towns past the point of rising rise with ${yrPct(r[HUD.Revolt] || 0)} between them; a rising wins against the capital's reach this often.`))
+  {
+    // (lane N3d: the towns named, and what moves it: the play-test's "Why?" named no town and no lever)
+    const towns = [HUD.BreakTown1, HUD.BreakTown2].map((i) => (r.length > i && r[i] >= 0 ? r[i] : -1)).filter((i) => i >= 0 && i < h.settlements.length).map((i) => spokenNameAt(h, i, y))
+    const b = r[HUD.Breakaway] || 0
+    const why = b <= 0
+      ? 'No town of the realm is restive enough to rise now.'
+      : `Towns past the point of rising: together ${yrPct(r[HUD.Revolt] || 0)} that one rises, and ${yrPct(b)} that a rising wins and the town breaks away${towns.length ? `. Likeliest: ${towns.join(' and ')}` : ''}. Gold for the restive (Placate, Send relief) calms them; a garrison holds a town that rose; raising taxes stirs them.`
+    hazards.push(hz('revolt', 'A town breaks away', b, before(HUD.Breakaway), why))
+  }
   if ((r[HUD.WarLoss] || 0) > 0 || (before(HUD.WarLoss) || 0) > 0) hazards.push(hz('war', 'A war lost badly', r[HUD.WarLoss] || 0, before(HUD.WarLoss), 'From the believed strength of the strongest enemy at war (a rough estimate).'))
   if (Number.isFinite(r[HUD.Psi])) hazards.push({ key: 'psi', label: 'Elite pressure (Ψ)', yearly: 0, text: r[HUD.Psi].toFixed(2), trend: trendOf(r[HUD.Psi], before(HUD.Psi), false, 0.01), change: arrow(r[HUD.Psi], before(HUD.Psi), 0.01, (x) => x.toFixed(2)), why: 'Society: too many would-be lords for too few posts. It feeds the hazards above (it is not counted again in the odds).' })
   const odds = oddsOfRow(r)
@@ -178,6 +218,7 @@ export function hudModel(h: History, d: number, year: number): HudModel | null {
   const founded = P?.foundedYear ?? y
   return {
     year: y, d, realm, realmAge: y - founded, rulerAge: ruler ? y - ruler.born : -1, meters, hazards,
+    oddsWhy: p0 ? oddsWhy(r, p0, ruler ? y - ruler.born : -1) : '',
     odds, oddsText: `${pct(odds)}`, oddsTrend: trendOf(odds, ob, true, 0.005), oddsChange: arrow(odds, ob, 0.005, pct),
     ageNote: `${realm} has stood ${y - founded} years. Age is not a risk: states do not die of old age.`,
   }

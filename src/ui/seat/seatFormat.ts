@@ -1,6 +1,6 @@
 // seat: words for the decision cards (decisionCard.ts) and for the seat in the Chronicle and Legend (seat-mode §6.3-6.4).
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
-import { DEFER_OPTIONS, DecisionKind, DisasterKind, EventType, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
+import { AccessionHow, BondKind, DEFER_OPTIONS, DecisionKind, DisasterKind, EventType, OrderKind, ReignEnd, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
@@ -8,6 +8,7 @@ import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
 import { disasterTitle, volcanoName } from '../disastersFormat.ts'
 import { heirOptionLabel, heirsLine } from './throne/stakes.ts' // lane N3: named heirs
 import { SEAT } from '../../sim/history/seat/params.ts'
+import { HUD, HUD_N } from '../../sim/history/seat/hud.ts'
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -129,9 +130,55 @@ function polityIdAt(h: History, id: number, year: number): number {
 /** Card title: "War is declared on us: Vosk". */
 export function decisionTitle(h: History, d: number): string {
   const D = h.seat!.decisions
+  const info = D.info?.[d] ?? -1
+  // lane N3d: the throne taken by the sword, or the ruler fallen in battle (Crisis info 1000 + the ReignEnd cause); a town broken away
+  if (D.kind[d] === DecisionKind.Crisis && info >= 1000) {
+    const { old, now } = throneChange(h, d)
+    if (info === 1000 + ReignEnd.Battle) return `Fallen in battle: ${old ? rulerTitleOf(old) : 'the ruler'}`
+    return `A new house seizes the throne${now ? `: ${now.name}` : ''}`
+  }
+  if (D.kind[d] === DecisionKind.Revolt && info === 2) return `A town breaks away: ${townWord(h, D.subject[d], D.year[d])}`
   const s = subjectWord(h, D.kind[d], D.subject[d], D.year[d], D.polity[d])
   const label = DK[D.kind[d]]?.label ?? 'A decision'
   return s ? `${label}: ${s}` : label
+}
+
+const ROMAN = ['', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
+type RulerRow = NonNullable<History['rulers']>[number]
+const rulerTitleOf = (r: RulerRow) => `${r.female ? 'Queen' : 'King'} ${r.name}${r.regnal > 1 ? ` ${ROMAN[r.regnal - 1] ?? r.regnal}` : ''}`
+/** lane N3d: the reign of decision d's realm that ended in its year (by force or in battle), and the one that began. */
+export function throneChange(h: History, d: number): { old: RulerRow | null; now: RulerRow | null } {
+  const D = h.seat!.decisions
+  const y = D.year[d], p = D.polity[d], R = h.rulers ?? []
+  let old: RulerRow | null = null, now: RulerRow | null = null
+  for (const r of R) {
+    if (r.polity !== p) continue
+    if (r.ended === y && (r.end === ReignEnd.Battle || r.end === ReignEnd.Deposed || r.end === ReignEnd.Overthrown)) old = r
+    if (r.acceded === y) now = r
+  }
+  return { old, now }
+}
+/** lane N3d: "our own tributary" / "our own vassal" when q bows to p at `year` ('' otherwise). */
+function boundTo(h: History, p: number, q: number, year: number): string {
+  const B = h.bonds
+  if (!B) return ''
+  for (let i = 0; i < B.count; i++) {
+    if (B.a[i] !== q || B.b[i] !== p || B.startYear[i] > year || (B.endYear[i] >= 0 && B.endYear[i] < year)) continue
+    if (B.kind[i] === BondKind.Vassal) return 'our own vassal'
+    if (B.kind[i] === BondKind.Tribute) return 'our own tributary'
+  }
+  return ''
+}
+/** lane N3d: the treasury in words at decision d (HUD row: Treasury, Debt), for the war-chest cards. */
+function treasuryWords(h: History, d: number): string {
+  const D = h.seat!.decisions
+  const r = D.hud && D.hud.length >= (d + 1) * HUD_N ? D.hud.subarray(d * HUD_N, (d + 1) * HUD_N) : null
+  const t = r ? r[HUD.Treasury] : NaN, db = r ? r[HUD.Debt] : NaN
+  if (!Number.isFinite(t)) return 'A war must be paid for, and the treasury cannot carry a long one alone.'
+  if (t < 0) return 'The treasury is empty and the soldiers’ pay is already behind.'
+  if (t >= 3 && !(db >= 0.5)) return `The treasury holds ${t.toFixed(1)} years of revenue and owes little: it can pay for a while, but a long war empties any chest.`
+  if (t >= 1) return `The treasury holds ${t.toFixed(1)} years of revenue${db >= 0.5 ? `, and the crown owes ${db.toFixed(1)}× its revenue` : ''}: a long war will need more.`
+  return 'The treasury is nearly empty: the soldiers’ pay will fall behind.'
 }
 
 /** Two short lines of situation, from what the seat's people knows. */
@@ -149,8 +196,27 @@ export function decisionSituation(h: History, d: number): string {
     }
     case DecisionKind.Crisis: {
       // (lane N3: the cause told; the same words no longer come back: seat/watch.ts repeats)
-      const why = D.info?.[d]
+      const why = D.info?.[d] ?? -1
+      if (why >= 1000) {
+        // lane N3d: the throne changed by force or in battle
+        const { old, now } = throneChange(h, d)
+        const heir = now ? `${rulerTitleOf(now)}, aged ${y - now.born}` : 'an heir'
+        if (why === 1000 + ReignEnd.Battle) {
+          const minor = old !== null && y - old.born < 16
+          let q = -1 // (the enemy: the Sue for peace option's target)
+          for (let o = D.optStart[d]; o < D.optStart[d + 1]; o++) if (D.optKey[o] === SeatOptionKey.SuePeace && D.orderStart[o + 1] > D.orderStart[o]) q = D.orderTarget[D.orderStart[o]]
+          const war = q >= 0 ? ` in the war with ${otherWord(h, q, D.polity[d])}` : ''
+          const fell = old ? `${rulerTitleOf(old)} ${minor ? 'was killed in the fighting' : 'fell in battle'}${war}, aged ${y - old.born}${minor ? ', though a regency ruled for the child' : ''}.` : `The ruler of ${us} fell in battle${war}.`
+          return `${fell} The crown passes to ${heir}${now && y - now.born < 16 ? ', and a regency rules for the child' : ''}. The court is in mourning and the army waits for orders.`
+        }
+        const how = why === 1000 + ReignEnd.Overthrown ? 'was overthrown and killed' : 'was driven from the throne'
+        return `${old ? rulerTitleOf(old) : `The ruler of ${us}`} ${how}: ${now ? `${now.name}, of a new house,` : 'a usurper'} has seized the throne of ${us}. The old house’s friends are many; the lords wait to see whether the usurper holds.`
+      }
       if (why === EventType.Regency) return `A child sits on the throne of ${us}, and a regency rules in the child's name. The magnates jostle for the regent's ear.`
+      // (lane N3d: the play-test's "succession disputed" when the lawful heir had taken the throne by right)
+      const now = (h.rulers ?? []).filter((r) => r.polity === D.polity[d] && r.acceded <= y && (r.ended < 0 || r.ended >= y)).pop()
+      if (now && now.acceded >= y - 1 && now.how === AccessionHow.Inherited) return `${rulerTitleOf(now)} took the throne of ${us} by right, but a rival of the house claims it: magnates take sides and the provinces wait to see who wins.`
+      if (now && now.acceded >= y - 1 && now.how === AccessionHow.Usurped) return `${now.name} has seized the throne of ${us}, and the lawful heir claims it: magnates take sides and the provinces wait to see who wins.`
       return `The succession of ${us} is disputed: magnates take sides and the provinces wait to see who wins.`
     }
     case DecisionKind.General: return `The army is restless after the wars, and its general is spoken of as a better ruler than ${name}.`
@@ -166,19 +232,39 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Opening: return D.info?.[d] === 1 ? `${capFirst(name)} is weaker than we are along the border, and at peace with us. The war party says it will never be weaker.` : `${name} is in turmoil: its court is divided and its levies uncertain. Our forces at the border are the stronger.`
     case DecisionKind.Plague: return `${capFirst(name)} has reached ${at}. The sick fill the streets; the ships still come in.`
     case DecisionKind.Faith: return `Many in ${us} now follow ${name}, but the ruler keeps the old faith.`
-    case DecisionKind.Revolt: return D.info?.[d] === 1 ? `${name} rose against the crown and was put down. Its people are sullen; it may rise again.` : `${name} has risen against the crown. The garrison holds for now.`
+    case DecisionKind.Revolt: {
+      if (D.info?.[d] === 2) {
+        // lane N3d: the rising won and the town left the realm (play-test #2: "Stateless" with no word of it)
+        const S0 = h.settlements.length, q = h.polity ? h.polity[Math.max(0, Math.min(h.snapshotCount - 1, Math.ceil((y + 1) / h.snapshotInterval))) * S0 + subj] : -1 // (the snapshot after the rising)
+        const where = q >= 0 && q !== D.polity[d] ? `it is part of ${otherWord(h, q, D.polity[d])} now` : 'it governs itself now'
+        return `${capFirst(name)} rose against the crown and broke away: ${where}. The other towns of ${us} are watching.`
+      }
+      return D.info?.[d] === 1 ? `${capFirst(name)} rose against the crown and was put down. Its people are sullen; it may rise again.` : `${capFirst(name)} has risen against the crown. The garrison holds for now.`
+    }
     case DecisionKind.Frontier: return `Explorers came home to ${at} with tales of lands no one of ours has seen.`
     case DecisionKind.Crop: return `Traders tell of ${name}, grown by the people of ${at}. Our fields have never known it.`
     case DecisionKind.Idea: return `At ${at} they have ${name}. Our scholars know of it only by report.`
     // surfacing (the merged systems' cards)
     case DecisionKind.Default: return `The crown of ${us} has stopped paying its lenders. The houses that lent to it are ruined or angry, and no one will lend again soon.`
-    case DecisionKind.WarChest: return `The war with ${name} must be paid for. The soldiers' pay falls behind, or soon will, and the treasury cannot carry it alone.`
+    case DecisionKind.WarChest: {
+      // (lane N3d: who began it, a tributary or vassal named as such, and the treasury as the HUD reads it: the play-test's
+      // "cannot carry it alone" beside 6 years of revenue and no debt)
+      const bound = boundTo(h, D.polity[d], subj, y)
+      const them = bound ? `${name}, ${bound}` : name
+      const lead = D.info?.[d] === 1 ? `Our court has declared war on ${them}.` : `The soldiers fighting ${them} have gone unpaid.`
+      return `${lead} ${treasuryWords(h, d)}`
+    }
     case DecisionKind.Battle: {
       const b = battleSide(h, subj, D.polity[d])
       if (!b) return `Our army has fought ${name}.`
+      const dead = b[3] >= 5 ? `, and some ${roundMen(b[3])} dead on the field` : ', and few dead'
+      // (lane N3d: no "broke … the road lies open" for a siege we laid and lost: the attacker falls back, a defender's road opens)
+      const att = h.battles!.attacker[subj] === D.polity[d]
       return b[0]
-        ? `Our army won ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}, and some ${roundMen(b[3])} dead on the field. The enemy is shaken.`
-        : `Our army broke at ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}, and some ${roundMen(b[3])} dead on the field. The road to ${at} lies open.`
+        ? `Our army won ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}${dead}. The enemy is shaken; the war goes on.`
+        : att
+          ? `Our army was beaten at ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}${dead}. It falls back, and the war goes on.`
+          : `Our army broke at ${name}: about ${roundMen(b[1])} of ours against ${roundMen(b[2])}${dead}. The enemy holds the field, and the war goes on.`
     }
     case DecisionKind.Bluff: return polityIdAt(h, D.place[d], y) === D.polity[d] // (the card is told at our capital when the bluff was ours)
       ? `${capFirst(name)} has seen through our show of strength: the musters were thinner than we let it believe.`
@@ -202,6 +288,12 @@ export function optionExpects(h: History, d: number, option: number): string {
   const kind = D.orderKind[D.orderStart[o]]
   const n = D.orderStart[o + 1] - D.orderStart[o]
   const info = OK[kind]
+  const key = D.optKey[o]
+  // (lane N3d: a key that gives an older order other words says only its own (stakes.ts LIKELY): relief is not "an open crisis
+  // ends"; Borrow in a war is not "a war chest even in peace"; Purge on a usurper's throne is the old house's men, not a general)
+  if (key === SeatOptionKey.SendRelief || key === SeatOptionKey.RewardArmy || key === SeatOptionKey.RecallGeneral) return ''
+  if (kind === OrderKind.Borrow && (D.kind[d] === DecisionKind.WarChest || D.kind[d] === DecisionKind.Battle)) return 'The treasury borrows to pay for the war, if lenders will lend.'
+  if (kind === OrderKind.Purge && D.kind[d] === DecisionKind.Crisis) return 'The old house’s captains and friends at court are broken: no one rises against the new throne while it holds, but the army is weaker.'
   return (info?.effect ?? '') + (n > 1 && kind === OrderKind.Quarantine ? ` (${n} ports)` : '')
 }
 
@@ -216,6 +308,7 @@ export function optionLabel(h: History, d: number, option: number): string {
     return `Name the heir born in ${born} (aged ${D.year[d] - born})${option === 0 ? ', the law’s choice' : ''}`
   }
   if (D.kind[d] === DecisionKind.General && D.optKey[o] === SeatOptionKey.Honour) return 'Honour him' // (lane N3: a general, not a treaty)
+  if (D.kind[d] === DecisionKind.Crisis && D.optKey[o] === SeatOptionKey.Purge) return 'Purge the old court' // (lane N3d: a usurper's throne)
   return OPTION_LABEL[D.optKey[o]] ?? 'Choose'
 }
 

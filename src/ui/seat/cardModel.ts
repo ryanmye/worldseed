@@ -4,7 +4,7 @@
 // (or, for `key`, the option's glyph, which the card draws from the key; `option`, the index the click sends).
 import { DEFER_OPTIONS } from '../../contract.ts'
 import type { History } from '../../contract.ts'
-import { SEAT } from '../../sim/history/seat/params.ts'
+import { SEAT, deferCost } from '../../sim/history/seat/params.ts'
 import { deciderButton, deciderName } from './decider.ts'
 import { decisionSituation, decisionTitle, optionExpects, optionLabel, optionMeta } from './seatFormat.ts'
 import type { OptionTint } from './seatFormat.ts'
@@ -63,9 +63,11 @@ export function authorityOf(h: History, d: number): CardModel['authority'] {
   const p = D.polity[d]
   const dv = h.deference && p >= 0 && p < h.deference.count ? h.deference.value[p] : 0
   const auth = Math.max(0, 1 - dv / SEAT.deferFull)
-  const cost = (1 - SEAT.deferDivisive * D.divisive[d]) / SEAT.deferFull
+  const cost = deferCost(D.divisive[d]) / SEAT.deferFull // (lane N3d: what seat/system.ts adds)
   const body = deciderName(h, h.seat!.seat, D.year[d])
-  const why = `Authority: how far the realm still waits on you. Each matter you leave to ${body} lowers it (less for a divisive one, whose blame they bear); each decision you take restores it. Low, ${body} rule in all but name, and the throne is less safe. Your court grows used to ruling without you.`
+  // (lane N3d: the cost is what the next year takes; the meter then recovers a fiftieth of what is lost each year and a tenth with
+  // each decision you take, so the next card may show a little less: play-test #2 read "−8" and then saw −6)
+  const why = `Authority: how far the realm still waits on you. Each matter you leave to ${body} lowers it, routine business least, a grave matter most (its blame they bear). It recovers a little each year, and each decision you take yourself restores a tenth of what is lost. Low, ${body} rule in all but name, and the throne is less safe.`
   return { value: auth, cost, body, why }
 }
 
@@ -84,13 +86,15 @@ export function decisionCardModel(h: History, d: number, n: number, total: numbe
   }
   const words = deciderButton(h, h.seat!.seat, D.year[d])
   const pickLabel = optionLabel(h, d, D.courtPick[d])
-  const hint = D.divisive[d] >= 0.5 ? 'A divisive matter: the blame will fall on them.' : 'Routine business: the court grows used to ruling without you.'
+  const hint = D.divisive[d] >= 0.5 ? 'A grave matter: the blame will fall on them, but the realm sees you stand aside.' : 'Routine business: little authority is lost by leaving it.'
   // lane N3: what came of earlier choices, and the realm's news, since the previous card
   let prev = -1
   for (let x = d - 1; x >= 0; x--) if (D.year[x] < D.year[d]) { prev = D.year[x]; break }
   const since = prev >= 0 ? prev : h.seat!.seat.from
-  const callbacks = callbacksAt(h, D.year[d], since).map((c) => ({ d: c.d, text: c.text }))
-  const news = D.polity[d] >= 0 ? realmNews(h, D.polity[d], since, D.year[d]).map((n) => n.text) : []
+  // (lane N3d: decision 2 of 2 does not tell the same news again: the first card of the year has it)
+  const first = n <= 1
+  const callbacks = first ? callbacksAt(h, D.year[d], since).map((c) => ({ d: c.d, text: c.text })) : []
+  const news = first && D.polity[d] >= 0 ? realmNews(h, D.polity[d], since, D.year[d]).map((x) => x.text) : []
   return {
     callbacks, news, hud: hudModel(h, d, D.year[d]), ambition: ambitionLine(h, D.year[d]),
     d,

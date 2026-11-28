@@ -20,7 +20,7 @@
 // Surfacing (EVALUATION §4 Lane 1) adds the merged systems' cards, each from an event of the year and with existing orders
 // only (mergedCards): Default and WarChest (finance), Battle (battles), Bluff and Intelligence (beliefs), Disaster, AllyCalls
 // and Betrayed (oaths), Commune (city-states), ColdWar, Houses (families); a renowned general of the realm brings General.
-import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
+import { AccessionHow, BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, ReignEnd, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import { FAR, projAt } from '../polity/state.ts'
@@ -160,15 +160,47 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
         break
       }
       case EventType.Revolt: {
-        if (ps === null || p < 0 || !memberOf(ps, x.settlement, p) || !knownTown(s, k, x.settlement) || cap < 0) break
+        // (lane N3d: a rising that won took the town out of the realm: it is told as a breakaway, info 2, whoever holds it now)
+        if (ps === null || p < 0 || x.settlement < 0 || x.settlement >= ps.polity.length || x.other !== cap || !knownTown(s, k, x.settlement) || cap < 0) break
         // (lane N3: Crush is a real order now, a garrison: the risen town walled and held; the court's own course is Ignore)
         const crushed = e + 1 < E && ev[e + 1].type === EventType.RevoltCrushed && ev[e + 1].settlement === x.settlement ? 1 : 0
-        cards.push({ kind: DecisionKind.Revolt, subject: x.settlement, place: x.settlement, info: crushed, options: [
+        const gone = !crushed && !memberOf(ps, x.settlement, p)
+        if (!gone && !memberOf(ps, x.settlement, p)) break
+        const now = ps.polity[x.settlement]
+        cards.push({ kind: DecisionKind.Revolt, subject: x.settlement, place: x.settlement, info: gone ? 2 : crushed, options: gone ? [
+          { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
+          ...(now >= 0 && now !== p && ps.pEnded[now] < 0 && contacted(s, ps, k, now) ? [{ key: SeatOptionKey.Strike, orders: [[OrderKind.War, p, now] as O] }] : []),
+          { key: SeatOptionKey.Fortify, orders: [[OrderKind.Fortify, cap, -1]] },
+          { key: SeatOptionKey.Ignore, orders: [] },
+        ] : [
           { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
           { key: SeatOptionKey.Fortify, orders: [[OrderKind.Fortify, cap, -1]] },
           { key: SeatOptionKey.Crush, orders: [[OrderKind.Fortify, x.settlement, -1]] },
           { key: SeatOptionKey.Ignore, orders: [] },
         ] })
+        break
+      }
+      case EventType.ReignEnded: {
+        // lane N3d (play-test #2: a coup by a new house and two kings killed in battle came with no card): the throne taken by a
+        // usurper (deposed or overthrown), or the ruler fallen in battle, is a Crisis of its own (info 1000 + the ReignEnd cause)
+        const R = s.rul
+        if (ps === null || p < 0 || R === null || x.value < 0 || x.value >= R.rPolity.length || R.rPolity[x.value] !== p || p >= R.pcap) break
+        const cause = x.extra ?? -1
+        const r = R.cur[p]
+        if (cause === ReignEnd.Battle) {
+          const q = strongestFoe(ps, p)
+          cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, info: 1000 + cause, options: [
+            ...(q >= 0 && contacted(s, ps, k, q) ? [{ key: SeatOptionKey.SuePeace, orders: [[OrderKind.Peace, p, q] as O] }] : []),
+            { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
+            { key: q >= 0 ? SeatOptionKey.FightOn : SeatOptionKey.Endure, orders: [] },
+          ] })
+        } else if ((cause === ReignEnd.Deposed || cause === ReignEnd.Overthrown) && r >= 0 && r !== x.value && R.rHow[r] === AccessionHow.Usurped && R.rAcc[r] === s.year) {
+          cards.push({ kind: DecisionKind.Crisis, subject: p, place: cap, info: 1000 + cause, options: [
+            { key: SeatOptionKey.Placate, orders: [[OrderKind.Placate, p, -1]] },
+            { key: SeatOptionKey.Purge, orders: [[OrderKind.Purge, p, -1]] },
+            { key: SeatOptionKey.Endure, orders: [] },
+          ] })
+        }
         break
       }
       case EventType.Alliance: {
@@ -255,6 +287,12 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
 const polOf = (ps: PolityState, id: number): number => (id >= 0 && id < ps.polity.length ? ps.polity[id] : -1)
 /** The other side of war w from p (-1 when p is not in it). */
 const enemyIn = (ps: PolityState, w: number, p: number): number => (w < 0 || w >= ps.wAtt.length ? -1 : ps.wAtt[w] === p ? ps.wDef[w] : ps.wDef[w] === p ? ps.wAtt[w] : -1)
+/** lane N3d: the largest realm p is at war with now (-1). */
+function strongestFoe(ps: PolityState, p: number): number {
+  let best = -1
+  for (const w of ps.activeWars) { const q = enemyIn(ps, w, p); if (q >= 0 && ps.pEnded[q] < 0 && (best < 0 || ps.pPop[q] > ps.pPop[best])) best = q }
+  return best
+}
 
 /**
  * The merged systems' cards (surfacing lane), from the year's events: what the court would hear of (its own battles, its
@@ -294,8 +332,10 @@ function mergedCards(s: HistoryState, st: SeatState, ps: PolityState, p: number,
         const w = x.value
         if (w < 0 || w >= ps.wAtt.length) break
         // WarChest (finance): the realm declared a war, which must be paid for
-        if (s.fin !== null && ps.wAtt[w] === p && !off(st, s, DecisionKind.WarChest) && contacted(s, ps, k, ps.wDef[w])) {
-          cards.push({ kind: DecisionKind.WarChest, subject: ps.wDef[w], place: cap, options: [
+        // (lane N3d: a war the realm's court declared comes whatever the cooldown and the gap, info 1: play-test #2 met a war on
+        // its own tributary with no word of it; the same enemy again within SEAT.repeatYears is not)
+        if (s.fin !== null && ps.wAtt[w] === p && contacted(s, ps, k, ps.wDef[w])) {
+          cards.push({ kind: DecisionKind.WarChest, subject: ps.wDef[w], place: cap, info: 1, options: [
             { key: K.Borrow, orders: [[OK.Borrow, p, -1]] },
             { key: K.Levy, orders: [levy] },
             { key: K.Retrench, orders: [] },
@@ -321,7 +361,9 @@ function mergedCards(s: HistoryState, st: SeatState, ps: PolityState, p: number,
         const side = bs.bAtt[b] === p ? 0 : bs.bDef[b] === p ? 1 : -1
         if (side < 0 || bs.bMenA[b] + bs.bMenD[b] < SEAT.battleMen) break
         const q = side === 0 ? bs.bDef[b] : bs.bAtt[b]
-        if (!contacted(s, ps, k, q)) break
+        // (lane N3d: no card for a battle of a war that has ended by the year's end: "Fight on" after the peace was the play-test's)
+        const bw = bs.bWar[b]
+        if (!contacted(s, ps, k, q) || !(bw >= 0 && bw < ps.wEnd.length && ps.wEnd[bw] < 0) || !atWar(ps, p, q)) break
         const won = bs.bWinner[b] === side
         const cmd = side === 0 ? bs.bCmdA[b] : bs.bCmdD[b]
         const opts: Option[] = won
@@ -522,6 +564,7 @@ const off = (st: SeatState, s: HistoryState, kind: number): boolean => s.year - 
 export function coolOf(st: SeatState, kind: number, info = -1): number {
   const a = st.opts.ambitions?.[0]
   if (kind === DecisionKind.Overlord && info === 1) return SEAT.absorbEvery
+  if (kind === DecisionKind.WarChest && info === 1) return 0 // (lane N3d: each war the realm declares; repeats() keeps one enemy to one card)
   if (kind === DecisionKind.Opening && a === AmbitionKind.Unify) return SEAT.openCoolUnify
   return SEAT.cool[kind]
 }
@@ -715,8 +758,9 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
     if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
     if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
-    if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
-    if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
+    const urgent = URGENT.indexOf(c.kind) >= 0 || (c.kind === DecisionKind.WarChest && c.info === 1) // (lane N3d: a war of our own declaring)
+    if (!urgent && s.year - st.lastCard < SEAT.minGap) continue
+    if (!urgent && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
     seenKind.add(c.kind)
@@ -735,6 +779,8 @@ function repeats(st: SeatState, year: number, c: Card): boolean {
   const span = c.kind === DecisionKind.Crisis ? SEAT.crisisRepeat : SEAT.repeatYears
   for (let d = st.dYear.length - 1; d >= 0 && year - st.dYear[d] <= span; d--) {
     if (st.dKind[d] !== c.kind || st.dSubject[d] !== c.subject) continue
+    // (lane N3d: a coup or a ruler fallen in battle, Crisis info >= 1000, is a matter of its own: only the same again is a repeat)
+    if (c.kind === DecisionKind.Crisis && ((c.info ?? -1) >= 1000 || (st.dInfo[d] ?? -1) >= 1000)) { if ((st.dInfo[d] ?? -1) === (c.info ?? -1)) return true; continue }
     if (c.kind === DecisionKind.Crisis || c.kind === DecisionKind.Heir || (st.dInfo[d] ?? -1) === (c.info ?? -1)) return true
   }
   return false

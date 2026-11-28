@@ -69,8 +69,11 @@ export const HUD = {
   EnemyRatio: 23,
   /** 1 while a succession crisis or a regency is open (the court knows it is in one; not how long it will last). */
   Crisis: 25,
+  /** lane N3d: the two towns likeliest to break away (settlement ids by their expected people lost; -1 none): the hazard's "Why?" names them. */
+  BreakTown1: 26,
+  BreakTown2: 27,
 } as const
-export const HUD_N = 26
+export const HUD_N = 28
 
 const C2H: C2HazardFactors = {}
 
@@ -113,6 +116,7 @@ export function hudRow(s: HistoryState, p: number, out: number[], at: number): v
   // (the revolt pass runs every POLITY.step years: its chance per pass, made yearly)
   const ch = c2RevoltChance(UNREST.chance, pm !== undefined ? C2H : undefined) / POLITY.step // (per year, to first order: no Math.pow in src/sim)
   let lost = 0
+  let t1 = -1, t2 = -1, v1 = 0, v2 = 0
   const sup0 = cap >= 0 ? 1 : 0
   for (const i of s.living) {
     if (i >= ps.polity.length || ps.polity[i] !== p || s.outpost[i]) continue
@@ -126,8 +130,12 @@ export function hudRow(s: HistoryState, p: number, out: number[], at: number): v
     const sup = projAt(ps, p, ps.dist[i] < FAR ? ps.dist[i] : FAR)
     const win = (rb * rb) / (rb * rb + sup * sup + 1e-12)
     stayBreak *= 1 - ch * win
-    lost += ch * win * s.pop[i]
+    const v = ch * win * s.pop[i]
+    lost += v
+    if (v > v1) { t2 = t1; v2 = v1; t1 = i; v1 = v } else if (v > v2) { t2 = i; v2 = v }
   }
+  out[at + HUD.BreakTown1] = t1
+  out[at + HUD.BreakTown2] = t2
   out[at + HUD.Towns] = towns
   out[at + HUD.Pop] = pop
   out[at + HUD.Unrest] = pop > 0 ? wu / pop / UNREST.revolt : 0
