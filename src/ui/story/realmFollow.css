@@ -45,11 +45,13 @@
   color: var(--text, #fff);
 }
 html.compact .tl-realm {
-  max-width: 120px;
+  max-width: 84px;
+  padding-left: 6px;
+  font-size: 10px;
 }
 html.compact .tl-realm-x {
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 28px;
+  min-height: 28px;
 }
 /* the Factions detail's button, beside Take this throne */
 .realm-follow {
