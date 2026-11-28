@@ -144,6 +144,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   let realmWanted = deps.initialRealm ?? -1
   let realmExplicit = realmWanted >= 0 || realmWanted === REALM_AUTO
   let worldDrama: StaticDrama | null = null
+  /** The story the director's plan tells (-1 the world's, else the realm's polity). */
+  let planStory = -1
   let worldPlan: StoryPlan | null = null
   /** The entry years of the story told (the realm's own entries, else the chronicle's). */
   const yearsOf = (): Float64Array | null => (realm ? realm.years : index ? index.notableYear : null)
@@ -817,6 +819,10 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       }
     }
     director.setPacing(true, realm ? REALM_PACE : undefined)
+    // (another story (the world's, or another realm's): its entries are not the old plan's, so nothing in progress carries on)
+    const storyId = realm ? realm.polity : -1
+    if (storyId !== planStory) director.setPlan(null)
+    planStory = storyId
     director.setPlan(plan)
     strip.setData(drama, yearsOf(), plan ? plan.beatYear : null, plan ? plan.beatScore : null, plan ? plan.beatEntry : null)
     if (director.on) deps.timeline.setBeats(plan ? plan.beatYear : null, plan ? plan.beatProminence : null, promUnitOf(plan))
