@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 4 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 5 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -24,6 +24,11 @@ Changelog:
   avoids Keep paying (the realm's end) and Endure, Unify and aggressive take Defy, with an ally; cautious takes it by the
   risk table (0.5, below Defy's 0.9 and Keep paying's 0.95). Greedy Unify now placates a town that rose (Placate 2, as its
   new hint says: towns lost to risings undo the towns won in war).
+- v5 (2026-11-28, lane/n3c, primer v8): stances on the patronage card (A full treasury: Commission a monument / Retrench).
+  Greedy Monument commissions (5: the ambition's own lever) and keeps the peace while it rises (its old stances); every
+  other goal keeps the coin (Endure, Unify, Faith, Union -1; Riches -2) and aggressive retrenches (-2: the war chest is not
+  for masons); cautious retrenches by the risk table (Retrench 0.3 below Commission 0.45). The harness reports why a
+  greedy Monument run did not reach its ambition (no card, commissioned but stopped and why, or still building).
 
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with
