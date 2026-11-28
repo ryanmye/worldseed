@@ -237,8 +237,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     - A cold war (ColdWar): Seek an ally / Raise taxes / Fortify the capital / Endure
     - The merchant houses take sides (Houses; families): Placate them / Fortify the capital / Ignore it
   - A full treasury (Patronage; lane N3c, seat/watch.ts patronageCard): every 5 years at peace, or the year a war of yours ends
-    in your favour, when no great work of yours is under way and the treasury holds one and a half down payments. **Commission
-    a monument** (the button names the work and the town: a victory monument at the capital after a war won within 25 years, a
+    in your favour, when no great work of yours is under way and the treasury holds one and a half down payments.
+    **Commission a monument** (the button names the work and the town: a victory monument at the capital after a war won within 25 years, a
     great temple of the crown's faith where the town follows it, a great library where your people write, else a market hall;
     in the capital, or a town of at least 2,000 people and half the capital's) / Retrench. It costs 2 years of the crown's
     revenue at once and a quarter of a year's every year it is building (unpaid, the work stops); it takes years (a monument
