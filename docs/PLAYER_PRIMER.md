@@ -202,9 +202,9 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
 - **Defer** ("Do nothing — let <body> decide", or `Esc`): the deciding body takes the option a cautious court would. The
   button names it ("They would choose: …"). The body can be your court, the elders, the regent's council (only while the
   ruler is a minor), the league's council or the family (decider.ts). Each deferral lowers Authority by
-  (0.35 + 0.65 × divisiveness) / 5 (lane N3d: SEAT.deferMin, deferCost, deferFull): about 8 for routine business (a new
-  idea or crop, a match), about 18 for a grave matter (a crisis, the succession, a faith), whose blame then falls on the
-  body. The "Because you left it to …" lines name the body that decided (the regent's council, not always the court). Each
+  (0.2 + 0.4 × divisiveness) / 5 (lane N3d: SEAT.deferMin, deferSpan, deferCost, deferFull): about 5 for routine business
+  (a new idea or crop, a match), about 11 for a grave matter (a crisis, the succession, a faith), whose blame then falls on
+  the body. The "Because you left it to …" lines name the body that decided (the regent's council, not always the court). Each
   decision you take yourself restores some. At low Authority the body rules in all
   but name: only urgent cards come (war on us, a crisis, plague, a battle, a default, a disaster, an ally's call, a betrayal, a city breaking free), the throne is less safe and successions are more contested. A Crisis card may then
   offer **Reclaim power**, which is risky.

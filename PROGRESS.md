@@ -16,3 +16,9 @@ Probe: runs/n3d/tools/probe.ts <seed> <seat> <preset> <persona> <span> <out.txt>
 DONE. Results: runs/n3d/compare.txt, compare-n3b.txt; g0.log OK x6; realism.log 0.325->0.325 46/104; tests-final.log 64/64; build OK. Shots /home/claude/eval/n3d/.
 ## Note
 Coordinator: N4d (follow-a-realm) may supersede the seated-camera change; kept minimal (plan.ts seat focus option + storyView).
+
+## Bisect (coordinator, after report): Dramatic oldpower2 lost 6 -> 9/13
+- worktrees /home/claude/wsx-n3d-bis{a,b,c}: a = 2fa2410 game + personas v5; b = n3d game + personas v4; c = n3d game + old deferral cost
+- runs: runs/n3d/bisect/{a,b,c} via run.sh dramatic <out> <wt> oldpower2 (resumable); summarize: python3 runs/n3b/compare.py runs/n3b/r4 runs/n3d/bisect/X
+- bisect result (Dramatic oldpower2 lost/13): before 6; a 6 (identical runs: personas v5 change nothing on n3b's game); b 8; c 8; after 9. Skilled (cautious+greedy) survive 4/7 in before and after. No loss within 15 y of a coup/fallen/breakaway card (no traps); losses are overlord wars decades later (divergence).
+- tuning: deferCost 0.2 + 0.4 d (was 0.35 + 0.65 d); re-acceptance -> runs/n3d/after2 (runs/n3d/bots2.sh, resumable)
