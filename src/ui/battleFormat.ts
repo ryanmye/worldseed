@@ -254,7 +254,7 @@ export function groundWords(fl: number, kind: number, height: 'att' | 'def' | nu
   if (fl & BattleFlag.Wood) g.push('woods')
   if (fl & BattleFlag.Marsh) g.push('marsh')
   if (fl & BattleFlag.Coast) g.push('the shore')
-  let s = g.length ? g.join(', ') : kind === BattleKind.Siege ? 'the walls' : kind === BattleKind.Naval ? 'open sea' : height ? 'sloping ground' : 'open ground'
+  let s = g.length ? g.join(', ') : kind === BattleKind.Siege ? 'the walls' : kind === BattleKind.Naval ? 'open sea' : 'open ground'
   if (kind === BattleKind.Siege && g.length) s = `the walls, ${s}`
   if (height && kind !== BattleKind.Naval) s += height === 'att' ? ', sloping down from the attackers' : ', rising toward the defenders'
   if (kind !== BattleKind.Naval && kind !== BattleKind.Siege) s += fl & BattleFlag.GroundByDefender ? '; the defenders chose it' : '; the attackers chose it'

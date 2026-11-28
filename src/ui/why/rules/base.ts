@@ -477,7 +477,7 @@ function battleCauses(ix: CauseIndex, i: number): Cand[] {
   const w = B.war[b]
   if (w >= 0 && w < (h.wars?.count ?? 0)) out.push(rec(warKey(w), 'R2'))
   const d = decidingCause(h, b)
-  if (d) out.push(cond('battle.decided', i, y, B.target[b], d, 1, d, 'rec:battles.course', WhyTier.Recorded))
+  if (d) out.push(cond('battle.decided', i, y, B.target[b], d, 1, '', 'rec:battles.course', WhyTier.Recorded))
   const att = polName(ix, B.attacker[b]), def = polName(ix, B.defender[b])
   const to = placeName(ix, B.target[b], y)
   const march = B.kind[b] === BattleKind.Siege ? `${att} laid siege to ${to}`
@@ -485,7 +485,7 @@ function battleCauses(ix: CauseIndex, i: number): Cand[] {
     : B.kind[b] === BattleKind.Naval ? `the fleet of ${att} sailed against ${def}'s port of ${to}`
     : B.kind[b] === BattleKind.Landing ? `${att} came over the sea against ${to}`
     : `${att} marched${B.from[b] >= 0 ? ` from ${placeName(ix, B.from[b], y)}` : ''} on ${def}'s town of ${to}${B.counter[b] ? ', striking back' : ''}`
-  out.push(cond('battle.march', i, y, B.from[b] >= 0 ? B.from[b] : B.target[b], march, 0.6, march, 'rec:battles.from', WhyTier.Recorded))
+  out.push(cond('battle.march', i, y, B.from[b] >= 0 ? B.from[b] : B.target[b], march, 0.6, '', 'rec:battles.from', WhyTier.Recorded))
   return out
 }
 

@@ -572,6 +572,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     if (trade) trade.object.visible = tradeVisible && !on
     polities.setTradeVisible(tradeVisible && !on)
     journeys?.setExpeditionsVisible(expeditionsVisible && !on)
+    if (roads) roads.object.visible = roadsVisible && !on
     if (discoveries) discoveries.mesh.visible = expeditionsVisible && !on
     requestRender()
   }
@@ -1710,7 +1711,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         structures.setTime(year, pulseYears)
         structures.update(deps.camera, drawSize, pixelRatio)
       }
-      if (journeys && journeysVisible) {
+      if (journeys && journeysVisible && !quiet) {
         // a trail's bright head decays like the pulse (but stays local at high speed); its thread lingers longer
         journeys.setTime(year, Math.min(HEAD_MAX_YEARS, pulseYears), Math.min(THREAD_MAX_YEARS, Math.max(THREAD_MIN_YEARS, 2 * pulseYears)))
         journeys.update(deps.camera, drawSize, pixelRatio)
@@ -1719,7 +1720,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         roads.setTime(year)
         roads.update(deps.camera, drawSize, pixelRatio)
       }
-      if (trade && tradeVisible) {
+      if (trade && tradeVisible && !quiet) {
         trade.setRoadsShown(roads !== null && roadsVisible)
         trade.update(deps.camera, drawSize, pixelRatio)
         trade.setTime(year, timeline.playing, timeline.speed)
@@ -1748,8 +1749,8 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
       speciesView.tick(year)
       if (dioramas) {
         dioramas.setStructuresVisible(structuresVisible)
-        dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible)
-        dioramas.setTraders(trade ? trade.merchants : null, tradeVisible)
+        dioramas.setTravellers(journeys ? journeys.groups : null, journeysVisible && !quiet)
+        dioramas.setTraders(trade ? trade.merchants : null, tradeVisible && !quiet)
         dioramas.setBridges(roads ? roads.placements : null, roadsVisible)
         dioramas.setTime(year, pulseYears * 0.6)
         dioramas.update(deps.camera)
