@@ -8,11 +8,7 @@ Brief: plans/_LANE_BRIEF.md. Before = runs/n3b/r4 (main == n3b final code).
 - [x] S2 card: DecisionKind 113 Patronage + option key 169 Commission; stakes, callbacks, HUD feed; primer v8
 - [x] S3 personas v5 (greedy:Monument uses it) + metrics outcome reason
 - [x] S4 bots acceptance (3 seats x 2 presets x 13 runs) -> runs/n3c/r1
-- [ ] S5 gates, merge origin/main, push
+- [x] S5 gates (origin/main 2fa2410, nothing new to merge): G0 OK x6, full hashes = main's; typecheck+build OK; 15 files/66 tests OK; realism 0.325 -> 0.325, 46/104
 
 ## Current
-- r2 done (runs/n3c/r2): Monument 4/1/1/4/2/0 (dram fowinlan/kelurair/oldpower2, real fowinlan/kelurair/oldpower2); always-defer never. summarize: python3 runs/n3c/summarize.py runs/n3b/r4 runs/n3c/r2
-- S5: origin/main has nothing new (2fa2410); final gates: bash runs/n3c/final.sh (g0-final.log, build-final.log, tests-final.log, realism.log, final.done)
-
-## Next commands
-bash /home/claude/runs/n3c/final.sh ; then push and report
+DONE (report sent).
