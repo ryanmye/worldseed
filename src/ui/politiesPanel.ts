@@ -647,7 +647,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       // lane N4d: Follow the story locked on this realm (its smaller events too)
       const fol = document.createElement('button')
       fol.type = 'button'
-      fol.className = 'seat-take realm-follow'
+      fol.className = 'realm-follow'
       fol.textContent = 'Follow this realm'
       fol.title = 'Follow the story of this realm: its rulers, towns, battles, buildings and troubles (× or Esc follows the world again)'
       const p = selected

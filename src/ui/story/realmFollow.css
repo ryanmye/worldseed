@@ -53,7 +53,15 @@ html.compact .tl-realm-x {
 }
 /* the Factions detail's button, beside Take this throne */
 .realm-follow {
-  margin: 4px 6px 4px 0;
+  margin: 6px 6px 6px 0;
+  min-height: 44px;
+  padding: 0 12px;
+  background: rgba(255, 214, 138, 0.1);
+  color: #ffd68a;
+  border: 1px solid rgba(255, 214, 138, 0.4);
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
 }
 /* the chronicle's realm toggle */
 .chr-realm {
