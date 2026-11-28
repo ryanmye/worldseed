@@ -19,8 +19,12 @@ Goals: 1 Unify reachable; 2 Monument harder; 3 old-power Dramatic 40-60% surviva
 
 - [x] S11 old power seat dead post-N5 (Thotakor conquered 981 in Dramatic): candidates runs/n3b/oldcand (oldcand.sh seed:pol:year); chosen seed 1 polity:1:1080 (skilled 4/7, random 2/4, defer lost)
 - [x] S12 own-order rule (seatOrdered): Unify towns only in wars the seat declared; Monument's order not a deferral
-- [ ] S13 final bots r3 -> runs/n3b/r3 (+ base-out oldpower2 on base worktree); then compare.py runs/n3b/base-out runs/n3b/r3; realism:check; final merge origin/main
+- [x] S13 bots r3 -> runs/n3b/r3 (+ base-out oldpower2 on base worktree); then compare.py runs/n3b/base-out runs/n3b/r3; realism:check; final merge origin/main
+- [x] S14 Unify tuned (8 towns in wars the realm declared + a war option chosen by the player); Monument window 60 y
+- [x] S15 final bots r4 -> runs/n3b/r4; before = runs/n3b/base-out (origin/main 9d00a3e, personas v3); compare: python3 runs/n3b/compare.py runs/n3b/base-out runs/n3b/r4
+- [x] S16 final: origin/main 9d00a3e merged (no newer); G0 OK x6 (runs/n3b/g0-final.log); typecheck, build OK; tests 83/83 (runs/n3b/tests-final.log); realism:check OK 0.325 -> 0.325, 46/104 -> 46/104 (runs/n3b/realism.log)
 ## Current
+DONE (report sent).
 S13 r3 running (r3-*.out).
 S7 bots r1 running (nohup runs/n3b/run.sh). G0 OK x6 pre-n5 (runs/n3b/g0-1.log).
 Old: S1 Unify. Finding (realistic-kelurair): share peaks 0.52 passively ~790, greedy:1's wars then LOWER it (0.34 by 850); 0.6 never hit by any persona. Probing other setups: runs/n3b/probe/*.txt
