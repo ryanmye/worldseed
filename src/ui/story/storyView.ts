@@ -694,6 +694,12 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     // (the first playback to the end of the initial history is the timeline's intro, at its own faster rate: following
     // ends it, and playback goes on at the chosen speed)
     if (on && deps.timeline.intro) deps.timeline.setSoftStop(null)
+    // lane N4d: a realm not founded yet: its story starts at its founding
+    if (on && realm && history) {
+      const pd = politiesOf(history)
+      const f0 = pd ? pd.list[realm.polity].foundedYear : 0
+      if (deps.timeline.year < f0 - 2) deps.timeline.setYear(Math.max(0, f0 - 2))
+    }
     director.setOn(on)
     deps.timeline.setBeats(on && plan ? plan.beatYear : null, on && plan ? plan.beatProminence : null, promUnitOf(plan))
     deps.setUrlParam('follow', on ? (realm ? `realm:${realm.polity}` : '1') : null)
