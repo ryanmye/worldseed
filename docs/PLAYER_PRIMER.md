@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 8 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 9 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -26,14 +26,18 @@ Changelog:
   reign's share link keeps only that reign's choices; Keep an old great power alive is now seed 1's Uhulaun from 1080; and opens at its year; the ambition picker asks before it restarts
   the reign; on a phone the throne's tab opens with the first card; three new story arcs (the uncle on the throne, the
   child king, the provinces rise).
-- v8 (2026-11-28, lane/n3d, fixes from AI play-test #2): a coup by a new house and a ruler fallen in battle come as cards
+- v8 (2026-11-28, lane/n4d follow a realm): **Follow this realm** on a faction's detail in Factions, "or follow one
+  realm" under Watch history unfold on the start page, `follow=realm:<id>` (and `realm:auto`) in the address; the realm
+  chip on the timeline (× or `Esc` follows the whole world again); the realm's own smaller events as beats, "Meanwhile"
+  notes for the world's greatest, the camera kept on the realm; the story passes to a successor when the realm ends;
+  the chronicle's "Only <realm>" toggle; seated, Follow follows your own realm.
+- v9 (2026-11-28, lane/n3d, written as v8 in the lane, renumbered after n4d's v8; fixes from AI play-test #2): a coup by a new house and a ruler fallen in battle come as cards
   (A new house seizes the throne; Fallen in battle); a town that rose and broke away comes as a Revolt card ("A town breaks
   away") and a feed line; a war your own court declares always comes (The war chest, naming a tributary as such, with the
   treasury as it stands); no After the battle card once the war is over; leaving routine business costs less Authority than
   leaving a grave matter; risk words on the succession card are one scale; a line says why the odds moved by 10 points or
   more; the breakaway hazard's Why? names the towns and the levers; decision 2 of 2 does not repeat the news; named heirs'
-  deaths are news; epithets vary and "Child-king" needs a crowned minor; the dashboard is a column's width; while seated,
-  Follow favours your own realm; the inspector says "By the throne's order" for your orders. Orders are dated the year
+  deaths are news; epithets vary and "Child-king" needs a crowned minor; the dashboard is a column's width; the inspector says "By the throne's order" for your orders. Orders are dated the year
   after their card (by design, below). Also: Space twice if playback stalls; SwiftShader timings; seat names.
 
 ## 1. Starting a world
@@ -111,8 +115,20 @@ Changelog:
   jump there: playback pauses, following lets go, and the strongest story at the peak gets a caption, a pin and a
   camera flight. **Resume** (or Space and a moment's wait) goes on from there.
 - The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
-- **Following one realm:** select it in Factions. The director gives the selection's stories a focus bonus (storyView
-  `focus`).
+- **Follow this realm** (lane N4d, ui/story/realmFollow.ts): the faction detail in Factions has a **Follow this realm**
+  button (living realms); the start page has **or follow one realm** under Watch history unfold (the run's greatest
+  long-lived realm, from its founding); the address `follow=realm:<id>` (or `follow=realm:auto`) opens with it. Follow
+  then tells that realm's own story, smaller events included: its rulers' accessions and deaths, heirs, marriages,
+  revolts, towns founded, grown and lost, buildings and landmarks, ideas and faith, battles of any size, debts, plagues,
+  floods and quakes in its towns, merchant houses and charters. The world's greatest events elsewhere come now and then as
+  a **Meanwhile** caption, without a flight. The camera stays on the realm (its capital, or the event's town, in daylight);
+  quiet stretches fast-forward more gently (2.5×). The timeline shows a **realm chip** with the realm's name: its **×**,
+  or `Esc`, follows the whole world again. When the realm ends, the story passes to its successor (the conqueror, the
+  state that kept the capital, or its largest heir) and the chip says so ("The story passes to X"); with none, Follow goes
+  back to the world. While following a realm the chronicle lists only its entries (**Only <realm>** above the list; untick
+  it for the whole world), Factions shows the realm's card, and the drama strip shows the realm's own peaks. Share links
+  keep `follow=realm:<id>`. **Seated**, Follow follows your own realm (and the realm the seat holds next) unless you chose
+  another or pressed ×. Without it, selecting a faction only gives its stories a focus bonus in the world's story.
 
 ## 4. Panels
 
@@ -282,8 +298,7 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   that stir them), the realm's age (not a risk: states do not die of old age), **Your realm** (successions, coups, rulers
   fallen in battle, wars begun and ended, towns that broke away, named heirs who died, what came of your choices, towns
   lost, centuries passed) and the past **Reigns** with share links. Lane N3d: the dashboard is a column 320 px wide; it no
-  longer covers the globe. While you are seated, **Follow** favours your own realm's stories (storyView seat focus) and
-  your realm's great events become story notices more readily. "Take this throne" is hidden while
+  longer covers the globe. "Take this throne" is hidden while
   you are seated. The drama strip over the timeline marks the seated span and each card's year in blue. On a phone the
   sheet opens the **Your throne** tab (half height) at the reign's first card (lane N3b).
 - **What you can know:** cards describe what your realm's people know (the fog). A bot or play-tester must judge only from

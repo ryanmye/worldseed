@@ -80,7 +80,7 @@ export interface LandingDeps {
   /** Start: begin the history of `seed`, `years` long (the hand-over then runs through frame()); `path` the play path chosen (onboarding). */
   onStart(seed: number, years: number, path?: string): void
   /** onboarding (ui/onboard.ts PLAY_PATHS): the ways to start, in place of the one Start button; returns false to keep the page (a path that leaves it, e.g. for a seat link). */
-  paths?: readonly { path: string; label: string; hint: string; primary?: boolean }[]
+  paths?: readonly { path: string; label: string; hint: string; primary?: boolean; alt?: { path: string; label: string; hint: string } }[]
   /** onboarding: a path that does not start this world here (true: handled, the page stays until the browser leaves it). */
   onPath?(path: string, seed: number, years: number): boolean
   /** The planet's slot scrolled into or out of view (the slow turn pauses while it is out). */
@@ -239,6 +239,15 @@ export function createLanding(deps: LandingDeps): Landing {
       b.innerHTML = ''
       b.append(el('span', 'landing-path-label', p.label), el('span', 'landing-path-hint', p.hint))
       pathBox.appendChild(b)
+      if (p.alt) {
+        // lane N4d: "or follow one realm" under Watch history unfold
+        const a = el('button', 'landing-path-or')
+        a.type = 'submit'
+        a.value = p.alt.path
+        a.title = p.alt.hint
+        a.textContent = p.alt.label
+        pathBox.appendChild(a)
+      }
     }
   }
   form.append(fields, presetField, pathBox ?? start, plantBtn, throne)

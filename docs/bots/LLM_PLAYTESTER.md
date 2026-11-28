@@ -1,7 +1,7 @@
 # LLM play-tester (occasional; never in CI)
 
 An expensive smoke and review tool. A Claude subagent plays through Playwright from screenshots and DOM text and reports
-qualitative observations next to the scripted bots' metrics. Version 2 (lane/n3d), used with PLAYER_PRIMER v8 and PERSONAS v5.
+qualitative observations next to the scripted bots' metrics. Version 2 (lane/n3d), used with PLAYER_PRIMER v9 and PERSONAS v6.
 
 ## How to run
 1. Start the app in the worktree on a free port, e.g. `npx vite --port <PORT> --strictPort` (or `npm run build` then

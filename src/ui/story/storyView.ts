@@ -14,7 +14,7 @@ import { EventType, settlementNameAt, type History, type World } from '../../con
 import { surfaceRadius } from '../../render/globe.ts'
 import type { CameraFly } from '../../render/cameraFly.ts'
 import type { Chronicle } from '../chronicle.ts'
-import type { HistoryIndex } from '../historyIndex.ts'
+import { EntryKind, type HistoryIndex } from '../historyIndex.ts'
 import type { LayerToggle } from '../overlay.ts'
 import type { Timeline } from '../timeline.ts'
 import { decadeOf, generateSaga, type SagaSubject } from '../sagas/index.ts'
@@ -25,7 +25,7 @@ import { OMEN_T } from '../sagas/omens.ts'
 import { addShortcut } from '../shortcuts.ts'
 import { loadFlag, saveFlag } from '../panels.ts'
 import { buildStaticDrama, createDramaCtx, DRAMA_CAT_NAMES, type StaticDrama } from './drama.ts'
-import { beatKept, buildStoryPlan, STORY, type StoryPlan } from './plan.ts'
+import { beatKept, buildStoryPlan, type StoryPlan } from './plan.ts'
 import { createDirector, DIRECTOR, DirectorState, type Director } from './director.ts'
 import { SUN_DIRECTION, SunMode, sunState } from '../../render/sun.ts'
 import { flat } from '../../render/mapProjection.ts'
@@ -36,6 +36,12 @@ import { contextChanged, registerContext } from '../contextPanel.ts'
 import { createDramaStrip } from './dramaStrip.ts'
 import { arcEntries, findArcs } from './arcs.ts'
 import { createStoryCard, type CaptionMore, type StoryCard } from './storyCard.ts'
+import { buildRealmStory, defaultRealm, EntryKindR, REALM_AUTO, REALM_PACE, type RealmStory } from './realmFollow.ts' // lane N4d: follow one realm
+import { createRealmChip } from './realmChip.ts'
+import { describeEvent } from '../format.ts'
+import { withEventNames } from '../renamingData.ts'
+import { promUnitOf } from './plan.ts'
+import { capitalAt, politiesOf } from '../politiesData.ts'
 
 export interface StoryViewDeps {
   /** The overlay root (the card and notices go in it). */
@@ -67,6 +73,11 @@ export interface StoryViewDeps {
   play?(): void
   /** ui-additions 2: the right column, where the story's battle is the context panel while it is told (absent: none). */
   contextHost?: HTMLElement
+  /** lane N4d: the realm followed changed (-1: the whole world): the chronicle's realm filter (its entries), the context
+   * panel's realm card. */
+  onRealm?(polity: number, entries: Int32Array | null, name: string, changed: boolean): void
+  /** lane N4d: follow=realm:<id> from the address (null: none). */
+  initialRealm?: number | null
 }
 
 export interface StoryView {
@@ -84,6 +95,14 @@ export interface StoryView {
   setFollowOnShow(on: boolean): void
   /** The current plan and static scores (tests, perf=1 tools). */
   debug(): { plan: StoryPlan | null; drama: StaticDrama | null }
+  /**
+   * lane N4d: follow one realm (its own smaller events; the world's greatest as "meanwhile" notes), turning Follow on; null
+   * follows the whole world again. Seated, Follow follows the seat's realm unless the player chose otherwise (the seat
+   * lanes call this through historyView.followRealm).
+   */
+  followRealm(polity: number | null): void
+  /** The realm followed (-1: the whole world). */
+  readonly realm: number
 }
 
 /** One symbol per category for the notices. */
@@ -119,6 +138,31 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   let plan: StoryPlan | null = null
   let focusKey = ''
   let focus = new Set<number>()
+  // lane N4d: the realm followed (its story replaces the world's while set), the world's own drama and plan
+  let realm: RealmStory | null = null
+  /** The realm asked for (-1 none); 'seat': the seat's realm while seated, unless the player chose (explicit). */
+  let realmWanted = deps.initialRealm ?? -1
+  let realmExplicit = realmWanted >= 0 || realmWanted === REALM_AUTO
+  let worldDrama: StaticDrama | null = null
+  /** The story the director's plan tells (-1 the world's, else the realm's polity). */
+  let planStory = -1
+  let worldPlan: StoryPlan | null = null
+  /** The entry years of the story told (the realm's own entries, else the chronicle's). */
+  const yearsOf = (): Float64Array | null => (realm ? realm.years : index ? index.notableYear : null)
+  /** Entry `entry` of the story told, worded (a realm entry: its event's chronicle line when that is its own, else the event's line). */
+  const describeEntry = (entry: number, year: number) => {
+    if (!realm) return deps.chronicle.describe(entry, year)
+    const k = realm.worldEntry[entry]
+    const h = history!
+    const rep = realm.drama.rep[entry]
+    // (the chronicle's line when its entry is this event alone or the realm's own group (a succession, its risings, a
+    // conversion): an entry that gathers the world's foundings or trade of a decade is worded from the event itself)
+    const own = (kd: number) => kd === EntryKind.Single || kd === EntryKind.Rulers || kd === EntryKind.Faiths || kd === EntryKind.Revolts
+    if (k >= 0 && index && (realm.kind[entry] === EntryKindR.Meanwhile || index.notableOffsets[k + 1] - index.notableOffsets[k] === 1 || own(index.notableKind[k]))) return deps.chronicle.describe(k, year)
+    if (rep < 0) return null
+    const e = h.events[rep]
+    return { year: String(e.year), text: withEventNames(e.year, () => describeEvent(h, e)), target: e.settlement }
+  }
   const reduceQuery = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
   const reducedMotion = () => reduceQuery?.matches ?? false
 
@@ -251,7 +295,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   /** The caption of entry `entry` told at `year`. */
   function captionOf(entry: number, year: number, cell: number, scale: number) {
     const h = history!
-    const line = deps.chronicle.describe(entry, year)
+    const line = describeEntry(entry, year)
     const rep = drama!.rep[entry]
     const legend = deps.legend()
     let scene: Scene | null = null
@@ -281,7 +325,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     const be = rep >= 0 ? h.events[rep] : null
     const battle = be && (be.type as number) === EventType.BattleFought && deps.openBattle && h.battles && be.value >= 0 && be.value < h.battles.count ? be.value : -1
     return {
-      eyebrow: `${DRAMA_CAT_NAMES[drama!.cat[entry]] ?? 'Story'} · ${yearText}`,
+      eyebrow: realm && realm.kind[entry] === EntryKindR.Meanwhile ? `Meanwhile · ${yearText}` : `${DRAMA_CAT_NAMES[drama!.cat[entry]] ?? 'Story'} · ${yearText}`,
       title: scene?.title ?? line?.text ?? '',
       body: scene ? scene.text : '',
       more: () => moreOf(subject, year, scene && line && scene.title !== line.text ? line.text : ''),
@@ -300,7 +344,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   function shareMoment(year: number) {
     const url = new URL(window.location.href)
     url.searchParams.set('year', String(Math.max(0, Math.floor(year) - 5)))
-    url.searchParams.set('follow', '1')
+    url.searchParams.set('follow', realm ? `realm:${realm.polity}` : '1')
     url.searchParams.delete('intro')
     const text = url.toString()
     const nav = navigator as Navigator & { share?: (d: { url: string; title?: string }) => Promise<void> }
@@ -316,6 +360,12 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   function heartCell(year: number, ahead = HEART_AHEAD): number {
     const h = history
     if (!h || h.settlements.length === 0) return -1
+    // lane N4d: following a realm, its capital
+    if (realm) {
+      const pd = politiesOf(h)
+      const cap = pd ? capitalAt(pd, realm.polity, year) : -1
+      if (cap >= 0) return h.settlements[cap].cell
+    }
     const N = h.settlements.length
     const s = Math.max(0, Math.min(h.snapshotCount - 1, Math.round(Math.min(h.years, year + ahead) / h.snapshotInterval)))
     let best = -1, bestPop = 0
@@ -423,6 +473,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     const Y = history.battles.year
     for (const b of topBattles) {
       if (replayed.has(b)) continue
+      if (realm && history.battles.attacker[b] !== realm.polity && history.battles.defender[b] !== realm.polity) continue // lane N4d
       if (Y[b] > prev && Y[b] <= year + 1e-6) {
         replay(b, true)
         return
@@ -435,18 +486,20 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     if (!p || !h) return 0
     const speed = deps.timeline.speed
     const base = Math.max(1e-6, speed * DIRECTOR.yps1x)
-    const k = Math.min(DIRECTOR.ffFactor, Math.max(1, DIRECTOR.ffMaxYps / base))
-    const quiet = Math.max(DIRECTOR.ffYears * Math.max(1, speed), (DIRECTOR.leadSeconds + 3 * DIRECTOR.ffEase) * base * k)
+    const pc = realm ? REALM_PACE : DIRECTOR // lane N4d
+    const k = Math.min(pc.ffFactor, Math.max(1, DIRECTOR.ffMaxYps / base))
+    const quiet = Math.max(pc.ffYears * Math.max(1, speed), (DIRECTOR.leadSeconds + 3 * DIRECTOR.ffEase) * base * k)
     const gapTime = (g: number) => (k > 1.05 && g > quiet ? (g - 4.5 * base) / (k * base) + 4.5 : g / base)
     let t = 0
     let at = year
+    const endY = realm ? Math.min(h.years, realm.endYear) : h.years
     for (let b = 0; b < p.beatYear.length; b++) {
       const y = p.beatYear[b]
       if (y < at || y > h.years || !beatKept(p, b, speed)) continue
       t += gapTime(y - at) + DIRECTOR.dwellSeconds + DIRECTOR.slowOut
       at = y + DIRECTOR.dwellSeconds * DIRECTOR.dwellSlow * base
     }
-    if (h.years > at) t += gapTime(h.years - at)
+    if (endY > at) t += gapTime(endY - at)
     return t
   }
   let progressClock = 1
@@ -580,7 +633,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     const h = history
     let best = -1
     if (h && drama && index) {
-      const NY = index.notableYear
+      const NY = yearsOf()!
       // the peak's year is the strip's smoothed maximum: look a few years either side of it
       const lo = y - 4, hi = y + 10
       let a = 0, b = NY.length
@@ -595,7 +648,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     if (best < 0 || !h || !drama || !index) {
       deps.timeline.setYear(Math.min(y, deps.timeline.years))
     } else {
-      const ey = index.notableYear[best]
+      const ey = yearsOf()![best]
       deps.timeline.setYear(Math.min(Math.ceil(ey), deps.timeline.years))
       const cell = drama.cell[best], scale = drama.scale[best]
       if (cell >= 0) flyTo(cell, Math.min(DIRECTOR.dist[scale] ?? 2.3, 2.3), reducedMotion() ? 0 : 1.2)
@@ -633,12 +686,24 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
 
   function setFollow(on: boolean) {
     if (on && !plan) return
+    // lane N4d: seated, Follow follows the seat's realm (unless the player chose)
+    if (on && !director.on && !realmExplicit && seatRealm(deps.timeline.year) >= 0 && (realm?.polity ?? -1) !== seatRealm(deps.timeline.year)) {
+      setRealm(seatRealm(deps.timeline.year), false)
+      if (!plan) return
+    }
     // (the first playback to the end of the initial history is the timeline's intro, at its own faster rate: following
     // ends it, and playback goes on at the chosen speed)
     if (on && deps.timeline.intro) deps.timeline.setSoftStop(null)
+    // lane N4d: a realm not founded yet: its story starts at its founding
+    if (on && realm && history) {
+      const pd = politiesOf(history)
+      const f0 = pd ? pd.list[realm.polity].foundedYear : 0
+      if (deps.timeline.year < f0 - 2) deps.timeline.setYear(Math.max(0, f0 - 2))
+    }
     director.setOn(on)
-    deps.timeline.setBeats(on && plan ? plan.beatYear : null, on && plan ? plan.beatProminence : null, Math.min(STORY.gMin, STORY.promPerSpeed))
-    deps.setUrlParam('follow', on ? '1' : null)
+    deps.timeline.setBeats(on && plan ? plan.beatYear : null, on && plan ? plan.beatProminence : null, promUnitOf(plan))
+    deps.setUrlParam('follow', on ? (realm ? `realm:${realm.polity}` : '1') : null)
+    syncRealmChip()
     if (on && !deps.timeline.playing) deps.timeline.play()
     // the opening shot: where the people are (unless a beat is about to be flown to)
     if (on && plan) {
@@ -731,22 +796,125 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
 
   // ---------- plan ----------
   function rebuildPlan() {
+    drama = worldDrama // (lane N4d: the world's; a realm's story is built over it below)
     if (!index || !drama || !history) {
       plan = null
     } else {
       // lane N3: story arcs keep their chapters together (arcs.ts; plan.ts continuity and the payoff guarantee)
-      // (lane N3d: the seat's realms, from the history, get plan.ts STORY.seatFocus: Follow favours the player's own realm.
-      // Kept minimal: lane N4d's follow-a-realm mode may take this over through the focus API)
-      const seat = new Set<number>()
-      if (history.seat) for (const q of history.seat.polityAt) if (q >= 0) seat.add(q)
-      plan = buildStoryPlan(drama, index.notableYear, { focus, seat, until: history.years, arcs: arcEntries(findArcs(history), drama.rep) })
+      plan = buildStoryPlan(drama, index.notableYear, { focus, until: history.years, arcs: arcEntries(findArcs(history), drama.rep) })
     }
+    // lane N4d: following a realm, its own story (the world's drama and plan give its meanwhile notes)
+    worldDrama = drama
+    worldPlan = plan
+    realm = null
+    if (realmWanted === REALM_AUTO && history) {
+      // the start page's "or follow one realm": the realm of the run (most people at its peak, long-lived), from its founding
+      const pd = politiesOf(history)
+      realmWanted = pd ? defaultRealm(pd, 0, history.years) : -1
+      if (realmWanted >= 0 && pd && deps.timeline.year < pd.list[realmWanted].foundedYear - 2) deps.timeline.setYear(Math.max(0, pd.list[realmWanted].foundedYear - 2))
+    }
+    if (realmWanted >= 0 && index && worldDrama && worldPlan && history) {
+      try {
+        realm = buildRealmStory(index, realmWanted, { drama: worldDrama, plan: worldPlan })
+      } catch (err) {
+        console.warn('story: realm story failed', err)
+      }
+      if (realm) {
+        drama = realm.drama
+        plan = realm.plan
+      }
+    }
+    director.setPacing(true, realm ? REALM_PACE : undefined)
+    // (another story (the world's, or another realm's): its entries are not the old plan's, so nothing in progress carries on)
+    const storyId = realm ? realm.polity : -1
+    if (storyId !== planStory) director.setPlan(null)
+    planStory = storyId
     director.setPlan(plan)
-    strip.setData(drama, index ? index.notableYear : null, plan ? plan.beatYear : null, plan ? plan.beatScore : null, plan ? plan.beatEntry : null)
-    if (director.on) deps.timeline.setBeats(plan ? plan.beatYear : null, plan ? plan.beatProminence : null, Math.min(STORY.gMin, STORY.promPerSpeed))
+    strip.setData(drama, yearsOf(), plan ? plan.beatYear : null, plan ? plan.beatScore : null, plan ? plan.beatEntry : null)
+    if (director.on) deps.timeline.setBeats(plan ? plan.beatYear : null, plan ? plan.beatProminence : null, promUnitOf(plan))
+    syncRealmChip()
+    notifyRealm()
     resetNotes(deps.timeline.year)
     syncButton()
   }
+
+  // ---------- lane N4d: following one realm ----------
+  const realmChip = createRealmChip(() => setRealm(-1, true))
+  deps.timeline.addControl(realmChip.root)
+  /** The seat's realm at `year` (-1: not seated, or no realm then). */
+  function seatRealm(year: number): number {
+    const st = history?.seat
+    if (!st) return -1
+    const i = Math.floor(year) - st.seat.from
+    return i >= 0 && i < st.polityAt.length ? st.polityAt[i] : -1
+  }
+  let escAdded = false
+  /** Follow realm `p` (-1: the whole world); `explicit`: the player's choice (the seat's default no longer applies). */
+  function setRealm(p: number, explicit: boolean) {
+    if (explicit) realmExplicit = true
+    const pd = history ? politiesOf(history) : null
+    if (p === REALM_AUTO && !history) {
+      realmWanted = p
+      pendingOn = true
+      return
+    }
+    if (p >= 0 && (!pd || p >= pd.count)) p = -1
+    if (p === realmWanted && (p < 0 || realm)) return
+    realmWanted = p
+    hideCap()
+    card.clearNotices()
+    if (worldDrama) rebuildPlan()
+    if (director.on) deps.setUrlParam('follow', realm ? `realm:${realm.polity}` : '1')
+    // a realm not founded yet: its story starts at its founding
+    if (realm && history && pd && deps.timeline.year < pd.list[realm.polity].foundedYear - 2) deps.timeline.setYear(Math.max(0, pd.list[realm.polity].foundedYear - 2))
+    if (director.on && realm) heartShot(deps.timeline.year, true)
+    syncRealmChip()
+    deps.requestRender()
+    deps.wake()
+  }
+  let notified = -1
+  let notifiedStory: RealmStory | null = null
+  /** The realm's listeners (the chronicle's filter, the context panel's realm card) and Esc, once per realm story built. */
+  function notifyRealm() {
+    const p = realm ? realm.polity : -1
+    if (p === notified && realm === notifiedStory) return
+    const changed = p !== notified
+    notified = p
+    notifiedStory = realm
+    const pd = history ? politiesOf(history) : null
+    if (!escAdded && p >= 0) {
+      // (before the Factions panel's Esc, which would only deselect the realm's card: the city view and a battle replay
+      // keep their own Esc)
+      escAdded = true
+      addShortcut({ keys: ['Escape'], label: 'Esc', description: 'Follow the whole world again (while following one realm)', group: 'View', first: true, run: () => {
+        if (!realm || !director.on || deps.cityEngaged() || deps.battleOpen?.() || card.reading) return false
+        setRealm(-1, true)
+      } })
+    }
+    deps.onRealm?.(p, realm ? realm.chronicleEntries : null, realm && pd ? pd.names[p] : '', changed)
+  }
+  function syncRealmChip() {
+    const pd = history ? politiesOf(history) : null
+    realmChip.set(realm && pd && director.on ? pd.names[realm.polity] : null, realm && pd ? pd.css[realm.polity] : undefined)
+  }
+  /** The realm's end: the story passes to its successor (the seat's next realm while seated), else to the whole world. */
+  function realmEnded(year: number) {
+    if (!realm || !history || year < realm.endYear) return
+    const pd = politiesOf(history)
+    if (!pd) return
+    const old = pd.names[realm.polity]
+    const seatNext = !realmExplicit ? seatRealm(year + 1) : -1
+    const next = seatNext >= 0 && seatNext !== realm.polity ? { polity: seatNext, why: 'seat' as const } : realm.successor
+    if (!next) {
+      setRealm(-1, false)
+      realmChip.note(`${old} is no more: following the world`, 6)
+      return
+    }
+    setRealm(next.polity, false)
+    const why = next.why === 'conquered' ? 'its conqueror' : next.why === 'capital' ? 'it kept the capital' : next.why === 'heir' ? 'its largest heir' : 'your throne'
+    realmChip.note(`The story passes to ${pd.names[next.polity]} (${why})`, 7)
+  }
+  if (realmWanted >= 0 || realmWanted === REALM_AUTO) pendingOn = true
 
   let tickYear = 0
   let captionBattle = false
@@ -758,7 +926,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       history = h
       world = w
       index = ix
-      drama = h && ix ? buildStaticDrama(ix, createDramaCtx(h)) : null
+      drama = worldDrama = h && ix ? buildStaticDrama(ix, createDramaCtx(h)) : null
       const bd = h ? battlesOf(h) : null
       topBattles = bd && deps.openBattle ? Array.from({ length: h!.battles.count }, (_, b) => b).filter((b) => bd.siegeOf[b] < 0 || bd.sieges[bd.siegeOf[b]].rows[bd.sieges[bd.siegeOf[b]].rows.length - 1] === b).sort((a, b) => battleWeight(bd.B, b) - battleWeight(bd.B, a) || a - b).slice(0, TOP_BATTLES) : []
       if (!extend) {
@@ -775,7 +943,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       if (key === focusKey) return
       focusKey = key
       focus = next
-      if (drama) rebuildPlan()
+      if (worldDrama) rebuildPlan()
     },
     resumeAfter(stillOpen) {
       peekOpen = director.on ? stillOpen : null
@@ -805,6 +973,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
         if (deps.timeline.playing && director.state !== DirectorState.Suspended && year > prevYear && year - prevYear < 50) battlesDue(prevYear, year)
       }
       syncProgress(dt, year)
+      realmChip.tick(dt)
+      if (realm && director.on) realmEnded(year)
       if (pinCell >= 0) syncPin()
       if (peekOpen && !peekOpen()) {
         peekOpen = null
@@ -814,6 +984,13 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       if (card.button.disabled !== !plan) syncButton()
     },
     debug: () => ({ plan, drama }),
+    followRealm(p) {
+      setRealm(p ?? -1, true)
+      if (plan && !director.on) setFollow(true)
+    },
+    get realm() {
+      return realm ? realm.polity : -1
+    },
   }
   if (new URLSearchParams(location.search).get('perf') === '1') {
     // measurement and checks (perf=1): the director's state, the beat it is on, flights made, the plan's size
@@ -825,6 +1002,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       notes: () => plan?.noteYear.length ?? 0,
       follow: (on: boolean) => setFollow(on),
       secondsLeft: () => ({ model: secondsLeft(deps.timeline.year), pace: pace.k }), // n4b
+      realm: () => (realm ? { polity: realm.polity, beats: realm.plan.beatYear.length, end: realm.endYear } : null), // lane N4d
+      followRealm: (p: number | null) => api.followRealm(p),
     }
   }
   return api

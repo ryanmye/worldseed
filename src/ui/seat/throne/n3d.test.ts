@@ -1,6 +1,6 @@
 // Lane N3d (throne fixes from AI play-test #2): a seated run's cards are honest (no After the battle card once its war is over,
 // a coup or a ruler fallen in battle told as such, sentences and plurals), the odds' big moves are explained, routine business
-// costs less to leave than a grave matter, and the seat's realm gets the story director's stronger focus.
+// costs less to leave than a grave matter.
 import { describe, expect, it } from 'vitest'
 import { DecisionKind, ReignEnd, decodeSeat } from '../../../contract.ts'
 import type { History } from '../../../contract.ts'
@@ -8,7 +8,6 @@ import { resolveRun } from '../../../bots/presets.ts'
 import { generateWorld, simulateHistory } from '../../../sim/index.ts'
 import { DIVISIVE, deferCost } from '../../../sim/history/seat/params.ts'
 import { HUD, HUD_N } from '../../../sim/history/seat/hud.ts'
-import { STORY } from '../../story/plan.ts'
 import { decisionCardModel } from '../cardModel.ts'
 import { decisionTitle } from '../seatFormat.ts'
 import { oddsWhy } from './hudModel.ts'
@@ -30,11 +29,6 @@ describe('throne fixes (lane N3d)', () => {
     b[HUD.Contest] = 0.9; b[HUD.DeathYear] = 0.03
     expect(oddsWhy(b, a, 61)).toMatch(/^Why the odds fell \(\d+% → \d+%\): mostly the chance of a contested succession \(the ruler is 61\)\.$/)
     expect(oddsWhy(a, a, 61)).toBe('')
-  })
-
-  it('the seat realm\'s stories get a stronger focus than a selection', () => {
-    expect(STORY.seatFocus).toBeGreaterThan(STORY.focus)
-    expect(STORY.seatNote).toBeLessThan(1)
   })
 
   it('a seated Dramatic run (seed 7, Tokotaubau from 1000): honest cards and news', () => {

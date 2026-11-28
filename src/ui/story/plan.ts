@@ -21,7 +21,6 @@ import type { StaticDrama } from './drama.ts'
 
 export const STORY: {
   tauKey: number; tauCat: number; gMin: number; window: number; theta: number; thetaNote: number; focus: number; promPerSpeed: number
-  seatFocus: number; seatNote: number
   fresh: number; tauType: number; debut: number; floor: number; like: number; likeYears: number; ahead: number
 } = {
   /** Novelty decay for the same polity or people, and for the same kind of story (years). */
@@ -37,10 +36,6 @@ export const STORY: {
   thetaNote: 11,
   /** Focus factor F. */
   focus: 1.5,
-  /** lane N3d: F for the seat's own realm while seated (Follow went to a neighbour's war while the player's king fell), and its
-   * entries become notices at seatNote × θ_n (a coup, a breakaway, a king fallen get at least a notice). */
-  seatFocus: 3,
-  seatNote: 0.5,
   /** A beat is kept at speed k when its prominence ≥ promPerSpeed·k years (at most G_MIN at 1×, so 1× keeps every beat).
    * The plan's G_MIN·k (25·k) kept 1–3 beats at 16×; 18·k gives 4×: 11–14 and 16×: 3–5 on 2000 years (storyStats.ts). */
   promPerSpeed: 18,
@@ -69,13 +64,16 @@ export interface StoryPlan {
   noteEntry: Int32Array
   noteYear: Float64Array
   noteScore: Float32Array
+  /** lane N4d: a beat is kept at speed k when its prominence >= promUnit·k (absent: min(STORY.gMin, STORY.promPerSpeed)). */
+  promUnit?: number
 }
+
+/** lane N4d: the plan's constants, overridden for one plan (a realm's story: shorter gaps, lower thresholds). */
+export type StoryTune = Partial<typeof STORY>
 
 export interface PlanOptions {
   /** Polities whose entries get the focus factor (the selection, a seat). */
   focus?: ReadonlySet<number>
-  /** lane N3d: the seat's realms (seated play): STORY.seatFocus instead of focus, and notices at a lower threshold. */
-  seat?: ReadonlySet<number>
   /** Only entries up to this year (the history's length; default: all). */
   until?: number
   /**
@@ -84,15 +82,16 @@ export interface PlanOptions {
    * phase); an arc whose opening is a beat has its payoff made a beat too, kept at every speed its opening is.
    */
   arcs?: { arcOf: Int32Array; phase: Uint8Array; payoffOf: Int32Array }
+  /** lane N4d: constants for this plan only (ui/story/realmFollow.ts REALM_STORY); the plan records its promUnit. */
+  tune?: StoryTune
 }
 
 /** The story plan of the static scores `sd` over entries dated `years` (HistoryIndex.notableYear). */
 export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanOptions = {}): StoryPlan {
+  const P = opts.tune ? { ...STORY, ...opts.tune } : STORY
   const E = sd.score.length
   const until = opts.until ?? Infinity
   const focus = opts.focus
-  const seat = opts.seat && opts.seat.size > 0 ? opts.seat : null
-  const ofSeat = (n: number) => seat !== null && ((sd.polA[n] >= 0 && seat.has(sd.polA[n])) || (sd.polB[n] >= 0 && seat.has(sd.polB[n])))
   const beats: number[] = []
   const beatNov: number[] = []
   const notes: number[] = []
@@ -110,24 +109,24 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       const b = beats[j]
       if (an >= 0 && arcs!.arcOf[b] === an) continue // (continuity: the arc's own chapters do not count against it)
       const dt = t - years[b]
-      if (dt > 6 * STORY.tauKey) break // e^-6: negligible (beats are in year order)
-      if (sd.key[b] === sd.key[n]) sum += Math.exp(-dt / STORY.tauKey)
-      if (sd.cat[b] === sd.cat[n]) sum += 0.5 * Math.exp(-dt / STORY.tauCat)
+      if (dt > 6 * P.tauKey) break // e^-6: negligible (beats are in year order)
+      if (sd.key[b] === sd.key[n]) sum += Math.exp(-dt / P.tauKey)
+      if (sd.cat[b] === sd.cat[n]) sum += 0.5 * Math.exp(-dt / P.tauCat)
     }
     return sd.score[n] / (1 + sum)
   }
   /** K: 1 + κ·exp(−Σ same-type beats, decayed). */
   const fresh = (n: number) => {
-    if (STORY.fresh <= 0 || !sd.type) return 1
+    if (P.fresh <= 0 || !sd.type) return 1
     const t = years[n], ty = sd.type[n]
     let sum = 0
     for (let j = beats.length - 1; j >= 0; j--) {
       const b = beats[j]
       const dt = t - years[b]
-      if (dt > 6 * STORY.tauType) break
-      if (sd.type[b] === ty) sum += Math.exp(-dt / STORY.tauType)
+      if (dt > 6 * P.tauType) break
+      if (sd.type[b] === ty) sum += Math.exp(-dt / P.tauType)
     }
-    return told.has(ty) || ty < 1000 ? 1 + STORY.fresh * Math.exp(-sum) : 1 + STORY.debut // (debut: a merged system's kinds only, drama.ts storyKind)
+    return told.has(ty) || ty < 1000 ? 1 + P.fresh * Math.exp(-sum) : 1 + P.debut // (debut: a merged system's kinds only, drama.ts storyKind)
   }
   /** Story kinds told so far (a kind's first beat is its debut: K = 1 + debut). */
   const told = new Set<number>()
@@ -136,25 +135,24 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     let s = nov
     const prev = beats.length > 0 ? beats[beats.length - 1] : -1
     if (prev >= 0) s *= 1 - (sd.cat[n] === sd.cat[prev] ? 0.3 : 0) - (shares(n, prev) ? 0.3 : 0)
-    if (ofSeat(n)) s *= STORY.seatFocus
-    else if (focus && focus.size > 0 && ((sd.polA[n] >= 0 && focus.has(sd.polA[n])) || (sd.polB[n] >= 0 && focus.has(sd.polB[n])))) s *= STORY.focus
+    if (focus && focus.size > 0 && ((sd.polA[n] >= 0 && focus.has(sd.polA[n])) || (sd.polB[n] >= 0 && focus.has(sd.polB[n])))) s *= P.focus
     if (arcs && arcs.arcOf[n] >= 0 && arcBeat[arcs.arcOf[n]]) s *= 1 + 0.4 * arcs.phase[n]
     return s
   }
 
   // entries are in year order (notableYear ascending); a cursor over them
   let lo = 0
-  let tb = -STORY.gMin - 1 // so the first window starts at year 0
+  let tb = -P.gMin - 1 // so the first window starts at year 0
   const last = E > 0 ? Math.min(until, years[E - 1]) : -1
-  while (tb + STORY.gMin < last) {
-    const from = tb + STORY.gMin, to = tb + STORY.gMin + STORY.window
+  while (tb + P.gMin < last) {
+    const from = tb + P.gMin, to = tb + P.gMin + P.window
     while (lo < E && years[lo] <= from) lo++
     let best = -1, bestS = 0, bestNov = 0
     const at = (n: number): [number, number] => {
       const nov = novel(n) * fresh(n)
       // (a floor: an event far above its neighbours is told even right after one like it; surfacing lane, so a run's
       // greatest battle is not lost to the battle a generation before)
-      return [Math.max(live(n, nov), STORY.floor * sd.score[n]), nov]
+      return [Math.max(live(n, nov), P.floor * sd.score[n]), nov]
     }
     let hi = lo
     for (let n = lo; n < E && years[n] <= to && years[n] <= until; n++, hi = n) {
@@ -170,14 +168,14 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       // of two stories told at once (within likeYears), tell the greater if it scores nearly as well now
       let alt = -1
       for (let n = lo; n < hi; n++) {
-        if (n === best || Math.abs(years[n] - years[best]) > STORY.likeYears || sd.score[n] <= sd.score[alt < 0 ? best : alt]) continue
-        if (at(n)[0] >= STORY.like * bestS) alt = n
+        if (n === best || Math.abs(years[n] - years[best]) > P.likeYears || sd.score[n] <= sd.score[alt < 0 ? best : alt]) continue
+        if (at(n)[0] >= P.like * bestS) alt = n
       }
       // and a lesser beat does not block a far greater one just past the window (within gMin of it)
-      for (let n = hi; n < E && years[n] <= years[best] + STORY.gMin && years[n] <= until; n++) {
+      for (let n = hi; n < E && years[n] <= years[best] + P.gMin && years[n] <= until; n++) {
         if (sd.score[n] <= 0) continue
         const s = at(n)[0]
-        if (s >= STORY.ahead * bestS && (alt < 0 || years[alt] <= to || s > at(alt)[0])) alt = n
+        if (s >= P.ahead * bestS && (alt < 0 || years[alt] <= to || s > at(alt)[0])) alt = n
       }
       if (alt >= 0) {
         const [s, nov] = at(alt)
@@ -186,35 +184,35 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
         bestNov = nov
       }
     }
-    if (best >= 0 && bestS >= STORY.theta) {
+    if (best >= 0 && bestS >= P.theta) {
       beats.push(best)
       if (sd.type) told.add(sd.type[best])
       beatNov.push(bestNov)
       isBeat[best] = 1
       if (arcs && arcs.arcOf[best] >= 0) arcBeat[arcs.arcOf[best]] = 1
       tb = years[best]
-    } else tb += STORY.window
+    } else tb += P.window
   }
   // debuts (surfacing lane): a merged system with stories above θ but no beat swaps its best one for the nearest beat
   // within 1.5 gMin whose kind is told at least twice, when its debut score beats that beat's (the spacing stays about gMin)
-  if (sd.type && STORY.debut > 0) {
+  if (sd.type && P.debut > 0) {
     const kindBeats = new Map<number, number>()
     for (const b of beats) kindBeats.set(sd.type[b], (kindBeats.get(sd.type[b]) ?? 0) + 1)
     const bestOf = new Map<number, number>()
     for (let n = 0; n < E && years[n] <= until; n++) {
       const k = sd.type[n]
-      if (k < 1000 || kindBeats.has(k) || sd.score[n] < STORY.theta) continue
+      if (k < 1000 || kindBeats.has(k) || sd.score[n] < P.theta) continue
       const o = bestOf.get(k)
       if (o === undefined || sd.score[n] > sd.score[o]) bestOf.set(k, n)
     }
     for (const [k, n] of [...bestOf].sort((x, y) => sd.score[y[1]] - sd.score[x[1]] || x[1] - y[1])) {
-      const yn = years[n], s = sd.score[n] * (1 + STORY.debut)
+      const yn = years[n], s = sd.score[n] * (1 + P.debut)
       let j = -1
       for (let i = 0; i < beats.length; i++) {
         const b = beats[i], d = Math.abs(years[b] - yn)
-        if (d >= 1.5 * STORY.gMin || (kindBeats.get(sd.type[b]) ?? 0) < 2 || beatNov[i] >= s) continue
+        if (d >= 1.5 * P.gMin || (kindBeats.get(sd.type[b]) ?? 0) < 2 || beatNov[i] >= s) continue
         // (no other beat closer than gMin / 2 to the debut)
-        if (beats.some((c, ci) => ci !== i && Math.abs(years[c] - yn) < STORY.gMin / 2)) continue
+        if (beats.some((c, ci) => ci !== i && Math.abs(years[c] - yn) < P.gMin / 2)) continue
         if (j < 0 || d < Math.abs(years[beats[j]] - yn)) j = i
       }
       if (j < 0) continue
@@ -240,7 +238,7 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       while (bi < allBeats.length && allBeats[bi] < n) beats.push(allBeats[bi++])
       if (isBeat[n] || sd.score[n] <= 0) continue
       const s = live(n, novel(n))
-      if (s >= STORY.thetaNote * (ofSeat(n) ? STORY.seatNote : 1)) {
+      if (s >= P.thetaNote) {
         notes.push(n)
         noteScore.push(s)
       }
@@ -292,11 +290,14 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     noteEntry: Int32Array.from(notes),
     noteYear: Float64Array.from(notes, (n) => years[n]),
     noteScore: Float32Array.from(noteScore),
+    ...(opts.tune ? { promUnit: Math.min(P.gMin, P.promPerSpeed) } : {}),
   }
 }
 
 /** Whether beat b is kept at playback speed `speed` (speeds below 1× keep every beat). */
-export const beatKept = (plan: StoryPlan, b: number, speed: number) => plan.beatProminence[b] >= Math.min(STORY.gMin, STORY.promPerSpeed) * Math.max(1, speed)
+export const beatKept = (plan: StoryPlan, b: number, speed: number) => plan.beatProminence[b] >= promUnitOf(plan) * Math.max(1, speed)
+/** The prominence a beat needs per unit of speed (lane N4d: a realm's plan has its own). */
+export const promUnitOf = (plan: StoryPlan | null) => plan?.promUnit ?? Math.min(STORY.gMin, STORY.promPerSpeed)
 
 /** The first beat kept at `speed` with year ≥ `year` (from index `from`), or -1. */
 export function nextBeat(plan: StoryPlan, year: number, speed: number, from = 0): number {
