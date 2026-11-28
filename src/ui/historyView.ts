@@ -76,6 +76,7 @@ import { createNudgeView } from './nudgePanel.ts'
 import type { HearthPicker } from './hearthPicker.ts'
 import type { Order } from '../contract.ts'
 import { createStoryView, type StoryView } from './story/storyView.ts'
+import { parseFollowRealm } from './story/realmFollow.ts'
 import { buildPeopleWash, type PeopleWash } from '../render/peopleWash.ts'
 import { flat } from '../render/mapProjection.ts'
 import { followByDefault, groupRightRail, isFirstVisit, markVisited } from './onboard.ts'
@@ -217,6 +218,10 @@ export interface HistoryView {
   compareProgress(years: number, target: number): void
   /** onboarding: Follow the story turns on (or not) when the first history shows (the start page's play path). */
   setFollowOnShow(on: boolean): void
+  /** lane N4d: follow one realm (its smaller events too), Follow on; null: the whole world. The seat lanes' hook. */
+  followRealm(polity: number | null): void
+  /** The realm Follow follows (-1: the whole world). */
+  readonly followedRealm: number
   /** n4b: a decision card's Show me: select and fly to settlement `id`; following the story resumes once `stillOpen()` is false. */
   peek(id: number, stillOpen: () => boolean): void
   compareFailed(message: string): void
@@ -419,6 +424,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     layerOn: initial.factions ?? true,
     initialPolity: initial.polity ?? null,
     onTakeSeat: deps.onTakeSeat,
+    onFollowRealm: (p) => story.followRealm(p), // lane N4d
   })
   /** Fly the camera to a cell (and stop the spin). */
   const goodsFly = (cell: number) => {
@@ -579,7 +585,17 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     battleOpen: () => battleMap.isOpen(),
     play: () => timeline.play(),
     contextHost: deps.right, // ui-additions 2: the story's battle as the context panel
+    // lane N4d: following one realm: the chronicle lists its entries, the Factions card (the context panel's realm) shows it
+    initialRealm: parseFollowRealm(new URLSearchParams(window.location.search).get('follow')),
+    onRealm(p, entries, name, changed) {
+      chronicle.setScope(entries, name)
+      if (!changed) return
+      if (p >= 0) polities.select(p)
+      else if (realmShown >= 0 && polities.selected === realmShown) polities.select(-1)
+      realmShown = p
+    },
   })
+  let realmShown = -1
   groupRightRail(deps.right) // onboarding: the core panels in sight, the rest under "More panels"
   /** A fly-to the user asked for (a panel, a chronicle row, a selection): the director lets go. */
   function onUserFly() {
@@ -1359,6 +1375,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
 
   const api: HistoryView = {
     setFollowOnShow: (on) => story.setFollowOnShow(on),
+    followRealm: (p) => story.followRealm(p), // lane N4d
+    get followedRealm() {
+      return story.realm
+    },
     peek(id, stillOpen) {
       api.select(id, true)
       story.resumeAfter(stillOpen)

@@ -48,6 +48,12 @@ export const DIRECTOR = {
 export const DirectorState = { Off: 0, Idle: 1, Lead: 2, Dwell: 3, Release: 4, Suspended: 5 } as const
 export type DirectorState = (typeof DirectorState)[keyof typeof DirectorState]
 
+/** lane N4d: a plan's own pacing (ui/story/realmFollow.ts REALM_PACE). */
+export interface PacingTune {
+  ffYears: number
+  ffFactor: number
+}
+
 export interface DirectorTimeline {
   readonly year: number
   readonly playing: boolean
@@ -91,8 +97,9 @@ export interface Director {
   next(): void
   /** Advance by `dt` real seconds (once per frame). */
   tick(dt: number): void
-  /** Pacing on or off (off by default): fast-forward through quiet stretches while following. */
-  setPacing(on: boolean): void
+  /** Pacing on or off (off by default): fast-forward through quiet stretches while following. lane N4d: `tune` sets the
+   * quiet stretch's years and the fast-forward factor for this plan (a realm's story: shorter, gentler); absent: DIRECTOR's. */
+  setPacing(on: boolean, tune?: PacingTune): void
   /** Fast-forwarding through a quiet stretch now. */
   readonly fastForward: boolean
 }
@@ -108,6 +115,7 @@ export function createDirector(deps: DirectorDeps): Director {
   let pacing = false
   let ff = false
   let ffK = 1
+  let tune: PacingTune = { ffYears: DIRECTOR.ffYears, ffFactor: DIRECTOR.ffFactor }
   const T = deps.timeline
   /** Ease out of a fast-forward (a beat is near, input, a jump, Follow off). */
   const ffOff = (ease: number) => {
@@ -121,10 +129,10 @@ export function createDirector(deps: DirectorDeps): Director {
     const base = Math.max(1e-6, T.speed * DIRECTOR.yps1x)
     const gap = b < 0 ? Infinity : plan.beatYear[b] - year
     if (!ff) {
-      const k = Math.min(DIRECTOR.ffFactor, Math.max(1, DIRECTOR.ffMaxYps / base))
+      const k = Math.min(tune.ffFactor, Math.max(1, DIRECTOR.ffMaxYps / base))
       if (k < 1.05) return
       // (a quiet stretch: long in years, and long enough at this speed to be worth an ease up and down)
-      const minGap = Math.max(DIRECTOR.ffYears * Math.max(1, T.speed), (DIRECTOR.leadSeconds + 3 * DIRECTOR.ffEase) * base * k)
+      const minGap = Math.max(tune.ffYears * Math.max(1, T.speed), (DIRECTOR.leadSeconds + 3 * DIRECTOR.ffEase) * base * k)
       if (gap <= minGap) return
       ff = true
       ffK = k
@@ -174,8 +182,9 @@ export function createDirector(deps: DirectorDeps): Director {
     get fastForward() {
       return ff
     },
-    setPacing(on) {
+    setPacing(on, t) {
       pacing = on
+      tune = t ?? { ffYears: DIRECTOR.ffYears, ffFactor: DIRECTOR.ffFactor }
       if (!on) ffOff(0.3)
     },
     setPlan(p) {

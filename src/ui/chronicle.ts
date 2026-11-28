@@ -55,6 +55,11 @@ export interface Chronicle {
    * wording source). Null without an index.
    */
   describe(entry: number, year: number): { year: string; text: string; target: number } | null
+  /**
+   * lane N4d: following one realm, the chronicle lists only its entries (`entries`, ascending ids) by default, with a toggle
+   * "Only <label>" to show all; null: no realm (every entry).
+   */
+  setScope(entries: Int32Array | null, label: string): void
 }
 
 export function createChronicle(container: HTMLElement, callbacks: ChronicleCallbacks): Chronicle {
@@ -103,7 +108,45 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
   /** Per filter, the entries of that category and their years (All: every entry but the chiefdoms' routine successions); built per index. */
   let catEntries: Int32Array[] = []
   let catYears: Float64Array[] = []
-  root.append(head, filterRow, list, empty)
+  // lane N4d: the realm followed (story/realmFollow.ts): only its entries, unless "Only <realm>" is unticked
+  const scopeRow = document.createElement('label')
+  scopeRow.className = 'chr-realm hidden'
+  const scopeBox = document.createElement('input')
+  scopeBox.type = 'checkbox'
+  scopeBox.checked = true
+  const scopeText = document.createElement('span')
+  scopeRow.append(scopeBox, scopeText)
+  scopeRow.title = 'While following one realm, the chronicle lists its events; untick to list the whole world'
+  let scope: Int32Array | null = null
+  /** Per filter (-1 every entry), the scope's entries of that filter and their years. */
+  const scoped = new Map<number, { entries: Int32Array; years: Float64Array }>()
+  scopeBox.addEventListener('change', () => {
+    for (const r of rows) r.entry = -1
+    shownMembers = -1
+    api.update(lastYear)
+  })
+  /** The list filter `f` shows with the realm's scope on (null: no scope). */
+  function scopedList(f: number): { entries: Int32Array; years: Float64Array } | null {
+    if (!scope || !scopeBox.checked || !index) return null
+    let L = scoped.get(f)
+    if (!L) {
+      const ix = index
+      const all = f >= 0 ? catEntries[f] : null
+      const out: number[] = []
+      if (all) {
+        // (both ascending: a merge)
+        let j = 0
+        for (let i = 0; i < all.length && j < scope.length; i++) {
+          while (j < scope.length && scope[j] < all[i]) j++
+          if (j < scope.length && scope[j] === all[i]) out.push(all[i])
+        }
+      } else for (const k of scope) if (k < ix.notableKind.length) out.push(k)
+      L = { entries: Int32Array.from(out), years: Float64Array.from(out, (k) => ix.notableYear[k]) }
+      scoped.set(f, L)
+    }
+    return L
+  }
+  root.append(head, filterRow, scopeRow, list, empty)
   container.appendChild(root)
 
   /** `entry` and `shown` (members counted) identify what the row displays; `target` is the settlement a click selects. */
@@ -489,8 +532,19 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       withEventNames(ix.notableMemberYear[lo + m - 1], () => render(ix, scratchRow, entry, m))
       return { year: scratchRow.year.textContent ?? '', text: scratchRow.text.textContent ?? '', target: scratchRow.target }
     },
+    setScope(entries, label) {
+      scope = entries
+      scoped.clear()
+      scopeRow.classList.toggle('hidden', !entries)
+      scopeText.textContent = `Only ${label}`
+      if (entries) scopeBox.checked = true
+      for (const r of rows) r.entry = -1
+      shownMembers = -1
+      api.update(lastYear)
+    },
     setIndex(ix: HistoryIndex | null, keep = false) {
       index = ix
+      scoped.clear()
       shownMembers = -1
       if (keep && ix) {
         // re-render each row in place on the next update (same entry ids, possibly new text)
@@ -517,13 +571,14 @@ export function createChronicle(container: HTMLElement, callbacks: ChronicleCall
       shownMembers = members
       // (without the filter row, every entry: there is no Rulers filter to find the chiefdoms under)
       const f = filterRow.classList.contains('hidden') ? -1 : filter
-      const n = f >= 0 ? countUpTo(catYears[f], year) : countUpTo(index.notableYear, year)
+      const sl = scopedList(f) // lane N4d
+      const n = sl ? countUpTo(sl.years, year) : f >= 0 ? countUpTo(catYears[f], year) : countUpTo(index.notableYear, year)
       count.textContent = n > 0 ? String(n) : ''
       empty.hidden = n > 0 || collapsed
       if (collapsed) return
       for (let k = 0; k < ROWS; k++) {
         const r = rows[k]
-        const entry = n - 1 - k < 0 ? -1 : f >= 0 ? catEntries[f][n - 1 - k] : n - 1 - k
+        const entry = n - 1 - k < 0 ? -1 : sl ? sl.entries[n - 1 - k] : f >= 0 ? catEntries[f][n - 1 - k] : n - 1 - k
         if (entry < 0) {
           if (r.entry !== -1) {
             r.entry = -1
