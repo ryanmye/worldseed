@@ -14,7 +14,7 @@ import { EventType, settlementNameAt, type History, type World } from '../../con
 import { surfaceRadius } from '../../render/globe.ts'
 import type { CameraFly } from '../../render/cameraFly.ts'
 import type { Chronicle } from '../chronicle.ts'
-import type { HistoryIndex } from '../historyIndex.ts'
+import { EntryKind, type HistoryIndex } from '../historyIndex.ts'
 import type { LayerToggle } from '../overlay.ts'
 import type { Timeline } from '../timeline.ts'
 import { decadeOf, generateSaga, type SagaSubject } from '../sagas/index.ts'
@@ -153,7 +153,10 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
     const k = realm.worldEntry[entry]
     const h = history!
     const rep = realm.drama.rep[entry]
-    if (k >= 0 && index && (realm.kind[entry] === EntryKindR.Meanwhile || index.notableOffsets[k + 1] - index.notableOffsets[k] === 1)) return deps.chronicle.describe(k, year)
+    // (the chronicle's line when its entry is this event alone or the realm's own group (a succession, its risings, a
+    // conversion): an entry that gathers the world's foundings or trade of a decade is worded from the event itself)
+    const own = (kd: number) => kd === EntryKind.Single || kd === EntryKind.Rulers || kd === EntryKind.Faiths || kd === EntryKind.Revolts
+    if (k >= 0 && index && (realm.kind[entry] === EntryKindR.Meanwhile || index.notableOffsets[k + 1] - index.notableOffsets[k] === 1 || own(index.notableKind[k]))) return deps.chronicle.describe(k, year)
     if (rep < 0) return null
     const e = h.events[rep]
     return { year: String(e.year), text: withEventNames(e.year, () => describeEvent(h, e)), target: e.settlement }
