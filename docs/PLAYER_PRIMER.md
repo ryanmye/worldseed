@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 7 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 8 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -26,6 +26,11 @@ Changelog:
   reign's share link keeps only that reign's choices; Keep an old great power alive is now seed 1's Uhulaun from 1080; and opens at its year; the ambition picker asks before it restarts
   the reign; on a phone the throne's tab opens with the first card; three new story arcs (the uncle on the throne, the
   child king, the provinces rise).
+- v8 (2026-11-28, lane/n4c watch and battles; renumber at merge if another lane took v8): battles are "decided by" the
+  heaviest factor of the odds, the numbers included ("the defenders' numbers told, some 11,000 against 4,600 (about 2.4 to
+  1)"), with "Also" and "Though" rows; a battle's Why? names its war, what decided it and the march; towns are named as said
+  in the event's year everywhere (battle names too); `year=` follows the year shown while paused; `R` in the Why panel goes
+  back to an open Factions; playback no longer stalls after an inline replay (no Space twice needed).
 
 ## 1. Starting a world
 
@@ -97,7 +102,10 @@ Changelog:
 - **What decided a battle** (lane n5, no new control): battle captions and chronicle lines name the deciding factor ("the
   defenders held the ford", "fog gave the attackers surprise", "snow broke the attack", "hunger thinned the ranks"); the
   replay draws the day's weather (rain, snow, fog, heat), terrain cues (rivers, the ford, woods, high ground, walls, the shore,
-  mud) and a legend (Ground, Weather, Decided by); the battle context panel opens with a summary table.
+  mud) and a legend (Ground, Weather, Decided by, Also, Though); the battle context panel opens with a summary table. Lane
+  N4c: "Decided by" is the heaviest term of the odds, the armies' numbers among them (a side with 2.4 times the men or more
+  is decided by its numbers, not its captain); the Ground row says when the field sloped toward one side; the side colours
+  always tell apart; the end counter subtracts the losses; a battle's **Why?** gives its war, the deciding factor and the march.
 - **Drama strip:** the strip above the timeline slider shows the story's peaks (ui/story/dramaStrip.ts). Click a peak to
   jump there: playback pauses, following lets go, and the strongest story at the peak gets a caption, a pin and a
   camera flight. **Resume** (or Space and a moment's wait) goes on from there.
