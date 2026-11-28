@@ -10,7 +10,7 @@ import './battleMap.css'
 import { BattleFlag, BattleKind, BattleWeather, Biome, RIVER_FLOW_THRESHOLD } from '../contract.ts'
 import type { History, World } from '../contract.ts'
 import { terrainColor } from '../render/palette.ts'
-import { battleTitle, decidingRows, groundOf, roundMen } from './battleFormat.ts'
+import { battleTitle, decidingRows, groundOf, roundMen, sideColours, standingWords } from './battleFormat.ts'
 import { battlesOf, townAt } from './battlesData.ts'
 import { blockAt, buildTimeline, jitter, phaseAt, sidesAt } from './battleTimeline.ts'
 import type { BlockPose, Timeline } from './battleTimeline.ts'
@@ -40,53 +40,6 @@ export interface BattleMap {
   isOpen(): boolean
   /** The battle `.` opens at `year`: the latest battle up to then at settlement `sel` (if any), else anywhere; -1 if none. */
   pick(year: number, sel: number): number
-}
-
-/**
- * n4c: men still standing as the chroniclers count them: the start's round figure less the losses' own (rounded finer),
- * so the end counter shows every loss (play-test 2: 11,000 "still standing" after 140 lost) and adds up with the sub-title.
- */
-export function standingWords(men: number, left: number): string {
-  const lost = men * (1 - Math.min(1, Math.max(0, left)))
-  if (lost < 0.5) return roundMen(men)
-  const start = Number(roundMen(men).replace(/,/g, ''))
-  const l = Number(roundMen(lost).replace(/,/g, ''))
-  return Math.max(10, start - Math.min(l, start - 10)).toLocaleString('en-US')
-}
-
-/** Relative luminance-free colour distance: CIE76 ΔE of two css colours (#rrggbb or rgb()). */
-function deltaE(a: [number, number, number], b: [number, number, number]): number {
-  const lab = (c: [number, number, number]) => {
-    const f = (u: number) => { u /= 255; return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4 }
-    const [r, g, bl] = c.map(f)
-    const x = (0.4124 * r + 0.3576 * g + 0.1805 * bl) / 0.95047, y = 0.2126 * r + 0.7152 * g + 0.0722 * bl, z = (0.0193 * r + 0.1192 * g + 0.9505 * bl) / 1.08883
-    const t = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116)
-    return [116 * t(y) - 16, 500 * (t(x) - t(y)), 200 * (t(y) - t(z))]
-  }
-  const p = lab(a), q = lab(b)
-  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
-}
-function parseCss(c: string): [number, number, number] | null {
-  const m = /^#([0-9a-f]{6})$/i.exec(c.trim())
-  if (m) { const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
-  const r = /rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(c)
-  return r ? [Number(r[1]), Number(r[2]), Number(r[3])] : null
-}
-/** n4c: the least ΔE between the two sides' colours on the field (play-test 2: teal against green). */
-export const SIDE_MIN_DELTA_E = 30
-const SIDE_FALLBACK = ['#e05a4f', '#4a7fd6', '#f0c330', '#f2f2f2', '#9b59d0', '#1f1f1f']
-/** The attackers' and defenders' colours: their realms', unless too alike; then the defenders take the most distinct of a fixed set (the attackers keep theirs). */
-export function sideColours(a: string | undefined, d: string | undefined): [string, string] {
-  const ca = a ?? SIDE_FALLBACK[0], cd = d ?? SIDE_FALLBACK[1]
-  const pa = parseCss(ca), pd = parseCss(cd)
-  if (!pa || !pd || deltaE(pa, pd) >= SIDE_MIN_DELTA_E) return [ca, cd]
-  let best = cd, bestE = -1
-  for (const f of SIDE_FALLBACK) {
-    const e = deltaE(pa, parseCss(f)!)
-    if (e >= 1.5 * SIDE_MIN_DELTA_E) return [ca, f] // (the first clearly distinct one, in a fixed order: the same pair reads the same)
-    if (e > bestE) { bestE = e; best = f }
-  }
-  return [ca, best]
 }
 
 const SIZE = 480

@@ -470,3 +470,61 @@ export function commanderFateWords(h: History, c: number): string {
   }
   return 'still served'
 }
+
+// ---------- n4c: the replay's figures (battleMap.ts) ----------
+
+/**
+ * n4c: men still standing as the chroniclers count them: the start's round figure less the losses' own (rounded finer),
+ * so the end counter shows every loss (play-test 2: 11,000 "still standing" after 140 lost) and adds up with the sub-title.
+ */
+export function standingWords(men: number, left: number): string {
+  const lost = men * (1 - Math.min(1, Math.max(0, left)))
+  if (lost < 0.5) return roundMen(men)
+  const start = Number(roundMen(men).replace(/,/g, ''))
+  const l = Number(roundMen(lost).replace(/,/g, ''))
+  return Math.max(10, start - Math.min(l, start - 10)).toLocaleString('en-US')
+}
+
+/** CIE Lab of a colour (D65). */
+function labOf(c: [number, number, number]): [number, number, number] {
+  const f = (u: number) => { u /= 255; return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4 }
+  const [r, g, bl] = c.map(f)
+  const x = (0.4124 * r + 0.3576 * g + 0.1805 * bl) / 0.95047, y = 0.2126 * r + 0.7152 * g + 0.0722 * bl, z = (0.0193 * r + 0.1192 * g + 0.9505 * bl) / 1.08883
+  const t = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116)
+  return [116 * t(y) - 16, 500 * (t(x) - t(y)), 200 * (t(y) - t(z))]
+}
+/**
+ * n4c: whether two sides' colours tell apart on the field's small figures: a lightness gap of SIDE_MIN_DL, or (both of
+ * some colour) hues SIDE_MIN_HUE degrees apart in Lab, or (greys) a ΔE of SIDE_MIN_DELTA_E. (Play-test 2's teal and green
+ * are ΔE 56 apart but 32° in hue at one lightness: hard to tell, so ΔE alone is not the test.)
+ */
+export function sidesDistinct(a: [number, number, number], b: [number, number, number]): boolean {
+  const p = labOf(a), q = labOf(b)
+  if (Math.abs(p[0] - q[0]) >= SIDE_MIN_DL) return true
+  const cp = Math.hypot(p[1], p[2]), cq = Math.hypot(q[1], q[2])
+  if (cp >= 20 && cq >= 20) {
+    let dh = Math.abs(Math.atan2(p[2], p[1]) - Math.atan2(q[2], q[1])) * (180 / Math.PI)
+    if (dh > 180) dh = 360 - dh
+    return dh >= SIDE_MIN_HUE
+  }
+  return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) >= SIDE_MIN_DELTA_E
+}
+const SIDE_MIN_DL = 20, SIDE_MIN_HUE = 60
+function parseCss(c: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{6})$/i.exec(c.trim())
+  if (m) { const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255] }
+  const r = /rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(c)
+  return r ? [Number(r[1]), Number(r[2]), Number(r[3])] : null
+}
+/** n4c: the least ΔE between two greyish sides' colours (sidesDistinct). */
+export const SIDE_MIN_DELTA_E = 30
+const SIDE_FALLBACK = ['#e05a4f', '#4a7fd6', '#f0c330', '#f2f2f2', '#9b59d0', '#1f1f1f']
+/** The attackers' and defenders' colours: their realms', unless too alike; then the defenders take the most distinct of a fixed set (the attackers keep theirs). */
+export function sideColours(a: string | undefined, d: string | undefined): [string, string] {
+  const ca = a ?? SIDE_FALLBACK[0], cd = d ?? SIDE_FALLBACK[1]
+  const pa = parseCss(ca), pd = parseCss(cd)
+  if (!pa || !pd || sidesDistinct(pa, pd)) return [ca, cd]
+  for (const f of SIDE_FALLBACK) if (sidesDistinct(pa, parseCss(f)!)) return [ca, f] // (the first distinct one, in a fixed order: the same pair reads the same)
+  const best = SIDE_FALLBACK[3]
+  return [ca, best]
+}
