@@ -8,9 +8,9 @@ Owner ask: "follow mode should also lock into a country and go through smaller e
 - [x] S3 entry points: Factions "Follow this realm", landing "or follow one realm", seat default; chronicle realm scope; context panel
 - [x] S4 stats: storyStats/pacingStats --realm; runs/n4d/*.jsonl
 - [x] S5 primer v8 + personas v5 (separate commits); coverage.test
-- [ ] S6 screenshots eval/n4d; merge origin/main; gates (g0, typecheck, build, tests)
+- [x] S6 screenshots eval/n4d; merge origin/main; gates (g0, typecheck, build, tests)
 ## Current
-S6: shots done (eval/n4d a..f); merge origin/main + gates
+S6 done: merged origin/main (up to date), G0 6/6 OK, tsc, build, vitest story+onboard+coverage 45/45. DONE.
 ## Measurements
 runs/n4d/realm.jsonl tag mw4 (final tune): 61343 realistic p0 5.0 beats/century small 72% mw 3 dead 5.3 s first 3.9 s; 61343 dramatic p0 5.24, 83%, dead 5.7; 1 dramatic p1 4.96, 73%, dead 6.9; 42 realistic auto(17) 5.32, 48%, dead 4.7. G0 OK (runs/n4d/g0.log).
 ## Next commands
