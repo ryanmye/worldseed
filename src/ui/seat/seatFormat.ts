@@ -8,6 +8,7 @@ import { DECIDER, deciderChronicle, deciderNameOf } from './decider.ts'
 import { disasterTitle, volcanoName } from '../disastersFormat.ts'
 import { heirOptionLabel, heirsLine } from './throne/stakes.ts' // lane N3: named heirs
 import { SEAT } from '../../sim/history/seat/params.ts'
+import { battleName } from '../battlesData.ts' // n4c: battle names as said that year
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -79,7 +80,7 @@ export function subjectWord(h: History, kind: number, subject: number, year: num
     case DecisionKind.WarChest: case DecisionKind.Bluff: case DecisionKind.Intelligence: case DecisionKind.AllyCalls:
     case DecisionKind.Betrayed: case DecisionKind.ColdWar: return otherWord(h, subject, us)
     case DecisionKind.Default: return ''
-    case DecisionKind.Battle: return h.battles?.name[subject] ?? 'a battle'
+    case DecisionKind.Battle: return h.battles && subject >= 0 && subject < h.battles.count ? battleName(h, subject) : 'a battle' // n4c: the town as said that year
     case DecisionKind.Disaster: return disasterWord(h, subject)
     case DecisionKind.Commune: return townWord(h, subject, year)
     case DecisionKind.Houses: return h.families && subject >= 0 && subject < h.families.count ? `House ${h.families.name[subject]}` : 'a merchant house'

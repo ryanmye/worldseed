@@ -4,7 +4,7 @@
 // the battles he fought (History.battles); the voice only chooses the wording.
 
 import { CommanderFate } from '../../contract.ts'
-import { battlesOf } from '../battlesData.ts'
+import { battleName, battlesOf } from '../battlesData.ts'
 import type { Ctx } from './facts.ts'
 import { battlePlace, commanderEpithet, withEpithet } from './epithets.ts'
 import { list, num, plural, Voice, type PhraseTable } from './voice.ts'
@@ -67,11 +67,11 @@ export function commanderSaga(c: Ctx, k: number, legend: boolean): Saga {
   const losses = rows.filter((b) => !won(b))
   const p2: string[] = [v.p('record', { name: base, battles: plural(rows.length, 'battle'), wins: num(wins.length) })]
   const great = wins.slice().sort((a, b) => B.lossA[b] + B.lossD[b] - (B.lossA[a] + B.lossD[a]) || a - b).slice(0, 3).sort((a, b) => a - b)
-  if (great.length) p2.push(v.p('victories', { list: list(great.map((b) => `${B.name[b]} (${B.year[b]})`)) }))
+  if (great.length) p2.push(v.p('victories', { list: list(great.map((b) => `${battleName(h, b)} (${B.year[b]})`)) }))
   if (losses.length) {
     const worst = losses.slice().sort((a, b) => B.lossA[b] + B.lossD[b] - (B.lossA[a] + B.lossD[a]) || a - b)[0]
     const n = losses.length === 1 ? 'once' : losses.length === 2 ? 'twice' : `${num(losses.length)} times`
-    p2.push(v.p('defeats', { name: base, n, N: n.charAt(0).toUpperCase() + n.slice(1), at: B.name[worst], year: B.year[worst] }))
+    p2.push(v.p('defeats', { name: base, n, N: n.charAt(0).toUpperCase() + n.slice(1), at: battleName(h, worst), year: B.year[worst] }))
   }
   book.add(p2.join(' '))
   // the two greatest battles as scenes
@@ -80,7 +80,7 @@ export function commanderSaga(c: Ctx, k: number, legend: boolean): Saga {
     if (sc) book.scene(sc.title, sc.text)
   }
   const fy = C.fateYear[k], fb = C.fateBattle[k]
-  const at = fb >= 0 ? B.name[fb] : ''
+  const at = fb >= 0 ? battleName(h, fb) : ''
   if (fy >= 0 && fy <= Y) {
     switch (C.fate[k]) {
       case CommanderFate.Slain: book.add(v.p('slain', { name: base, at, year: fy })); break
@@ -92,10 +92,10 @@ export function commanderSaga(c: Ctx, k: number, legend: boolean): Saga {
   } else book.add(v.p('serving', { name: base, Y }))
   const best = great.length ? great[0] : -1
   const facts = [`${state}`, plural(rows.length, 'battle'), `${num(wins.length)} won`]
-  const feat = best >= 0 ? `who won ${B.name[best]}` : `who led the army of ${state}`
+  const feat = best >= 0 ? `who won ${battleName(h, best)}` : `who led the army of ${state}`
   return {
     kind: 'commander', id: k, year: Y, legend, title: v.p('title', { name: legend ? name : base }),
-    epigraph: v.p('epigraph', { name: base, facts: list(facts), feat: best >= 0 && legend ? `the victor of ${battlePlace(B.name[best])}` : feat }),
+    epigraph: v.p('epigraph', { name: base, facts: list(facts), feat: best >= 0 && legend ? `the victor of ${battlePlace(battleName(h, best))}` : feat }),
     ...book.parts(), closing: v.p('closing', { name: base }),
   }
 }

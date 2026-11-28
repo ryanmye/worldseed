@@ -2,8 +2,10 @@
 // By war, by town fought for (the target), by commander; sieges grouped (the assaults of one war on one town in
 // successive years). Pure; no DOM.
 
-import { BattleKind } from '../contract.ts'
+import { BattleKind, settlementNameAt } from '../contract.ts'
 import type { Battles, Commanders, History } from '../contract.ts'
+import { spokenName } from './languageData.ts'
+import { hasDrift } from '../sim/names/spoken.ts'
 
 export interface SiegeGroup {
   war: number
@@ -90,4 +92,58 @@ export function notableBattlesOfWar(h: History, w: number, max = 3): number[] {
   if (!bd) return []
   const rows = (bd.byWar.get(w) ?? []).filter((b) => bd.siegeOf[b] < 0 || bd.sieges[bd.siegeOf[b]].rows[bd.sieges[bd.siegeOf[b]].rows.length - 1] === b)
   return rows.slice().sort((a, b) => battleWeight(bd.B, b) - battleWeight(bd.B, a) || a - b).slice(0, max).sort((a, b) => a - b)
+}
+
+// ---------- n4c: one name form for a place at a year (play-test 2: "Tintemekea" vs "Tintemechea" in one card) ----------
+// Battle names are made at assembly from the towns' written names that year (settlementNameAt); the chronicle, the cards
+// and the panels name a town by its spoken name at the event's year (language drift, lang=1). Every battle line, title,
+// caption, replay and Why names the battle with its town as said that year: battleName.
+
+/** The name of town `id` as said in `year` (spoken with drift, else the name it bore then). */
+export function townAt(h: History, id: number, year: number): string {
+  if (id < 0 || id >= h.settlements.length) return 'a settlement'
+  return spokenName(h, id, year) ?? settlementNameAt(h, id, year) ?? h.settlements[id].name
+}
+
+const spokenBattleNames = new WeakMap<History, (string | undefined)[]>()
+const townsByName = new WeakMap<History, Map<string, number[]>>()
+
+/** Every name a town ever bore (founding and renamings) -> the towns that bore it. */
+function namesIndex(h: History): Map<string, number[]> {
+  let m = townsByName.get(h)
+  if (m) return m
+  m = new Map()
+  const add = (n: string, id: number) => { if (!n) return; const a = m!.get(n); if (!a) m!.set(n, [id]); else if (a[a.length - 1] !== id) a.push(id) }
+  for (let id = 0; id < h.settlements.length; id++) add(h.settlements[id].name, id)
+  const R = (h as Partial<History>).renamings
+  if (R && R.count > 0) for (let i = 0; i < R.count; i++) add(R.name[i], R.settlement[i])
+  townsByName.set(h, m)
+  return m
+}
+
+/** The town word of a battle name ("the Second Battle of Ashtar Field" -> "Ashtar"), or null (a river, a range, a forest). */
+const TOWN_IN_NAME = /^(the (?:[\w]+ )?(?:Siege|Relief|Battle|Ambush) (?:of|at) (?:the )?)(.+?)((?: Ford| Pass| Field| Hill| Strand| Marshes)?)$/
+
+/** Battle b's name with its town as said in the battle's year (the chronicle's form); the recorded name without drift. */
+export function battleName(h: History, b: number): string {
+  const B = (h as Partial<History>).battles
+  if (!B || b < 0 || b >= B.count) return ''
+  const raw = B.name[b] ?? ''
+  if (!raw || !hasDrift(h)) return raw
+  let cache = spokenBattleNames.get(h)
+  if (!cache) spokenBattleNames.set(h, (cache = []))
+  const hit = cache[b]
+  if (hit !== undefined) return hit
+  let out = raw
+  const m = TOWN_IN_NAME.exec(raw)
+  if (m) {
+    const word = m[2], y = B.year[b]
+    const ids = namesIndex(h).get(word) ?? []
+    const bore = (id: number) => settlementNameAt(h, id, y) === word
+    // (the town struck, the base marched from, else any town that bore the name that year)
+    const id = [B.target[b], B.from[b]].find((x) => x >= 0 && ids.includes(x) && bore(x)) ?? ids.find(bore) ?? -1
+    if (id >= 0) out = m[1] + townAt(h, id, y) + m[3]
+  }
+  cache[b] = out
+  return out
 }

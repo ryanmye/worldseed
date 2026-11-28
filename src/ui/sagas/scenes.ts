@@ -5,7 +5,7 @@
 // voice only chooses the wording. A generator offers its candidates and keeps the best few by a rough measure of drama.
 
 import { BattleFlag, BattleKind, BattleWeather, EventType, ReignEnd, type HistoryEvent } from '../../contract.ts'
-import { battlesOf } from '../battlesData.ts' // battles:
+import { battleName, battlesOf } from '../battlesData.ts' // battles:
 import { hoursWords, roundMen } from '../battleFormat.ts' // battles:
 
 import { settingOf, type Ctx } from './facts.ts'
@@ -262,7 +262,7 @@ export function battleScene(c: Ctx, v: Voice, b: number): Scene | null {
   const att = pn(B.attacker[b]), def = pn(B.defender[b])
   const cmd = (k: number) => (k >= 0 && C.name[k] ? C.name[k] : '')
   const cA = cmd(B.cmdA[b]), cD = cmd(B.cmdD[b])
-  const name = B.name[b] || 'the battle'
+  const name = battleName(c.h, b) || 'the battle'
   const near = name.replace(/^the (\w+ )?(Battle|Ambush|Relief) (of|in|at) (the )?/, '').replace(/ (Field|Ford|Pass|Hill|Strand|Marshes)$/, '')
   const wn = warName(c, B.war[b])
   const parts = [v.p('battleA', { year, att, def, menA: roundMen(B.menA[b]), menD: roundMen(B.menD[b]), cmdA: cA ? ` under ${cA}` : '', lead: cA || `the lord of ${att}`, near, war: wn ? `, in ${wn}` : '', war2: wn ? `, in ${wn},` : '' })]
@@ -321,7 +321,7 @@ export function siegeScene(c: Ctx, v: Voice, g: number): Scene | null {
   parts.push(v.p(B.winner[last] === 0 ? 'siegeFell' : 'siegeHeld', { year: B.year[last] }))
   let loss = 0
   for (const b of rows) loss += B.lossA[b] + B.lossD[b]
-  const name = B.name[first] || `the siege of ${town}`
+  const name = battleName(c.h, first) || `the siege of ${town}`
   const Name = name.charAt(0).toUpperCase() + name.slice(1)
   const years = B.year[last] > B.year[first] ? `${B.year[first]}–${B.year[last]}` : String(B.year[first])
   return { kind: 'siege', year: B.year[first], score: 1.2 * loss + 300 * rows.length, title: v.p('siegeTitle', { Name, years }), text: parts.join(' '), place: sg.target }

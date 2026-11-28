@@ -49,7 +49,7 @@ import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, emb
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
 import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
-import { notableBattlesOfWar } from './battlesData.ts' // battles:
+import { battleName, notableBattlesOfWar } from './battlesData.ts' // battles:
 import { battleShortLine } from './battleFormat.ts' // battles:
 import type { LayerToggle } from './overlay.ts'
 import './polities.css'
@@ -900,7 +900,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
         if (!ongoing && W.outcome[w] !== WarOutcome.Ongoing) d.append(` (${warOutcomeWords(pd, w)})`)
         else if (ongoing) d.append(' (in progress)')
         // battles: the war's notable battles fought by the year shown (winner and armies)
-        for (const b of notableBattlesOfWar(h, w, 3)) if (h.battles.year[b] <= year) { const bl = line(battleShortLine(h, b)); bl.classList.add('fp-faint', 'fp-battle'); bl.title = h.battles.name[b] }
+        for (const b of notableBattlesOfWar(h, w, 3)) if (h.battles.year[b] <= year) { const bl = line(battleShortLine(h, b)); bl.classList.add('fp-faint', 'fp-battle'); bl.title = battleName(h, b) }
       }
       if (ws.length > shown.length) line(`and ${ws.length - shown.length} earlier`).classList.add('fp-faint')
     }

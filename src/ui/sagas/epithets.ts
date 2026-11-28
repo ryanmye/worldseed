@@ -5,7 +5,7 @@
 import { AccessionHow, EventType, LandmarkKind, LandmarkRank, ReignEnd, WarOutcome } from '../../contract.ts'
 import { traitWords } from '../rulersData.ts'
 import type { Ctx } from './facts.ts'
-import { battlesOf } from '../battlesData.ts' // battles:
+import { battleName, battlesOf } from '../battlesData.ts' // battles:
 
 /** What a reign did, up to the year told (shared by the state and house sagas). */
 export interface ReignFacts {
@@ -197,6 +197,6 @@ export function commanderEpithet(c: Ctx, k: number): string {
   }
   for (const [foe, n] of over) if (n >= 3 && foe >= 0) return `Hammer of ${c.pname(foe)}`
   if (wins >= 3 && losses === 0) return 'the Unbeaten'
-  if (best >= 0 && B.name[best]) return `the Victor of ${battlePlace(B.name[best])}`
+  if (best >= 0 && battleName(c.h, best)) return `the Victor of ${battlePlace(battleName(c.h, best))}`
   return ''
 }
