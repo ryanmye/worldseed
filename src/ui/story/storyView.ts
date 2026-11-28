@@ -65,6 +65,8 @@ export interface StoryViewDeps {
   battleOpen?(): boolean
   /** The timeline's playback, paused by a replay, goes on after it (Follow still on). */
   play?(): void
+  /** n4c: quiet the map's moving layers (travellers, trade, expeditions) while a strip jump's caption shows (play-test 2: a busy map). */
+  quiet?(on: boolean): void
   /** ui-additions 2: the right column, where the story's battle is the context panel while it is told (absent: none). */
   contextHost?: HTMLElement
 }
@@ -549,6 +551,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   function showCap(c: ReturnType<typeof captionOf>, loose: boolean) {
     card.showCaption(c)
     capYear = c.year
+    deps.quiet?.(loose) // n4c: a jump's caption: the moving layers step back while it shows
     pinCell = c.pinCell
     pinLabel = c.pinLabel
     looseCaption = loose
@@ -556,6 +559,7 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
   }
   function hideCap() {
     capYear = NaN
+    deps.quiet?.(false)
     card.hideCaption()
     pinCell = -1
     looseCaption = false

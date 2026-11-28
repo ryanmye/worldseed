@@ -343,6 +343,10 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
 
   const timeline = createTimeline(deps.bottom, {
     onSettled(year: number, playing: boolean) {
+      // n4c (play-test 2, the stall at 1015): playback started from code (the story's inline replay ending, Resume, the end of
+      // a reading) found the frame loop asleep and nothing woke it: the timeline read "playing" and never moved. A settled
+      // playback state always wakes the loop.
+      deps.wake()
       if (!index) return
       deps.setUrlParam('year', playing ? null : String(Math.floor(year + 1e-6)))
       deps.setUrlParam('play', playing ? null : '0')
@@ -559,7 +563,20 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     return { orders, label: `Another world, with ${orders.length} ${orders.length === 1 ? 'order' : 'orders'}`, focus: null }
   }
   // the story director: drama scores, the story plan, Follow the story (H), captions and notices (ui/story)
+  /** n4c: the moving layers stepped back for a strip jump's caption (the user's toggles are kept: shown again after). */
+  let quiet = false
+  const setQuiet = (on: boolean) => {
+    if (on === quiet) return
+    quiet = on
+    if (journeys) journeys.object.visible = journeysVisible && !on
+    if (trade) trade.object.visible = tradeVisible && !on
+    polities.setTradeVisible(tradeVisible && !on)
+    journeys?.setExpeditionsVisible(expeditionsVisible && !on)
+    if (discoveries) discoveries.mesh.visible = expeditionsVisible && !on
+    requestRender()
+  }
   const story: StoryView = createStoryView({
+    quiet: setQuiet,
     host: deps.bottom.parentElement ?? document.body,
     canvas: deps.canvas,
     camera: deps.camera,
@@ -579,7 +596,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
     initialOn: followByDefault(new URLSearchParams(window.location.search), isFirstVisit()), // onboarding: a first visit follows
     openBattle: (b, o) => battleMap.open(b, o), // onboarding: the top battles' inline replays
     battleOpen: () => battleMap.isOpen(),
-    play: () => timeline.play(),
+    play: () => { timeline.play(); requestRender(); deps.wake() }, // n4c: wake the frame loop (it sleeps while paused)
     contextHost: deps.right, // ui-additions 2: the story's battle as the context panel
   })
   groupRightRail(deps.right) // onboarding: the core panels in sight, the rest under "More panels"
