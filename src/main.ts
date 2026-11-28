@@ -45,6 +45,7 @@ import { landmarkNameAt } from './contract.ts'
 import { activeDioramaLayer } from './render/dioramas/active.ts'
 import { createLanding, randomSeed, YEARS_MAX, YEARS_MIN, type Landing } from './ui/landing.ts'
 import { OLD_POWER_START, PLAY_PATHS, PlayPath } from './ui/onboard.ts'
+import { REALM_AUTO } from './ui/story/realmFollow.ts'
 import { setShortcutsEnabled } from './ui/shortcuts.ts'
 import { createHearthPicker } from './ui/hearthPicker.ts'
 import { previewCradles } from './ui/cradlesData.ts'
@@ -1997,7 +1998,9 @@ if (showLanding) {
       heldUrl = null
       // onboarding: watching follows the story; exploring does not
       historyView.setFollowOnShow(path !== PlayPath.Explore)
+      if (path === PlayPath.Realm) historyView.followRealm(REALM_AUTO) // lane N4d: or follow one realm
       if (path === PlayPath.Watch) url.searchParams.set('follow', '1')
+      else if (path === PlayPath.Realm) url.searchParams.set('follow', 'realm:auto')
       else url.searchParams.delete('follow')
       url.searchParams.delete('intro')
       url.searchParams.set('seed', String(seed))
