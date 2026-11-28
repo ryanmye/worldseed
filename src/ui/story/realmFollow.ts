@@ -51,7 +51,7 @@ export const REALM_PACE: PacingTune = { ffYears: 30, ffFactor: 2.5 }
 /** The weight of the world's own score of an event in the realm's (the realm's tier divided out). */
 export const REALM_WORLD_WEIGHT = 0.6
 /** Meanwhile: the world's beats kept at this speed, at most one per MEANWHILE_GAP years, scored MEANWHILE_SCORE × θ. */
-export const MEANWHILE_SPEED = 8
+export const MEANWHILE_SPEED = 4
 export const MEANWHILE_GAP = 120
 export const MEANWHILE_SCORE = 1.3
 
