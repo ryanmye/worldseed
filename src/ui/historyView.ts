@@ -1518,7 +1518,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
         // so a breakaway or a battle of the player's own realm is told
         const pd = politiesOf(index.history)
         const seatPols = index.history.seat ? [...new Set(Array.from(index.history.seat.polityAt).filter((q) => q >= 0))] : []
-        story.setFocus([selected >= 0 && pd ? polityAtYear(pd, selected, timeline.year) : -1, polities.selected, ...seatPols])
+        story.setFocus([selected >= 0 && pd ? polityAtYear(pd, selected, timeline.year) : -1, polities.selected], seatPols) // (lane N3d: the seat's own realm first)
       }
       if (selected < 0) {
         inspector.hide()

@@ -21,6 +21,7 @@ import type { StaticDrama } from './drama.ts'
 
 export const STORY: {
   tauKey: number; tauCat: number; gMin: number; window: number; theta: number; thetaNote: number; focus: number; promPerSpeed: number
+  seatFocus: number; seatNote: number
   fresh: number; tauType: number; debut: number; floor: number; like: number; likeYears: number; ahead: number
 } = {
   /** Novelty decay for the same polity or people, and for the same kind of story (years). */
@@ -36,6 +37,10 @@ export const STORY: {
   thetaNote: 11,
   /** Focus factor F. */
   focus: 1.5,
+  /** lane N3d: F for the seat's own realm while seated (Follow went to a neighbour's war while the player's king fell), and its
+   * entries become notices at seatNote × θ_n (a coup, a breakaway, a king fallen get at least a notice). */
+  seatFocus: 3,
+  seatNote: 0.5,
   /** A beat is kept at speed k when its prominence ≥ promPerSpeed·k years (at most G_MIN at 1×, so 1× keeps every beat).
    * The plan's G_MIN·k (25·k) kept 1–3 beats at 16×; 18·k gives 4×: 11–14 and 16×: 3–5 on 2000 years (storyStats.ts). */
   promPerSpeed: 18,
@@ -69,6 +74,8 @@ export interface StoryPlan {
 export interface PlanOptions {
   /** Polities whose entries get the focus factor (the selection, a seat). */
   focus?: ReadonlySet<number>
+  /** lane N3d: the seat's realms (seated play): STORY.seatFocus instead of focus, and notices at a lower threshold. */
+  seat?: ReadonlySet<number>
   /** Only entries up to this year (the history's length; default: all). */
   until?: number
   /**
@@ -84,6 +91,8 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
   const E = sd.score.length
   const until = opts.until ?? Infinity
   const focus = opts.focus
+  const seat = opts.seat && opts.seat.size > 0 ? opts.seat : null
+  const ofSeat = (n: number) => seat !== null && ((sd.polA[n] >= 0 && seat.has(sd.polA[n])) || (sd.polB[n] >= 0 && seat.has(sd.polB[n])))
   const beats: number[] = []
   const beatNov: number[] = []
   const notes: number[] = []
@@ -127,7 +136,8 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
     let s = nov
     const prev = beats.length > 0 ? beats[beats.length - 1] : -1
     if (prev >= 0) s *= 1 - (sd.cat[n] === sd.cat[prev] ? 0.3 : 0) - (shares(n, prev) ? 0.3 : 0)
-    if (focus && focus.size > 0 && ((sd.polA[n] >= 0 && focus.has(sd.polA[n])) || (sd.polB[n] >= 0 && focus.has(sd.polB[n])))) s *= STORY.focus
+    if (ofSeat(n)) s *= STORY.seatFocus
+    else if (focus && focus.size > 0 && ((sd.polA[n] >= 0 && focus.has(sd.polA[n])) || (sd.polB[n] >= 0 && focus.has(sd.polB[n])))) s *= STORY.focus
     if (arcs && arcs.arcOf[n] >= 0 && arcBeat[arcs.arcOf[n]]) s *= 1 + 0.4 * arcs.phase[n]
     return s
   }
@@ -230,7 +240,7 @@ export function buildStoryPlan(sd: StaticDrama, years: Float64Array, opts: PlanO
       while (bi < allBeats.length && allBeats[bi] < n) beats.push(allBeats[bi++])
       if (isBeat[n] || sd.score[n] <= 0) continue
       const s = live(n, novel(n))
-      if (s >= STORY.thetaNote) {
+      if (s >= STORY.thetaNote * (ofSeat(n) ? STORY.seatNote : 1)) {
         notes.push(n)
         noteScore.push(s)
       }

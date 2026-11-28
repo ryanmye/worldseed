@@ -43,14 +43,15 @@ export const nYears = (n: number) => `${n} year${n === 1 ? '' : 's'}`
  * lane N3d: what became of the heir born `born` that decision d named, the order having failed at `y`: "Yeler died (776)" when
  * the house still reigned, "a new house took the throne" when it did not (the play-test's "died first, or was no longer of the house").
  */
-function heirFate(h: History, d: number, born: number, y: number): string {
+function heirFate(h: History, d: number, born: number, y: number, dated = true): string {
   const D = h.seat!.decisions
   const p = D.polity[d]
   const x = heirOf(h, d, born)
   const name = x ? x.name : 'the heir named'
   const r0 = reignAt(h, p, D.year[d]), r1 = reignAt(h, p, y)
-  if (r0 && r1 && r1.dynasty !== r0.dynasty) return `${name} never reigned: a new house took the throne (${y})`
-  return `${name} died before the crown passed (${y})`
+  const at = dated ? ` (${y})` : ''
+  if (r0 && r1 && r1.dynasty !== r0.dynasty) return `${name} never reigned: a new house took the throne${at}`
+  return `${name} died before the crown passed${at}`
 }
 
 /** "you offered a match to Launiluna in 744" (the choice, as the player made it). */
@@ -210,7 +211,7 @@ export function realmNews(h: History, p: number, from: number, to: number): News
     for (const [d, ks] of ordersOfDecisions(h)) for (const k of ks) {
       const o = h.orders[k], r = h.orderOutcomes[k]
       if (o.kind !== OrderKind.Designate || !r || r.reason !== OrderReason.NoHeir || r.year <= from || r.year > to || S.decisions.polity[d] !== p) continue
-      out.push({ year: r.year, kind: 'succession', text: `${r.year}: ${heirFate(h, d, o.target ?? -1, r.year)}; the heir named in ${S.decisions.year[d]} will not reign.` })
+      out.push({ year: r.year, kind: 'succession', text: `${r.year}: ${heirFate(h, d, o.target ?? -1, r.year, false)}; the heir named in ${S.decisions.year[d]} will not reign.` })
     }
   }
   for (const e of h.events) if (e.type === EventType.AmbitionFulfilled && e.year > from && e.year <= to) out.push({ year: e.year, kind: 'ambition', text: `${e.year}: an ambition is achieved: ${AMBITION_WORDS[e.value] ?? 'one of yours'}.` })
