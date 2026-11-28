@@ -987,6 +987,8 @@ export function createStoryView(deps: StoryViewDeps): StoryView {
       notes: () => plan?.noteYear.length ?? 0,
       follow: (on: boolean) => setFollow(on),
       secondsLeft: () => ({ model: secondsLeft(deps.timeline.year), pace: pace.k }), // n4b
+      realm: () => (realm ? { polity: realm.polity, beats: realm.plan.beatYear.length, end: realm.endYear } : null), // lane N4d
+      followRealm: (p: number | null) => api.followRealm(p),
     }
   }
   return api
