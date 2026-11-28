@@ -34,7 +34,7 @@ cool[DecisionKind.Betrayed] = 20
 cool[DecisionKind.Commune] = 20
 cool[DecisionKind.ColdWar] = 30
 cool[DecisionKind.Houses] = 20
-cool[DecisionKind.Patronage] = 30 // lane N3c
+cool[DecisionKind.Patronage] = 40 // lane N3c
 
 export const SEAT = {
   // at most maxCards decisions a year (by PRIORITY), none within minGap years of the last one unless urgent
@@ -170,6 +170,8 @@ export const SEAT = {
   commissionTown: 0.5,
   // a victory monument after a war won within commissionVictory years
   commissionVictory: 25,
+  // each year the realm is at war while it is building, the work is given up with chance commissionWarStop (orders' stream)
+  commissionWarStop: 0.2,
   // build years [min, max] of a commissioned work, drawn at give (orders' stream); a year at war adds a year
   commissionBuild: {
     monument: [5, 12] as readonly [number, number], temple: [15, 35] as readonly [number, number],

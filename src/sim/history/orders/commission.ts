@@ -9,8 +9,10 @@
 //                     else a market hall; the down payment (finance: commissionDown x R° from the treasury; without: commissionCost
 //                     of the capital's wealth) or Failed (Refused); the build years and the variant drawn from the orders' stream.
 //   each year (ordersEnd, commissionEnd)   while it is building, the instalment (commissionYearly x R°, or commissionUpkeep of the
-//                     capital's wealth): unpaid, the work is given up the next year (Refused). Finished: Fulfilled, product the
-//                     landmark; given up: Failed with the cause (Refused a default or unpaid masons, Rising a revolt or civil war,
+//                     capital's wealth): unpaid, the work is given up the next year (Refused); each year the realm is at war,
+//                     with chance SEAT.commissionWarStop (orders' stream) the war takes the masons and the coin: given up the
+//                     next year (AtWar). Finished: Fulfilled, product the
+//                     landmark; given up: Failed with the cause (Refused a default or unpaid masons, AtWar, Rising a revolt or civil war,
 //                     NotMember the town lost, TargetGone sacked or abandoned, ActorGone the realm ended).
 import { FaithKind, LandmarkKind, LandmarkState, OrderKind, OrderReason, OrderStatus, WarOutcome } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
@@ -172,7 +174,8 @@ export function commissionEnd(s: HistoryState, ox: OrdersState, k: number): [num
     if (ps.pEnded[a] >= 0) return [OrderStatus.Failed, OrderReason.ActorGone, -1]
     return [OrderStatus.Failed, member(ps, v, a) ? OrderReason.TargetGone : OrderReason.NotMember, v]
   }
-  // building: this year's instalment
+  // building: the war's toll (a draw only in a year at war), then this year's instalment
+  if (ps.pWars[a] > 0 && ox.rng.next() < SEAT.commissionWarStop) { ox.refused[k] = 2; return null }
   if (s.fin !== null) {
     const due = SEAT.commissionYearly * finRevOrd(s, a)
     if (due > 0 && !finSpend(s, a, due, 'other')) ox.refused[k] = 1

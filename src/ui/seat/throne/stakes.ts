@@ -49,7 +49,7 @@ const LIKELY: Partial<Record<number, string>> = {
   [K.RewardArmy]: 'Gold for the victors: the army is content, and the throne safer from its generals.',
   [K.DefyWithAlly]: 'An ally is sought against the overlord and the tribute stops: free, with a friend, if they come to collect.',
   // lane N3c
-  [K.Commission]: 'Masons and coin for years: the work rises while the realm keeps the peace; a war halts it, and a default, a rising or a civil war ends it unfinished.',
+  [K.Commission]: 'Masons and coin for years: the work rises while the realm keeps the peace; a war halts it and may take the masons, and a default, a rising or a civil war ends it unfinished.',
 }
 
 /** The honest words of an option without orders (the court's own course): what happens if this is chosen. */

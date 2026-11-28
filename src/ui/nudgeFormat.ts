@@ -26,6 +26,7 @@ export function reasonWords(reason: number, kind: number): string {
     switch (reason) {
       case OrderReason.Refused: return 'the treasury could not pay the masons, or the crown defaulted'
       case OrderReason.Rising: return 'the town rose, or the realm fell into civil war'
+      case OrderReason.AtWar: return 'a war took the masons and the coin'
       case OrderReason.NotMember: return 'the town was lost'
       case OrderReason.TargetGone: return 'the town was sacked or abandoned'
       case OrderReason.ActorGone: return 'the realm was gone'

@@ -3224,6 +3224,7 @@ export const OrderReason = {
   NoGeneral: 28, // seat: Purge, Placate: nothing threatens the throne (a hint for the UI only: the order may still be given)
   // (29–31 and 33–38 reserved, §3.2; 32 spare)
   Rising: 39, // lane N3c: Commission: the work was given up when its town rose or the realm fell into civil war
+  AtWar: 40, // lane N3c: Commission: a war took the masons and the coin (a yearly chance while the realm is at war)
 } as const
 export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
 

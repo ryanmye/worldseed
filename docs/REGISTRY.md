@@ -56,7 +56,7 @@ resolved below.
 | CommanderFate | 0–8 | 9 Murdered (shadow); 10 (battles-fiction) | 11 |
 | BattleKind / BattleWeather | 0–5 / 0–4 | 6–7 / 5–6 (battles-fiction) | 8 / 7 |
 | OrderRole | 0–7, 11 Decision, 12 Heir | 8–10 §3.2; 13–18 shadow | 19 |
-| OrderReason | 0–28, **39 Rising (lane/n3c)** | 29–31 and 33–38 §3.2; **32 is spare: character reuses 24 OutOfReach** (R4) | 40 |
+| OrderReason | 0–28, **39 Rising, 40 AtWar (lane/n3c)** | 29–31 and 33–38 §3.2; **32 is spare: character reuses 24 OutOfReach** (R4) | 41 |
 | RevoltCause | 0–5, 7; 6 Burghers (lane/citystates) | 8–18 §3.2 | 19 |
 | FamilyRuin | 0–5 | 6 Exposed (shadow) | 7 |
 | LenderKind | 0–2 | 3 Person (character), 4 Network (shadow) | 5 |

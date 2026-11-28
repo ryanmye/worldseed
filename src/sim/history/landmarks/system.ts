@@ -750,7 +750,8 @@ function revive(s: HistoryState, lm: LandmarksState, id: number, u: number): voi
  * lane N3c (patronage, orders/commission.ts): the works the seat's crown commissioned (OrderKind.Commission in force). A new one
  * is begun at its town this year (the kind, build years and variant the order drew; the faith a great temple serves, the
  * crown's); one building halts a year (its due year put off) while the realm is at war, and is given up (Unfinished; comWhy the
- * cause) on a crown default or repudiation (Refused; also when last year's instalment went unpaid), a revolt of its town or a
+ * cause) on a crown default or repudiation (Refused; also when last year's instalment went unpaid), a war's toll drawn by the
+ * order last year (AtWar), a revolt of its town or a
  * civil war against the realm's capital (Rising). Sacks, abandonment, a lost town and the realm's end give it up as any great
  * work's (scanEvents, works). Draws nothing; before scanEvents, so a work begun here keeps the town's victory monument for it.
  */
@@ -773,7 +774,7 @@ function commissions(s: HistoryState, lm: LandmarksState): void {
       continue
     }
     if (lm.lState[id] !== ST.Building) continue
-    let why = ox.refused[k] ? OrderReason.Refused : -1
+    let why = ox.refused[k] === 1 ? OrderReason.Refused : ox.refused[k] === 2 ? OrderReason.AtWar : -1
     const cap = ps.pCapital[p]
     for (let i = lm.evSeen; i < ev.length && why < 0; i++) {
       const e = ev[i]

@@ -737,6 +737,7 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
   // stable by priority (then the order found in)
   const order = cards.map((_, i) => i).sort((a, b) => RANK[cards[a].kind] - RANK[cards[b].kind] || a - b)
   const seenKind = new Set<number>()
+  let blocking = false
   for (const i of order) {
     const c = cards[i]
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
@@ -747,11 +748,13 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
+    if (c.kind === DecisionKind.Patronage && st.newRows > 0) continue // (lane N3c: only in a year with no other matter)
     seenKind.add(c.kind)
     record(s, st, s.year, c, opts)
     st.newRows++
+    if (c.kind !== DecisionKind.Patronage) blocking = true
   }
-  if (st.newRows > 0) st.lastCard = s.year
+  if (blocking) st.lastCard = s.year // (lane N3c: the patronage card does not hold back the next matter)
 }
 
 /**
