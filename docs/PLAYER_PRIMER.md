@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 7 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 8 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -26,6 +26,11 @@ Changelog:
   reign's share link keeps only that reign's choices; Keep an old great power alive is now seed 1's Uhulaun from 1080; and opens at its year; the ambition picker asks before it restarts
   the reign; on a phone the throne's tab opens with the first card; three new story arcs (the uncle on the throne, the
   child king, the provinces rise).
+- v8 (2026-11-28, lane/n4d follow a realm): **Follow this realm** on a faction's detail in Factions, "or follow one
+  realm" under Watch history unfold on the start page, `follow=realm:<id>` (and `realm:auto`) in the address; the realm
+  chip on the timeline (× or `Esc` follows the whole world again); the realm's own smaller events as beats, "Meanwhile"
+  notes for the world's greatest, the camera kept on the realm; the story passes to a successor when the realm ends;
+  the chronicle's "Only <realm>" toggle; seated, Follow follows your own realm.
 
 ## 1. Starting a world
 
@@ -102,8 +107,20 @@ Changelog:
   jump there: playback pauses, following lets go, and the strongest story at the peak gets a caption, a pin and a
   camera flight. **Resume** (or Space and a moment's wait) goes on from there.
 - The beats are the ticks on the timeline. The director does not frame for daylight, so set Sun to Follow (§2).
-- **Following one realm:** select it in Factions. The director gives the selection's stories a focus bonus (storyView
-  `focus`).
+- **Follow this realm** (lane N4d, ui/story/realmFollow.ts): the faction detail in Factions has a **Follow this realm**
+  button (living realms); the start page has **or follow one realm** under Watch history unfold (the run's greatest
+  long-lived realm, from its founding); the address `follow=realm:<id>` (or `follow=realm:auto`) opens with it. Follow
+  then tells that realm's own story, smaller events included: its rulers' accessions and deaths, heirs, marriages,
+  revolts, towns founded, grown and lost, buildings and landmarks, ideas and faith, battles of any size, debts, plagues,
+  floods and quakes in its towns, merchant houses and charters. The world's greatest events elsewhere come now and then as
+  a **Meanwhile** caption, without a flight. The camera stays on the realm (its capital, or the event's town, in daylight);
+  quiet stretches fast-forward more gently (2.5×). The timeline shows a **realm chip** with the realm's name: its **×**,
+  or `Esc`, follows the whole world again. When the realm ends, the story passes to its successor (the conqueror, the
+  state that kept the capital, or its largest heir) and the chip says so ("The story passes to X"); with none, Follow goes
+  back to the world. While following a realm the chronicle lists only its entries (**Only <realm>** above the list; untick
+  it for the whole world), Factions shows the realm's card, and the drama strip shows the realm's own peaks. Share links
+  keep `follow=realm:<id>`. **Seated**, Follow follows your own realm (and the realm the seat holds next) unless you chose
+  another or pressed ×. Without it, selecting a faction only gives its stories a focus bonus in the world's story.
 
 ## 4. Panels
 
