@@ -105,7 +105,7 @@ async function main() {
     if (m.persona.startsWith('greedy')) {
       const a = Number(m.persona.split(':')[1] ?? AmbitionKind.Unify)
       const met = m.ambitionsMet.includes(a), other = rows.some((x) => x.seed === m.seed && x !== m && x.ambitionsMet.includes(a))
-      console.log(`- seed ${m.seed} ${m.persona}: ambition ${met ? 'MET' : 'not met'}; ${m.levers}/${m.cards} cards offered a lever, ${m.blind} blind. ${met ? '' : m.levers === 0 ? 'Verdict: the game gave no lever.' : other ? 'Verdict: bot weak (another persona met it).' : 'Verdict: levers offered but too weak (no persona met it).'}`)
+      console.log(`- seed ${m.seed} ${m.persona}: ambition ${met ? 'MET' : 'not met'}; ${m.levers}/${m.cards} cards offered a lever, ${m.blind} blind. ${met ? '' : m.levers === 0 ? 'Verdict: the game gave no lever.' : other ? 'Verdict: bot weak (another persona met it).' : 'Verdict: levers offered but too weak (no persona met it).'}${a === AmbitionKind.Monument && !met && m.monumentWhy ? ` Monument: ${m.monumentWhy}.` : ''}`)
     }
     if (m.persona === 'aggressive') console.log(`- seed ${m.seed} aggressive: started ${m.warsStarted} of ${m.warsFought} wars; ${m.levers}/${m.cards} cards had a warlike option, ${m.blind} blind. ${m.warsStarted > 0 ? '' : m.levers === 0 ? 'Verdict: the game gave no lever.' : 'Verdict: levers taken but no war followed.'}`)
   }
