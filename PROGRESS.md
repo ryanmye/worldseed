@@ -15,10 +15,13 @@ Goals: 1 Unify reachable; 2 Monument harder; 3 old-power Dramatic 40-60% surviva
 - [x] S7 bots r1 (pre-merge) -> runs/n3b/r1 (compare: python3 runs/n3b/compare.py runs/merge-n3 runs/n3b/r1). Findings: Monument still passive on fowinlan/oldpower; old power 10/11 survive incl always-defer (court picked Defy with an ally)
 - [x] S8 Monument needs the seat's own order (drivenBy); court pays on the looming card
 - [x] S9 merged origin/main 9d00a3e (n5, detmath2) at cd535e9; G0 OK x6 vs post-N5 goldens (runs/n3b/g0-2.log)
-- [ ] S10 bots r2 (post-merge) -> runs/n3b/r2; baseline post-merge main -> runs/n3b/base-out (worktree runs/n3b/base). Both via nohup run.sh chains (r2-*.out) (run.sh dramatic|realistic <out>); summarize: python3 runs/n3b/r1/summarize.py
+- [x] S10 bots r2 (post-merge) -> runs/n3b/r2; baseline post-merge main -> runs/n3b/base-out (worktree runs/n3b/base). Both via nohup run.sh chains (r2-*.out) (run.sh dramatic|realistic <out>); summarize: python3 runs/n3b/r1/summarize.py
 
+- [x] S11 old power seat dead post-N5 (Thotakor conquered 981 in Dramatic): candidates runs/n3b/oldcand (oldcand.sh seed:pol:year); chosen seed 1 polity:1:1080 (skilled 4/7, random 2/4, defer lost)
+- [x] S12 own-order rule (seatOrdered): Unify towns only in wars the seat declared; Monument's order not a deferral
+- [ ] S13 final bots r3 -> runs/n3b/r3 (+ base-out oldpower2 on base worktree); then compare.py runs/n3b/base-out runs/n3b/r3; realism:check; final merge origin/main
 ## Current
-S10 running; then compare.py base-out vs r2; tests + build + realism:check.
+S13 r3 running (r3-*.out).
 S7 bots r1 running (nohup runs/n3b/run.sh). G0 OK x6 pre-n5 (runs/n3b/g0-1.log).
 Old: S1 Unify. Finding (realistic-kelurair): share peaks 0.52 passively ~790, greedy:1's wars then LOWER it (0.34 by 850); 0.6 never hit by any persona. Probing other setups: runs/n3b/probe/*.txt
 
