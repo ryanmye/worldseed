@@ -13,7 +13,7 @@ Brief: plans/_LANE_BRIEF.md. Before = runs/n3b/r4 (main == n3b final code).
 ## Current
 - r1 (runs/n3c/r1, personas v5, cool 30): Monument 5-6/13 per setup (too easy: randoms), realistic-oldpower2 others regressed (chaotic card-stream shift).
 - v2 tuning (wip commit): cool 40, Patronage only in a year with no other card and does not set lastCard, war toll 0.2/yr (OrderReason 40 AtWar).
-- q2 quick runs after the masons step (commit after 286694a): PERS=random,greedy:5 bash runs/n3c/run2.sh <preset> runs/n3c/q2
+- q2 (masons ask once): randoms ~50%. Now masons ask twice; full acceptance r2: bash runs/n3c/run.sh <preset> runs/n3c/r2 (resumable)
 - then full acceptance r2: bash runs/n3c/run.sh <preset> runs/n3c/r2; update primer for v2 rules; merge origin/main; gates.
 
 ## Next commands

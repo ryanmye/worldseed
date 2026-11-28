@@ -48,8 +48,8 @@ describe('patronage (lane N3c)', () => {
     expect(r.status).toBe(OrderStatus.Fulfilled)
     expect(L.completedYear[r.product]).toBe(r.year)
     expect(monument(h)).toBe(true)
-    // half-way the masons asked for more, and were paid (a second Commission, done the year it was given)
-    const ask = P.cards.find((c) => /the masons say/.test(c.model.situation))
+    // on the way the masons asked for more, and were paid (a second Commission, done the year it was given)
+    const ask = P.cards.find((c) => /masons at work on/.test(c.model.situation))
     expect(ask?.model.options.map((x) => x.label)).toContain('Pay the masons')
     expect(cs.some((x) => x.k !== cs[0].k && x.r.status === OrderStatus.Fulfilled && x.r.year === x.o.year && x.r.product === r.product)).toBe(true)
     // the feed: begun, rising (at a year while it was building), and the "Because you…" line of its end
@@ -76,7 +76,8 @@ describe('patronage (lane N3c)', () => {
     const o = decodeOrders(P!.o)
     const k = o.findIndex((x) => x.kind === OrderKind.Commission)
     const choice = o.slice(0, k).reverse().find((x) => x.kind === OrderKind.Choice)!
-    const k2 = o.findIndex((x, i) => i > k && x.kind === OrderKind.Commission) // (the masons' pay, half-way)
+    let k2 = -1 // (the masons' pay: the last Commission of the run)
+    o.forEach((x, i) => { if (x.kind === OrderKind.Commission) k2 = i })
     const forged = o.map((x) => (x === choice ? { ...x, target: Math.floor(x.target! / 8) * 8 + 7 } : x)).filter((_, i) => i <= (k2 >= 0 ? k2 : k))
     const h = simulateHistory(generateWorld(SEED, { subdivisions: 48 }), { ...run.historyOptions, years: P!.history.years, seat, orders: forged })
     const c = commissions(h)
