@@ -66,7 +66,7 @@ describe('throne fixes (lane N3d)', () => {
     texts.push(...realmNews(h, p, seat.from, h.years).map((x) => x.text))
     for (const r of (h.rulers ?? []).filter((x) => x.polity === p && x.ended > seat.from)) texts.push(...reignSummary(h, r, h.years).lines)
     for (const t of texts) {
-      expect(t, t).not.toMatch(/\b1 (years|towns)\b/)
+      expect(t, t).not.toMatch(/(^|[^.\d])\b1 (years|towns)\b/)
       expect(t, t).not.toMatch(/some 0 dead/)
       expect(t, t).not.toMatch(/\. (you|because) /) // (each sentence capitalised)
       expect(t, t).not.toMatch(/; the towns grumble\. Coin now; the towns grumble/)
