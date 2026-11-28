@@ -60,10 +60,10 @@ describe('shared enums (docs/REGISTRY.md)', () => {
 })
 
 describe('reserved order and decision rows (R40)', () => {
-  it('ORDER_KINDS is contiguous 0..83: 0–20 and 22 live, 21 and 23–83 reserved placeholders with no encode key', () => {
+  it('ORDER_KINDS is contiguous 0..143: 0–20, 22 and 143 live, 21 and 23–142 reserved placeholders with no encode key', () => {
     const K = describeOrderKinds()
     expect(K.length).toBe(ORDER_KIND_COUNT)
-    expect(ORDER_KIND_COUNT).toBe(84)
+    expect(ORDER_KIND_COUNT).toBe(144)
     K.forEach((k, i) => expect(k.kind).toBe(i))
     expect(K.filter((k) => !k.reserved).map((k) => k.kind)).toEqual(Object.values(OrderKind))
     for (const k of K.filter((x) => x.reserved)) {
@@ -85,6 +85,12 @@ describe('reserved order and decision rows (R40)', () => {
     expect(K[71].reservedFor).toBe('world-builder-divine: Portent')
     expect(K[82].reservedFor).toBe('world-builder-divine: Curse')
     expect(K[83].reservedFor).toBe('religious-evolution: Council')
+    expect(K[84].reservedFor).toBe('barriers: Brink')
+    expect(K[118].reservedFor).toBe('throne arcs')
+    expect(K[126].reservedFor).toBe('shadow-network: NetConfide')
+    expect(K[135].reservedFor).toBe('battles-fiction')
+    expect(K[142].reservedFor).toBe('battles-fiction')
+    expect(K[143].key).toBe('commission') // (lane N3c)
   })
 
   it('a reserved kind never encodes to a key, never decodes, and is SystemOff', () => {
@@ -94,10 +100,10 @@ describe('reserved order and decision rows (R40)', () => {
     expect(decodeOrders('10::1:2')).toEqual([])
   })
 
-  it('DecisionKind table is contiguous 0..112: 0–17 seat-mode (live), 18–101 reserved, 102–112 surfacing (live)', () => {
+  it('DecisionKind table is contiguous 0..113: 0–17 seat-mode (live), 18–101 reserved, 102–112 surfacing and 113 patronage (live)', () => {
     const D = describeDecisionKinds()
     expect(D.length).toBe(DECISION_KIND_COUNT)
-    expect(DECISION_KIND_COUNT).toBe(113)
+    expect(DECISION_KIND_COUNT).toBe(114)
     D.forEach((d, i) => { expect(d.kind).toBe(i); if (i < 18 || i >= 102) { expect(d.reserved).toBeUndefined(); expect(d.key.length).toBeGreaterThan(0) } else { expect(d.reserved).toBe(true); expect(d.reservedFor?.length).toBeGreaterThan(0) } })
     expect(D[0].key).toBe('warOnUs')
     expect(D[17].key).toBe('idea')
@@ -113,5 +119,6 @@ describe('reserved order and decision rows (R40)', () => {
     expect(D[94].reservedFor).toBe('battles-fiction: Relief')
     expect(D[102].key).toBe('default')
     expect(D[112].key).toBe('houses')
+    expect(D[113].key).toBe('patronage')
   })
 })

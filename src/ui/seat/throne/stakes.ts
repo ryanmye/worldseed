@@ -7,6 +7,7 @@ import { DecisionKind, SeatOptionKey } from '../../../contract.ts'
 import type { History } from '../../../contract.ts'
 import { OPTION_RISK, SEAT } from '../../../sim/history/seat/params.ts'
 import { HUD, hudRowOf, oddsOfRow } from './hudModel.ts'
+import { commissionBuild } from '../../../sim/history/orders/commission.ts' // lane N3c
 import { heirOf, heirPhrase, heirsAt } from './heirs.ts'
 
 const K = SeatOptionKey
@@ -47,6 +48,8 @@ const LIKELY: Partial<Record<number, string>> = {
   [K.OfferTerms]: 'Peace from strength: the war ends while we are ahead.',
   [K.RewardArmy]: 'Gold for the victors: the army is content, and the throne safer from its generals.',
   [K.DefyWithAlly]: 'An ally is sought against the overlord and the tribute stops: free, with a friend, if they come to collect.',
+  // lane N3c
+  [K.Commission]: 'Masons and coin for years: the work rises while the realm keeps the peace; a war halts it, and a default, a rising or a civil war ends it unfinished.',
 }
 
 /** The honest words of an option without orders (the court's own course): what happens if this is chosen. */
@@ -138,8 +141,20 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
   const r0 = hudRowOf(h, d)
   const now = r0 ? oddsOfRow(r0) : NaN
   const after = oddsAfter(h, d, option)
-  const odds = Number.isFinite(now) && Number.isFinite(after) && Math.abs(after - now) >= 0.005 ? `Odds the realm stands 50 years: ${pct(now)} → ${pct(after)}` : ''
+  let odds = Number.isFinite(now) && Number.isFinite(after) && Math.abs(after - now) >= 0.005 ? `Odds the realm stands 50 years: ${pct(now)} → ${pct(after)}` : ''
+  if (key === K.Commission && !court && r0) odds = workOdds(r0, D.info?.[d] ?? -1)
   return { likely, risk: riskWord(key), odds, oddsAfter: after }
+}
+
+/**
+ * lane N3c: the odds a commissioned work is finished, if things stay as they are: no crown default, coup or rising (the HUD's
+ * yearly hazards: overthrow, default, a town's rising) through the middle of its build years (a rough figure; a war only halts it).
+ */
+export function workOdds(r: ArrayLike<number>, kind: number): string {
+  const v = (i: number) => (Number.isFinite(r[i]) ? r[i] : 0)
+  const [lo, hi] = commissionBuild(kind)
+  const rate = v(HUD.Overthrow) + Math.min(0.05, v(HUD.Default)) + v(HUD.Revolt)
+  return `Odds the work is finished: ${pct(Math.exp(-((lo + hi) / 2) * rate))} (${lo}–${hi} years of work; the realm’s 50-year odds do not move)`
 }
 
 /** The heir option's label: "Name Aru (son, 23) heir, the law's choice". */

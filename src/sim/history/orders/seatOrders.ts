@@ -20,6 +20,8 @@
 //   Levy p             finance: in force, the tax pressure eases toward its highest. Without: at give, SEAT.levyShare of the
 //                      members' wealth to the capital, unrest + levyUnrest. LevyRaised.
 //   Betray p -> q      (oaths) in force: betrayalStep defects the ordered ally when it can (offer or tired). Fulfilled on Betrayal.
+//   Commission p -> v  (landmarks; lane N3c, orders/commission.ts) at give: the kind and the down payment; the landmarks raise the
+//                      work at v (halted by war; given up on a default, a rising, a sack); each year the instalment. Fulfilled when built.
 
 import { BondEnd, BondKind, EventType, GrievanceKind, OrderKind, OrderReason, OrderStatus, ReignEnd } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
@@ -35,11 +37,12 @@ import { RULERS } from '../rulers/params.ts'
 import { finSpend, finRevOrd } from '../finance/hooks.ts'
 import { SEAT } from '../seat/params.ts'
 import type { OrdersState } from './state.ts'
+import { commissionCheck, commissionGive } from './commission.ts'
 
 const H = RULERS.heirs
 
-/** Kinds handled here (11-20, 22). */
-export const isSeatKind = (k: number): boolean => (k >= OrderKind.Repudiate && k <= OrderKind.Levy) || k === OrderKind.Betray
+/** Kinds handled here (11-20, 22; lane N3c: 143 Commission). */
+export const isSeatKind = (k: number): boolean => (k >= OrderKind.Repudiate && k <= OrderKind.Levy) || k === OrderKind.Betray || k === OrderKind.Commission
 /** Seat kinds whose target is a polity (the Repudiate of the crown's debts names the actor itself). */
 export const seatPolityTarget = (k: number): boolean => k === OrderKind.Repudiate || k === OrderKind.Defy || k === OrderKind.Submit || k === OrderKind.Ally || k === OrderKind.Marry || k === OrderKind.Betray
 /** Seat kinds that act while in force and are done when their time runs out having acted (Fulfilled, not Partly). */
@@ -85,6 +88,7 @@ export function seatSystemOff(s: HistoryState, kd: number, a: number, t: number)
   if (kd === OrderKind.Borrow || (kd === OrderKind.Repudiate && t === a)) return s.fin === null
   if (kd === OrderKind.Marry || kd === OrderKind.Designate || kd === OrderKind.Purge) return s.rul === null
   if (kd === OrderKind.Betray) return s.pol === null || s.pol.og === null || !s.pol.og.oaths
+  if (kd === OrderKind.Commission) return s.lm === null // (lane N3c: the landmarks raise the work)
   return false
 }
 
@@ -128,6 +132,7 @@ export function seatCheck(s: HistoryState, ps: PolityState, kd: number, a: numbe
       if (og === null || !og.oaths) return R.SystemOff
       return allianceBond(ps, a, t) >= 0 && allyWar(ps, a, t) >= 0 ? R.None : R.NoBond
     }
+    case OrderKind.Commission: return commissionCheck(s, ps, a, t) // lane N3c
   }
   return R.NoTarget
 }
@@ -220,6 +225,7 @@ export function seatGive(s: HistoryState, ox: OrdersState, ps: PolityState, k: n
       ox.acted[k] = s.year
       return OrderStatus.Fulfilled
     }
+    case OrderKind.Commission: return commissionGive(s, ox, ps, k) // lane N3c
   }
   return OrderStatus.Active
 }

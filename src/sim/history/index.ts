@@ -596,6 +596,7 @@ export function createRunner(world: World, optionsIn?: HistoryOptions, probe?: (
   s.ideas = ix
   // landmarks: great buildings and houses of worship (a pure consequence layer, read-only on the rest), unless switched off.
   const lm = (options?.landmarks ?? LANDMARKS_ON) ? createLandmarks(s) : null
+  s.lm = lm // (lane N3c: the patronage order and the watcher read it)
   // orders: the player's nudges, only when there are any (none: the history is exactly the one without them).
   // disasters: natural shocks and climate, from the world alone (unless switched off).
   const dx = (options?.disasters ?? DX.enabled) ? createDisasters(world, terrain, weather.region, weather.regionCount, pp.dxFeedback) : null

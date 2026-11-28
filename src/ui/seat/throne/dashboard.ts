@@ -7,7 +7,7 @@
 import type { History } from '../../../contract.ts'
 import { contextChanged, registerContext } from '../../contextPanel.ts'
 import { AMBITIONS, ambitionLine } from './ambition.ts'
-import { callbacksAt, realmNews, rulerTitle } from './callbacks.ts'
+import { callbacksAt, realmNews, rulerTitle, worksInProgress } from './callbacks.ts'
 import { heirsAt, heirPhrase, reignAt, crownedAs } from './heirs.ts'
 import { realmArms, portrait, realmColour } from './heraldry.ts'
 import { ageMilestone, hudModel, oddsSentence } from './hudModel.ts'
@@ -138,6 +138,7 @@ export function createSeatDashboard(deps: SeatDashboardDeps): SeatDashboard {
     const items: { year: number; text: string; cls: string }[] = []
     for (const n of realmNews(h, p, S.seat.from, year)) items.push({ year: n.year, text: n.text, cls: n.kind })
     for (const c of callbacksAt(h, year + 1, S.seat.from, year - S.seat.from + 1, 40)) items.push({ year: c.year, text: c.text, cls: 'callback' })
+    for (const n of worksInProgress(h, p, year)) items.push({ year: n.year, text: n.text, cls: n.kind }) // lane N3c: build progress
     if (P) for (let y0 = S.seat.from; y0 < year; y0 += 100) { const t = ageMilestone(name, P.foundedYear, y0, Math.min(year, y0 + 100)); if (t) items.push({ year: Math.min(year, P.foundedYear + 100 * Math.floor((Math.min(year, y0 + 100) - P.foundedYear) / 100)), text: t, cls: 'milestone' }) }
     // breakaways and towns lost (play-test #1: 47 -> 32 settlements and no word of it): from the snapshots
     lostTowns(h, p, S.seat.from, year, items)

@@ -8,6 +8,7 @@
 // landmass (vassals count) kept at least min(unifyShare, its share at the seat's year) - unifyKeep, unifyYears running. Monument is
 // a great work raised in the seat's time and of its doing: a great landmark begun and finished by the realm while the seat is
 // held, following an order of the seat's that leads to it (drivenBy); a town's temple, met by every realm, no longer counts.
+// Lane N3c: the patronage order (OrderKind.Commission) is such an order: a work the seat commissioned counts when it is finished.
 import { AmbitionKind, DEFER_OPTIONS, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
@@ -47,6 +48,17 @@ export function drivenBy(s: HistoryState, st: SeatState, kind: number, begun: nu
   if (need === null) return false
   for (const k of need) if (seatOrdered(s, k, k === OrderKind.Idea || k === OrderKind.Crop ? st.people : st.polity, -1, Math.max(st.opts.from + 1, begun - SEAT.monumentAfter), begun)) return true
   return false
+}
+
+/**
+ * lane N3c: great work `id` was commissioned by the seat itself (OrderKind.Commission at its town, given the year it was begun
+ * by a choice of the player's, not a deferral's pick).
+ */
+export function commissioned(s: HistoryState, st: SeatState, id: number): boolean {
+  const lm = st.lm, ox = s.orders
+  if (!lm || ox === null) return false
+  const k = lm.comOrder.get(id)
+  return k !== undefined && seatOrdered(s, OrderKind.Commission, ox.actor[k], ox.target[k], st.opts.from + 1, lm.lBegun[id])
 }
 
 /** lane N3b: the options that lead the realm to war (Unify asks for one chosen by the player). */
@@ -129,7 +141,7 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         if (ps === null || p < 0 || !lm) break
         for (let j = 0; j < lm.lDone.length && !ok; j++) {
           if (lm.lDone[j] !== s.year || lm.lPol[j] !== p || lm.lRank[j] !== LandmarkRank.Great || lm.lBegun[j] <= st.opts.from) continue
-          if (lm.lKind[j] !== LandmarkKind.Castle && lm.lKind[j] !== LandmarkKind.Palace && drivenBy(s, st, lm.lKind[j], lm.lBegun[j])) ok = true
+          if (lm.lKind[j] !== LandmarkKind.Castle && lm.lKind[j] !== LandmarkKind.Palace && (commissioned(s, st, j) || drivenBy(s, st, lm.lKind[j], lm.lBegun[j]))) ok = true
         }
         break
       }

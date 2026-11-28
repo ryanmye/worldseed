@@ -20,7 +20,8 @@
 // Surfacing (EVALUATION §4 Lane 1) adds the merged systems' cards, each from an event of the year and with existing orders
 // only (mergedCards): Default and WarChest (finance), Battle (battles), Bluff and Intelligence (beliefs), Disaster, AllyCalls
 // and Betrayed (oaths), Commune (city-states), ColdWar, Houses (families); a renowned general of the realm brings General.
-import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
+// Lane N3c adds Patronage (a full treasury at peace, or a war won: Commission a great work, or Retrench).
+import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey, WarOutcome } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import { FAR, projAt } from '../polity/state.ts'
@@ -46,6 +47,7 @@ import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
 import { AmbitionKind } from '../../../contract.ts'
 import { RULERS as RP } from '../rulers/params.ts'
 import { HUD_N, hudRow } from './hud.ts'
+import { commissionAfford, commissionOf, commissionPick, commissionTown } from '../orders/commission.ts' // lane N3c
 
 /** An order of an option: kind, actor, target (-1 none). */
 type O = [number, number, number]
@@ -223,6 +225,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
   }
   if (ps !== null && p >= 0) mergedCards(s, st, ps, p, k, cap, from, cards)
   if (ps !== null && p >= 0) courtCards(s, st, ps, p, k, cap, cards)
+  if (ps !== null && p >= 0) patronageCard(s, st, ps, p, from, cards) // lane N3c
   // Faith (a state condition, checked when its cooldown has passed): a universal faith holding a large share of the realm, not the ruler's.
   const rel = s.rel
   if (rel !== null && s.rul !== null && ps !== null && p >= 0 && s.year - st.lastKind[DecisionKind.Faith] >= SEAT.cool[DecisionKind.Faith]) {
@@ -664,6 +667,31 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
       break
     }
   }
+}
+
+/**
+ * lane N3c: Patronage, a full treasury at peace: every SEAT.patronageEvery years, or the year a war of the realm ends in its
+ * favour, when no commission of the realm is under way, it is at war with no one, the treasury holds SEAT.patronageTreasury
+ * down payments, and a major town lacks a great work that fits (orders/commission.ts: a victory monument after a war won, a
+ * great temple of the crown's faith, a library, a market hall). info: the kind of work. Pure reads.
+ */
+function patronageCard(s: HistoryState, st: SeatState, ps: PolityState, p: number, from: number, cards: Card[]): void {
+  if (s.lm === null || off(st, s, DecisionKind.Patronage) || ps.pWars[p] > 0) return
+  let won = false
+  for (let e = from; e < s.events.length && !won; e++) {
+    const x = s.events[e]
+    if (x.type !== EventType.PeaceMade || x.value < 0 || x.value >= ps.wAtt.length) continue
+    const w = x.value, o = ps.wOutcome[w]
+    won = (ps.wAtt[w] === p && (o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute)) || (ps.wDef[w] === p && o === WarOutcome.DefenderGains)
+  }
+  if (!won && s.year % SEAT.patronageEvery !== 0) return
+  if (commissionOf(s, p) >= 0 || !commissionAfford(s, ps, p, SEAT.patronageTreasury)) return
+  const t = commissionTown(s, ps, p)
+  if (t < 0) return
+  cards.push({ kind: DecisionKind.Patronage, subject: t, place: t, info: commissionPick(s, p, t), options: [
+    { key: SeatOptionKey.Commission, orders: [[OrderKind.Commission, p, t]] },
+    { key: SeatOptionKey.Retrench, orders: [] },
+  ] })
 }
 
 /** Frontier: the newly known (this year) free land cell of best capacity with no town within SEAT.frontierClear hops of it, -1. */
