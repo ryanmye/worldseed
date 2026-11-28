@@ -19,3 +19,4 @@ Worktree /home/claude/wsx-n4c, branch lane/n4c from origin/main 2fa2410. Paralle
 - next: commit 8/9; item 10 dim layers; item 4 stall repro (seed 7 seat URL from runs/llmpt2/50.txt minus the 1014 levy); after-shots; g0; primer; merge origin/main.
 - G0 OK all 6 (runs/n4c/g0.log). n4c.test.ts, coverage.test pass. primer v8.
 - next: after-shots of watch seed 146916 (eval/n4c), merge origin/main, rerun tests+G0, push, report.
+- DONE. Final: typecheck+build OK; 13 test files/78 tests pass (runs/n4c/vitest-final.log); G0 6/6 OK; origin/main had nothing new to merge (2fa2410). Shots in /home/claude/eval/n4c (before-*, after-*).
