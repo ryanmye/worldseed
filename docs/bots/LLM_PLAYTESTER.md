@@ -1,7 +1,7 @@
 # LLM play-tester (occasional; never in CI)
 
 An expensive smoke and review tool. A Claude subagent plays through Playwright from screenshots and DOM text and reports
-qualitative observations next to the scripted bots' metrics. Version 1, used with PLAYER_PRIMER v1 and PERSONAS v1.
+qualitative observations next to the scripted bots' metrics. Version 2 (lane/n3d), used with PLAYER_PRIMER v9 and PERSONAS v6.
 
 ## How to run
 1. Start the app in the worktree on a free port, e.g. `npx vite --port <PORT> --strictPort` (or `npm run build` then
@@ -11,6 +11,13 @@ qualitative observations next to the scripted bots' metrics. Version 1, used wit
    - one persona prompt from `docs/bots/PERSONAS.md`;
    - the brief below.
    It needs a browser tool or a Playwright script that can take screenshots, read `.seat-screen` text and click.
+   Lane N3d (after LLM play-test #2):
+   - Read the decision screen's text straight from the `.seat-screen` element (its innerText) and wait for that element
+     to appear, rather than guessing selectors or sleeping a fixed time: on SwiftShader the first card can take minutes.
+   - The VM has no `ss`: to find a free port, read `/proc/net/tcp` (local ports are hex in the second column), or just try
+     `--strictPort` on a port and take the next one if it fails.
+   - The reign summaries ("The reign of … ends") are messages with a **Continue** button; they queue before the next card.
+   - If playback stalls (play icon on, year not moving, no card), press `Space` twice.
 3. The subagent may act only through the UI: keys, clicks and the address bar for the initial link. No `window.__*`
    tools, no JavaScript that reads state, no source code.
 

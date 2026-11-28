@@ -109,6 +109,7 @@ export function createSeatDashboard(deps: SeatDashboardDeps): SeatDashboard {
       odds.title = oddsSentence(m)
       odds.append(el('span', 'seat-dash-odds-num', m.oddsText), el('span', 'seat-dash-odds-label', 'odds the realm stands 50 years, if things stay as they are'), el('span', `seat-dash-change trend-${m.oddsTrend}`, m.oddsChange))
       root.append(odds)
+      if (m.oddsWhy) root.append(el('div', 'seat-dash-odds-why', m.oddsWhy)) // (lane N3d)
       const meters = el('div', 'seat-dash-meters')
       for (const x of m.meters) {
         const row = el('div', 'seat-dash-meter')

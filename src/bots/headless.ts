@@ -107,7 +107,7 @@ export async function runBot(cfg: RunConfig): Promise<BotRun> {
         cards.push(c)
         cfg.onCard?.(c)
         const opt = model.options.find((o) => o.option === decision.option)
-        mem.seen.push({ year: model.year, title: model.title, situation: model.situation, picked: decision.option, deferred: decision.option === model.defer.option, label: opt?.label ?? model.defer.words })
+        mem.seen.push({ year: model.year, title: model.title, situation: model.situation, picked: decision.option, deferred: decision.option === model.defer.option, label: opt?.label ?? model.defer.words, lever: decision.lever })
         queueMicrotask(() => pick(decision.option))
       },
       message(title, text, buttons, callbacks) {

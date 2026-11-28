@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 10 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 11 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -41,6 +41,14 @@ Changelog:
   treasury, halts while the realm is at war and is given up on a default, a rising of its town or a civil war; the card shows
   the odds it is finished; the dashboard's feed shows it rising; a "Because you…" line tells its end. A work you commissioned
   counts for the Monument ambition. The masons ask for more twice on the way (Pay the masons / Retrench); a war may take them.
+- v11 (2026-11-28, lane/n3d, written as v8 in the lane, renumbered at the merge after n4d v8, n4c v9 and n3c v10; fixes from AI play-test #2): a coup by a new house and a ruler fallen in battle come as cards
+  (A new house seizes the throne; Fallen in battle); a town that rose and broke away comes as a Revolt card ("A town breaks
+  away") and a feed line; a war your own court declares always comes (The war chest, naming a tributary as such, with the
+  treasury as it stands); no After the battle card once the war is over; leaving routine business costs less Authority than
+  leaving a grave matter; risk words on the succession card are one scale; a line says why the odds moved by 10 points or
+  more; the breakaway hazard's Why? names the towns and the levers; decision 2 of 2 does not repeat the news; named heirs'
+  deaths are news; epithets vary and "Child-king" needs a crowned minor; the dashboard is a column's width; the inspector says "By the throne's order" for your orders. Orders are dated the year
+  after their card (by design, below). Also: Space twice if playback stalls; SwiftShader timings; seat names.
 
 ## 1. Starting a world
 
@@ -190,19 +198,31 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
 - **The loop:** "Reaching your reign…" plays the years up to `from`. The timeline then plays on and pauses at each year
   with decisions, and the decision screen shows. Your choices go into the address as `o=`, so reloading the link replays the
   same reign to its last pause. "The seat is lost" ends the reign; "Watch on" continues as a spectator.
+  - **Orders are dated the year after their card** (`o=702:choice:…` for a card of 701): the watcher reads the year's events
+    after that year has run, so what you choose acts from the next year (seat/watch.ts; contract decisionOrders). This is
+    by design; old links decode as before.
+  - Reign summaries ("The reign of … ends") queue at the next pause, before its first card. Some blows reach you only
+    there or in the feed: when a pause is years away, check **Your realm** on the dashboard.
+  - If playback seems stalled (the play icon shows but the year does not move, no card), press `Space` twice.
+  - On a machine without a GPU (SwiftShader, headless Chrome) the first card can take minutes of wall time to come; wait for
+    `.seat-screen` to appear rather than for a fixed time.
 - **The decision screen** (ui/seat/decisionCard.ts, cardModel.ts):
   - Title and year ("Revolt: Riaku", "705 · decision 1 of 2"), a short situation, and the **Authority** meter, with its
-    number ("Authority 72") and what leaving this matter costs now ("leaving it: −8 now"; it recovers ×0.9 of the deference
-    with each decision you take, so a later reading can be smaller).
+    number ("Authority 72") and what leaving this matter costs now ("leaving it: −8 now": what the next year takes; it then
+    recovers a fiftieth of what is lost each year and a tenth with each decision you take, so the next card may read a
+    little higher than 72 − 8).
   - **Since the last card** (a gold-edged box, lane N3 ui/seat/throne/callbacks.ts): the realm's news (who died and how, who
     takes the throne, aged what, "known as Aru before the crown"; wars ended), **"Because you…"** lines that tell what came of
     your earlier choices (a match made or refused, an heir crowned or dead first, walls raised, peace made), your ambition,
-    and the **odds the realm stands 50 years** with ▲/▼ since the last card.
+    and the **odds the realm stands 50 years** with ▲/▼ since the last card. When the odds moved by 10 points or more, a
+    line says which hazard moved them most ("Why the odds fell (75% → 42%): mostly the chance of a contested succession").
+    The second card of a year ("decision 2 of 2") does not repeat this box: the first card has it.
   - 2–4 option cards. Each has a corner badge (what it costs or risks: War, Terms, Tribute, Heir, −15% gold, Debt, Unrest,
     Walls, Ports, Settlers…), a name, a type tag (War, Diplomacy, Court, Coin, Faith, Works, Discovery), a line of
     consequence (the order's effect and what likely follows), **Risk: low / some / high / grave** (the court's risk table),
     and, where the option scales a hazard by a known factor (Placate, Purge, naming an heir, suing for peace), **"Odds the
-    realm stands 50 years: 62% → 71%"**.
+    realm stands 50 years: 62% → 71%"**. On the succession card the risk words are one scale (lane N3d): naming the law's own
+    heir is low (fewer contest it), "Let the law decide" is some ("Odds …: 46%, unchanged"), naming another is high.
   - Keys `1`–`4` pick the cards in order. While a card is shown the number keys belong to it: they do not change the
     playback speed (lane N3; before, `1`–`4` also set ¼×–16×). **Show me** lifts the screen and flies to the place; the pill
     "Back to the decision" (or `Esc`) brings it back. If you were following the story, following resumes once the card is
@@ -211,8 +231,11 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     runs its course"; "No one is named: the law's heir, Aru (son, 19), succeeds unless the lords contest it").
 - **Defer** ("Do nothing — let <body> decide", or `Esc`): the deciding body takes the option a cautious court would. The
   button names it ("They would choose: …"). The body can be your court, the elders, the regent's council (only while the
-  ruler is a minor), the league's council or the family (decider.ts). Each deferral lowers Authority by (1 − 0.7 × divisiveness) / 5 (SEAT.deferDivisive, deferFull): close to 1/5 for a routine matter and less for a divisive one,
-  whose blame then falls on the body. Each decision you take yourself restores some. At low Authority the body rules in all
+  ruler is a minor), the league's council or the family (decider.ts). Each deferral lowers Authority by
+  (0.2 + 0.4 × divisiveness) / 5 (lane N3d: SEAT.deferMin, deferSpan, deferCost, deferFull): about 5 for routine business
+  (a new idea or crop, a match), about 11 for a grave matter (a crisis, the succession, a faith), whose blame then falls on
+  the body. The "Because you left it to …" lines name the body that decided (the regent's council, not always the court). Each
+  decision you take yourself restores some. At low Authority the body rules in all
   but name: only urgent cards come (war on us, a crisis, plague, a battle, a default, a disaster, an ally's call, a betrayal, a city breaking free), the throne is less safe and successions are more contested. A Crisis card may then
   offer **Reclaim power**, which is risky.
 - **Card kinds** (contract.ts DecisionKind) and their options:
@@ -221,9 +244,16 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     every 5 years when a neighbour at peace with us is clearly weaker at the border.
   - Succession (Heir): Name Aru (son, 23) heir[, the law's choice] / Name … / Let the law decide. Heirs have names (made
     from the house's names; a ruler crowned under another name is "Aru, crowned as Tika"). No heir under 3 is offered by
-    name. The card comes once a reign, again only if the heir it named as the law's has died.
+    name. The card comes once a reign as a rule, but **it can come twice in one reign**: again when the heir it named as the
+    law's has died, or the law now picks another. A named heir's death is news ("Yeler died before the crown passed").
   - A crisis at court (Crisis): Placate them / Crush the pretender / Endure / Reclaim power. Its text says the cause (a
-    disputed succession, or a regency for a child); the same crisis does not come again within 20 years.
+    disputed succession, naming who took the throne and how, or a regency for a child); the same crisis does not come again
+    within 20 years.
+  - Lane N3d, two more Crisis cards, which come whatever the gap since the last card:
+    - **A new house seizes the throne: <name>** (a coup: your ruler deposed or overthrown by a usurper of a new house):
+      Placate them / Purge the old court (a Purge order: no new coup while it holds, the army weaker) / Endure.
+    - **Fallen in battle: King X** (your ruler died in a war; a child "was killed in the fighting"): Sue for peace (with the
+      strongest enemy at war) / Placate them / Fight on (Endure when the war is over).
   - Alliance made: Honour it / Renounce it
   - Alliance sought: Seek an ally / Decline
   - Overlord: Pay / Defy. Lane N3b: when the overlord could soon take the realm whole (a vassal for most of 80 years and
@@ -236,7 +266,9 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - Faith: Embrace it / Keep the old ways
   - Revolt: Placate them / Fortify the capital / Garrison the town / Ignore it. **Garrison the town** (the old "Crush it")
     is a real order now: the risen town is walled and garrisoned (a Fortify order on it). The text says whether the rising
-    was put down. A town that broke away gives no card; the dashboard's feed reports towns lost.
+    was put down. Lane N3d: a rising that won is **A town breaks away: <town>** ("it governs itself now", or "it is part of
+    X now"): Placate them / Strike (when it joined or made a realm) / Fortify the capital / Ignore it; it shares the Revolt
+    card's 40-year spacing, so a breakaway may come only as a feed line ("Kidezi rose and broke away from the crown").
   - Credit: Borrow / Raise taxes / Retrench / Refuse the debts
   - Charter: Grant it / Refuse
   - Betrayal: Make a separate peace / Stand by them
@@ -246,10 +278,13 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - The merged systems' cards (each comes from something that happened to your realm that year; seat/watch.ts mergedCards).
     Every option but the last gives a real order, named in its line of consequence; the last is the court's own course:
     - The crown defaults (Default; finance): Raise taxes / Refuse the debts / Placate them / Retrench
-    - The war chest (WarChest; finance): after you declare a war, Borrow / Raise taxes / Retrench; when the soldiers go
-      unpaid, Sue for peace / Raise taxes / Borrow / Fight on
-    - After the battle (Battle; battles, at least 300 men, at most one every 8 years): won, Offer terms / Reward the army / Fight on; lost, Sue for
-      peace / Raise taxes / Recall the general / Fight on
+    - The war chest (WarChest; finance): after your realm declares a war (by your Strike or the court's own doing: lane N3d,
+      always, once per enemy in 15 years; "Our court has declared war on X, our own tributary"), Borrow / Raise taxes /
+      Retrench; when the soldiers go unpaid, Sue for peace / Raise taxes / Borrow / Fight on. Its text gives the treasury
+      as it stands ("The treasury holds 6.1 years of revenue and owes little…").
+    - After the battle (Battle; battles, at least 300 men on the field, both armies together, at most one every 8 years;
+      lane N3d: only while that war still goes on): won, Offer terms / Reward the army / Fight on; lost, Sue for peace /
+      Raise taxes / Recall the general (if he still serves) / Fight on
     - A bluff exposed (Bluff; beliefs): a rival's bluff seen through, Call the bluff / Defy (if it is your overlord) / Stay
       out; your own seen through, Raise taxes / Fortify the capital / Seek an ally / Endure
     - An intelligence report (Intelligence; beliefs): a rival's secret alliance revealed, Seek an ally / Fortify the capital
@@ -280,7 +315,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - With battles on, a general of yours who wins renown brings the General card (Honour / Purge him / Ignore it).
   - Credit comes when the crown's need is at least 0.4 (debts, arrears, a recent default, or a war with some debt).
 - **A reign ends:** when a ruler of your realm dies or falls, the next pause first shows **"The reign of King X the …
-  ends"**: years, how it ended, what you decided, what came of it, the epithet (ui/sagas/epithets.ts), **Share this reign**
+  ends"**: years, how it ended, what you decided, what came of it, the epithet (ui/seat/throne/summary.ts throneEpithet: the
+  sagas' epithet, varied so two reigns running rarely share one; "the Child-king" only for one crowned a minor), **Share this reign**
   (a link that replays it: lane N3b, it keeps only the choices made up to that reign's end and opens the view at its
   year, `year=`) and **Continue**.
 - **Your throne** (the dashboard, the right column's context panel while seated; on a phone, the bottom sheet): the
@@ -288,12 +324,20 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   years** ("if things stay as they are": no overthrow, contested succession, default, a quarter of the realm lost to
   risings, or a war lost badly), the meters (Treasury, Debt, Legitimacy, Unrest, Authority, War) with ▲/▼ since the last
   card, the **yearly hazards** each with **Why?** (its factors: an unpaid army, magnates, a famous general, your orders,
-  deference), the realm's age (not a risk: states do not die of old age), **Your realm** (successions, wars, what came of
-  your choices, towns lost, centuries passed) and the past **Reigns** with share links. "Take this throne" is hidden while
+  deference; "A town breaks away" names the likeliest towns and the levers: gold for the restive, a garrison, and taxes
+  that stir them), the realm's age (not a risk: states do not die of old age), **Your realm** (successions, coups, rulers
+  fallen in battle, wars begun and ended, towns that broke away, named heirs who died, what came of your choices, towns
+  lost, centuries passed) and the past **Reigns** with share links. Lane N3d: the dashboard is a column 320 px wide; it no
+  longer covers the globe. "Take this throne" is hidden while
   you are seated. The drama strip over the timeline marks the seated span and each card's year in blue. On a phone the
   sheet opens the **Your throne** tab (half height) at the reign's first card (lane N3b).
 - **What you can know:** cards describe what your realm's people know (the fog). A bot or play-tester must judge only from
   the screen: the card, the meter, the chronicle and the map.
+- **Names:** cards, the dashboard and Factions use the same name for a realm (its written name, "North Vashtar"); towns
+  are named as they are said in the year (`lang=1`), so a town's name on a card can differ from an old chronicle line. A
+  curated seat names its realm as the dashboard does; if Factions has no such realm at that year, the realm is gone.
+- **Your orders in the inspector** read "By the throne's order: Kidezi, ordered to raise walls" (a Nudge reads "Nudge: …,
+  urged to …").
 
 ## 7. Playing sensibly (for bots and play-testers)
 

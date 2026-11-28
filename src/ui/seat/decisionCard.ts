@@ -134,6 +134,7 @@ export function createDecisionCard(parent: HTMLElement): DecisionCard {
         o.append(el('span', 'seat-odds-label', 'Odds the realm stands 50 years: '), el('strong', '', model.hud.oddsText), el('span', `seat-odds-change trend-${model.hud.oddsTrend}`, model.hud.oddsChange ? ` ${model.hud.oddsChange}` : ''))
         o.title = 'If things stay as they are: the chance of 50 years with no overthrow, contested succession, default, lost town or lost war (the throne panel has the hazards).'
         since.append(o)
+        if (model.hud.oddsWhy) since.append(el('p', 'seat-odds-why', model.hud.oddsWhy)) // (lane N3d)
       }
       screen.append(banner, sit, ...(since.childElementCount ? [since] : []), authorityMeter(model.authority), row)
       // phone: Prev / Next under the carousel

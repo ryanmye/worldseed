@@ -5,7 +5,7 @@
 // odds would move, "if things stay as they are": the same estimate as the HUD (hudModel.ts), nothing the court could not know.
 import { DecisionKind, SeatOptionKey } from '../../../contract.ts'
 import type { History } from '../../../contract.ts'
-import { OPTION_RISK, SEAT } from '../../../sim/history/seat/params.ts'
+import { OPTION_RISK, SEAT, deferCost } from '../../../sim/history/seat/params.ts'
 import { HUD, hudRowOf, oddsOfRow } from './hudModel.ts'
 import { commissionBuild } from '../../../sim/history/orders/commission.ts' // lane N3c
 import { heirOf, heirPhrase, heirsAt } from './heirs.ts'
@@ -28,7 +28,7 @@ const LIKELY: Partial<Record<number, string>> = {
   [K.Defy]: 'Free of the overlord, unless the overlord comes to collect.',
   [K.Renounce]: 'The treaty ends at once; they will remember.',
   [K.Borrow]: 'Coin now, debt later.',
-  [K.Levy]: 'Coin now; the towns grumble.',
+  [K.Levy]: 'Coin now; the grumbling fades in a few years.', // (lane N3d: the order's own line already says the towns grumble)
   [K.RepudiateDebts]: 'The debts vanish; no lender will trust us for years.',
   [K.Quarantine]: 'Fewer ships bring the sickness in; trade suffers.',
   [K.MoveCourt]: 'The court escapes the sickness; the old capital may sulk.',
@@ -103,9 +103,9 @@ export function oddsAfter(h: History, d: number, option: number): number {
   const r = Array.from(r0)
   const D = h.seat!.decisions
   if (option < 0) {
-    // a deferral: deference +(1 - deferDivisive x divisive), the overthrow factor (1 + deferOverthrow x k), k = min(1, dv / deferFull)
+    // a deferral: deference + deferCost(divisive), the overthrow factor (1 + deferOverthrow x k), k = min(1, dv / deferFull)
     const dv = Number.isFinite(r[HUD.Deference]) ? r[HUD.Deference] : 0
-    const k0 = Math.min(1, dv / SEAT.deferFull), k1 = Math.min(1, (dv + 1 - SEAT.deferDivisive * D.divisive[d]) / SEAT.deferFull)
+    const k0 = Math.min(1, dv / SEAT.deferFull), k1 = Math.min(1, (dv + deferCost(D.divisive[d])) / SEAT.deferFull)
     r[HUD.Overthrow] *= (1 + SEAT.deferOverthrow * k1) / (1 + SEAT.deferOverthrow * k0)
     r[HUD.Contest] *= (1 + SEAT.deferContest * k1) / (1 + SEAT.deferContest * k0)
     return oddsOfRow(r)
@@ -136,6 +136,9 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
   // lane N3c: the masons' ask (Patronage, info >= 16)
   const ask = D.kind[d] === DecisionKind.Patronage && (D.info?.[d] ?? -1) >= 16
   if (ask) likely = court ? 'The masons go unpaid: they go home, and the work is left unfinished.' : 'The masons are paid, and the work goes on.'
+  // (lane N3d: the court moves from a flood or a quake, not "escapes the sickness"; a usurper's purge is of the old house's men)
+  if (key === K.MoveCourt && D.kind[d] !== DecisionKind.Plague) likely = 'The court leaves the stricken capital for a sounder seat; the old capital may sulk.'
+  if (key === K.Purge && D.kind[d] === DecisionKind.Crisis) likely = 'The usurper’s throne is safer while it holds; the old house will remember.'
   if (key === K.LawDecides) {
     const law = D.info?.[d] ?? -1
     const x = law >= 0 ? heirOf(h, d, law) : null
@@ -145,8 +148,16 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
   const now = r0 ? oddsOfRow(r0) : NaN
   const after = oddsAfter(h, d, option)
   let odds = Number.isFinite(now) && Number.isFinite(after) && Math.abs(after - now) >= 0.005 ? `Odds the realm stands 50 years: ${pct(now)} → ${pct(after)}` : ''
-  if (key === K.Commission && !court && r0) odds = workOdds(r0, (D.info?.[d] ?? -1) % 16, ask ? 0.5 : 1)
-  return { likely, risk: riskWord(key), odds, oddsAfter: after }
+  let risk = riskWord(key)
+  if (key === K.Commission && !court && r0) odds = workOdds(r0, (D.info?.[d] ?? -1) % 16, ask ? 0.5 : 1) // (lane N3c)
+  // (lane N3d: one scale on the succession card: naming the law's own heir is the safest road (fewer contest it), leaving it to the
+  // law is the contest as it stands, naming another is the risk; "Let the law decide" says its odds too, unchanged)
+  if (D.kind[d] === DecisionKind.Heir) {
+    const law = D.info?.[d] ?? -1
+    if (key === K.NameHeir && !court) risk = D.orderTarget[D.orderStart[o]] === law ? 'low' : 'high'
+    else if (key === K.LawDecides) { risk = 'some'; if (Number.isFinite(now)) odds = `Odds the realm stands 50 years: ${pct(now)}, unchanged` }
+  }
+  return { likely, risk, odds, oddsAfter: key === K.LawDecides && Number.isFinite(now) ? now : after }
 }
 
 /**

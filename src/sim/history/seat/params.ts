@@ -106,10 +106,14 @@ export const SEAT = {
   // ---- deference: matters left to the body that decides without the player (orders/seatOrders.ts seatChoice) ----
   // +1 per deferral, x deferTaken per decision taken, x deferKeep a year; its weight k = min(1, deference / deferFull)
   deferKeep: 0.98,
-  // a deferral costs 1 - deferDivisive * divisive (ducking a divisive matter costs little); the body bears its blame: its
+  // a deferral costs deferCost(divisive) = deferMin + deferSpan * divisive (lane N3d: routine business costs less to leave,
+  // a grave matter left to others more; play-test #2 met "leaving it: -19" on a new idea and -7 on a crisis. Tuned after the
+  // bots' bisect (runs/n3d/bisect): 0.35 + 0.65 d cost a grave-heavy seat (the old power) about twice n3b's deference; 0.2 +
+  // 0.4 d keeps a grave matter near the old cost (crisis 0.56 was 0.37, overlord 0.48 was 0.51) and routine far cheaper); the body bears its blame: its
   // shield (a negative Provincial grievance for the ruler) grows by blameShield * divisive and fades x blameKeep a year, and the
   // court spends credit (deference x (1 - blameSpend * divisive))
-  deferDivisive: 0.7,
+  deferMin: 0.2,
+  deferSpan: 0.4,
   blameShield: 0.06,
   blameKeep: 0.85,
   blameSpend: 0.1,
@@ -187,6 +191,9 @@ export const SEAT = {
   patronageTreasury: 1.5,
 } as const
 
+/** lane N3d: what leaving a matter of divisiveness `div` (DIVISIVE) to the court adds to the deference (seat/system.ts; the card shows it). */
+export const deferCost = (div: number): number => SEAT.deferMin + SEAT.deferSpan * (div > 1 ? 1 : div < 0 ? 0 : div)
+
 /** Urgent kinds come whatever the gap since the last card. */
 export const URGENT: readonly number[] = [
   DecisionKind.WarOnUs, DecisionKind.Crisis, DecisionKind.Plague,
@@ -205,7 +212,7 @@ export const PRIORITY: readonly number[] = [
   DecisionKind.Crop, DecisionKind.Patronage,
 ]
 
-/** How divisive each kind of matter is (0..1): every course of it angers someone (a design default). A deferral of a divisive matter costs less authority (SEAT.deferDivisive) and its blame falls on the deciding body. */
+/** How divisive each kind of matter is (0..1): every course of it angers someone (a design default). A deferral of a divisive matter costs more authority (deferCost) and its blame falls on the deciding body. */
 export const DIVISIVE: readonly number[] = (() => {
   const t = new Array<number>(DECISION_KIND_COUNT).fill(0.3)
   t[DecisionKind.WarOnUs] = 0.6; t[DecisionKind.Opening] = 0.3; t[DecisionKind.Heir] = 0.8; t[DecisionKind.Crisis] = 0.9

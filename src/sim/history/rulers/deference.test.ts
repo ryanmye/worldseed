@@ -44,7 +44,7 @@ describe('deference (units)', () => {
     expect(deferOverthrowMul(s, 2)).toBe(SEAT.reclaimRisk) // (a reclaim's risk for SEAT.reclaimYears)
   })
 
-  it('a divisive deferral costs less authority, and its blame shields the ruler', () => {
+  it('a divisive deferral costs more authority (lane N3d: deferCost), and its blame shields the ruler', () => {
     const run = (div: number, blame: boolean) => {
       const s = bare()
       const st = createSeatState({ kind: SeatKind.Polity, id: 5, from: 0 })
@@ -57,7 +57,8 @@ describe('deference (units)', () => {
       return s
     }
     const routine = run(0.05, true), divisive = run(0.9, true), taken = run(0.9, false)
-    expect(deferenceOf(divisive, 5)).toBeLessThan(deferenceOf(routine, 5))
+    // (lane N3d: deferCost = SEAT.deferMin + SEAT.deferSpan * divisive: routine business costs less to leave than a grave matter)
+    expect(deferenceOf(divisive, 5)).toBeGreaterThan(deferenceOf(routine, 5))
     expect(deferenceOf(taken, 5)).toBe(0)
     // the blame shield: the ruler's grievance term is lower than when the same matter was decided by the ruler (here: none fed)
     expect(deferUnrest(divisive, 5)).toBeLessThan(deferUnrest(taken, 5))
