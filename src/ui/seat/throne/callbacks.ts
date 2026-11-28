@@ -97,6 +97,7 @@ function outcomeLine(h: History, d: number, k: number, year: number): { year: nu
     case OrderKind.Idea: return { year: y, text: ok ? `our scholars learned ${them} (${y})` : `${them} stayed out of reach (${why || y})` }
     case OrderKind.Commission: { // lane N3c: the great work finished, or given up and why
       const w = workName(h, r.product, o.target ?? -1, y)
+      if (ok && r.year === o.year) return { year: y, text: `the masons were paid, and work on ${w} went on (${y})` }
       return { year: y, text: ok ? `${w} was finished after ${y - r.acted} years (${y})` : `work on ${w} stopped: ${why || 'it was given up'} (${y})` }
     }
   }
@@ -198,10 +199,10 @@ export function realmNews(h: History, p: number, from: number, to: number): News
   }
   for (const e of h.events) if (e.type === EventType.AmbitionFulfilled && e.year > from && e.year <= to) out.push({ year: e.year, kind: 'ambition', text: `${e.year}: an ambition is achieved: ${AMBITION_WORDS[e.value] ?? 'one of yours'}.` })
   // lane N3c: commissioned works begun (their end is a "Because you…" line)
-  const O = h.orders ?? [], OR = h.orderOutcomes ?? []
+  const O = h.orders ?? [], OR = h.orderOutcomes ?? [], L = h.landmarks
   for (let k = 0; k < O.length; k++) {
     const o = O[k], r = OR[k]
-    if (o.kind !== OrderKind.Commission || o.actor !== p || !r || r.acted <= from || r.acted > to) continue
+    if (o.kind !== OrderKind.Commission || o.actor !== p || !r || r.acted <= from || r.acted > to || !L || r.product < 0 || r.product >= L.count || L.begunYear[r.product] !== r.acted) continue // (not the masons' pay)
     out.push({ year: r.acted, kind: 'works', text: `${r.acted}: the masons begin ${workName(h, r.product, o.target ?? -1, r.acted)}.` })
   }
   return out.sort((a, b) => a.year - b.year || (a.kind === 'reign' ? -1 : 1))

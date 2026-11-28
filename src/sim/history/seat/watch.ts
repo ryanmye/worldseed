@@ -47,7 +47,9 @@ import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
 import { AmbitionKind } from '../../../contract.ts'
 import { RULERS as RP } from '../rulers/params.ts'
 import { HUD_N, hudRow } from './hud.ts'
-import { commissionAfford, commissionOf, commissionPick, commissionTown } from '../orders/commission.ts' // lane N3c
+import { commissionAfford, commissionOf, commissionPick, commissionTown, waitingCommission } from '../orders/commission.ts' // lane N3c
+/** lane N3c: the masons' ask (Patronage, info >= 16) comes whatever the gap, cooldown or deference: unanswered, the work stops. */
+const masons = (c: { kind: number; info?: number }): boolean => c.kind === DecisionKind.Patronage && (c.info ?? -1) >= 16
 
 /** An order of an option: kind, actor, target (-1 none). */
 type O = [number, number, number]
@@ -676,7 +678,18 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
  * great temple of the crown's faith, a library, a market hall). info: the kind of work. Pure reads.
  */
 function patronageCard(s: HistoryState, st: SeatState, ps: PolityState, p: number, from: number, cards: Card[]): void {
-  if (s.lm === null || off(st, s, DecisionKind.Patronage) || ps.pWars[p] > 0) return
+  if (s.lm === null) return
+  // the masons ask for more half-way (orders/commission.ts stage = this year): pay them, or the work stops (info 16 + the kind)
+  const kw = waitingCommission(s, p)
+  if (kw >= 0 && s.orders!.stage[kw] === s.year) {
+    const ox = s.orders!, t = ox.target[kw], id = ox.product[kw]
+    cards.push({ kind: DecisionKind.Patronage, subject: t, place: t, info: 16 + (id >= 0 ? s.lm.lKind[id] : 0), options: [
+      { key: SeatOptionKey.Commission, orders: [[OrderKind.Commission, p, t]] },
+      { key: SeatOptionKey.Retrench, orders: [] },
+    ] })
+    return
+  }
+  if (off(st, s, DecisionKind.Patronage) || ps.pWars[p] > 0) return
   let won = false
   for (let e = from; e < s.events.length && !won; e++) {
     const x = s.events[e]
@@ -741,14 +754,14 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
   for (const i of order) {
     const c = cards[i]
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
-    if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
-    if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
+    if ((st.newRows >= SEAT.maxCards && !masons(c)) || seenKind.has(c.kind)) continue
+    if (!masons(c) && s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
     if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
-    if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
-    if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
+    if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.year - st.lastCard < SEAT.minGap) continue
+    if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
-    if (c.kind === DecisionKind.Patronage && st.newRows > 0) continue // (lane N3c: only in a year with no other matter)
+    if (c.kind === DecisionKind.Patronage && !masons(c) && st.newRows > 0) continue // (lane N3c: only in a year with no other matter)
     seenKind.add(c.kind)
     record(s, st, s.year, c, opts)
     st.newRows++

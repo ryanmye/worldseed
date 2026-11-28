@@ -203,8 +203,9 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.ColdWar: return `${capFirst(name)} and ${us} arm and watch each other. Neither dares the first blow, but every court must choose a side.`
     case DecisionKind.Houses: return `${capFirst(name)} of ${at} has put its money behind a side in our civil war.`
     case DecisionKind.Patronage: {
-      // lane N3c: what the masons would raise, and what it costs
+      // lane N3c: what the masons would raise, and what it costs; or (info >= 16) the masons ask for more half-way
       const kind = D.info?.[d] ?? -1
+      if (kind >= 16) return `Half-way through ${workWord(kind - 16).replace(/^an? /, 'the ')} at ${name}, the masons say the work has cost more than was reckoned: they ask for ${SEAT.overrunCost} more year${SEAT.overrunCost === 1 ? '' : 's'} of the crown’s revenue, or they go home and leave it unfinished.`
       const [lo, hi] = commissionBuild(kind)
       const lead = kind === LandmarkKind.Monument ? `${us} has won its war, and the treasury is full.` : `The treasury of ${us} is full, and the realm is at peace.`
       return `${lead} The masons of ${name} could raise ${workWord(kind)}${kind === LandmarkKind.GreatTemple ? ' to the crown’s faith' : ''}, if the crown pays: ${lo}–${hi} years of work, ${COST_WORDS}.`
@@ -237,6 +238,7 @@ export function optionLabel(h: History, d: number, option: number): string {
   if (D.kind[d] === DecisionKind.General && D.optKey[o] === SeatOptionKey.Honour) return 'Honour him' // (lane N3: a general, not a treaty)
   if (D.optKey[o] === SeatOptionKey.Commission && D.orderStart[o + 1] > D.orderStart[o]) { // (lane N3c: the work and the town)
     const t = D.orderTarget[D.orderStart[o]]
+    if ((D.info?.[d] ?? -1) >= 16) return 'Pay the masons'
     return `Commission ${workWord(D.info?.[d] ?? -1).replace(/^an? /, 'a ')} at ${townWord(h, t, D.year[d])}`
   }
   return OPTION_LABEL[D.optKey[o]] ?? 'Choose'
@@ -447,7 +449,7 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
   // lane N3c
   [DecisionKind.Patronage]: {
     [K.Commission]: ['{year}: the crown of {us} is said to have paid masons for a great work at {them}.', 'The crown of {us} sent its coin and its masons to {them}, to build something that would outlast it.'],
-    [K.Retrench]: ['{year}: with a full treasury, the court of {us} seems to have kept its coin.', '{us} kept its gold in the vaults.'],
+    [K.Retrench]: ['{year}: the court of {us} seems to have kept its coin.', '{us} kept its gold in the vaults.'],
   },
 }
 

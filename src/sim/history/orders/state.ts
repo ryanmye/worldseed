@@ -33,6 +33,8 @@ export interface OrdersState {
   reach: Float64Array
   /** Per order: 1 when the system refused it (an idea resisted), for the reason when it lapses. */
   refused: Uint8Array
+  /** lane N3c, per order (Commission): the year the masons asked for more (the work waits for their pay), -1 once paid, 0 not yet. */
+  stage: Int32Array
   /** Orders in force (given indices, in activation order). */
   active: number[]
   /** Per people: the order in force of each people-kind (-1), its target cell, species or idea. */
@@ -87,7 +89,7 @@ export function createOrdersState(orders: readonly Order[], P: number, hop: numb
     rng, n, given, sorted: sortedOf(given), next: 0,
     year, kind, actor, target, until: new Int32Array(n).fill(-1),
     status: new Int32Array(n), reason: new Int32Array(n), done: new Int32Array(n).fill(-1), acted: new Int32Array(n).fill(-1),
-    product: new Int32Array(n).fill(-1), place: new Int32Array(n).fill(-1), best: new Float64Array(n), reach: new Float64Array(n), refused: new Uint8Array(n),
+    product: new Int32Array(n).fill(-1), place: new Int32Array(n).fill(-1), best: new Float64Array(n), reach: new Float64Array(n), refused: new Uint8Array(n), stage: new Int32Array(n),
     active: [],
     exOrder: new Int32Array(P).fill(-1), exCell: new Int32Array(P).fill(-1), seOrder: new Int32Array(P).fill(-1), seCell: new Int32Array(P).fill(-1),
     crSpecies: new Int32Array(P).fill(-1), idIdea: new Int32Array(P).fill(-1),
@@ -122,7 +124,7 @@ export function appendOrders(ox: OrdersState, more: readonly Order[], year: numb
   ox.until = grown(ox.until, n, -1)
   ox.status = grown(ox.status, n, 0); ox.reason = grown(ox.reason, n, 0)
   ox.done = grown(ox.done, n, -1); ox.acted = grown(ox.acted, n, -1); ox.product = grown(ox.product, n, -1); ox.place = grown(ox.place, n, -1)
-  ox.best = grown(ox.best, n, 0); ox.reach = grown(ox.reach, n, 0); ox.refused = grown(ox.refused, n, 0)
+  ox.best = grown(ox.best, n, 0); ox.reach = grown(ox.reach, n, 0); ox.refused = grown(ox.refused, n, 0); ox.stage = grown(ox.stage, n, 0)
   const sorted = sortedOf(ox.given)
   for (let i = 0; i < ox.next; i++) if (sorted[i] !== ox.sorted[i]) throw new Error('appendOrders: the activated orders would move (an order of an earlier year)')
   ox.sorted = sorted

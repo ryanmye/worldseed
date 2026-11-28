@@ -782,7 +782,7 @@ function commissions(s: HistoryState, lm: LandmarksState): void {
       else if ((e.type === EventType.Revolt && e.settlement === v) || (e.type === EventType.CivilWar && e.other === cap)) why = OrderReason.Rising
     }
     if (why >= 0) { lm.comWhy.set(id, why); change(s, lm, id, ST.Unfinished, -1, -1, -1); continue }
-    if (ps.pWars[p] > 0) lm.lDue[id]++ // (the masons down tools while the realm is at war)
+    if (ps.pWars[p] > 0 || ox.stage[k] > 0) lm.lDue[id]++ // (the masons down tools while the realm is at war, or while they wait for their pay)
   }
 }
 

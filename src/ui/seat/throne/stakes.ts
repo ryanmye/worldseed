@@ -133,6 +133,9 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
   const key = D.optKey[o]
   const court = D.orderStart[o] === D.orderStart[o + 1]
   let likely = court ? courtWords(key, D.kind[d]) : LIKELY[key] ?? ''
+  // lane N3c: the masons' ask (Patronage, info >= 16)
+  const ask = D.kind[d] === DecisionKind.Patronage && (D.info?.[d] ?? -1) >= 16
+  if (ask) likely = court ? 'The masons go unpaid: they go home, and the work is left unfinished.' : 'The masons are paid, and the work goes on.'
   if (key === K.LawDecides) {
     const law = D.info?.[d] ?? -1
     const x = law >= 0 ? heirOf(h, d, law) : null
@@ -142,7 +145,7 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
   const now = r0 ? oddsOfRow(r0) : NaN
   const after = oddsAfter(h, d, option)
   let odds = Number.isFinite(now) && Number.isFinite(after) && Math.abs(after - now) >= 0.005 ? `Odds the realm stands 50 years: ${pct(now)} → ${pct(after)}` : ''
-  if (key === K.Commission && !court && r0) odds = workOdds(r0, D.info?.[d] ?? -1)
+  if (key === K.Commission && !court && r0) odds = workOdds(r0, (D.info?.[d] ?? -1) % 16, ask ? 0.5 : 1)
   return { likely, risk: riskWord(key), odds, oddsAfter: after }
 }
 
@@ -150,11 +153,11 @@ export function stakesOf(h: History, d: number, option: number): Stakes {
  * lane N3c: the odds a commissioned work is finished, if things stay as they are: no crown default, coup or rising (the HUD's
  * yearly hazards: overthrow, default, a town's rising) through the middle of its build years (a rough figure; a war only halts it).
  */
-export function workOdds(r: ArrayLike<number>, kind: number): string {
+export function workOdds(r: ArrayLike<number>, kind: number, left = 1): string {
   const v = (i: number) => (Number.isFinite(r[i]) ? r[i] : 0)
   const [lo, hi] = commissionBuild(kind)
   const rate = v(HUD.Overthrow) + Math.min(0.05, v(HUD.Default)) + v(HUD.Revolt)
-  return `Odds the work is finished: ${pct(Math.exp(-((lo + hi) / 2) * rate))} (${lo}–${hi} years of work; the realm’s 50-year odds do not move)`
+  return `Odds the work is finished: ${pct(Math.exp(-left * ((lo + hi) / 2) * rate))} (${lo}–${hi} years of work${left < 1 ? ' in all, half of it done' : ''}; the masons will ask for more half-way; the realm’s 50-year odds do not move)`
 }
 
 /** The heir option's label: "Name Aru (son, 23) heir, the law's choice". */

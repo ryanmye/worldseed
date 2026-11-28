@@ -69,7 +69,7 @@ export interface RunMetrics {
    * lane N3c: the patronage order: A full treasury cards shown, works commissioned, built, still building at the end, and the
    * causes of those stopped (OrderReason words); monumentWhy, when Monument was not met, why in a line ('' when met).
    */
-  commissions: { cards: number; given: number; built: number; building: number; stopped: string[] }
+  commissions: { cards: number; given: number; paid: number; built: number; building: number; stopped: string[] }
   monumentWhy: string
 }
 
@@ -194,11 +194,12 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
   }
   const ambitionsMet = h.events.filter((e) => e.type === AMBITION_FULFILLED).map((e) => e.value)
   // lane N3c: what became of the patronage order (why Monument was not met)
-  const com = { cards: ds.filter((d) => D.kind[d] === DecisionKind.Patronage).length, given: 0, built: 0, building: 0, stopped: [] as string[] }
+  const com = { cards: ds.filter((d) => D.kind[d] === DecisionKind.Patronage).length, given: 0, paid: 0, built: 0, building: 0, stopped: [] as string[] }
   for (let k = 0; k < O.length; k++) {
     if (O[k].kind !== OrderKind.Commission || !mine.has(O[k].actor)) continue
-    com.given++
     const r = R[k]
+    if (r?.status === OrderStatus.Fulfilled && r.year === O[k].year) { com.paid++; continue } // (the masons' pay, done at once)
+    com.given++
     if (r?.status === OrderStatus.Fulfilled) com.built++
     else if (r?.status === OrderStatus.Active) com.building++
     else com.stopped.push(r ? reasonWords(r.reason, OrderKind.Commission) || `reason ${r.reason}` : 'unknown')
