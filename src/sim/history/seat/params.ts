@@ -170,9 +170,10 @@ export const SEAT = {
   commissionTown: 0.5,
   // a victory monument after a war won within commissionVictory years
   commissionVictory: 25,
-  // half-way through the build the masons ask for overrunCost x R° more (the Patronage card again: Pay the masons / Retrench);
-  // unpaid within overrunWait years, the work is given up
-  overrunCost: 1,
+  // overrunAsks times in the build (a third and two thirds of the way) the masons ask for overrunCost x R° more (the Patronage
+  // card again: Pay the masons / Retrench); unpaid within overrunWait years, the work is given up
+  overrunAsks: 2,
+  overrunCost: 0.75,
   overrunWait: 2,
   // each year the realm is at war while it is building, the work is given up with chance commissionWarStop (orders' stream)
   commissionWarStop: 0.2,

@@ -47,7 +47,7 @@ import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
 import { AmbitionKind } from '../../../contract.ts'
 import { RULERS as RP } from '../rulers/params.ts'
 import { HUD_N, hudRow } from './hud.ts'
-import { commissionAfford, commissionOf, commissionPick, commissionTown, waitingCommission } from '../orders/commission.ts' // lane N3c
+import { commissionAfford, commissionOf, commissionPick, commissionTown, waitingCommission, askYear } from '../orders/commission.ts' // lane N3c
 /** lane N3c: the masons' ask (Patronage, info >= 16) comes whatever the gap, cooldown or deference: unanswered, the work stops. */
 const masons = (c: { kind: number; info?: number }): boolean => c.kind === DecisionKind.Patronage && (c.info ?? -1) >= 16
 
@@ -679,9 +679,9 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
  */
 function patronageCard(s: HistoryState, st: SeatState, ps: PolityState, p: number, from: number, cards: Card[]): void {
   if (s.lm === null) return
-  // the masons ask for more half-way (orders/commission.ts stage = this year): pay them, or the work stops (info 16 + the kind)
+  // the masons ask for more, a third and two thirds of the way (orders/commission.ts askYear = this year): pay them, or the work stops (info 16 + the kind)
   const kw = waitingCommission(s, p)
-  if (kw >= 0 && s.orders!.stage[kw] === s.year) {
+  if (kw >= 0 && askYear(s.orders!, kw) === s.year) {
     const ox = s.orders!, t = ox.target[kw], id = ox.product[kw]
     cards.push({ kind: DecisionKind.Patronage, subject: t, place: t, info: 16 + (id >= 0 ? s.lm.lKind[id] : 0), options: [
       { key: SeatOptionKey.Commission, orders: [[OrderKind.Commission, p, t]] },
@@ -756,7 +756,7 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
     if ((st.newRows >= SEAT.maxCards && !masons(c)) || seenKind.has(c.kind)) continue
     if (!masons(c) && s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
-    if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
+    if (!masons(c) && repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears; the masons' second ask is a new one)
     if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.year - st.lastCard < SEAT.minGap) continue
     if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)

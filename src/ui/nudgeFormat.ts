@@ -24,7 +24,7 @@ export function setOrderPlaceNamer(fn: ((cell: number, year: number) => string) 
 export function reasonWords(reason: number, kind: number): string {
   if (kind === OrderKind.Commission) { // lane N3c: why a great work was not finished
     switch (reason) {
-      case OrderReason.Refused: return 'the treasury could not pay the masons, or the crown defaulted'
+      case OrderReason.Refused: return 'the masons went unpaid (their ask refused, or the treasury empty, or the crown in default)'
       case OrderReason.Rising: return 'the town rose, or the realm fell into civil war'
       case OrderReason.AtWar: return 'a war took the masons and the coin'
       case OrderReason.NotMember: return 'the town was lost'

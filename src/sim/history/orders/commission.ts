@@ -12,7 +12,8 @@
 //                     capital's wealth): unpaid, the work is given up the next year (Refused); each year the realm is at war,
 //                     with chance SEAT.commissionWarStop (orders' stream) the war takes the masons and the coin: given up the
 //                     next year (AtWar). Finished: Fulfilled, product the
-//                     Half-way through its build years the masons ask for more (stage = the year): the work waits (the
+//                     A third and two thirds of the way through its work the masons ask for more (stage = the year x 4 + the
+//                     ask, 1 or 2; -ask once paid): the work waits (the
 //                     landmarks put off its due year) for a second Commission order at the same town within SEAT.overrunWait
 //                     years (the Patronage card's "Pay the masons": SEAT.overrunCost x R°, Fulfilled at once, product the work);
 //                     unpaid by then, it is given up (Refused).
@@ -130,6 +131,11 @@ export function overrunCost(s: HistoryState, ps: PolityState, p: number): number
   return s.fin !== null ? SEAT.overrunCost * finRevOrd(s, p) : commissionDown(s, ps, p)
 }
 
+/** The year the masons of commission k asked for more and wait for their pay (-1 none). */
+export function askYear(ox: OrdersState, k: number): number {
+  return ox.stage[k] > 0 ? ox.stage[k] >> 2 : -1
+}
+
 /** The commission of p in force whose masons wait for their pay at town t (stage > 0), -1. */
 export function waitingCommission(s: HistoryState, p: number, t = -1): number {
   const k = commissionOf(s, p), ox = s.orders
@@ -160,7 +166,7 @@ export function commissionGive(s: HistoryState, ox: OrdersState, ps: PolityState
     const cost = overrunCost(s, ps, a)
     if (s.fin !== null) { if (!finSpend(s, a, cost, 'other')) { ox.reason[k] = OrderReason.Refused; return OrderStatus.Failed } }
     else { const cap = ps.pCapital[a]; if (cap >= 0) s.wealth[cap] -= cost }
-    ox.stage[k0] = -1
+    ox.stage[k0] = -(ox.stage[k0] & 3)
     ox.product[k] = ox.product[k0]
     ox.acted[k] = s.year
     return OrderStatus.Fulfilled
@@ -205,8 +211,10 @@ export function commissionEnd(s: HistoryState, ox: OrdersState, k: number): [num
   }
   // building: the masons' ask (half-way; unpaid within overrunWait years, given up), the war's toll (a draw only in a year at
   // war), then this year's instalment
-  if (ox.stage[k] === 0 && s.year - lm.lBegun[id] >= Math.ceil(ox.reach[k] / 2)) { ox.stage[k] = s.year; return null }
-  if (ox.stage[k] > 0) { if (s.year - ox.stage[k] > SEAT.overrunWait) ox.refused[k] = 1; return null }
+  const done = ox.reach[k] - (lm.lDue[id] - s.year) // (years of work done: a halt does not count)
+  const asks = ox.stage[k] < 0 ? -ox.stage[k] : 0
+  if (ox.stage[k] <= 0 && asks < SEAT.overrunAsks && done >= Math.ceil(ox.reach[k] * (asks + 1) / (SEAT.overrunAsks + 1))) { ox.stage[k] = s.year * 4 + asks + 1; return null }
+  if (ox.stage[k] > 0) { if (s.year - askYear(ox, k) > SEAT.overrunWait) ox.refused[k] = 1; return null }
   if (ps.pWars[a] > 0 && ox.rng.next() < SEAT.commissionWarStop) { ox.refused[k] = 2; return null }
   if (s.fin !== null) {
     const due = SEAT.commissionYearly * finRevOrd(s, a)

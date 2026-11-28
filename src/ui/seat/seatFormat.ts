@@ -205,7 +205,7 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Patronage: {
       // lane N3c: what the masons would raise, and what it costs; or (info >= 16) the masons ask for more half-way
       const kind = D.info?.[d] ?? -1
-      if (kind >= 16) return `Half-way through ${workWord(kind - 16).replace(/^an? /, 'the ')} at ${name}, the masons say the work has cost more than was reckoned: they ask for ${SEAT.overrunCost} more year${SEAT.overrunCost === 1 ? '' : 's'} of the crown’s revenue, or they go home and leave it unfinished.`
+      if (kind >= 16) return `The masons at work on ${workWord(kind - 16).replace(/^an? /, 'the ')} at ${name} say it has cost more than was reckoned: they ask for ${Math.round(SEAT.overrunCost * 100)}% of a year of the crown’s revenue more, or they go home and leave it unfinished.`
       const [lo, hi] = commissionBuild(kind)
       const lead = kind === LandmarkKind.Monument ? `${us} has won its war, and the treasury is full.` : `The treasury of ${us} is full, and the realm is at peace.`
       return `${lead} The masons of ${name} could raise ${workWord(kind)}${kind === LandmarkKind.GreatTemple ? ' to the crown’s faith' : ''}, if the crown pays: ${lo}–${hi} years of work, ${COST_WORDS}.`

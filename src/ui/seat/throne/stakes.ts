@@ -157,7 +157,7 @@ export function workOdds(r: ArrayLike<number>, kind: number, left = 1): string {
   const v = (i: number) => (Number.isFinite(r[i]) ? r[i] : 0)
   const [lo, hi] = commissionBuild(kind)
   const rate = v(HUD.Overthrow) + Math.min(0.05, v(HUD.Default)) + v(HUD.Revolt)
-  return `Odds the work is finished: ${pct(Math.exp(-left * ((lo + hi) / 2) * rate))} (${lo}–${hi} years of work${left < 1 ? ' in all, half of it done' : ''}; the masons will ask for more half-way; the realm’s 50-year odds do not move)`
+  return `Odds the work is finished: ${pct(Math.exp(-left * ((lo + hi) / 2) * rate))} (${lo}–${hi} years of work${left < 1 ? ' in all, part of it done' : ''}; the masons will ask for more on the way; the realm’s 50-year odds do not move)`
 }
 
 /** The heir option's label: "Name Aru (son, 23) heir, the law's choice". */
