@@ -3,7 +3,8 @@
 // (timeline.ts YEARS_PER_SECOND), plus CARD_SECONDS of reading per decision card (an assumption, stated in the report).
 // The story director's beats come from the same code as the app (drama.ts, plan.ts) over the run's History, with every UI
 // module that registers drama rules loaded first (loadDramaRules), and the seat's polity as the focus (the selection).
-import { EventType, AccessionHow, DEFER_OPTIONS, OrderKind } from '../contract.ts'
+import { EventType, AccessionHow, AmbitionKind, DecisionKind, DEFER_OPTIONS, OrderKind, OrderStatus } from '../contract.ts'
+import { reasonWords } from '../ui/nudgeFormat.ts'
 import type { History } from '../contract.ts'
 import { buildHistoryIndex } from '../ui/historyIndex.ts'
 import { buildStaticDrama } from '../ui/story/drama.ts'
@@ -64,6 +65,12 @@ export interface RunMetrics {
   kindsSeen: number[]; keysChosen: number[]
   /** Cards per DecisionKind, and the cards of the merged systems (surfacing lane, DecisionKind >= 102) per 50 seated years. */
   cardsByKind: Record<string, number>; nonLegacyPer50: number
+  /**
+   * lane N3c: the patronage order: A full treasury cards shown, works commissioned, built, still building at the end, and the
+   * causes of those stopped (OrderReason words); monumentWhy, when Monument was not met, why in a line ('' when met).
+   */
+  commissions: { cards: number; given: number; paid: number; built: number; building: number; stopped: string[] }
+  monumentWhy: string
 }
 
 function seatPolities(h: History): Set<number> {
@@ -186,6 +193,21 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
     um++; byType[name] = (byType[name] ?? 0) + 1
   }
   const ambitionsMet = h.events.filter((e) => e.type === AMBITION_FULFILLED).map((e) => e.value)
+  // lane N3c: what became of the patronage order (why Monument was not met)
+  const com = { cards: ds.filter((d) => D.kind[d] === DecisionKind.Patronage).length, given: 0, paid: 0, built: 0, building: 0, stopped: [] as string[] }
+  for (let k = 0; k < O.length; k++) {
+    if (O[k].kind !== OrderKind.Commission || !mine.has(O[k].actor)) continue
+    const r = R[k]
+    if (r?.status === OrderStatus.Fulfilled && r.year === O[k].year) { com.paid++; continue } // (the masons' pay, done at once)
+    com.given++
+    if (r?.status === OrderStatus.Fulfilled) com.built++
+    else if (r?.status === OrderStatus.Active) com.building++
+    else com.stopped.push(r ? reasonWords(r.reason, OrderKind.Commission) || `reason ${r.reason}` : 'unknown')
+  }
+  const monumentWhy = ambitionsMet.includes(AmbitionKind.Monument) ? ''
+    : com.cards === 0 ? 'no "A full treasury" card came (never at peace with a full treasury and a town lacking a great work)'
+    : com.given === 0 ? `"A full treasury" came ${com.cards}x; no work was commissioned`
+    : `commissioned ${com.given}x: ${[com.built ? `${com.built} built but not counted` : '', com.building ? `${com.building} still building at the end` : '', ...com.stopped.map((x) => `stopped: ${x}`)].filter(Boolean).join('; ')}`
   const r3 = (x: number) => Math.round(x * 1000) / 1000
   const n = Math.max(1, ds.length)
   return {
@@ -202,5 +224,6 @@ export async function measure(run: BotRun, preset: string): Promise<RunMetrics> 
     cardsByKind: ds.reduce((m: Record<string, number>, d) => { m[D.kind[d]] = (m[D.kind[d]] ?? 0) + 1; return m }, {}),
     nonLegacyPer50: r3(ds.filter((d) => D.kind[d] >= NON_LEGACY_KIND).length / Math.max(1e-9, span / 50)),
     keysChosen: [...new Set(shown.map((c) => c.model.options.find((o) => o.option === c.decision.option)?.key ?? -1))].sort((a, b) => a - b),
+    commissions: com, monumentWhy,
   }
 }

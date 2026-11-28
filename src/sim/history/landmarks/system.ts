@@ -70,7 +70,7 @@
 // settlements by id, then the polities and the landmarks by id: deterministic, and nothing depends on the run's length.
 
 import { DX } from '../disasters/params.ts' // disasters:
-import { Biome, EventType, FaithKind, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, PolityOrigin, ReignEnd, SceneryBit, SuccessionLaw, TECH_FIELD_COUNT, TechField, WarOutcome } from '../../../contract.ts'
+import { Biome, EventType, FaithKind, LandmarkForm, LandmarkKind, LandmarkRank, LandmarkState, OrderKind, OrderReason, OrderStatus, PolityOrigin, ReignEnd, SceneryBit, SuccessionLaw, TECH_FIELD_COUNT, TechField, WarOutcome } from '../../../contract.ts'
 import { createRng } from '../../rng.ts'
 import type { HistoryState } from '../state.ts'
 import { Tier, tierOf } from '../polity/state.ts'
@@ -270,7 +270,7 @@ function change(s: HistoryState, lm: LandmarksState, id: number, state: number, 
  * Begins landmark of `kind` at v this year for polity p (-1 none): `ruler` its ruler (-1: the polity's now), `faith` the faith
  * it is raised for (houses of worship), `seat` 1 for a seat of government. Returns its id.
  */
-function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: number, ruler: number, faith: number, subject: number, seat: number): number {
+function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: number, ruler: number, faith: number, subject: number, seat: number, fixed?: { variant: number; years: number }): number {
   const id = lm.lKind.length
   const ps = s.pol
   const rank = kind === KD.Temple || kind === KD.Shrine ? LandmarkRank.Lesser : LandmarkRank.Great
@@ -280,7 +280,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
     form = kind === KD.Shrine ? FM.Circle : lm.faithForm[faith]
     variant = lm.faithVariant[faith]
     if (kind === KD.GreatTemple && (form === FM.Steepled || form === FM.Domed || form === FM.Pagoda) && !holds(s, builders, I_MATH, 2)) form = lm.faithHot[faith] ? FM.Ziggurat : FM.Columned
-  } else variant = lm.rng.int(0, 3)
+  } else variant = fixed ? fixed.variant : lm.rng.int(0, 3) // (lane N3c: a commissioned work's are drawn by the order: no draw here)
   if (ruler < 0) ruler = rulerOf(s, p)
   const R = s.rul
   const dyn = ruler >= 0 && R !== null ? R.rDyn[ruler] : -1
@@ -288,7 +288,7 @@ function begin(s: HistoryState, lm: LandmarksState, v: number, kind: number, p: 
   lm.lPol.push(p); lm.lRuler.push(ruler); lm.lDyn.push(dyn); lm.lFaith.push(isWorship(kind) ? faith : stateFaith(s, p)); lm.lPeople.push(builders)
   lm.lLang.push(rank === LandmarkRank.Great && p >= 0 && ps !== null ? langSeat(s, ps, p) : v); lm.lSubject.push(subject)
   lm.lState.push(ST.Building); lm.lSince.push(s.year); lm.lCur.push(isWorship(kind) ? faith : -1); lm.lRef.push(s.pop[v]); lm.lLow.push(-1)
-  lm.lDue.push(s.year + lm.rng.int(LANDMARK.buildMin[kind], LANDMARK.buildMax[kind])); lm.lSeat.push(seat); lm.lSeat0.push(seat); lm.lNext.push(-1)
+  lm.lDue.push(s.year + (fixed ? fixed.years : lm.rng.int(LANDMARK.buildMin[kind], LANDMARK.buildMax[kind]))); lm.lSeat.push(seat); lm.lSeat0.push(seat); lm.lNext.push(-1)
   if (lm.tail[v] >= 0) lm.lNext[lm.tail[v]] = id
   else lm.head[v] = id
   lm.tail[v] = id
@@ -746,9 +746,50 @@ function revive(s: HistoryState, lm: LandmarksState, id: number, u: number): voi
 }
 
 /** System (yearly, at the end of the year, after renaming and before the snapshots): see the file comment. */
+/**
+ * lane N3c (patronage, orders/commission.ts): the works the seat's crown commissioned (OrderKind.Commission in force). A new one
+ * is begun at its town this year (the kind, build years and variant the order drew; the faith a great temple serves, the
+ * crown's); one building halts a year (its due year put off) while the realm is at war, and is given up (Unfinished; comWhy the
+ * cause) on a crown default or repudiation (Refused; also when last year's instalment went unpaid), a war's toll drawn by the
+ * order last year (AtWar), a revolt of its town or a
+ * civil war against the realm's capital (Rising). Sacks, abandonment, a lost town and the realm's end give it up as any great
+ * work's (scanEvents, works). Draws nothing; before scanEvents, so a work begun here keeps the town's victory monument for it.
+ */
+function commissions(s: HistoryState, lm: LandmarksState): void {
+  const ox = s.orders, ps = s.pol
+  if (ox === null || ps === null || ox.active.length === 0) return
+  const ev = s.events
+  for (const k of ox.active) {
+    if (ox.kind[k] !== OrderKind.Commission || ox.status[k] !== OrderStatus.Active) continue
+    const p = ox.actor[k], v = ox.target[k]
+    let id = ox.product[k]
+    if (id < 0) {
+      if (ox.acted[k] >= 0 || v < 0 || v >= lm.seen || s.abandoned[v] >= 0 || v >= ps.polity.length || ps.polity[v] !== p || ps.pEnded[p] >= 0) continue
+      const kind = ox.best[k] % 16, variant = Math.floor(ox.best[k] / 16)
+      if ((lm.has[v] & (1 << kind)) !== 0) continue
+      id = begin(s, lm, v, kind, p, -1, kind === KD.GreatTemple ? stateFaith(s, p) : -1, -1, 0, { variant, years: ox.reach[k] })
+      lm.comOrder.set(id, k)
+      ox.product[k] = id
+      ox.acted[k] = s.year
+      continue
+    }
+    if (lm.lState[id] !== ST.Building) continue
+    let why = ox.refused[k] === 1 ? OrderReason.Refused : ox.refused[k] === 2 ? OrderReason.AtWar : -1
+    const cap = ps.pCapital[p]
+    for (let i = lm.evSeen; i < ev.length && why < 0; i++) {
+      const e = ev[i]
+      if ((e.type === EventType.CrownDefault || e.type === EventType.Repudiation) && e.value === p) why = OrderReason.Refused
+      else if ((e.type === EventType.Revolt && e.settlement === v) || (e.type === EventType.CivilWar && e.other === cap)) why = OrderReason.Rising
+    }
+    if (why >= 0) { lm.comWhy.set(id, why); change(s, lm, id, ST.Unfinished, -1, -1, -1); continue }
+    if (ps.pWars[p] > 0 || ox.stage[k] > 0) lm.lDue[id]++ // (the masons down tools while the realm is at war, or while they wait for their pay)
+  }
+}
+
 export function landmarksYear(s: HistoryState, lm: LandmarksState): void {
   newSettlements(s, lm)
   newFaiths(s, lm)
+  commissions(s, lm) // lane N3c: (no-op without a Commission in force)
   scanEvents(s, lm)
   works(s, lm)
   if (s.year % LANDMARK.step === 0) scan(s, lm)

@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 9 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 10 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -36,6 +36,11 @@ Changelog:
   1)"), with "Also" and "Though" rows; a battle's Why? names its war, what decided it and the march; towns are named as said
   in the event's year everywhere (battle names too); `year=` follows the year shown while paused; `R` in the Why panel goes
   back to an open Factions; playback no longer stalls after an inline replay (no Space twice needed).
+- v10 (2026-11-28, lane/n3c patronage; written as v8 in the lane, renumbered at the merge after n4d v8 and n4c v9): a new card, **A full treasury** (Patronage): **Commission a great temple / a victory
+  monument / a great library / a market hall at <town>** or Retrench. The commissioned work is begun at once, costs the
+  treasury, halts while the realm is at war and is given up on a default, a rising of its town or a civil war; the card shows
+  the odds it is finished; the dashboard's feed shows it rising; a "Because you…" line tells its end. A work you commissioned
+  counts for the Monument ambition. The masons ask for more twice on the way (Pay the masons / Retrench); a war may take them.
 
 ## 1. Starting a world
 
@@ -173,7 +178,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   court), take 8 towns in wars the realm declared since the seat's year, and hold your share of the landmass's people, vassals' and tributaries' counting, at
   most 10 points below your share at the start (or below 60%), 10 years running, with 5 towns of your own), 2 a faith of the
   realm, 3 the richest realm for 25 years, 4 two crowns at once, 5 a great monument of your doing (lane N3b: a great landmark begun and finished by the realm while
-  you hold the seat, within 60 years of your order that leads to it (chosen by you, not left to the court): a victory monument after a war you ordered (Strike,
+  you hold the seat, within 60 years of your order that leads to it (chosen by you, not left to the court): lane N3c, a great work you
+  commissioned on the "A full treasury" card; a victory monument after a war you ordered (Strike,
   Join the war, Avenge it, Call the bluff), a great temple or monastery after you embraced a faith, a library, market hall
   or guildhall after you sought an idea or took up a crop; the castle, palace, a mausoleum or a town's temple do not
   count, they come whatever you do). The **first** ambition is
@@ -255,6 +261,22 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     - A city breaks free (Commune; city-states): Strike / Seek an ally / Stay out
     - A cold war (ColdWar): Seek an ally / Raise taxes / Fortify the capital / Endure
     - The merchant houses take sides (Houses; families): Placate them / Fortify the capital / Ignore it
+  - A full treasury (Patronage; lane N3c, seat/watch.ts patronageCard): at most once in 40 years, checked every 5 years at
+    peace or the year a war of yours ends in your favour, only in a year with no other card (and it does not hold back the
+    next one), when no great work of yours is under way and the treasury holds one and a half down payments.
+    **Commission a monument** (the button names the work and the town: a victory monument at the capital after a war won within 25 years, a
+    great temple of the crown's faith where the town follows it, a great library where your people write, else a market hall;
+    in the capital, or a town of at least 2,000 people and half the capital's) / Retrench. It costs 2 years of the crown's
+    revenue at once and a quarter of a year's every year it is building (unpaid, the work stops); it takes years (a monument
+    5–12, a market hall 6–15, a library 10–25, a great temple 15–35), each year at war adds a year and has a 1 in 5 chance
+    that the war takes the masons and the coin, and a crown default, a rising of the town, a civil war, a sack or losing the
+    town ends it unfinished. **The masons ask for more** twice, a third and two thirds of the way through the work: the same
+    card comes again whatever the gap ("The masons at work on the market hall at … say it has cost more than was reckoned"):
+    **Pay the masons** (three quarters of a year's revenue) / Retrench. Unpaid within 2 years (Retrench, or left to the
+    court), the work is left unfinished. The option shows **"Odds the work is
+    finished: N%"** (from the HUD's yearly hazards; the realm's 50-year odds do not move). The dashboard's feed shows it rising
+    ("… is rising: 9 years of work so far (such a work takes 15–35); halted by the war with …"), and a later card's "Because
+    you…" line says it was finished or why work stopped. Left to the court, it retrenches.
   - With battles on, a general of yours who wins renown brings the General card (Honour / Purge him / Ignore it).
   - Credit comes when the crown's need is at least 0.4 (debts, arrears, a recent default, or a war with some debt).
 - **A reign ends:** when a ruler of your realm dies or falls, the next pause first shows **"The reign of King X the …

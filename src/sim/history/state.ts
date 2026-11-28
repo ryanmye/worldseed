@@ -7,6 +7,7 @@ import type { SocietyState } from './society/state.ts'
 import type { BeliefState } from './beliefs/state.ts' // beliefs:
 import type { BarrierState } from './beliefs/barriers.ts' // barriers:
 import type { OrdersState } from './orders/state.ts' // orders:
+import type { LandmarksState } from './landmarks/state.ts' // landmarks: (lane N3c: the patronage order reads and begins works)
 import type { DeferenceState } from './rulers/deference.ts' // rulers: deference
 import type { AbandonCause as AbandonCauseT, EventType, HistoryEvent, JourneyKind, Structure, World } from '../../contract.ts'
 import { AbandonCause, EventType as Ev, StructureType, TECH_FIELD_COUNT, TechField } from '../../contract.ts'
@@ -188,6 +189,9 @@ export interface HistoryState {
   ideas: IdeasState | null
   // orders: the player's nudges (orders/state.ts), or null without orders (every hook is then a no-op).
   orders: OrdersState | null
+  // landmarks: the landmarks system's state (landmarks/state.ts), or null when it is off. lane N3c: read by the patronage
+  // order (orders/commission.ts: which great works a town has; the work it commissioned) and the seat's watcher; nothing else.
+  lm: LandmarksState | null
   // disasters: natural shocks and climate (disasters/state.ts), or null when switched off (every hook is then a no-op).
   dx: DisasterState | null
   // rulers: deference per polity (rulers/deference.ts), or null until something feeds it (every effect is then a no-op).
@@ -299,6 +303,7 @@ export function createState(world: World, terrain: Terrain, weatherRegion: Uint1
     tz: null, // tourism: (set by index.ts when the system is on)
     ideas: null, // ideas: (set by index.ts when the system is on)
     orders: null, // orders: (set by index.ts when there are orders)
+    lm: null, // landmarks: (set by index.ts when the system is on)
     dx: null, // disasters: (set by index.ts when the system is on)
     defer: null, // rulers: deference (created when first fed)
     why: null, // causes: (set by index.ts when HistoryOptions.causes is on)

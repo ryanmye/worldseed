@@ -1,6 +1,6 @@
 // seat: words for the decision cards (decisionCard.ts) and for the seat in the Chronicle and Legend (seat-mode §6.3-6.4).
 // DOM-free: reads a History only, so the phrase tables are tested in Node (seatFormat.test.ts).
-import { DEFER_OPTIONS, DecisionKind, DisasterKind, EventType, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
+import { DEFER_OPTIONS, DecisionKind, DisasterKind, EventType, LandmarkKind, OrderKind, SeatEnd, SeatKind, SeatOptionKey, describeDecisionKinds, describeOrderKinds } from '../../contract.ts'
 import { spokenNameAt } from '../../sim/names/spoken.ts' // language: the name as said in the year
 import type { History } from '../../contract.ts'
 import { DramaCat, registerDrama } from '../story/drama.ts'
@@ -9,6 +9,7 @@ import { disasterTitle, volcanoName } from '../disastersFormat.ts'
 import { heirOptionLabel, heirsLine } from './throne/stakes.ts' // lane N3: named heirs
 import { SEAT } from '../../sim/history/seat/params.ts'
 import { battleName } from '../battlesData.ts' // n4c: battle names as said that year
+import { commissionBuild } from '../../sim/history/orders/commission.ts' // lane N3c: build years of a commissioned work
 
 // The story director's rules for the seat events (ui/story/drama.ts; base weights a design default [A]). The court kinds'
 // events (274-279) come with seat steps 8, 9 and 13 and keep the provisional rule until then.
@@ -49,6 +50,16 @@ export const OPTION_LABEL: Record<number, string> = {
   [SeatOptionKey.RewardArmy]: 'Reward the army',
   // lane N3b
   [SeatOptionKey.DefyWithAlly]: 'Defy, with an ally', [SeatOptionKey.KeepPaying]: 'Keep paying',
+  // lane N3c (the button reads "Commission a great temple at Rilko": optionLabel)
+  [SeatOptionKey.Commission]: 'Commission a monument',
+}
+
+/** lane N3c: what a commission costs, in words (SEAT.commissionDown, commissionYearly: the treasury's; without finance the capital pays a share of its wealth instead). */
+const COST_WORDS = `${SEAT.commissionDown} years of the crown’s revenue at once and ${Math.round(SEAT.commissionYearly * 100)}% of a year’s every year after`
+
+/** lane N3c: a commissioned great work of LandmarkKind `kind` in words ("a great temple", "a victory monument"). */
+export function workWord(kind: number): string {
+  return kind === LandmarkKind.Monument ? 'a victory monument' : kind === LandmarkKind.GreatTemple ? 'a great temple' : kind === LandmarkKind.Library ? 'a great library' : kind === LandmarkKind.MarketHall ? 'a market hall' : 'a great work'
 }
 
 /** The court's own course (an option without orders): what the card says will happen. */
@@ -92,6 +103,7 @@ export function subjectWord(h: History, kind: number, subject: number, year: num
     case DecisionKind.Crop: return h.species?.[subject]?.name ?? 'a crop'
     case DecisionKind.Idea: return h.ideas?.[subject]?.name ?? 'an idea'
     case DecisionKind.Frontier: return 'the new lands'
+    case DecisionKind.Patronage: return townWord(h, subject, year) // lane N3c: the town the work would rise in
   }
   return ''
 }
@@ -191,6 +203,14 @@ export function decisionSituation(h: History, d: number): string {
     case DecisionKind.Commune: return `${capFirst(name)} has thrown off the crown of ${us}: its council rules it now as a free city.`
     case DecisionKind.ColdWar: return `${capFirst(name)} and ${us} arm and watch each other. Neither dares the first blow, but every court must choose a side.`
     case DecisionKind.Houses: return `${capFirst(name)} of ${at} has put its money behind a side in our civil war.`
+    case DecisionKind.Patronage: {
+      // lane N3c: what the masons would raise, and what it costs; or (info >= 16) the masons ask for more half-way
+      const kind = D.info?.[d] ?? -1
+      if (kind >= 16) return `The masons at work on ${workWord(kind - 16).replace(/^an? /, 'the ')} at ${name} say it has cost more than was reckoned: they ask for ${Math.round(SEAT.overrunCost * 100)}% of a year of the crown’s revenue more, or they go home and leave it unfinished.`
+      const [lo, hi] = commissionBuild(kind)
+      const lead = kind === LandmarkKind.Monument ? `${us} has won its war, and the treasury is full.` : `The treasury of ${us} is full, and the realm is at peace.`
+      return `${lead} The masons of ${name} could raise ${workWord(kind)}${kind === LandmarkKind.GreatTemple ? ' to the crown’s faith' : ''}, if the crown pays: ${lo}–${hi} years of work, ${COST_WORDS}.`
+    }
   }
   return `In ${y}, a matter for the court.`
 }
@@ -217,6 +237,11 @@ export function optionLabel(h: History, d: number, option: number): string {
     return `Name the heir born in ${born} (aged ${D.year[d] - born})${option === 0 ? ', the law’s choice' : ''}`
   }
   if (D.kind[d] === DecisionKind.General && D.optKey[o] === SeatOptionKey.Honour) return 'Honour him' // (lane N3: a general, not a treaty)
+  if (D.optKey[o] === SeatOptionKey.Commission && D.orderStart[o + 1] > D.orderStart[o]) { // (lane N3c: the work and the town)
+    const t = D.orderTarget[D.orderStart[o]]
+    if ((D.info?.[d] ?? -1) >= 16) return 'Pay the masons'
+    return `Commission ${workWord(D.info?.[d] ?? -1).replace(/^an? /, 'a ')} at ${townWord(h, t, D.year[d])}`
+  }
   return OPTION_LABEL[D.optKey[o]] ?? 'Choose'
 }
 
@@ -422,6 +447,11 @@ export const CHOICE_PHRASES: Record<number, Record<number, readonly [string, str
     [K.Fortify]: ['{year}: with {them} backing a side, {us} raised walls at its capital.', '{us} built walls against the money of {them}.'],
     [K.Ignore]: ['{year}: {them} backed a side in the civil war of {us}; the court seems to have let it be.', '{us} let {them} bet as it liked.'],
   },
+  // lane N3c
+  [DecisionKind.Patronage]: {
+    [K.Commission]: ['{year}: the crown of {us} is said to have paid masons for a great work at {them}.', 'The crown of {us} sent its coin and its masons to {them}, to build something that would outlast it.'],
+    [K.Retrench]: ['{year}: the court of {us} seems to have kept its coin.', '{us} kept its gold in the vaults.'],
+  },
 }
 
 /** The words of a decision's choice: [chronicle, legend] filled for decision d and option `option` (null: no phrase). */
@@ -526,6 +556,7 @@ const OPTION_KIND: Record<number, readonly [string, OptionTint, string]> = {
   [OrderKind.Explore]: ['Discovery', 'discovery', 'Explorers'],
   [OrderKind.Crop]: ['Discovery', 'discovery', 'Fields'],
   [OrderKind.Idea]: ['Discovery', 'discovery', 'Learning'],
+  [OrderKind.Commission]: ['Works', 'works', `−${SEAT.commissionDown} yrs revenue`], // lane N3c
 }
 
 /** The option's card face: type tag, tint, badge text (the court's own course: "Court"). */

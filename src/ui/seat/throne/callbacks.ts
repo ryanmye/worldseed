@@ -5,6 +5,8 @@
 import { DEFER_OPTIONS, DecisionKind, EventType, OrderKind, OrderStatus, ReignEnd, SeatOptionKey, WarOutcome } from '../../../contract.ts'
 import type { History, Ruler } from '../../../contract.ts'
 import { reasonWords, statusAt } from '../../nudgeFormat.ts'
+import { landmarkNameAt } from '../../../contract.ts'
+import { commissionBuild } from '../../../sim/history/orders/commission.ts' // lane N3c
 import { AMBITION_WORDS, optionLabel, polityWord, subjectWord, townWord } from '../seatFormat.ts'
 import { crownedAs, heirName } from './heirs.ts'
 
@@ -93,6 +95,11 @@ function outcomeLine(h: History, d: number, k: number, year: number): { year: nu
     case OrderKind.Explore: return { year: y, text: ok ? `the explorers reached the far lands (${y})` : `the explorers came back with little (${why || y})` }
     case OrderKind.Crop: return { year: y, text: ok ? `our fields took ${them} (${y})` : `${them} never took in our fields (${why || y})` }
     case OrderKind.Idea: return { year: y, text: ok ? `our scholars learned ${them} (${y})` : `${them} stayed out of reach (${why || y})` }
+    case OrderKind.Commission: { // lane N3c: the great work finished, or given up and why
+      const w = workName(h, r.product, o.target ?? -1, y)
+      if (ok && r.year === o.year) return { year: y, text: `the masons were paid, and work on ${w} went on (${y})` }
+      return { year: y, text: ok ? `${w} was finished after ${y - r.acted} years (${y})` : `work on ${w} stopped: ${why || 'it was given up'} (${y})` }
+    }
   }
   return null
 }
@@ -123,7 +130,34 @@ export function callbacksAt(h: History, year: number, since: number, span = 25, 
   return out.sort((a, b) => b.year - a.year || b.d - a.d).slice(0, max)
 }
 
-export interface NewsItem { year: number; kind: 'succession' | 'reign' | 'war' | 'ambition' | 'milestone' | 'callback'; text: string; ruler?: number }
+export interface NewsItem { year: number; kind: 'succession' | 'reign' | 'war' | 'ambition' | 'milestone' | 'callback' | 'works'; text: string; ruler?: number }
+
+/** lane N3c: a commissioned work by name ("the Laiku Market"), or "the work at Laiku" before it is begun. */
+function workName(h: History, id: number, town: number, year: number): string {
+  const L = h.landmarks
+  if (L && id >= 0 && id < L.count) return landmarkNameAt(h, id, year)
+  return `the work at ${townWord(h, town, year)}`
+}
+
+/** lane N3c: the realm's commissioned works still building at `year` (polity p's Commission orders in force): how far along. */
+export function worksInProgress(h: History, p: number, year: number): NewsItem[] {
+  const O = h.orders ?? [], R = h.orderOutcomes ?? [], L = h.landmarks, W = h.wars
+  const out: NewsItem[] = []
+  if (!L) return out
+  for (let k = 0; k < O.length; k++) {
+    const o = O[k], r = R[k]
+    if (o.kind !== OrderKind.Commission || o.actor !== p || !r || r.product < 0 || r.product >= L.count || L.begunYear[r.product] > year) continue
+    const id = r.product
+    if (L.completedYear[id] >= 0 && L.completedYear[id] <= year) continue
+    if (r.year >= 0 && r.year <= year) continue // (given up)
+    const [lo, hi] = commissionBuild(L.kind[id])
+    const n = year - L.begunYear[id]
+    let war = ''
+    for (let w = 0; w < W.count && !war; w++) if ((W.attacker[w] === p || W.defender[w] === p) && W.startYear[w] <= year && (W.endYear[w] < 0 || W.endYear[w] > year)) war = `; halted by the war with ${polityWord(h, W.attacker[w] === p ? W.defender[w] : W.attacker[w])}`
+    out.push({ year, kind: 'works', text: `${year}: ${landmarkNameAt(h, id, year)} is rising: ${n} year${n === 1 ? '' : 's'} of work so far (such a work takes ${lo}–${hi})${war}.` })
+  }
+  return out
+}
 
 /** "Queen Iha", or the ruler's name with a title. */
 export function rulerTitle(r: Ruler): string {
@@ -164,6 +198,13 @@ export function realmNews(h: History, p: number, from: number, to: number): News
     out.push({ year: W.endYear[w], kind: 'war', text: `${W.endYear[w]}: the war with ${them} ends${won === null ? ' with nothing won' : won ? ` in our favour${W.taken[w] ? ` (${W.taken[w]} towns change hands)` : ''}` : ' badly for us'}.` })
   }
   for (const e of h.events) if (e.type === EventType.AmbitionFulfilled && e.year > from && e.year <= to) out.push({ year: e.year, kind: 'ambition', text: `${e.year}: an ambition is achieved: ${AMBITION_WORDS[e.value] ?? 'one of yours'}.` })
+  // lane N3c: commissioned works begun (their end is a "Because you…" line)
+  const O = h.orders ?? [], OR = h.orderOutcomes ?? [], L = h.landmarks
+  for (let k = 0; k < O.length; k++) {
+    const o = O[k], r = OR[k]
+    if (o.kind !== OrderKind.Commission || o.actor !== p || !r || r.acted <= from || r.acted > to || !L || r.product < 0 || r.product >= L.count || L.begunYear[r.product] !== r.acted) continue // (not the masons' pay)
+    out.push({ year: r.acted, kind: 'works', text: `${r.acted}: the masons begin ${workName(h, r.product, o.target ?? -1, r.acted)}.` })
+  }
   return out.sort((a, b) => a.year - b.year || (a.kind === 'reign' ? -1 : 1))
 }
 

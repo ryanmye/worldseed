@@ -111,6 +111,9 @@ export interface LandmarksState {
   greatN: number
   /** Populations of the world's TOP_TOWNS largest living towns at the last scan, descending (0 where fewer). */
   top: Float64Array
+  /** lane N3c (patronage): the commissioned works (landmark id -> the order, History.orders index), and why one was given up (an OrderReason). */
+  comOrder: Map<number, number>
+  comWhy: Map<number, number>
   diag: LandmarksDiag
 }
 
@@ -144,6 +147,7 @@ export function createLandmarksState(s: HistoryState): LandmarksState {
     building: [] as number[],
     cLm: [] as number[], cYear: [] as number[], cState: [] as number[], cFaith: [] as number[], cPol: [] as number[], cOther: [] as number[], cTown: [] as number[],
     evSeen: 0, greatN: 0, worldWpc: 0, top: new Float64Array(TOP_TOWNS),
+    comOrder: new Map<number, number>(), comWhy: new Map<number, number>(),
     diag: { scans: 0, forced: 0, fortTowns: 0, monkChances: 0, sackRolls: 0, stateConversions: 0, conquestConversions: 0, revived: 0, sights: 0 },
   }
   return st

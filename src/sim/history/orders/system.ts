@@ -30,6 +30,7 @@ import { chordCells } from './hooks.ts'
 import { createOrdersState } from './state.ts'
 import { isSeatKind, seatCheck, seatSystemOff, seatGive, seatInForce, seatMatch, seatPolityTarget, seatState } from './seatOrders.ts' // seat: the court kinds
 import type { OrdersState } from './state.ts'
+import { commissionEnd } from './commission.ts' // lane N3c: the patronage order
 
 const YEARS = describeOrderKinds().map((k) => k.years)
 const RESERVED = describeOrderKinds().map((k) => k.reserved === true)
@@ -316,6 +317,7 @@ export function ordersEnd(s: HistoryState, ox: OrdersState): void {
   // seat: states that fulfil a court order (a tie made, the designee on the throne, debt taken on) or fail it (the designee dead).
   if (ox.nPolity > 0) for (const k of ox.active) {
     if (ox.status[k] !== OrderStatus.Active || !isSeatKind(ox.kind[k])) continue
+    if (ox.kind[k] === OrderKind.Commission) { const r = commissionEnd(s, ox, k); if (r) resolve(s, ox, k, r[0], r[1], r[2]); continue } // lane N3c: built, given up, or the year's instalment
     const at = seatState(s, ox, ps, k)
     if (at >= 0) { if (ox.acted[k] < 0) ox.acted[k] = s.year; resolve(s, ox, k, OrderStatus.Fulfilled, OrderReason.Done, at) }
     else if (at === -2) resolve(s, ox, k, OrderStatus.Failed, OrderReason.NoHeir, seatOf(s, ox, k))

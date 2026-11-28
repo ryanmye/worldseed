@@ -3157,13 +3157,16 @@ export const OrderKind = {
   Levy: 20, // seat: a polity's crown raises an extraordinary levy (with finance: taxes pushed to their highest); no target
   // 21 Charter: reserved until city-states lands
   Betray: 22, // seat (oaths): a polity makes a separate peace in an alliance war, deserting its ally (target)
+  // lane N3c (patronage; 143, the registry's next free value; 84–142 stay reserved for barriers, shadow-network, throne arcs, battles-fiction)
+  Commission: 143, // seat (landmarks): a polity's crown commissions a great work (victory monument, great temple, library or market hall) at one of its major towns (target: settlement id)
 } as const
 export type OrderKind = (typeof OrderKind)[keyof typeof OrderKind]
 /**
- * Rows in the order-kind table (describeOrderKinds), live and reserved: 0–20 and 22 live (10–22 seat-mode's, given by
- * decision cards only), 21 and 23–83 reserved placeholders that later plans replace in place (MASTER-PLAN §3.2, R40). The table is array-indexed by kind, so it stays contiguous.
+ * Rows in the order-kind table (describeOrderKinds), live and reserved: 0–20, 22 and 143 live (10–22 and 143 seat-mode's, given by
+ * decision cards only), 21 and 23–142 reserved placeholders that later plans replace in place (MASTER-PLAN §3.2, R40; 84–142 the
+ * registry's later claims). The table is array-indexed by kind, so it stays contiguous.
  */
-export const ORDER_KIND_COUNT = 84
+export const ORDER_KIND_COUNT = 144
 
 /** One nudge. `year` >= 1 (earlier years act at year 1); `target` per kind (describeOrderKinds), absent or -1 when the kind takes none. */
 export interface Order {
@@ -3219,6 +3222,9 @@ export const OrderReason = {
   NoBond: 26, // seat: no such bond (Repudiate: no alliance or tie, or no debts; Defy: not its overlord; Betray: not allies in a war)
   NoHeir: 27, // seat: Designate: no such heir in the ruler's family, or the heir died first
   NoGeneral: 28, // seat: Purge, Placate: nothing threatens the throne (a hint for the UI only: the order may still be given)
+  // (29–31 and 33–38 reserved, §3.2; 32 spare)
+  Rising: 39, // lane N3c: Commission: the work was given up when its town rose or the realm fell into civil war
+  AtWar: 40, // lane N3c: Commission: a war took the masons and the coin (a yearly chance while the realm is at war)
 } as const
 export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
 
@@ -3229,7 +3235,8 @@ export type OrderReason = (typeof OrderReason)[keyof typeof OrderReason]
  * (History.rulers, -1 without rulers); Fortify the structure id of the walls; Quarantine the port. seat kinds: Repudiate and Defy the
  * bond id (History.bonds; -1 for a marriage tie alone or the crown's debts); Submit the war; Ally the alliance bond; Marry the
  * marriage tie (History.marriages); Designate the designee's reign (History.rulers); Placate the wealth spent; Purge 0 (purged) or
- * 1 (the general struck first); Levy the wealth raised (the proxy; -1 with finance); Betray the war it left. -1 when nothing was produced.
+ * 1 (the general struck first); Levy the wealth raised (the proxy; -1 with finance); Betray the war it left; Commission the landmark
+ * (History.landmarks row, set once the work is begun; `acted` its begun year). -1 when nothing was produced.
  */
 export interface OrderOutcome {
   status: OrderStatus
@@ -3280,6 +3287,14 @@ const RESERVED_ORDER_KINDS: readonly (readonly [string, readonly string[]])[] = 
   ['world-builder-divine', ['Portent', 'Heal', 'Feed', 'Bounty', 'Storm', 'Flood', 'Pestilence', 'Strike', 'Inspire', 'Prophet', 'Bless', 'Curse']], // 71–82
   ['religious-evolution', ['Council']], // 83
 ]
+/** The reserved order-kind rows 84–142 (docs/REGISTRY.md): Brink, shadow-network, throne arcs, shadow-network A16, battles-fiction. */
+const RESERVED_ORDER_KINDS_2: readonly (readonly [string, readonly string[]])[] = [
+  ['barriers', ['Brink']], // 84
+  ['shadow-network', Array.from({ length: 33 }, () => '')], // 85–117
+  ['throne arcs', Array.from({ length: 8 }, () => '')], // 118–125
+  ['shadow-network', ['NetConfide', 'NetDisinherit', 'NetPlaceMarriage', 'NetCrown', 'NetSanction', 'NetUsurpOffice', 'NetRising', 'NetRestore', 'NetGoOpen']], // 126–134
+  ['battles-fiction', Array.from({ length: 8 }, () => '')], // 135–142
+]
 
 function reservedRows<T>(first: number, groups: readonly (readonly [string, readonly string[]])[], row: (kind: number, reservedFor: string) => T): T[] {
   const out: T[] = []
@@ -3319,6 +3334,12 @@ const ORDER_KINDS: readonly OrderKindInfo[] = [
   ...reservedRows(23, RESERVED_ORDER_KINDS, (kind, reservedFor): OrderKindInfo => ({
     kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
   })),
+  // (84–142: reserved placeholders, docs/REGISTRY.md)
+  ...reservedRows(84, RESERVED_ORDER_KINDS_2, (kind, reservedFor): OrderKindInfo => ({
+    kind: kind as OrderKind, key: '', label: '', actor: OrderRole.None, target: OrderRole.None, years: 0, effect: '', reserved: true, reservedFor,
+  })),
+  // lane N3c: patronage (143)
+  { kind: OrderKind.Commission, key: 'commission', label: 'Commission a great work', actor: OrderRole.Polity, target: OrderRole.Settlement, years: 100, effect: 'The treasury pays masons for a great work in the town: it rises over years, halts while the realm is at war, and is given up if the crown defaults, the town rises or falls.', seatOnly: true },
 ]
 
 /** The order kinds with their labels, the roles of actor and target, and how long each stays in force (a fresh copy; reserved rows included, flagged). */
@@ -3412,6 +3433,8 @@ export const DecisionKind = {
   Commune: 110, // city-states: a town of the realm made itself a republic or bought its liberties (CommuneProclaimed, CharterBought)
   ColdWar: 111, // cold wars: the realm entered a cold war with a great rival (ColdWarBegan)
   Houses: 112, // families: a merchant house backed a side in the realm's civil war (FamilyBacked)
+  // lane N3c (113, the registry's next free value)
+  Patronage: 113, // a full treasury at peace: the crown could commission a great work (OrderKind.Commission)
 } as const
 export type DecisionKind = (typeof DecisionKind)[keyof typeof DecisionKind]
 
@@ -3445,6 +3468,8 @@ export const SeatOptionKey = {
   DefyWithAlly: 167,
   /** Overlord, the realm about to be taken whole: no orders (pay on; the court's course, honest about where it leads). */
   KeepPaying: 168,
+  /** lane N3c: Patronage and Battle (won): commission a great work (OrderKind.Commission). */
+  Commission: 169,
 } as const
 export type SeatOptionKey = (typeof SeatOptionKey)[keyof typeof SeatOptionKey]
 
@@ -3598,8 +3623,8 @@ const RESERVED_DECISION_KINDS_2: readonly (readonly [string, readonly string[]])
   ['battles-fiction', ['Relief', 'Recall', 'Defector', 'Companies', 'Retreat', 'Stand', 'Gate', 'EmptyWalls']], // 94–101
 ]
 
-/** Rows in the decision-kind table: 0–112; 0–17 seat-mode's, 18–101 reserved until their owners fill them (R40), 102–112 the surfacing lane's. */
-export const DECISION_KIND_COUNT = 113
+/** Rows in the decision-kind table: 0–113; 0–17 seat-mode's, 18–101 reserved until their owners fill them (R40), 102–112 the surfacing lane's, 113 lane N3c's. */
+export const DECISION_KIND_COUNT = 114
 
 const DECISION_KINDS: readonly DecisionKindInfo[] = [
   // seat-mode (0–17, §3.5): live rows (the watcher offers those whose order kinds exist; see seat/watch.ts)
@@ -3637,6 +3662,8 @@ const DECISION_KINDS: readonly DecisionKindInfo[] = [
   { kind: DecisionKind.Commune, key: 'commune', label: 'A city breaks free' },
   { kind: DecisionKind.ColdWar, key: 'coldWar', label: 'A cold war' },
   { kind: DecisionKind.Houses, key: 'houses', label: 'The merchant houses take sides' },
+  // lane N3c
+  { kind: DecisionKind.Patronage, key: 'patronage', label: 'A full treasury' },
 ]
 
 /** The seat-decision kinds (a fresh copy; reserved rows included, flagged). */
@@ -3757,6 +3784,12 @@ export function orderFeasible(h: History, order: Order, year: number): OrderReas
       if (info.target !== OrderRole.Polity || (order.kind === OrderKind.Repudiate && t === a)) return OrderReason.None
       if (t === a || !polAlive(t)) return OrderReason.NoTarget
       if (order.kind === OrderKind.Submit || order.kind === OrderKind.Betray) return atWar(a, t) || order.kind === OrderKind.Betray ? OrderReason.None : OrderReason.NotAtWar
+      return OrderReason.None
+    }
+    case OrderKind.Commission: { // lane N3c: the town in the realm (the rest is checked on the simulation's state)
+      if (h.polities.length === 0) return OrderReason.SystemOff
+      if (!polAlive(a)) return OrderReason.NoActor
+      if (!alive(t) || h.settlements[t].outpost) return OrderReason.NoTarget
       return OrderReason.None
     }
     case OrderKind.Fortify: case OrderKind.Quarantine: {

@@ -9,7 +9,7 @@ import { DecisionKind, DEFER_OPTIONS, SeatOptionKey, AmbitionKind } from '../con
 import { OPTION_RISK } from '../sim/history/seat/params.ts'
 import type { CardModel } from '../ui/seat/cardModel.ts'
 
-export const PERSONA_VERSION = 5
+export const PERSONA_VERSION = 6
 
 const K = SeatOptionKey
 export type PersonaId = 'cautious' | 'aggressive' | 'always-defer' | 'random' | 'greedy'
@@ -59,6 +59,8 @@ export const AGGRESSIVE: Stance = stance({
   [K.JoinWar]: 3, [K.Avenge]: 4, [K.CallBluff]: 4, [K.RecallGeneral]: 1, [K.RewardArmy]: 1, [K.OfferTerms]: -2, [K.SendRelief]: -1,
   // v4: the looming Overlord card
   [K.DefyWithAlly]: 2, [K.KeepPaying]: -3,
+  // v5: the war chest is not for masons (A full treasury: Retrench)
+  [K.Commission]: -2,
 })
 
 /** Greedy's stance per ambition (AmbitionKind). */
@@ -70,6 +72,7 @@ export const AMBITION_STANCE: Record<number, Stance> = {
     [K.Reclaim]: -1, [K.NameHeir]: -1, [K.Embrace]: -1,
     [K.SendRelief]: 2, [K.RewardArmy]: 2, [K.OfferTerms]: 2, [K.RecallGeneral]: -1, [K.JoinWar]: -1, [K.Avenge]: -2, [K.CallBluff]: -2,
     [K.DefyWithAlly]: 2, [K.KeepPaying]: -3, // (v4)
+    [K.Commission]: -1, // (v5: the treasury is the throne's safety)
   }),
   [AmbitionKind.Unify]: stance({
     [K.Strike]: 4, [K.FightOn]: 3, [K.CrushPretender]: 2, [K.Crush]: 2, [K.Settle]: 3, [K.ExploreOn]: 1, [K.SeekAlly]: 1, [K.Honour]: 1,
@@ -77,11 +80,13 @@ export const AMBITION_STANCE: Record<number, Stance> = {
     [K.SuePeace]: -2, [K.OfferTribute]: -3, [K.StayOut]: -2, [K.Stay]: -2, [K.SeparatePeace]: -1, [K.Pay]: -1, [K.Renounce]: -1,
     [K.JoinWar]: 3, [K.Avenge]: 3, [K.CallBluff]: 4, [K.RewardArmy]: 1, [K.SendRelief]: 1, [K.OfferTerms]: -1,
     [K.DefyWithAlly]: 2, [K.KeepPaying]: -2, // (v4)
+    [K.Commission]: -1, // (v5: coin for the wars)
   }),
   [AmbitionKind.Faith]: stance({
     [K.Embrace]: 4, [K.Seek]: 1, [K.Fortify]: 1, [K.Placate]: 1, [K.LawDecides]: 1, [K.Quarantine]: 1,
     [K.KeepWays]: -3, [K.Strike]: -1, [K.Defy]: -1,
     [K.SendRelief]: 1, [K.CallBluff]: -1, [K.Avenge]: -1,
+    [K.Commission]: -1, // (v5: no lever for the faith)
   }),
   [AmbitionKind.Riches]: stance({
     [K.TakeUp]: 4, [K.Seek]: 3, [K.Settle]: 2, [K.ExploreOn]: 1, [K.Retrench]: 2, [K.Quarantine]: 2, [K.SuePeace]: 2, [K.StayOut]: 2,
@@ -90,17 +95,20 @@ export const AMBITION_STANCE: Record<number, Stance> = {
     [K.MoveCourt]: -1, [K.Ignore]: -1,
     [K.OfferTerms]: 2, [K.SendRelief]: 1, [K.JoinWar]: -1, [K.Avenge]: -1, [K.CallBluff]: -1, [K.RewardArmy]: -1,
     [K.KeepPaying]: -1, // (v4)
+    [K.Commission]: -2, // (v5: two years of revenue sunk in stone)
   }),
   [AmbitionKind.Union]: stance({
     [K.OfferMatch]: 4, [K.Arrange]: 4, [K.Honour]: 1, [K.NameHeir]: 1, [K.LawDecides]: 1, [K.Strike]: 1, [K.SeekAlly]: 1,
     [K.Decline]: -2, [K.Renounce]: -2, [K.Defy]: -1,
     [K.JoinWar]: 1, [K.Avenge]: -1,
+    [K.Commission]: -1, // (v5)
   }),
   [AmbitionKind.Monument]: stance({
     [K.Retrench]: 2, [K.SuePeace]: 2, [K.StayOut]: 2, [K.Fortify]: 2, [K.TakeUp]: 2, [K.Seek]: 2, [K.Pay]: 1, [K.Quarantine]: 1,
     [K.LawDecides]: 1, [K.Placate]: 1, [K.Strike]: -2, [K.MoveCourt]: -3, [K.Defy]: -2, [K.RepudiateDebts]: -1, [K.Borrow]: -1,
     [K.OfferTerms]: 2, [K.SendRelief]: 1, [K.JoinWar]: -2, [K.Avenge]: -2, [K.CallBluff]: -2,
     [K.KeepPaying]: -2, // (v4)
+    [K.Commission]: 5, // (v5: the patronage order is the ambition's own lever)
   }),
 }
 
@@ -112,6 +120,8 @@ export const HANDLED_DECISION_KINDS: ReadonlySet<number> = new Set([
   // v2: the merged systems' cards (surfacing lane); every persona judges them by their option keys, like the others
   DecisionKind.Default, DecisionKind.WarChest, DecisionKind.Battle, DecisionKind.Bluff, DecisionKind.Intelligence, DecisionKind.Disaster,
   DecisionKind.AllyCalls, DecisionKind.Betrayed, DecisionKind.Commune, DecisionKind.ColdWar, DecisionKind.Houses,
+  // v5: lane N3c's patronage card
+  DecisionKind.Patronage,
 ])
 
 /** Aggressive reports "no lever" when this many cards in a row offered nothing warlike (v2). */

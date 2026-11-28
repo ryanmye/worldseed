@@ -18,6 +18,7 @@ export const SCENE_OF: Record<number, number> = {
   [D.Default]: Scene.Treasury, [D.WarChest]: Scene.Treasury, [D.Houses]: Scene.Treasury,
   [D.Battle]: Scene.War, [D.Betrayed]: Scene.War, [D.AllyCalls]: Scene.Bond, [D.ColdWar]: Scene.Bond,
   [D.Bluff]: Scene.Court, [D.Intelligence]: Scene.Court, [D.Disaster]: Scene.Plague, [D.Commune]: Scene.Unrest,
+  [D.Patronage]: Scene.Treasury, // lane N3c
 }
 
 /** A small deterministic generator (mulberry32) for the scene's variation. */

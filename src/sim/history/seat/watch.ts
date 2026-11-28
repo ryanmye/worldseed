@@ -20,7 +20,8 @@
 // Surfacing (EVALUATION §4 Lane 1) adds the merged systems' cards, each from an event of the year and with existing orders
 // only (mergedCards): Default and WarChest (finance), Battle (battles), Bluff and Intelligence (beliefs), Disaster, AllyCalls
 // and Betrayed (oaths), Commune (city-states), ColdWar, Houses (families); a renowned general of the realm brings General.
-import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
+// Lane N3c adds Patronage (a full treasury at peace, or a war won: Commission a great work, or Retrench).
+import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey, WarOutcome } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
 import { FAR, projAt } from '../polity/state.ts'
@@ -46,6 +47,9 @@ import { DIVISIVE, OPTION_RISK, PRIORITY, SEAT, URGENT } from './params.ts'
 import { AmbitionKind } from '../../../contract.ts'
 import { RULERS as RP } from '../rulers/params.ts'
 import { HUD_N, hudRow } from './hud.ts'
+import { commissionAfford, commissionOf, commissionPick, commissionTown, waitingCommission, askYear } from '../orders/commission.ts' // lane N3c
+/** lane N3c: the masons' ask (Patronage, info >= 16) comes whatever the gap, cooldown or deference: unanswered, the work stops. */
+const masons = (c: { kind: number; info?: number }): boolean => c.kind === DecisionKind.Patronage && (c.info ?? -1) >= 16
 
 /** An order of an option: kind, actor, target (-1 none). */
 type O = [number, number, number]
@@ -223,6 +227,7 @@ function candidates(s: HistoryState, st: SeatState, from: number, cards: Card[])
   }
   if (ps !== null && p >= 0) mergedCards(s, st, ps, p, k, cap, from, cards)
   if (ps !== null && p >= 0) courtCards(s, st, ps, p, k, cap, cards)
+  if (ps !== null && p >= 0) patronageCard(s, st, ps, p, from, cards) // lane N3c
   // Faith (a state condition, checked when its cooldown has passed): a universal faith holding a large share of the realm, not the ruler's.
   const rel = s.rel
   if (rel !== null && s.rul !== null && ps !== null && p >= 0 && s.year - st.lastKind[DecisionKind.Faith] >= SEAT.cool[DecisionKind.Faith]) {
@@ -666,6 +671,42 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
   }
 }
 
+/**
+ * lane N3c: Patronage, a full treasury at peace: every SEAT.patronageEvery years, or the year a war of the realm ends in its
+ * favour, when no commission of the realm is under way, it is at war with no one, the treasury holds SEAT.patronageTreasury
+ * down payments, and a major town lacks a great work that fits (orders/commission.ts: a victory monument after a war won, a
+ * great temple of the crown's faith, a library, a market hall). info: the kind of work. Pure reads.
+ */
+function patronageCard(s: HistoryState, st: SeatState, ps: PolityState, p: number, from: number, cards: Card[]): void {
+  if (s.lm === null) return
+  // the masons ask for more, a third and two thirds of the way (orders/commission.ts askYear = this year): pay them, or the work stops (info 16 + the kind)
+  const kw = waitingCommission(s, p)
+  if (kw >= 0 && askYear(s.orders!, kw) === s.year) {
+    const ox = s.orders!, t = ox.target[kw], id = ox.product[kw]
+    cards.push({ kind: DecisionKind.Patronage, subject: t, place: t, info: 16 + (id >= 0 ? s.lm.lKind[id] : 0), options: [
+      { key: SeatOptionKey.Commission, orders: [[OrderKind.Commission, p, t]] },
+      { key: SeatOptionKey.Retrench, orders: [] },
+    ] })
+    return
+  }
+  if (off(st, s, DecisionKind.Patronage) || ps.pWars[p] > 0) return
+  let won = false
+  for (let e = from; e < s.events.length && !won; e++) {
+    const x = s.events[e]
+    if (x.type !== EventType.PeaceMade || x.value < 0 || x.value >= ps.wAtt.length) continue
+    const w = x.value, o = ps.wOutcome[w]
+    won = (ps.wAtt[w] === p && (o === WarOutcome.AttackerGains || o === WarOutcome.Conquest || o === WarOutcome.Tribute)) || (ps.wDef[w] === p && o === WarOutcome.DefenderGains)
+  }
+  if (!won && s.year % SEAT.patronageEvery !== 0) return
+  if (commissionOf(s, p) >= 0 || !commissionAfford(s, ps, p, SEAT.patronageTreasury)) return
+  const t = commissionTown(s, ps, p)
+  if (t < 0) return
+  cards.push({ kind: DecisionKind.Patronage, subject: t, place: t, info: commissionPick(s, p, t), options: [
+    { key: SeatOptionKey.Commission, orders: [[OrderKind.Commission, p, t]] },
+    { key: SeatOptionKey.Retrench, orders: [] },
+  ] })
+}
+
 /** Frontier: the newly known (this year) free land cell of best capacity with no town within SEAT.frontierClear hops of it, -1. */
 function frontierSite(s: HistoryState, k: number): number {
   const N = s.terrain.cellCount
@@ -709,21 +750,24 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
   // stable by priority (then the order found in)
   const order = cards.map((_, i) => i).sort((a, b) => RANK[cards[a].kind] - RANK[cards[b].kind] || a - b)
   const seenKind = new Set<number>()
+  let blocking = false
   for (const i of order) {
     const c = cards[i]
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
-    if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
-    if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
-    if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
-    if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
-    if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
+    if ((st.newRows >= SEAT.maxCards && !masons(c)) || seenKind.has(c.kind)) continue
+    if (!masons(c) && s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
+    if (!masons(c) && repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears; the masons' second ask is a new one)
+    if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.year - st.lastCard < SEAT.minGap) continue
+    if (URGENT.indexOf(c.kind) < 0 && !masons(c) && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
     const opts = feasible(s, c.options)
     if (opts.length < 2 || opts.every((o) => o.orders.length > 0) || opts.length > 8) continue
+    if (c.kind === DecisionKind.Patronage && !masons(c) && st.newRows > 0) continue // (lane N3c: only in a year with no other matter)
     seenKind.add(c.kind)
     record(s, st, s.year, c, opts)
     st.newRows++
+    if (c.kind !== DecisionKind.Patronage) blocking = true
   }
-  if (st.newRows > 0) st.lastCard = s.year
+  if (blocking) st.lastCard = s.year // (lane N3c: the patronage card does not hold back the next matter)
 }
 
 /**

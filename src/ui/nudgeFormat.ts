@@ -22,6 +22,19 @@ export function setOrderPlaceNamer(fn: ((cell: number, year: number) => string) 
 
 /** Why an order came out as it did, in words (by kind where the reason reads differently). */
 export function reasonWords(reason: number, kind: number): string {
+  if (kind === OrderKind.Commission) { // lane N3c: why a great work was not finished
+    switch (reason) {
+      case OrderReason.Refused: return 'the masons went unpaid (their ask refused, or the treasury empty, or the crown in default)'
+      case OrderReason.Rising: return 'the town rose, or the realm fell into civil war'
+      case OrderReason.AtWar: return 'a war took the masons and the coin'
+      case OrderReason.NotMember: return 'the town was lost'
+      case OrderReason.TargetGone: return 'the town was sacked or abandoned'
+      case OrderReason.ActorGone: return 'the realm was gone'
+      case OrderReason.AlreadyDone: return 'the town already has such a work'
+      case OrderReason.Busy: return 'a great work is already under way'
+      case OrderReason.TooWeak: return 'too small a town'
+    }
+  }
   switch (reason) {
     case OrderReason.NoActor: return kind === OrderKind.Fortify || kind === OrderKind.Quarantine ? 'no such town then' : kind <= OrderKind.Idea ? 'no such people then' : 'no such state then'
     case OrderReason.NoTarget: return 'not something it could be urged toward'
@@ -70,6 +83,7 @@ export function reasonWords(reason: number, kind: number): string {
     case OrderReason.NoBond: return kind === OrderKind.Repudiate ? 'there was no such bond, or no debt, to renounce' : kind === OrderKind.Defy ? 'it was not their overlord' : 'they were not allies in a war'
     case OrderReason.NoHeir: return 'the heir named died first, or was no longer of the house'
     case OrderReason.NoGeneral: return 'nothing threatened the throne'
+    case OrderReason.Rising: return 'the town rose, or the realm fell into civil war'
   }
   return ''
 }

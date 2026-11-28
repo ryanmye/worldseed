@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 5 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 6 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -28,6 +28,12 @@ Changelog:
 - v5 (2026-11-28, lane/n4d, primer v8): Follow the story, turned on while seated, follows the seat's own realm (lane N4d
   follow a realm); every persona keeps it so (never presses the realm chip's × or `Esc` while following, so the story stays
   on its realm), and the UI driver logs the realm followed (`__worldseedStory.realm()`). Judged as before.
+- v6 (2026-11-28, lane/n3c, primer v10; written as v5 in the lane, renumbered at the merge after n4d's v5): stances on the patronage card (A full treasury: Commission a monument / Retrench).
+  Greedy Monument commissions and pays the masons when they ask for more (the same key, 5: the ambition's own lever) and
+  keeps the peace while it rises (its old stances); every
+  other goal keeps the coin (Endure, Unify, Faith, Union -1; Riches -2) and aggressive retrenches (-2: the war chest is not
+  for masons); cautious retrenches by the risk table (Retrench 0.3 below Commission 0.45). The harness reports why a
+  greedy Monument run did not reach its ambition (no card, commissioned but stopped and why, or still building).
 
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with

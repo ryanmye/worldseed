@@ -34,6 +34,7 @@ cool[DecisionKind.Betrayed] = 20
 cool[DecisionKind.Commune] = 20
 cool[DecisionKind.ColdWar] = 30
 cool[DecisionKind.Houses] = 20
+cool[DecisionKind.Patronage] = 40 // lane N3c
 
 export const SEAT = {
   // at most maxCards decisions a year (by PRIORITY), none within minGap years of the last one unless urgent
@@ -156,6 +157,34 @@ export const SEAT = {
   absorbWarn: 25,
   absorbNear: 0.8,
   absorbEvery: 10,
+  // ---- lane N3c: patronage (OrderKind.Commission, orders/commission.ts; the Patronage card) ----
+  // the down payment: commissionDown x the crown's ordinary revenue R° from the treasury (without finance: commissionCost of the
+  // capital's wealth); each year of building commissionYearly x R° (without: commissionUpkeep of the capital's wealth); unpaid, the
+  // work stops
+  commissionDown: 2,
+  commissionYearly: 0.25,
+  commissionCost: 0.25,
+  commissionUpkeep: 0.03,
+  // a major town: at least commissionPop people and commissionTown of the capital's
+  commissionPop: 2000,
+  commissionTown: 0.5,
+  // a victory monument after a war won within commissionVictory years
+  commissionVictory: 25,
+  // overrunAsks times in the build (a third and two thirds of the way) the masons ask for overrunCost x R° more (the Patronage
+  // card again: Pay the masons / Retrench); unpaid within overrunWait years, the work is given up
+  overrunAsks: 2,
+  overrunCost: 0.75,
+  overrunWait: 2,
+  // each year the realm is at war while it is building, the work is given up with chance commissionWarStop (orders' stream)
+  commissionWarStop: 0.2,
+  // build years [min, max] of a commissioned work, drawn at give (orders' stream); a year at war adds a year
+  commissionBuild: {
+    monument: [5, 12] as readonly [number, number], temple: [15, 35] as readonly [number, number],
+    library: [10, 25] as readonly [number, number], market: [6, 15] as readonly [number, number],
+  },
+  // Patronage: checked every patronageEvery years at peace (and after a war won), the treasury holding patronageTreasury down payments
+  patronageEvery: 5,
+  patronageTreasury: 1.5,
 } as const
 
 /** Urgent kinds come whatever the gap since the last card. */
@@ -173,7 +202,7 @@ export const PRIORITY: readonly number[] = [
   DecisionKind.Betrayed, DecisionKind.Battle, DecisionKind.Default, DecisionKind.WarChest, DecisionKind.Disaster, DecisionKind.Commune,
   DecisionKind.AllyCalls, DecisionKind.Intelligence, DecisionKind.Bluff, DecisionKind.Houses, DecisionKind.ColdWar,
   DecisionKind.Credit, DecisionKind.Charter, DecisionKind.Match, DecisionKind.Faith, DecisionKind.Frontier, DecisionKind.Idea,
-  DecisionKind.Crop,
+  DecisionKind.Crop, DecisionKind.Patronage,
 ]
 
 /** How divisive each kind of matter is (0..1): every course of it angers someone (a design default). A deferral of a divisive matter costs less authority (SEAT.deferDivisive) and its blame falls on the deciding body. */
@@ -187,6 +216,7 @@ export const DIVISIVE: readonly number[] = (() => {
   t[DecisionKind.Default] = 0.8; t[DecisionKind.WarChest] = 0.5; t[DecisionKind.Battle] = 0.6; t[DecisionKind.Bluff] = 0.5
   t[DecisionKind.Intelligence] = 0.4; t[DecisionKind.Disaster] = 0.4; t[DecisionKind.AllyCalls] = 0.7; t[DecisionKind.Betrayed] = 0.6
   t[DecisionKind.Commune] = 0.7; t[DecisionKind.ColdWar] = 0.5; t[DecisionKind.Houses] = 0.6
+  t[DecisionKind.Patronage] = 0.2 // lane N3c
   return t
 })()
 
@@ -206,4 +236,6 @@ export const OPTION_RISK: Record<number, number> = {
   [SeatOptionKey.CallBluff]: 0.75, [SeatOptionKey.OfferTerms]: 0.2, [SeatOptionKey.RewardArmy]: 0.25,
   // lane N3b: keep paying an overlord about to take the realm whole is the realm's end; defying it with an ally beside us less reckless than alone
   [SeatOptionKey.KeepPaying]: 0.95, [SeatOptionKey.DefyWithAlly]: 0.5,
+  // lane N3c: a great work ties up the treasury for years (a cautious court keeps its coin)
+  [SeatOptionKey.Commission]: 0.45,
 }

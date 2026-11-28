@@ -41,9 +41,9 @@ resolved below.
 ## Shared enums (code / reserved / next free)
 | enum | in code (main + lanes) | reserved | next |
 |---|---|---|---|
-| OrderKind | 0–20, 22 (`ORDER_KIND_COUNT` 84; 21 Charter reserved) | 23–83 §3.2; 84 Brink; 85–117 and 126–134 shadow; **118–125 throne arcs**; 135–142 battles-fiction | 143 |
-| DecisionKind | 0–17, 102–112 (n1 surfacing: the merged systems' cards) (`DECISION_KIND_COUNT` 113; 18–101 placeholder rows) | 18–54 §3.2; 55 Brink; 56–79 and 86–93 shadow; **80–85 throne arcs**; 94–101 battles-fiction | 113 |
-| SeatOptionKey | 0–39, 160–166 (n1 surfacing), 167 DefyWithAlly and 168 KeepPaying (n3b) | **40–59 throne arcs** (were unassigned); 60–127 shadow; 128–159 battles-fiction | 169 |
+| OrderKind | 0–20, 22, **143 Commission (lane/n3c)** (`ORDER_KIND_COUNT` 144; 21 Charter reserved; 84–142 placeholder rows) | 23–83 §3.2; 84 Brink; 85–117 and 126–134 shadow; **118–125 throne arcs**; 135–142 battles-fiction | 144 |
+| DecisionKind | 0–17, 102–112 (n1 surfacing: the merged systems' cards), **113 Patronage (lane/n3c)** (`DECISION_KIND_COUNT` 114; 18–101 placeholder rows) | 18–54 §3.2; 55 Brink; 56–79 and 86–93 shadow; **80–85 throne arcs**; 94–101 battles-fiction | 114 |
+| SeatOptionKey | 0–39, 160–166 (n1 surfacing), 167 DefyWithAlly and 168 KeepPaying (n3b), **169 Commission (n3c)** | **40–59 throne arcs** (were unassigned); 60–127 shadow; 128–159 battles-fiction | 170 |
 | AmbitionKind | 0–5 | 6–15 character; 16–29 and **34–39** shadow (confirmed); **30–33 throne arcs** | 40 |
 | SeatEnd | 0–3 | 4 LineEnded (character); 5 Broken, 6 Legitimate, 7 SecretDied, 8 WentOpen (shadow) | 9 |
 | SeatKind | 0–4 | 5 Network (shadow) | 6 |
@@ -56,7 +56,7 @@ resolved below.
 | CommanderFate | 0–8 | 9 Murdered (shadow); 10 (battles-fiction) | 11 |
 | BattleKind / BattleWeather | 0–5 / 0–4 | 6–7 / 5–6 (battles-fiction) | 8 / 7 |
 | OrderRole | 0–7, 11 Decision, 12 Heir | 8–10 §3.2; 13–18 shadow | 19 |
-| OrderReason | 0–28 | 29–31 and 33–38 §3.2; **32 is spare: character reuses 24 OutOfReach** (R4) | 39 |
+| OrderReason | 0–28, **39 Rising, 40 AtWar (lane/n3c)** | 29–31 and 33–38 §3.2; **32 is spare: character reuses 24 OutOfReach** (R4) | 41 |
 | RevoltCause | 0–5, 7; 6 Burghers (lane/citystates) | 8–18 §3.2 | 19 |
 | FamilyRuin | 0–5 | 6 Exposed (shadow) | 7 |
 | LenderKind | 0–2 | 3 Person (character), 4 Network (shadow) | 5 |
