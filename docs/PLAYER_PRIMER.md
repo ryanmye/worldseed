@@ -30,7 +30,7 @@ Changelog:
   monument / a great library / a market hall at <town>** or Retrench. The commissioned work is begun at once, costs the
   treasury, halts while the realm is at war and is given up on a default, a rising of its town or a civil war; the card shows
   the odds it is finished; the dashboard's feed shows it rising; a "Because you…" line tells its end. A work you commissioned
-  counts for the Monument ambition.
+  counts for the Monument ambition. The masons ask for more twice on the way (Pay the masons / Retrench); a war may take them.
 
 ## 1. Starting a world
 
@@ -236,14 +236,19 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     - A city breaks free (Commune; city-states): Strike / Seek an ally / Stay out
     - A cold war (ColdWar): Seek an ally / Raise taxes / Fortify the capital / Endure
     - The merchant houses take sides (Houses; families): Placate them / Fortify the capital / Ignore it
-  - A full treasury (Patronage; lane N3c, seat/watch.ts patronageCard): every 5 years at peace, or the year a war of yours ends
-    in your favour, when no great work of yours is under way and the treasury holds one and a half down payments.
+  - A full treasury (Patronage; lane N3c, seat/watch.ts patronageCard): at most once in 40 years, checked every 5 years at
+    peace or the year a war of yours ends in your favour, only in a year with no other card (and it does not hold back the
+    next one), when no great work of yours is under way and the treasury holds one and a half down payments.
     **Commission a monument** (the button names the work and the town: a victory monument at the capital after a war won within 25 years, a
     great temple of the crown's faith where the town follows it, a great library where your people write, else a market hall;
     in the capital, or a town of at least 2,000 people and half the capital's) / Retrench. It costs 2 years of the crown's
     revenue at once and a quarter of a year's every year it is building (unpaid, the work stops); it takes years (a monument
-    5–12, a market hall 6–15, a library 10–25, a great temple 15–35), each year at war adds a year, and a crown default, a
-    rising of the town, a civil war, a sack or losing the town ends it unfinished. The option shows **"Odds the work is
+    5–12, a market hall 6–15, a library 10–25, a great temple 15–35), each year at war adds a year and has a 1 in 5 chance
+    that the war takes the masons and the coin, and a crown default, a rising of the town, a civil war, a sack or losing the
+    town ends it unfinished. **The masons ask for more** twice, a third and two thirds of the way through the work: the same
+    card comes again whatever the gap ("The masons at work on the market hall at … say it has cost more than was reckoned"):
+    **Pay the masons** (three quarters of a year's revenue) / Retrench. Unpaid within 2 years (Retrench, or left to the
+    court), the work is left unfinished. The option shows **"Odds the work is
     finished: N%"** (from the HUD's yearly hazards; the realm's 50-year odds do not move). The dashboard's feed shows it rising
     ("… is rising: 9 years of work so far (such a work takes 15–35); halted by the war with …"), and a later card's "Because
     you…" line says it was finished or why work stopped. Left to the court, it retrenches.

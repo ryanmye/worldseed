@@ -25,7 +25,8 @@ Changelog:
   risk table (0.5, below Defy's 0.9 and Keep paying's 0.95). Greedy Unify now placates a town that rose (Placate 2, as its
   new hint says: towns lost to risings undo the towns won in war).
 - v5 (2026-11-28, lane/n3c, primer v8): stances on the patronage card (A full treasury: Commission a monument / Retrench).
-  Greedy Monument commissions (5: the ambition's own lever) and keeps the peace while it rises (its old stances); every
+  Greedy Monument commissions and pays the masons when they ask for more (the same key, 5: the ambition's own lever) and
+  keeps the peace while it rises (its old stances); every
   other goal keeps the coin (Endure, Unify, Faith, Union -1; Riches -2) and aggressive retrenches (-2: the war chest is not
   for masons); cautious retrenches by the risk table (Retrench 0.3 below Commission 0.45). The harness reports why a
   greedy Monument run did not reach its ambition (no card, commissioned but stopped and why, or still building).
