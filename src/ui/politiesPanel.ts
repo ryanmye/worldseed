@@ -47,7 +47,7 @@ import { factorsAt, hasSociety, PHASE_NAME, phaseSpans, psiWord, sharesAt, wages
 import { beliefSection, beliefWarTitle } from './beliefsPanel.ts' // beliefs:
 import { assignPolityColors, blockadesAt, claimedAt, hasClaims, landCellsOf, embargoesOn, bondActive, capitalAt, capitalOf, contrabandAt, dangerAt, dangerWords, HUB_CONTRABAND, isCivilWar, landSnapNear, overlordBond, piracyAt, polityAt, polityAtYear, polityLives, polityTitle, politiesOf, PolityEvent, revenueAt, spheresAt, statIndex, tariffAt, tierAt, tierWord, tradeSnapNear, warActive, WATER, type BlockadeMark, type PolitiesData } from './politiesData.ts'
 import { setPolityFormatWorld, warOutcomeWords } from './polityFormat.ts'
-import { loadFlag, panelToggled, registerPanel, saveFlag } from './panels.ts'
+import { loadFlag, panelToggled, registerOpener, registerPanel, saveFlag } from './panels.ts'
 import { addShortcut } from './shortcuts.ts'
 import { battleName, notableBattlesOfWar } from './battlesData.ts' // battles:
 import { battleShortLine } from './battleFormat.ts' // battles:
@@ -197,6 +197,7 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
   }
   head.addEventListener('click', toggleCollapsed)
   registerPanel('factions', root, () => !collapsed, () => { if (!collapsed) toggleCollapsed() })
+  registerOpener('factions', () => { if (collapsed) toggleCollapsed() }) // n4c
 
   // ---------- inspector section ----------
   const slot = deps.inspectorSlot

@@ -59,7 +59,8 @@ export function groupRightRail(right: HTMLElement): { readonly open: boolean; se
     const tuckable = Array.from(right.children).filter((el) => !isCore(el) && el !== ctx?.root)
     if (!open) {
       for (const el of tuckable) {
-        if (wasCollapsed.get(el) === true && !el.classList.contains('collapsed') && !isContextRoot(el)) open = true
+        // (n4c, play-test 2: R with Factions tucked under another context showed nothing: Factions, listed in the drawer, opens it too)
+        if (wasCollapsed.get(el) === true && !el.classList.contains('collapsed') && (!isContextRoot(el) || ctxShownInDrawer(el))) open = true
       }
     }
     for (const el of Array.from(right.children)) el.classList.toggle('rail-context', el === ctx?.root)

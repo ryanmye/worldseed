@@ -137,6 +137,16 @@ export function registerPanel(name: string, root: HTMLElement, isOpen: () => boo
   queueMicrotask(() => enforceOpenLimit(null))
 }
 
+/** n4c: a panel's way to open itself (Factions: R after the Why panel closes, "back to the factions"). */
+const openers = new Map<string, () => void>()
+export function registerOpener(name: string, open: () => void): void {
+  openers.set(name, open)
+}
+/** Opens the named panel if it registered an opener (else nothing). */
+export function openPanel(name: string): void {
+  openers.get(name)?.()
+}
+
 /** A panel was opened or closed (by the user, a shortcut or a link): remember the order, and close the oldest one over the limit. */
 export function panelToggled(name: string, open: boolean): void {
   openOrder = openOrder.filter((n) => n !== name)

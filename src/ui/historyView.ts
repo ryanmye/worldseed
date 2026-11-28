@@ -119,6 +119,8 @@ export interface HistoryViewDeps {
   cityEngaged?(): boolean
   /** seat mode: the Factions panel's "Take this throne" (ui/seat). */
   onTakeSeat?(polity: number, year: number): void
+  /** n4c: a history was swapped in (its panels' layer toggles are added by then). */
+  onHistoryShown?(): void
   /** what-if: simulate the world with `orders` beside the history shown (answered by compareResult); returns the compare id. */
   requestCompare?(orders: Order[]): number
   cancelCompare?(): void
@@ -1142,6 +1144,7 @@ export function createHistoryView(deps: HistoryViewDeps, initial: InitialHistory
           Object.entries(times).map(([n, t]) => `${n} ${t.toFixed(1)}`).join(', ') +
           `); ${h.settlements.length} settlements, ${h.events.length} events`,
       )
+      deps.onHistoryShown?.()
       if (keep) applyKept(h, keep)
       else if (first) applyInitial(h, target)
       if (first) markVisited() // onboarding: the next visit is not a first (Follow then starts off)
