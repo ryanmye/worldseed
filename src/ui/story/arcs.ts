@@ -7,9 +7,17 @@
 import { AccessionHow, EventType, ReignEnd, WarOutcome } from '../../contract.ts'
 import type { History } from '../../contract.ts'
 
-export const ArcKind = { Usurper: 0, Princes: 1, Revenge: 2, Bankruptcy: 3 } as const
+// Lane N3b (throne balance r2): the bots saw no arc at all in most seated runs (the four above need a usurper, a kin war, a
+// grievance war or a war bankruptcy); three templates of the throne-stories plan that every realm lives through are added:
+// T16 the uncle on the throne (a contested succession won by a kinsman without a civil war; payoff: his reign's end), T4 the
+// regency (a child crowned; payoff: the child comes of age on the throne, or does not live to), and the provinces' rising (a
+// wave of revolts against one capital; payoff: the last put down, or a province lost). T1's usurper who dies in his bed closes
+// the spiral too (the coda: he kept the crown).
+export const ArcKind = { Usurper: 0, Princes: 1, Revenge: 2, Bankruptcy: 3, Uncle: 4, Regency: 5, Rising: 6 } as const
 export type ArcKind = (typeof ArcKind)[keyof typeof ArcKind]
-export const ARC_LABEL: readonly string[] = ['The usurper’s spiral', 'The princes’ war', 'A war of revenge', 'The war that broke the treasury']
+export const ARC_LABEL: readonly string[] = ['The usurper’s spiral', 'The princes’ war', 'A war of revenge', 'The war that broke the treasury', 'The uncle on the throne', 'The child king', 'The provinces rise']
+/** The rising: at least RISING_N revolts against one capital within RISING_SPAN years; its payoff within RISING_AFTER years of the last. */
+const RISING_N = 3, RISING_SPAN = 8, RISING_AFTER = 5
 
 export interface Arc {
   kind: ArcKind
@@ -35,7 +43,7 @@ export function findArcs(h: History, until = h.years): Arc[] {
   const W = h.wars
   // events by type, in order (only the types the matchers read)
   const byType = new Map<number, number[]>()
-  const want = [EventType.RulerAcceded, EventType.ReignEnded, EventType.Revolt, EventType.CivilWar, EventType.SuccessionCrisis, EventType.DynastyEnded, EventType.WarDeclared, EventType.PeaceMade, EventType.WarBankrupt, EventType.CrownDefault, 276]
+  const want = [EventType.RulerAcceded, EventType.ReignEnded, EventType.Revolt, EventType.CivilWar, EventType.SuccessionCrisis, EventType.DynastyEnded, EventType.WarDeclared, EventType.PeaceMade, EventType.WarBankrupt, EventType.CrownDefault, 276, EventType.Regency, EventType.RevoltCrushed, EventType.Seceded, 275]
   for (const t of want) byType.set(t, [])
   for (let i = 0; i < ev.length; i++) { const e = ev[i]; if (e.year > until) break; byType.get(e.type)?.push(i) }
   const of = (t: number) => byType.get(t) ?? []
@@ -78,6 +86,10 @@ export function findArcs(h: History, until = h.years): Arc[] {
       if (next && pred && next.dynasty === pred.dynasty && next.dynasty !== r.dynasty) { const ai = acceded.get(next.id); if (ai !== undefined) { events.push(ai); phase.push(PAYOFF); complete = true; endY = next.acceded } }
       if (!complete) for (const i of of(EventType.DynastyEnded)) if (ev[i].value === r.dynasty && ev[i].year >= end && ev[i].year <= end + 1) { events.push(i); phase.push(PAYOFF); complete = true; endY = ev[i].year; break }
       if (!complete && e !== undefined) { phase[phase.length - 1] = PAYOFF; complete = true; endY = end } // (the fall itself closes the spiral)
+    } else if (end >= 0) {
+      // (lane N3b: the coda: the usurper kept the crown to the end of his reign)
+      const e = endedEv.get(r.id)
+      if (e !== undefined) { events.push(e); phase.push(PAYOFF); complete = true; endY = end }
     }
     out.push({ kind: ArcKind.Usurper, polity: r.polity, other: -1, events, phase, start: r.acceded, end: endY, complete })
   }
@@ -98,6 +110,74 @@ export function findArcs(h: History, until = h.years): Arc[] {
     let complete = false, endY = -1
     if (peace !== undefined && ev[peace].year <= until) { events.push(peace); phase.push(PAYOFF); complete = true; endY = ev[peace].year }
     out.push({ kind: ArcKind.Princes, polity: p, other: -1, events: dedupe(events, phase).events, phase: dedupe(events, phase).phase, start: y, end: endY, complete })
+  }
+
+  // T16 the uncle on the throne (lane N3b): a contested succession won by a kinsman of the dead ruler's house with no civil war
+  // within 3 years (that is T3); payoff: his reign's end, violent or quiet
+  for (const i of of(EventType.SuccessionCrisis)) {
+    const p = ev[i].value, y = ev[i].year
+    const winner = R.find((x) => x.polity === p && x.acceded === y && x.how === AccessionHow.Usurped)
+    const pred = winner && winner.predecessor >= 0 ? R[winner.predecessor] : null
+    if (!winner || !pred || winner.dynasty !== pred.dynasty || winner.parent === pred.id) continue
+    const cap = capAt(p, y)
+    if (of(EventType.CivilWar).some((j) => ev[j].year >= y && ev[j].year <= y + 3 && ev[j].other === cap)) continue
+    const a = acceded.get(winner.id)
+    const events = a !== undefined && a !== i ? [i, a] : [i], phase: number[] = events.map((_, k) => (k === 0 ? 0 : 1))
+    let complete = false, endY = -1
+    const e = endedEv.get(winner.id)
+    if (winner.ended >= 0 && winner.ended <= until && e !== undefined) { events.push(e); phase.push(PAYOFF); complete = true; endY = winner.ended }
+    out.push({ kind: ArcKind.Uncle, polity: p, other: -1, events, phase, start: y, end: endY, complete })
+  }
+
+  // T4 the child king (lane N3b): a regency for a minor; rising: the court's troubles in the regency years (a crisis, a revolt
+  // against the capital, the magnates bought off); payoff: the ruler's reign ending a minor, or the first event at the capital
+  // once of age (the regency over)
+  for (const i of of(EventType.Regency)) {
+    const r = R[ev[i].value]
+    if (!r) continue
+    const y = ev[i].year, maj = y + Math.max(0, ev[i].extra ?? 0), cap = ev[i].settlement
+    const events = [i], phase = [0]
+    const troubles = [...of(EventType.Revolt).filter((j) => ev[j].other === cap), ...of(EventType.SuccessionCrisis).filter((j) => ev[j].value === r.polity), ...of(275).filter((j) => ev[j].value === r.polity)]
+      .filter((j) => ev[j].year > y && ev[j].year < maj).sort((a, b) => a - b).slice(0, 3)
+    for (const j of troubles) { events.push(j); phase.push(1) }
+    let complete = false, endY = -1
+    const e = endedEv.get(r.id)
+    if (r.ended >= 0 && r.ended < maj && r.ended <= until && e !== undefined) { events.push(e); phase.push(PAYOFF); complete = true; endY = r.ended }
+    else if (maj <= until) {
+      // (the first event at the capital once the ruler is of age: the realm's own news of the reign begun in earnest)
+      for (let j = i + 1; j < ev.length && ev[j].year <= until; j++) if (ev[j].year >= maj && (ev[j].settlement === cap || ev[j].other === cap)) { events.push(j); phase.push(PAYOFF); complete = true; endY = ev[j].year; break }
+    }
+    out.push({ kind: ArcKind.Regency, polity: r.polity, other: -1, events, phase, start: y, end: endY, complete })
+  }
+
+  // the provinces rise (lane N3b): RISING_N revolts against one capital within RISING_SPAN years; payoff: a province lost
+  // (Seceded from that capital) or the last revolt put down, within RISING_AFTER years of the last revolt
+  {
+    const byCap = new Map<number, number[]>()
+    for (const j of of(EventType.Revolt)) { const c = ev[j].other; if (c < 0) continue; let a = byCap.get(c); if (!a) byCap.set(c, (a = [])); a.push(j) }
+    const polAt = (c: number, y: number) => {
+      const P = h.polities ?? []
+      let best = -1, by = -1
+      for (let q = 0; q < P.length; q++) { const x = P[q]; for (let k = 0; k < x.capitals.length; k++) if (x.capitals[k] === c && x.capitalYears[k] <= y && x.capitalYears[k] > by) { best = q; by = x.capitalYears[k] } }
+      return best
+    }
+    for (const [c, xs] of byCap) {
+      let k = 0
+      while (k < xs.length) {
+        let n = k
+        while (n + 1 < xs.length && ev[xs[n + 1]].year - ev[xs[k]].year <= RISING_SPAN) n++
+        if (n - k + 1 < RISING_N) { k++; continue }
+        const y0 = ev[xs[k]].year, yl = ev[xs[n]].year
+        const events = xs.slice(k, k + 4), phase: number[] = events.map((_, m) => (m === 0 ? 0 : 1))
+        let pay = -1
+        for (const j of of(EventType.Seceded)) if (ev[j].other === c && ev[j].year >= y0 && ev[j].year <= yl + RISING_AFTER) { pay = j; break }
+        if (pay < 0) for (const j of of(EventType.RevoltCrushed)) if (ev[j].other === c && ev[j].year >= yl && ev[j].year <= yl + RISING_AFTER) pay = j
+        const done = pay >= 0 && ev[pay].year <= until
+        if (done && events.indexOf(pay) < 0) { events.push(pay); phase.push(PAYOFF) }
+        out.push({ kind: ArcKind.Rising, polity: polAt(c, y0), other: -1, events, phase, start: y0, end: done ? ev[pay].year : -1, complete: done })
+        k = n + 1
+      }
+    }
   }
 
   // the revenge war: a war declared for a grievance (Wars.cause >= 0); opening the wrong's year (its war's declaration if it

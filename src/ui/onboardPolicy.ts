@@ -26,7 +26,7 @@ export interface PlayPathSpec {
 export const PLAY_PATHS: readonly PlayPathSpec[] = [
   { path: PlayPath.Watch, label: 'Watch history unfold', hint: 'The camera follows the great events: some seven minutes for 2,000 years', primary: true },
   { path: PlayPath.Rule, label: 'Rule a kingdom', hint: 'Take a throne and decide: heirs, wars, revolts' },
-  { path: PlayPath.Old, label: 'Keep an old great power alive', hint: 'A realm of five centuries, deep in debt and paying tribute: can you save it?' },
+  { path: PlayPath.Old, label: 'Keep an old great power alive', hint: 'A realm of five centuries, its overlord ready to swallow it whole: can you save it?' },
   { path: PlayPath.Explore, label: 'Explore freely', hint: 'Turn the globe yourself; history plays in the background' },
 ]
 
@@ -36,10 +36,14 @@ export const PLAY_PATHS: readonly PlayPathSpec[] = [
  */
 export const THRONE_START = { seed: 61343, seat: 'polity:0:700' }
 /**
- * lane N3: "Keep an old great power alive" (ui-additions, owner-approved): seed 7's Thotakor from 995, 477 years old, its
- * debts 4x its revenue and rising, a tributary of Fowinlan (Dramatic; found with the lane's probe of old indebted realms).
+ * lane N3: "Keep an old great power alive" (ui-additions, owner-approved). lane N3b: seed 1's Uhulaun from 1080 (Dramatic),
+ * founded in 510, a vassal of Glakul whose overlord could take it whole within a few years (the looming Overlord card is its
+ * first card). Seed 7's Thotakor from 995 (lane N3) was lost to the N5 battles merge: in the Dramatic history it is conquered
+ * in 981, so that seat was dead at its year (0 cards). The bots (runs/n3b/oldcand): cautious and greedy survive 300 years 4
+ * of 7, random 2 of 4, a court left to decide (always-defer) falls in 85 years. n3b.test.ts checks the seat is alive at its
+ * year with its first card, so a merge that changes the Dramatic history fails there first.
  */
-export const OLD_POWER_START = { seed: 7, seat: 'polity:1:995' }
+export const OLD_POWER_START = { seed: 1, seat: 'polity:1:1080' }
 
 /** The address of the Rule a kingdom path (keeps `keep` parameters of the page, e.g. preset=). */
 export function throneUrl(from: URL, keep: readonly string[] = ['preset', 'lang']): URL {

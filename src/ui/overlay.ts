@@ -212,6 +212,8 @@ export interface Overlay {
   setViewModeAvailable(mode: ViewMode, available: boolean): void
   /** Re-measure what the columns must keep clear of (after a panel changes size). */
   relayout(): void
+  /** lane N3b: in the phone layout, make the panel with this key (its second class name) the sheet's active tab, raised to half; elsewhere nothing. */
+  showPanelTab(key: string): void
   /** Reflect the Globe / Map switch. */
   setProjection(map: boolean): void
   /** The goods legend under Trade shows only these (ascending ids), so it does not grow to every
@@ -844,6 +846,7 @@ export function createOverlay(container: HTMLElement, initialSeed: number, initi
       for (const og of viewSelect.querySelectorAll('optgroup')) (og as HTMLElement).hidden = [...og.querySelectorAll('option')].every((o) => o.hidden)
     },
     relayout: queueRelayout,
+    showPanelTab(key: string) { if (isCompact()) sheet.show(key) },
     setProjection(map: boolean) {
       setProjection(map)
       syncCount()

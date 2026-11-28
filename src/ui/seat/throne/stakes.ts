@@ -38,6 +38,15 @@ const LIKELY: Partial<Record<number, string>> = {
   [K.TakeUp]: 'Our farmers try the new crop.',
   [K.Seek]: 'Our scholars go to learn it.',
   [K.Reclaim]: 'You rule again in person, but the throne is less safe for years.',
+  // lane N3b: the surfacing lane's keys (cards 102-112) had no words here, so their stakes said nothing
+  [K.SendRelief]: 'Grain and silver for the stricken: the towns quiet down; the treasury pays.',
+  [K.RecallGeneral]: 'The beaten general is called home: no coup from him, but the army is weaker for a while.',
+  [K.JoinWar]: 'War beside the ally: the oath is kept, and its enemy becomes ours.',
+  [K.Avenge]: 'War on the faithless ally: their towns could be ours, and the betrayal answered.',
+  [K.CallBluff]: 'War on the bluffer: they may be weaker than they claimed, or not.',
+  [K.OfferTerms]: 'Peace from strength: the war ends while we are ahead.',
+  [K.RewardArmy]: 'Gold for the victors: the army is content, and the throne safer from its generals.',
+  [K.DefyWithAlly]: 'An ally is sought against the overlord and the tribute stops: free, with a friend, if they come to collect.',
 }
 
 /** The honest words of an option without orders (the court's own course): what happens if this is chosen. */
@@ -53,6 +62,8 @@ const COURT: Partial<Record<number, string>> = {
   [K.Stay]: 'Nothing is done: the news is filed away.',
   [K.Retrench]: 'No new coin: the court lives within its means.',
   [K.StandBy]: 'Nothing changes: we fight on beside the ally.',
+  [K.FightOn]: 'Nothing changes: the war goes on.', // (lane N3b: the Battle and WarChest cards' court course)
+  [K.KeepPaying]: 'Things stay as they are: the tribute is paid, and the overlord grows ready to take the realm whole.',
 }
 
 export function courtWords(key: number, kind: number): string {
@@ -78,6 +89,10 @@ export interface Stakes {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`
 
+/** lane N3b: the surfacing lane's keys whose orders are an older key's (Placate as relief or the army's reward, Purge as the
+ * recall, Peace as terms): the odds move as that key's. */
+const ORDER_ALIAS: Partial<Record<number, number>> = { [K.SendRelief]: K.Placate, [K.RewardArmy]: K.Placate, [K.RecallGeneral]: K.Purge, [K.OfferTerms]: K.SuePeace }
+
 /** The 50-year odds after option `option` of decision d (or the deferral, option = -1), NaN when no known factor. */
 export function oddsAfter(h: History, d: number, option: number): number {
   const r0 = hudRowOf(h, d)
@@ -94,7 +109,7 @@ export function oddsAfter(h: History, d: number, option: number): number {
   }
   const key = D.optKey[D.optStart[d] + option]
   const o = D.optStart[d] + option
-  switch (key) {
+  switch (ORDER_ALIAS[key] ?? key) {
     case K.Placate: if (r.length > HUD.Crisis) r[HUD.Crisis] = 0; r[HUD.Overthrow] *= SEAT.placateMul; r[HUD.Unrest] *= SEAT.placateUnrest; r[HUD.Breakaway] *= SEAT.placateUnrest; if (r.length > HUD.LostShare) r[HUD.LostShare] *= SEAT.placateUnrest; break
     case K.Purge: r[HUD.Overthrow] = 0; break
     case K.NameHeir: {

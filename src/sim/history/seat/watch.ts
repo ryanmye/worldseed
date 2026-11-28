@@ -20,10 +20,10 @@
 // Surfacing (EVALUATION §4 Lane 1) adds the merged systems' cards, each from an event of the year and with existing orders
 // only (mergedCards): Default and WarChest (finance), Battle (battles), Bluff and Intelligence (beliefs), Disaster, AllyCalls
 // and Betrayed (oaths), Commune (city-states), ColdWar, Houses (families); a renowned general of the realm brings General.
-import { CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
+import { BondKind, CommanderFate, DECISION_KIND_COUNT, DecisionKind, EventType, FaithKind, OrderKind, OrderReason, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { PolityState } from '../polity/state.ts'
-import { projAt } from '../polity/state.ts'
+import { FAR, projAt } from '../polity/state.ts'
 import { atWar } from '../polity/formation.ts'
 import { relIdx } from '../polity/relations.ts'
 import { bound } from '../polity/policy.ts'
@@ -31,9 +31,9 @@ import { WAR } from '../polity/params.ts'
 import { ORDERS } from '../orders/params.ts'
 import { orderCheck } from '../orders/system.ts'
 import { allyWar } from '../orders/seatOrders.ts'
-import { allied, overlordOf } from '../polity/bonds.ts'
+import { allied, distAcross, overlordOf } from '../polity/bonds.ts'
 import { relationOf } from '../polity/relations.ts'
-import { ALLIANCE } from '../polity/params.ts'
+import { ALLIANCE, VASSAL } from '../polity/params.ts'
 import { MARRIAGE, RULERS } from '../rulers/params.ts'
 import { tied, unionBond } from '../rulers/marriage.ts'
 import { contestChance, eligibleHeirs, overthrowHazard, pickHeir } from '../rulers/hazards.ts'
@@ -494,11 +494,34 @@ function overlordCard(s: HistoryState, ps: PolityState, p: number, o: number): C
   ] }
 }
 
+/**
+ * lane N3b: the vassal bond `sub` of p is near its term and the overlord is strong enough at p's capital to take the realm whole
+ * (the test bondStep applies at VASSAL.absorbYears: the overlord's projected power there against p's own mass; the court sees
+ * both armies and how long it has bowed): within SEAT.absorbWarn years of it. Pure reads.
+ */
+export function absorbLooms(s: HistoryState, ps: PolityState, p: number, sub: number): boolean {
+  if (ps.bKind[sub] !== BondKind.Vassal || s.year - ps.bStart[sub] < VASSAL.absorbYears - SEAT.absorbWarn) return false
+  const b = ps.bB[sub]
+  const d = distAcross(s, ps, b, p)
+  return d < FAR && projAt(ps, b, d) >= SEAT.absorbNear * VASSAL.absorb * ps.pMass[p]
+}
+
+/** lane N3b: the overlord means to take the realm whole (info 1): keep paying (the realm's end), defy, or defy with an ally. */
+function loomingCard(s: HistoryState, ps: PolityState, k: number, p: number, o: number): Card {
+  const r = allyAgainst(s, ps, k, p, o)
+  return { kind: DecisionKind.Overlord, subject: o, place: ps.pCapital[o], info: 1, options: [
+    { key: SeatOptionKey.KeepPaying, orders: [] },
+    { key: SeatOptionKey.Defy, orders: [[OrderKind.Defy, p, o]] },
+    ...(r >= 0 ? [{ key: SeatOptionKey.DefyWithAlly, orders: [[OrderKind.Defy, p, o], [OrderKind.Ally, p, r]] as O[] }] : []),
+  ] }
+}
+
 const HEIRS: number[] = []
 const off = (st: SeatState, s: HistoryState, kind: number): boolean => s.year - st.lastKind[kind] < SEAT.cool[kind]
-/** lane N3: a kind's cooldown for this seat (the first ambition declared drives the cadence: Unify, Opening every openCoolUnify years). */
-export function coolOf(st: SeatState, kind: number): number {
+/** lane N3: a kind's cooldown for this seat (the first ambition declared drives the cadence: Unify, Opening every openCoolUnify years). lane N3b: the looming Overlord card (info 1), every absorbEvery years. */
+export function coolOf(st: SeatState, kind: number, info = -1): number {
   const a = st.opts.ambitions?.[0]
+  if (kind === DecisionKind.Overlord && info === 1) return SEAT.absorbEvery
   if (kind === DecisionKind.Opening && a === AmbitionKind.Unify) return SEAT.openCoolUnify
   return SEAT.cool[kind]
 }
@@ -611,11 +634,14 @@ function courtCards(s: HistoryState, st: SeatState, ps: PolityState, p: number, 
       { key: SeatOptionKey.Decline, orders: [] },
     ] })
   }
-  // Overlord: again every SEAT.overlordEvery years while a vassal or tributary (not of a personal union)
+  // Overlord: again every SEAT.overlordEvery years while a vassal or tributary (not of a personal union); lane N3b: when the
+  // overlord could soon take the realm whole (absorbLooms), every SEAT.absorbEvery years, with its true stakes
   const sub = ps.pSub[p]
-  if (sub >= 0 && year - st.lastKind[DecisionKind.Overlord] >= SEAT.overlordEvery && !(R !== null && unionBond(R, sub))) {
+  if (sub >= 0 && !(R !== null && unionBond(R, sub))) {
     const o = overlordOf(ps, p)
-    if (o >= 0 && year - ps.bStart[sub] >= 1) cards.push(overlordCard(s, ps, p, o))
+    const looms = o >= 0 && absorbLooms(s, ps, p, sub)
+    if (o >= 0 && looms && year - st.lastKind[DecisionKind.Overlord] >= SEAT.absorbEvery) cards.push(loomingCard(s, ps, k, p, o))
+    else if (o >= 0 && year - st.lastKind[DecisionKind.Overlord] >= SEAT.overlordEvery && year - ps.bStart[sub] >= 1) cards.push(overlordCard(s, ps, p, o))
   }
   // Credit (finance): the crown's need is pressing
   if (s.fin !== null && !off(st, s, DecisionKind.Credit) && finNeed(s, ps, p) >= SEAT.creditNeed) {
@@ -687,7 +713,7 @@ export function seatWatch(s: HistoryState, st: SeatState): void {
     const c = cards[i]
     if (c.kind === DecisionKind.Plague) { if (st.epidemics.has(c.subject)) continue; st.epidemics.add(c.subject) }
     if (st.newRows >= SEAT.maxCards || seenKind.has(c.kind)) continue
-    if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind)) continue
+    if (s.year - st.lastKind[c.kind] < coolOf(st, c.kind, c.info)) continue
     if (repeats(st, s.year, c)) continue // (lane N3: the same matter again within SEAT.repeatYears)
     if (URGENT.indexOf(c.kind) < 0 && s.year - st.lastCard < SEAT.minGap) continue
     if (URGENT.indexOf(c.kind) < 0 && s.defer !== null && figureheadOf(s, st.polity)) continue // (rulers: deference: the deciding body rules; only urgent matters reach the throne)
@@ -736,6 +762,8 @@ function record(s: HistoryState, st: SeatState, year: number, c: Card, opts: Opt
   st.dDiv.push(div > 1 ? 1 : div)
   let pick = 0
   for (let i = 1; i < opts.length; i++) if ((OPTION_RISK[opts[i].key] ?? 0.5) < (OPTION_RISK[opts[pick].key] ?? 0.5)) pick = i
+  // (lane N3b: left the looming Overlord card, the court bows and pays on: the realm's end is the deferral's, not the court's daring)
+  if (c.kind === DecisionKind.Overlord && c.info === 1) { const kp = opts.findIndex((o) => o.key === SeatOptionKey.KeepPaying); if (kp >= 0) pick = kp }
   st.dCourt.push(pick)
   st.lastKind[c.kind] = year
   for (const o of opts) {

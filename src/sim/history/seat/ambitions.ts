@@ -1,12 +1,56 @@
 // seat: the player's ambitions (SeatOptions.ambitions; seat-mode §3.8), judged yearly while the seat is held (pure reads).
 // AmbitionFulfilled 273 is logged once per ambition. Lane N3: Unify's share is 60% (SEAT.unifyShare), and Monument is judged: a great landmark, or a town's great temple, finished by the realm while the
 // seat is held (the landmarks' state, SeatState.lm).
-import { AmbitionKind, EventType, FaithKind, LandmarkKind, LandmarkRank } from '../../../contract.ts'
+// Lane N3b (throne balance r2): the bots found a landmass share barely moves with play (seed 61343's realm peaks at 0.52 under
+// every persona; seed 7's from 700 starts at 0.64 Dramatic, met by all, even the one that never decides): Unify is now won by the
+// sword: SEAT.unifyTaken towns taken in wars the realm declared since the seat was taken (SeatState.townsTaken), the player having
+// led it to war at least once (a war option of its own choosing: SeatState.warChoice), and the realm's share of its
+// landmass (vassals count) kept at least min(unifyShare, its share at the seat's year) - unifyKeep, unifyYears running. Monument is
+// a great work raised in the seat's time and of its doing: a great landmark begun and finished by the realm while the seat is
+// held, following an order of the seat's that leads to it (drivenBy); a town's temple, met by every realm, no longer counts.
+import { AmbitionKind, DEFER_OPTIONS, EventType, FaithKind, LandmarkKind, LandmarkRank, OrderKind, SeatOptionKey } from '../../../contract.ts'
 import type { HistoryState } from '../state.ts'
 import type { SeatState } from './state.ts'
 import { SEAT } from './params.ts'
 import { houseOf } from './system.ts'
 import { overlordOf } from '../polity/bonds.ts'
+
+/**
+ * lane N3b: the seat itself gave an order of `kind` by `actor` (at `target`, -1 any) acting from a year in [y0, y1]: one chosen on a
+ * card (its Choice record not the deferral's) or given by hand; the court's pick on a deferred card is not the player's act.
+ */
+export function seatOrdered(s: HistoryState, kind: number, actor: number, target: number, y0: number, y1: number): boolean {
+  const ox = s.orders
+  if (ox === null) return false
+  for (let i = 0; i < ox.n; i++) {
+    if (ox.kind[i] !== kind || ox.actor[i] !== actor || (target >= 0 && ox.target[i] !== target) || ox.year[i] < y0 || ox.year[i] > y1) continue
+    let j = i - 1
+    while (j >= 0 && ox.year[j] === ox.year[i] && ox.kind[j] !== OrderKind.Choice) j--
+    if (j >= 0 && ox.year[j] === ox.year[i] && ox.kind[j] === OrderKind.Choice && ox.target[j] % 8 === DEFER_OPTIONS.defer) continue
+    return true
+  }
+  return false
+}
+
+/**
+ * lane N3b: a great work of kind `kind` begun in year `begun` follows an order of the seat's within SEAT.monumentAfter years
+ * before it (the player's own act, not the realm's drift): a victory monument a war the seat ordered (Strike, Join the war,
+ * Avenge it, Call the bluff), a great temple or monastery a faith it embraced, a library, market hall or guildhall an idea or a
+ * crop it sought. Every other great work (the capital's castle and palace, a mausoleum, baths, a lighthouse, a council house)
+ * comes to a realm whatever its ruler does and does not count.
+ */
+export function drivenBy(s: HistoryState, st: SeatState, kind: number, begun: number): boolean {
+  const ox = s.orders
+  if (ox === null) return false
+  const K = LandmarkKind
+  const need: number[] | null = kind === K.Monument ? [OrderKind.War] : kind === K.GreatTemple || kind === K.Monastery ? [OrderKind.Faith] : kind === K.Library || kind === K.MarketHall || kind === K.Guildhall ? [OrderKind.Idea, OrderKind.Crop] : null
+  if (need === null) return false
+  for (const k of need) if (seatOrdered(s, k, k === OrderKind.Idea || k === OrderKind.Crop ? st.people : st.polity, -1, Math.max(st.opts.from + 1, begun - SEAT.monumentAfter), begun)) return true
+  return false
+}
+
+/** lane N3b: the options that lead the realm to war (Unify asks for one chosen by the player). */
+const WAR_KEYS: readonly number[] = [SeatOptionKey.Strike, SeatOptionKey.FightOn, SeatOptionKey.JoinWar, SeatOptionKey.Avenge, SeatOptionKey.CallBluff]
 
 /** Ambitions of the year (after the seat is resolved; the seat is held). */
 export function seatAmbitions(s: HistoryState, st: SeatState): void {
@@ -15,6 +59,25 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
   const ps = s.pol
   const p = st.polity
   const cap = ps !== null && p >= 0 ? ps.pCapital[p] : -1
+  // (lane N3b: towns the realm took in war this year: Conquered events whose town is now the realm's)
+  // (in wars the realm declared; and the seat must have led it to war itself at least once: a war option chosen on a card, not
+  // left to the court, SeatState.warChoice)
+  if (ps !== null && p >= 0) for (let e = st.ambSeen; e < s.events.length; e++) {
+    const x = s.events[e], w = x.value
+    if (x.type !== EventType.Conquered || s.year <= st.opts.from || x.settlement < 0 || x.settlement >= ps.polity.length || ps.polity[x.settlement] !== p) continue
+    if (w >= 0 && w < ps.wAtt.length && ps.wAtt[w] === p) st.townsTaken++
+  }
+  if (!st.warChoice && s.orders !== null) {
+    const ox = s.orders
+    for (let i = 0; i < ox.n && !st.warChoice; i++) {
+      if (ox.kind[i] !== OrderKind.Choice || ox.year[i] > s.year || ox.year[i] <= st.opts.from) continue
+      const d = Math.floor(ox.target[i] / 8), o = ox.target[i] % 8
+      if (d < 0 || d + 1 >= st.optStart.length || o === DEFER_OPTIONS.defer) continue
+      const at = st.optStart[d] + o
+      if (at < st.optStart[d + 1] && WAR_KEYS.indexOf(st.optKey[at]) >= 0) st.warChoice = true
+    }
+  }
+  st.ambSeen = s.events.length
   for (let i = 0; i < amb.length; i++) {
     if (st.ambitionYear[i] >= 0) continue
     let ok = false
@@ -31,7 +94,10 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
           if (q === p) { ours += s.pop[id]; towns++ }
           else if (q >= 0 && overlordOf(ps, q) === p) ours += s.pop[id] // (lane N3: a vassal's or tributary's land is unified under us too)
         }
-        const now = towns >= SEAT.unifyTowns && ours >= SEAT.unifyShare * all
+        const share = all > 0 ? ours / all : 0
+        if (st.share0 < 0) st.share0 = share
+        const keep = (st.share0 < SEAT.unifyShare ? st.share0 : SEAT.unifyShare) - SEAT.unifyKeep
+        const now = towns >= SEAT.unifyTowns && st.warChoice && st.townsTaken >= SEAT.unifyTaken && share >= keep
         st.ambitionRun[i] = now ? st.ambitionRun[i] + 1 : 0
         ok = st.ambitionRun[i] >= SEAT.unifyYears
         break
@@ -57,11 +123,14 @@ export function seatAmbitions(s: HistoryState, st: SeatState): void {
         break
       }
       case AmbitionKind.Monument: {
-        // a great landmark, or a town's great temple (LandmarkKind.Temple, of the lesser rank), finished this year by the realm
-        // (lane N3: great landmarks alone are rare before ~1200: one in the world in 600-1000 on seed 61343)
+        // lane N3b: a great landmark begun after the seat was taken and finished this year by the realm, not a castle or palace
+        // (the capital's guarantee); a town's temple (lesser) no longer counts: every realm finished one
         const lm = st.lm
         if (ps === null || p < 0 || !lm) break
-        for (let i = 0; i < lm.lDone.length && !ok; i++) if (lm.lDone[i] === s.year && lm.lPol[i] === p && (lm.lRank[i] === LandmarkRank.Great || lm.lKind[i] === LandmarkKind.Temple)) ok = true
+        for (let j = 0; j < lm.lDone.length && !ok; j++) {
+          if (lm.lDone[j] !== s.year || lm.lPol[j] !== p || lm.lRank[j] !== LandmarkRank.Great || lm.lBegun[j] <= st.opts.from) continue
+          if (lm.lKind[j] !== LandmarkKind.Castle && lm.lKind[j] !== LandmarkKind.Palace && drivenBy(s, st, lm.lKind[j], lm.lBegun[j])) ok = true
+        }
         break
       }
       case AmbitionKind.Union: {

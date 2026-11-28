@@ -42,7 +42,8 @@ export interface SeatControllerDeps {
 export interface SeatController {
   readonly active: boolean
   /** Take a seat (the Take this throne button, or seat= on load). */
-  start(seat: SeatOptions, cradles?: number[]): void
+  /** lane N3b: `viewFrom`, a share link's year=: the view and the reign summaries start there (the reign ended in it is told). */
+  start(seat: SeatOptions, cradles?: number[], viewFrom?: number): void
   /** A seatPause from the worker. */
   onPause(h: History, ms: number, cards: number[], lost: boolean): void
   /** Leave seat mode, watching history go on. */
@@ -79,9 +80,9 @@ export function createSeatController(deps: SeatControllerDeps): SeatController {
 
   const api: SeatController = {
     get active() { return seat !== null },
-    start(s, cradles) {
+    start(s, cradles, viewFrom) {
       seat = s
-      lastPause = s.from
+      lastPause = viewFrom !== undefined && Number.isFinite(viewFrom) && viewFrom > s.from ? Math.floor(viewFrom) - 1 : s.from
       deps.setUrlParam('seat', encodeSeat(s))
       card.message('Reaching your reign…', `The years up to ${s.from} are told first; the chroniclers sharpen their pens. ${s.kind === 2 ? 'The house' : 'The throne'} is yours from then on.`, null)
       deps.progress(`Reaching your reign (${s.from})…`)

@@ -1,6 +1,6 @@
 # worldseed player primer
 
-Version: 6 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
+Version: 7 (src/bots/primer.ts PRIMER_VERSION). Every UI-driven bot (scripts/bots-ui.mjs) and every LLM play-tester reads
 this file, and nothing else, to learn how to play. Each item was checked against the code named beside it. A lane that
 changes the UI controls, the cards, the orders or the seat options updates this file and bumps the version (see
 _LANE_BRIEF.md "Bots and primer"). `src/bots/coverage.test.ts` fails when a keyboard shortcut or a decision kind is missing here.
@@ -18,6 +18,14 @@ Changelog:
   bringing the General card, Credit coming at a lower need, and the story director telling battles, eruptions, defaults,
   betrayals and bluffs.
 - v6 (2026-11-27, lane/n3 throne slice; written as v4 in the lane, renumbered at the merge after n4b v4 and n1 v5): Rule a kingdom opens Dramatic; the seat dashboard ("Your throne": arms, medallions, ambition picker, 50-year odds, hazards with Why?, the realm's feed, reigns with share links); cards show the news since the last card, "Because you…" lines, named heirs, each option's risk and odds move; Crush is now "Garrison the town" (a real order); card keys are exclusive while a card is shown; reign-end summaries; Authority shows its number.
+- v7 (2026-11-28, lane/n3b throne balance r2): Unify is won by war (you lead the realm to war, 8 towns taken in wars it declared, your share of the land held); Monument
+  is a great work of your doing (begun within 60 years of the order that leads to it: a war, a faith, an idea or a crop you
+  sought; not the capital's castle or palace, not a town's temple); the Overlord
+  card warns when the overlord is about to take the realm whole (Keep paying / Defy / Defy, with an ally); the surfacing
+  lane's options (Send relief, Reward the army, Recall the general, Offer terms…) say what follows and move the odds; a
+  reign's share link keeps only that reign's choices; Keep an old great power alive is now seed 1's Uhulaun from 1080; and opens at its year; the ambition picker asks before it restarts
+  the reign; on a phone the throne's tab opens with the first card; three new story arcs (the uncle on the throne, the
+  child king, the provinces rise).
 
 ## 1. Starting a world
 
@@ -27,9 +35,10 @@ Changelog:
 - **Play paths** (ui/onboardPolicy.ts PLAY_PATHS): the start page offers three ways in. **Watch history unfold** (the
   primary button; `Enter` in a field picks it) starts the world with Follow the story on. **Rule a kingdom** opens the
   throne link below (seed 61343, `seat=polity:0:700`) in **Dramatic**, unless you picked a preset on the page first (main.ts
-  onPath, lane N3). **Keep an old great power alive** (lane N3) opens the second curated throne: seed 7's Thotakor from
-  995 (`seat=polity:1:995`, Dramatic), a realm of nearly five centuries, deep in debt and paying tribute (onboardPolicy.ts
-  OLD_POWER_START). **Explore freely** starts the world with
+  onPath, lane N3). **Keep an old great power alive** (lane N3) opens the second curated throne: lane N3b, seed 1's Uhulaun
+  from 1080 (`seed=1&seat=polity:1:1080`, Dramatic), a realm of nearly six centuries, a vassal whose overlord is about to
+  take it whole: its first card is the warning (onboardPolicy.ts OLD_POWER_START; seed 7's Thotakor from 995 no longer
+  lives to its year since the battles merge). **Explore freely** starts the world with
   Follow off: you turn the globe yourself while history plays.
 - **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
   timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write
@@ -134,12 +143,19 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   `?seed=42&lang=1&seat=polity:2:700`.
 - **Finding a seat alive at a year:** open `?seed=S&year=Y&play=0` and press `R`. The list is that year's living realms,
   largest first, and the top one is a safe choice. A `seat=` id that is dead at `from` gives a seat that is lost at once.
-- **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify your landmass (rule 60% of its people,
-  vassals' and tributaries' towns counting, for 10 years), 2 a faith of the realm, 3 the richest realm for 25 years, 4 two
-  crowns at once, 5 a great monument (a great landmark or a town's great temple built by the realm). The **first** ambition is
+- **Ambitions:** `amb=` takes AmbitionKind numbers: 0 endure 300 years, 1 unify the land by war (lane N3b: lead the realm to
+  war yourself at least once (Strike, Fight on, Join the war, Avenge it or Call the bluff chosen on a card, not left to the
+  court), take 8 towns in wars the realm declared since the seat's year, and hold your share of the landmass's people, vassals' and tributaries' counting, at
+  most 10 points below your share at the start (or below 60%), 10 years running, with 5 towns of your own), 2 a faith of the
+  realm, 3 the richest realm for 25 years, 4 two crowns at once, 5 a great monument of your doing (lane N3b: a great landmark begun and finished by the realm while
+  you hold the seat, within 60 years of your order that leads to it (chosen by you, not left to the court): a victory monument after a war you ordered (Strike,
+  Join the war, Avenge it, Call the bluff), a great temple or monastery after you embraced a faith, a library, market hall
+  or guildhall after you sought an idea or took up a crop; the castle, palace, a mausoleum or a town's temple do not
+  count, they come whatever you do). The **first** ambition is
   the reign's: the dashboard shows how it stands, and with Unify first the "A neighbour is weak" card comes more often (every
   10 years instead of 25; seat/watch.ts coolOf). Otherwise they are judged only. **Picker:** the dashboard's "Change
-  ambition…" list; choosing one restarts the reign from its first year (the address keeps the seat, drops `o=`).
+  ambition…" list; choosing another one asks first, then restarts the reign from its first year (the address keeps the
+  seat, drops `o=` and `year=`).
 - **The loop:** "Reaching your reign…" plays the years up to `from`. The timeline then plays on and pauses at each year
   with decisions, and the decision screen shows. Your choices go into the address as `o=`, so reloading the link replays the
   same reign to its last pause. "The seat is lost" ends the reign; "Watch on" continues as a spectator.
@@ -179,7 +195,10 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
     disputed succession, or a regency for a child); the same crisis does not come again within 20 years.
   - Alliance made: Honour it / Renounce it
   - Alliance sought: Seek an ally / Decline
-  - Overlord: Pay / Defy
+  - Overlord: Pay / Defy. Lane N3b: when the overlord could soon take the realm whole (a vassal for most of 80 years and
+    far the stronger at your capital), the card says so and comes every 10 years: **Keep paying** (what the court does if you leave it
+    to them; it ends with the realm absorbed) / Defy / **Defy, with an ally** (the tribute stops and an alliance is sought with the
+    overlord's rival in the same breath; only when such a rival is known).
   - Match: Arrange the match / Decline
   - General: Honour him / Purge him / Ignore it (Honour gives gold to the court: a Placate order)
   - Plague: Quarantine the ports / Move the court / Endure
@@ -215,7 +234,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   - Credit comes when the crown's need is at least 0.4 (debts, arrears, a recent default, or a war with some debt).
 - **A reign ends:** when a ruler of your realm dies or falls, the next pause first shows **"The reign of King X the …
   ends"**: years, how it ended, what you decided, what came of it, the epithet (ui/sagas/epithets.ts), **Share this reign**
-  (a link that replays it) and **Continue**.
+  (a link that replays it: lane N3b, it keeps only the choices made up to that reign's end and opens the view at its
+  year, `year=`) and **Continue**.
 - **Your throne** (the dashboard, the right column's context panel while seated; on a phone, the bottom sheet): the
   realm's arms and age, the ruler's and heirs' medallions, the ambition and its picker, the **odds the realm stands 50
   years** ("if things stay as they are": no overthrow, contested succession, default, a quarter of the realm lost to
@@ -223,7 +243,8 @@ Each panel's key opens and closes it (ui/shortcuts.ts registry; `?` lists all ke
   card, the **yearly hazards** each with **Why?** (its factors: an unpaid army, magnates, a famous general, your orders,
   deference), the realm's age (not a risk: states do not die of old age), **Your realm** (successions, wars, what came of
   your choices, towns lost, centuries passed) and the past **Reigns** with share links. "Take this throne" is hidden while
-  you are seated. The drama strip over the timeline marks the seated span and each card's year in blue.
+  you are seated. The drama strip over the timeline marks the seated span and each card's year in blue. On a phone the
+  sheet opens the **Your throne** tab (half height) at the reign's first card (lane N3b).
 - **What you can know:** cards describe what your realm's people know (the fog). A bot or play-tester must judge only from
   the screen: the card, the meter, the chronicle and the map.
 
