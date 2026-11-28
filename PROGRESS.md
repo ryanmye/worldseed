@@ -22,3 +22,6 @@ Coordinator: N4d (follow-a-realm) may supersede the seated-camera change; kept m
 - runs: runs/n3d/bisect/{a,b,c} via run.sh dramatic <out> <wt> oldpower2 (resumable); summarize: python3 runs/n3b/compare.py runs/n3b/r4 runs/n3d/bisect/X
 - bisect result (Dramatic oldpower2 lost/13): before 6; a 6 (identical runs: personas v5 change nothing on n3b's game); b 8; c 8; after 9. Skilled (cautious+greedy) survive 4/7 in before and after. No loss within 15 y of a coup/fallen/breakaway card (no traps); losses are overlord wars decades later (divergence).
 - tuning: deferCost 0.2 + 0.4 d (was 0.35 + 0.65 d); re-acceptance -> runs/n3d/after2 (runs/n3d/bots2.sh, resumable)
+- re-acceptance done: runs/n3d/after2 (compare2.txt, compare2-n3b.txt): Dramatic oldpower2 lost 7/13 (before 6); skilled (cautious+greedy) survive 4/7 both.
+- merged origin/main 2b638f7 (n4d): n4d's seated Follow supersedes n3d's seat focus (plan.ts/storyView.ts from main); primer v9, personas v6. G0 OK x6 (g0-final.log), tests 80/80 (tests-final2.log), typecheck + build OK.
+DONE (bisect report sent).
