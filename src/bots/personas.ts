@@ -9,7 +9,7 @@ import { DecisionKind, DEFER_OPTIONS, SeatOptionKey, AmbitionKind } from '../con
 import { OPTION_RISK } from '../sim/history/seat/params.ts'
 import type { CardModel } from '../ui/seat/cardModel.ts'
 
-export const PERSONA_VERSION = 4
+export const PERSONA_VERSION = 5
 
 const K = SeatOptionKey
 export type PersonaId = 'cautious' | 'aggressive' | 'always-defer' | 'random' | 'greedy'

@@ -78,6 +78,8 @@ export interface PolitiesViewDeps {
   initialPolity: number | null
   /** seat mode: "Take this throne" on a living faction's detail (absent: no button). */
   onTakeSeat?(polity: number, year: number): void
+  /** lane N4d: "Follow this realm" on a faction's detail (absent: no button). */
+  onFollowRealm?(polity: number): void
 }
 
 export interface PolitiesView {
@@ -640,6 +642,17 @@ export function createPolitiesView(deps: PolitiesViewDeps): PolitiesView {
       const p = selected, y = Math.floor(year)
       take.addEventListener('click', (e) => { e.stopPropagation(); deps.onTakeSeat?.(p, y) })
       detail.append(take)
+    }
+    if (deps.onFollowRealm && exists && lives) {
+      // lane N4d: Follow the story locked on this realm (its smaller events too)
+      const fol = document.createElement('button')
+      fol.type = 'button'
+      fol.className = 'realm-follow'
+      fol.textContent = 'Follow this realm'
+      fol.title = 'Follow the story of this realm: its rulers, towns, battles, buildings and troubles (× or Esc follows the world again)'
+      const p = selected
+      fol.addEventListener('click', (e) => { e.stopPropagation(); deps.onFollowRealm?.(p) })
+      detail.append(fol)
     }
     const line = (...parts: (string | Node)[]) => {
       const d = document.createElement('div')

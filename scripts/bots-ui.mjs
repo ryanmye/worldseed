@@ -172,6 +172,9 @@ for (let i = 0; i <= N; i++) {
   await page.waitForTimeout(300)
 }
 log(`seat taken: ${new URL(page.url()).searchParams.get('seat')} (Follow the story plays the timeline on, so the year can pass the one opened)`)
+// personas v5 (lane N4d): seated, Follow follows the seat's realm
+await page.waitForTimeout(1500)
+log(`following realm: ${JSON.stringify(await page.evaluate(() => window.__worldseedStory?.realm?.() ?? null))}`)
 log(`first decision screen ${firstCardS.toFixed(0)} s after Take this throne; ${seen.length - 1} cards answered`)
 await ctx.close()
 

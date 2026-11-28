@@ -1,6 +1,6 @@
 # Fun-harness personas
 
-Version: 4 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
+Version: 5 (src/bots/personas.ts PERSONA_VERSION). The scripted bots (headless and UI) run the policies in personas.ts.
 The LLM play-tester gets the prompt text below. Both read only what the seat UI shows (docs/PLAYER_PRIMER.md): the
 decision screen, the Authority meter, the chronicle and the map, plus their own memory of earlier cards.
 
@@ -25,10 +25,15 @@ Changelog:
   risk table (0.5, below Defy's 0.9 and Keep paying's 0.95). Greedy Unify now placates a town that rose (Placate 2, as its
   new hint says: towns lost to risings undo the towns won in war).
 
+- v5 (2026-11-28, lane/n4d, primer v8): Follow the story, turned on while seated, follows the seat's own realm (lane N4d
+  follow a realm); every persona keeps it so (never presses the realm chip's × or `Esc` while following, so the story stays
+  on its realm), and the UI driver logs the realm followed (`__worldseedStory.realm()`). Judged as before.
+
 ## Shared setup (every persona, every driver)
 Act like a sensible player before judging anything (in the browser: **after the first card**, or open the link with
 `play=0`, since the first card can come within seconds):
-- In the browser, set Sun to Follow, turn on Follow the story, and frame the realm's capital on land.
+- In the browser, set Sun to Follow, turn on Follow the story, and frame the realm's capital on land. Once seated, Follow
+  follows your own realm (the realm chip on the timeline); keep it there: do not press its × or `Esc` while following.
 - Take the throne of the top realm of the Factions list (most people) alive in the chosen year, so no persona starts on a
   dead seat.
 - Use 16× between cards.

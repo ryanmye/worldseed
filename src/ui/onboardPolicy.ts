@@ -3,7 +3,7 @@
 /** Whether Follow the story starts on, from the address (`follow=`) and whether this is a first visit. */
 export function followByDefault(params: URLSearchParams, firstVisit: boolean): boolean {
   const f = params.get('follow')
-  if (f === '1') return true
+  if (f === '1' || f?.startsWith('realm:')) return true // (lane N4d: follow=realm:<id> follows one realm)
   if (f === '0') return false
   // links that open somewhere particular keep their own camera and pace
   for (const k of ['seat', 'cmp', 'fly', 'select', 'polity', 'year', 'lon', 'lat']) if (params.has(k)) return false
@@ -12,7 +12,7 @@ export function followByDefault(params: URLSearchParams, firstVisit: boolean): b
 
 // ---------- the start page's play paths ----------
 
-export const PlayPath = { Watch: 'watch', Explore: 'explore', Rule: 'rule', /** lane N3: the second curated throne */ Old: 'old' } as const
+export const PlayPath = { Watch: 'watch', Explore: 'explore', Rule: 'rule', /** lane N3: the second curated throne */ Old: 'old', /** lane N4d: Watch, following one realm */ Realm: 'realm' } as const
 export type PlayPath = (typeof PlayPath)[keyof typeof PlayPath]
 
 export interface PlayPathSpec {
@@ -21,10 +21,12 @@ export interface PlayPathSpec {
   hint: string
   /** The page's main button (submitted by Enter in a field). */
   primary?: boolean
+  /** lane N4d: a smaller second choice under the button ("or follow one realm"). */
+  alt?: { path: PlayPath; label: string; hint: string }
 }
 
 export const PLAY_PATHS: readonly PlayPathSpec[] = [
-  { path: PlayPath.Watch, label: 'Watch history unfold', hint: 'The camera follows the great events: some seven minutes for 2,000 years', primary: true },
+  { path: PlayPath.Watch, label: 'Watch history unfold', hint: 'The camera follows the great events: some seven minutes for 2,000 years', primary: true, alt: { path: PlayPath.Realm, label: 'or follow one realm', hint: 'The camera stays with one realm, the greatest of this world: its rulers, towns, battles and troubles, the small events too' } },
   { path: PlayPath.Rule, label: 'Rule a kingdom', hint: 'Take a throne and decide: heirs, wars, revolts' },
   { path: PlayPath.Old, label: 'Keep an old great power alive', hint: 'A realm of five centuries, its overlord ready to swallow it whole: can you save it?' },
   { path: PlayPath.Explore, label: 'Explore freely', hint: 'Turn the globe yourself; history plays in the background' },

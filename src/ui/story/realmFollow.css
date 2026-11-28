@@ -1,0 +1,92 @@
+/* lane N4d: following one realm (ui/story/realmChip.ts, the Factions button, the chronicle's realm toggle). */
+.tl-realm {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  padding: 1px 2px 1px 8px;
+  border: 1px solid rgba(255, 214, 138, 0.45);
+  border-radius: 999px;
+  font-size: 11px;
+  color: #ffd68a;
+  white-space: nowrap;
+}
+.tl-realm.hidden {
+  display: none;
+}
+.tl-realm-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.tl-realm-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-realm.tl-realm-note {
+  border-color: #ffd68a;
+  background: rgba(255, 214, 138, 0.12);
+}
+.tl-realm-x {
+  flex: none;
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tl-realm-x:hover {
+  color: var(--text, #fff);
+}
+html.compact .tl-realm {
+  max-width: 84px;
+  padding-left: 6px;
+  font-size: 10px;
+}
+html.compact .tl-realm-x {
+  min-width: 28px;
+  min-height: 28px;
+}
+/* the Factions detail's button, beside Take this throne */
+.realm-follow {
+  margin: 6px 6px 6px 0;
+  min-height: 44px;
+  padding: 0 12px;
+  background: rgba(255, 214, 138, 0.1);
+  color: #ffd68a;
+  border: 1px solid rgba(255, 214, 138, 0.4);
+  border-radius: 8px;
+  font: inherit;
+  cursor: pointer;
+}
+/* the chronicle's realm toggle */
+.chr-realm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.chr-realm.hidden {
+  display: none;
+}
+.landing-path-or {
+  display: block;
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin: -4px 0 2px;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: var(--text-dim, #aab);
+  text-decoration: underline;
+  cursor: pointer;
+}
