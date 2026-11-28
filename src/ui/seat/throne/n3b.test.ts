@@ -2,7 +2,9 @@
 // words; the surfacing lane's keys move the odds as the orders they give; the looming Overlord card is honest; new arcs are
 // well formed on a seated run.
 import { describe, expect, it } from 'vitest'
-import { DecisionKind, SeatKind, SeatOptionKey, decodeOrders, encodeOrders } from '../../../contract.ts'
+import { DecisionKind, SeatKind, SeatOptionKey, decodeOrders, decodeSeat, encodeOrders } from '../../../contract.ts'
+import { resolveRun } from '../../../bots/presets.ts' // (the app's Dramatic link: lang=1)
+import { OLD_POWER_START } from '../../onboardPolicy.ts'
 import type { SeatOptions } from '../../../contract.ts'
 import { OPTION_RISK } from '../../../sim/history/seat/params.ts'
 import { OPTION_LABEL } from '../seatFormat.ts'
@@ -36,6 +38,18 @@ describe('throne balance r2 (lane N3b)', () => {
   it('the ambitions say what they need (Unify by war, Monument raised in the seat\'s time)', () => {
     expect(AMBITIONS.find((a) => a.label === 'Unify the land')!.goal).toMatch(/towns in wars you declare/)
     expect(AMBITIONS.find((a) => a.label === 'A great monument')!.goal).toMatch(/in your time/)
+  })
+
+  it('the old great power start is alive at its year, and its first card is the overlord\'s warning (Dramatic)', () => {
+    const seat = decodeSeat(OLD_POWER_START.seat)!
+    const h = simulateHistory(generateWorld(OLD_POWER_START.seed, { subdivisions: 48 }), { ...resolveRun('dramatic').historyOptions, years: seat.from + 3, seat })
+    expect(h.seat!.polityAt[0]).toBe(seat.id)
+    expect(h.seat!.lostYear).toBe(-1)
+    const D = h.seat!.decisions
+    expect(D.count).toBeGreaterThan(0)
+    expect(D.kind[0]).toBe(DecisionKind.Overlord)
+    expect(D.info![0]).toBe(1)
+    expect(Array.from({ length: D.optStart[1] - D.optStart[0] }, (_, i) => D.optKey[D.optStart[0] + i])).toContain(SeatOptionKey.KeepPaying)
   })
 
   it('the new arcs are well formed and labelled', () => {

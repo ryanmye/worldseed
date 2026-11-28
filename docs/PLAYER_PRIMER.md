@@ -23,7 +23,7 @@ Changelog:
   sought; not the capital's castle or palace, not a town's temple); the Overlord
   card warns when the overlord is about to take the realm whole (Keep paying / Defy / Defy, with an ally); the surfacing
   lane's options (Send relief, Reward the army, Recall the general, Offer terms…) say what follows and move the odds; a
-  reign's share link keeps only that reign's choices and opens at its year; the ambition picker asks before it restarts
+  reign's share link keeps only that reign's choices; Keep an old great power alive is now seed 1's Uhulaun from 1080; and opens at its year; the ambition picker asks before it restarts
   the reign; on a phone the throne's tab opens with the first card; three new story arcs (the uncle on the throne, the
   child king, the provinces rise).
 
@@ -35,9 +35,10 @@ Changelog:
 - **Play paths** (ui/onboardPolicy.ts PLAY_PATHS): the start page offers three ways in. **Watch history unfold** (the
   primary button; `Enter` in a field picks it) starts the world with Follow the story on. **Rule a kingdom** opens the
   throne link below (seed 61343, `seat=polity:0:700`) in **Dramatic**, unless you picked a preset on the page first (main.ts
-  onPath, lane N3). **Keep an old great power alive** (lane N3) opens the second curated throne: seed 7's Thotakor from
-  995 (`seat=polity:1:995`, Dramatic), a realm of nearly five centuries, deep in debt and paying tribute (onboardPolicy.ts
-  OLD_POWER_START). **Explore freely** starts the world with
+  onPath, lane N3). **Keep an old great power alive** (lane N3) opens the second curated throne: lane N3b, seed 1's Uhulaun
+  from 1080 (`seed=1&seat=polity:1:1080`, Dramatic), a realm of nearly six centuries, a vassal whose overlord is about to
+  take it whole: its first card is the warning (onboardPolicy.ts OLD_POWER_START; seed 7's Thotakor from 995 no longer
+  lives to its year since the battles merge). **Explore freely** starts the world with
   Follow off: you turn the globe yourself while history plays.
 - **Direct links:** `?seed=42` opens seed 42; `years=` sets the history's length (default 2000); `year=N` starts the
   timeline at year N; `play=0` starts paused; `lang=1` turns on language drift. New worlds started from the page write
